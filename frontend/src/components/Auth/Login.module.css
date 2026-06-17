@@ -1,0 +1,96 @@
+.wrap {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-5);
+  background:
+    radial-gradient(1000px 600px at 80% -10%, rgba(124, 58, 237, 0.12), transparent 60%),
+    radial-gradient(800px 500px at -10% 110%, rgba(79, 70, 229, 0.14), transparent 60%),
+    var(--color-bg);
+}
+.card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  padding: var(--space-8);
+  width: 100%;
+  max-width: 380px;
+  box-shadow: var(--shadow-lg);
+  text-align: center;
+}
+.brand {
+  width: 56px;
+  height: 56px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--color-primary), #7c3aed);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-weight: 700;
+  font-size: 22px;
+  margin-bottom: var(--space-4);
+}
+.title { font-size: 22px; }
+.subtitle { color: var(--color-text-muted); font-size: 13px; margin-top: 4px; margin-bottom: var(--space-6); }
+
+.dots {
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+  margin-bottom: var(--space-5);
+}
+.dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid var(--color-border-strong);
+  transition: all 0.15s;
+}
+.dotFilled {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  transform: scale(1.1);
+}
+.dotError { border-color: var(--color-danger); animation: shake 0.3s; }
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
+}
+
+.pad {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: var(--space-4);
+}
+.key {
+  aspect-ratio: 1.6;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  font-size: 20px;
+  font-weight: 500;
+  transition: all 0.1s;
+}
+.key:hover { background: var(--color-primary-soft); color: var(--color-primary); }
+.key:active { transform: scale(0.96); }
+.keyAction { background: transparent; color: var(--color-text-muted); font-size: 13px; }
+.keyAction:hover { background: var(--color-surface-2); color: var(--color-text); }
+
+.hints {
+  margin-top: var(--space-5);
+  font-size: 12px;
+  color: var(--color-text-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.hint { font-family: "Menlo", monospace; }
+
+.error {
+  color: var(--color-danger);
+  font-size: 13px;
+  margin-top: 8px;
+  height: 18px;
+}
