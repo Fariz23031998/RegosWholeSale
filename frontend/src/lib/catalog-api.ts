@@ -7,6 +7,8 @@ type CatalogQuery = {
   search?: string;
   groupId?: number | null;
   featuredOnly?: boolean;
+  warehouseId?: number;
+  priceTypeId?: number;
 };
 
 export async function fetchCatalogProducts(
@@ -24,6 +26,12 @@ export async function fetchCatalogProducts(
   }
   if (query.featuredOnly) {
     params.set("featured_only", "true");
+  }
+  if (query.warehouseId) {
+    params.set("warehouse_id", String(query.warehouseId));
+  }
+  if (query.priceTypeId) {
+    params.set("price_type_id", String(query.priceTypeId));
   }
 
   return apiRequest(`/api/v1/regos/products?${params.toString()}`, { token });

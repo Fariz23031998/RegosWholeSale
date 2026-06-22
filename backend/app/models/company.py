@@ -23,3 +23,9 @@ class Company(Base, TimestampMixin):
     regos_token: Mapped["RegosToken | None"] = relationship(
         "RegosToken", back_populates="company", uselist=False
     )
+    telegram_bot: Mapped["TelegramBot | None"] = relationship(
+        "TelegramBot", back_populates="company", uselist=False
+    )
+    telegram_users: Mapped[list["TelegramUser"]] = relationship(
+        "TelegramUser", back_populates="company"
+    )

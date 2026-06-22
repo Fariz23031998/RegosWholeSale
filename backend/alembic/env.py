@@ -18,6 +18,8 @@ from app.models import (  # noqa: F401
     UserSetting,
     VerificationCode,
     RegosToken,
+    TelegramBot,
+    TelegramUser,
 )
 
 config = context.config

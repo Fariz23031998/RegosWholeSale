@@ -461,10 +461,13 @@ async def test_delete_regos_token(client: AsyncClient) -> None:
 async def test_payment_category_reference_request_includes_positive(
     mock_regos: AsyncMock,
 ) -> None:
-    mock_regos.return_value = {
-        "ok": True,
-        "result": [{"id": 1, "name": "Sales income", "positive": True}],
-    }
+    mock_regos.side_effect = [
+        {"ok": True, "result": []},
+        {"ok": True, "result": []},
+        {"ok": True, "result": []},
+        {"ok": True, "result": [{"id": 1, "name": "Sales income", "positive": True}]},
+        {"ok": True, "result": []},
+    ]
 
     options = await regos_defaults_service.list_reference_options(None, 1)
 
@@ -501,10 +504,13 @@ async def test_get_doc_wholesale_document_type_id(mock_regos: AsyncMock) -> None
 async def test_attached_user_reference_request_uses_valid_user_get_fields(
     mock_regos: AsyncMock,
 ) -> None:
-    mock_regos.return_value = {
-        "ok": True,
-        "result": [{"id": 1, "full_name": "Cashier One"}],
-    }
+    mock_regos.side_effect = [
+        {"ok": True, "result": []},
+        {"ok": True, "result": []},
+        {"ok": True, "result": []},
+        {"ok": True, "result": []},
+        {"ok": True, "result": [{"id": 1, "full_name": "Cashier One"}]},
+    ]
 
     options = await regos_defaults_service.list_reference_options(None, 1)
 
@@ -527,6 +533,8 @@ async def test_get_regos_reference_options_requires_settings_manage(
         "warehouses": [{"id": 1, "name": "Main warehouse"}],
         "price_types": [{"id": 2, "name": "Retail"}],
         "partners": [{"id": 3, "name": "Walk-in"}],
+        "payment_categories": [{"id": 4, "name": "Sales"}],
+        "attached_users": [{"id": 5, "name": "Cashier"}],
     }
 
     reg = await register_owner(client, email="opts@test.com", company_name="Opts Co")
@@ -593,6 +601,7 @@ async def test_patch_and_get_regos_defaults(
     assert patched.json()["defaults"]["firm"]["id"] == 55
     assert patched.json()["defaults"]["zero_quantity"] is True
     assert patched.json()["defaults"]["zero_price"] is True
+    assert patched.json()["defaults"]["vat_calculation_type"] == "Exclude"
 
     fetched = await client.get("/api/v1/company/settings/regos-defaults", headers=headers)
     assert fetched.status_code == 200

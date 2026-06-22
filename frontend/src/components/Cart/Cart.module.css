@@ -174,15 +174,35 @@
   margin-top: 4px;
 }
 
-.discountInput {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.discountLabel {
   font-size: 13px;
   color: var(--color-text-muted);
 }
+.discountControls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.discountModeBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.discountModeBtn:hover {
+  border-color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+}
 .discountField {
-  width: 80px;
+  width: 72px;
   padding: 4px 8px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
@@ -191,6 +211,15 @@
   font-size: 13px;
 }
 .discountField:focus { border-color: var(--color-primary); }
+.discountSuffix {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  min-width: 12px;
+}
+.discountAmount {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
 
 .charge {
   margin-top: 6px;

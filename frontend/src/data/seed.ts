@@ -93,6 +93,8 @@ export type Sale = {
   isCash: boolean;
   tendered?: number;
   change?: number;
+  amountPaid?: number;
+  balanceDue?: number;
   type?: "sale" | "refund";
   refundOf?: string;
   reason?: string;

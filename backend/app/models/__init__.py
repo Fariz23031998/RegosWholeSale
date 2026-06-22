@@ -4,6 +4,8 @@ from app.models.schedule import LoginSchedule
 from app.models.user import User, UserRole
 from app.models.user_setting import UserSetting
 from app.models.regos_token import RegosToken
+from app.models.telegram_bot import TelegramBot
+from app.models.telegram_user import TelegramUser
 from app.models.user_featured_product import UserFeaturedProduct
 from app.models.verification_code import VerificationCode
 
@@ -18,4 +20,6 @@ __all__ = [
     "UserFeaturedProduct",
     "VerificationCode",
     "RegosToken",
+    "TelegramBot",
+    "TelegramUser",
 ]

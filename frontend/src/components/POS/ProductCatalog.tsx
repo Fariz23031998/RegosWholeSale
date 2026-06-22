@@ -1,4 +1,4 @@
-import { LayoutGrid, List, Search, Square, Star } from "lucide-react";
+import { Search, Star } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
@@ -12,6 +12,7 @@ import { formatAuthError, useAuth } from "@/store/auth";
 import { useCatalog } from "@/store/catalog";
 import { useCart } from "@/store/cart";
 import { usePosConfig } from "@/store/pos-config";
+import { useSellContext } from "@/store/sell-context";
 import { formatCurrency } from "@/lib/format";
 import { applyDefaultCategory } from "@/lib/default-category";
 import { fetchUserPosSettings } from "@/lib/settings-api";
@@ -20,8 +21,6 @@ import type { Product } from "@/types/catalog";
 import type { ProductGroup } from "@/types/catalog";
 import { CategoryBar } from "./CategoryBar";
 import styles from "./POS.module.css";
-
-type ViewMode = "single" | "double" | "list";
 
 const PAGE_SIZE = 20;
 
@@ -33,6 +32,8 @@ function productIdNumber(product: Product): number {
 
 export function ProductCatalog() {
   const token = useAuth((s) => s.accessToken);
+  const user = useAuth((s) => s.user);
+  const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
   const products = useCatalog((s) => s.products);
   const setProducts = useCatalog((s) => s.setProducts);
   const appendProducts = useCatalog((s) => s.appendProducts);
@@ -40,6 +41,10 @@ export function ProductCatalog() {
   const add = useCart((s) => s.add);
   const cartItems = useCart((s) => s.items);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
+  const sellContextHydrated = useSellContext((s) => s.hydrated);
+  const warehouseId = useSellContext((s) => s.warehouseId);
+  const priceTypeId = useSellContext((s) => s.priceTypeId);
+  const clearCart = useCart((s) => s.clear);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const isLoadingMoreRef = useRef(false);
   const lastRequestedOffsetRef = useRef<number | null>(null);
@@ -49,7 +54,7 @@ export function ProductCatalog() {
   const [featuredOnly, setFeaturedOnly] = useState(false);
   const [categoryReady, setCategoryReady] = useState(false);
   const [featuredIds, setFeaturedIds] = useState<Set<number>>(() => new Set());
-  const [view, setView] = useState<ViewMode>("double");
+  const view = useCatalog((s) => s.mobileViewMode);
   const [isMobile, setIsMobile] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
@@ -128,6 +133,17 @@ export function ProductCatalog() {
 
   const isGlobalSearch = search.length > 0;
 
+  const catalogOverrides = useMemo(
+    () =>
+      canOverrideRegos
+        ? {
+            warehouseId: warehouseId ?? undefined,
+            priceTypeId: priceTypeId ?? undefined,
+          }
+        : {},
+    [canOverrideRegos, warehouseId, priceTypeId],
+  );
+
   const cartQtyByProductId = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of cartItems) {
@@ -149,8 +165,23 @@ export function ProductCatalog() {
     add(product);
   };
 
+  const prevCatalogContextRef = useRef({ warehouseId, priceTypeId });
+
   useEffect(() => {
-    if (!token || !categoryReady) {
+    if (!canOverrideRegos || !sellContextHydrated) return;
+
+    const prev = prevCatalogContextRef.current;
+    const catalogContextChanged =
+      prev.warehouseId !== warehouseId || prev.priceTypeId !== priceTypeId;
+    prevCatalogContextRef.current = { warehouseId, priceTypeId };
+
+    if (catalogContextChanged && (prev.warehouseId !== null || prev.priceTypeId !== null)) {
+      clearCart();
+    }
+  }, [canOverrideRegos, clearCart, priceTypeId, sellContextHydrated, warehouseId]);
+
+  useEffect(() => {
+    if (!token || !categoryReady || !sellContextHydrated) {
       if (!token) {
         setProducts([]);
         setGroups([]);
@@ -174,6 +205,7 @@ export function ProductCatalog() {
             search,
             groupId: isGlobalSearch ? null : selectedGroupId,
             featuredOnly: isGlobalSearch ? false : featuredOnly,
+            ...(canOverrideRegos ? catalogOverrides : {}),
           }),
         ]);
         if (cancelled) return;
@@ -199,7 +231,20 @@ export function ProductCatalog() {
     return () => {
       cancelled = true;
     };
-  }, [categoryReady, featuredOnly, isGlobalSearch, refreshNonce, search, selectedGroupId, setProducts, token]);
+  }, [
+    canOverrideRegos,
+    categoryReady,
+    featuredOnly,
+    isGlobalSearch,
+    refreshNonce,
+    search,
+    selectedGroupId,
+    sellContextHydrated,
+    setProducts,
+    token,
+    warehouseId,
+    priceTypeId,
+  ]);
 
   const canLoadMore = nextOffset > 0 && (total === 0 || products.length < total);
 
@@ -220,6 +265,7 @@ export function ProductCatalog() {
         search,
         groupId: isGlobalSearch ? null : selectedGroupId,
         featuredOnly: isGlobalSearch ? false : featuredOnly,
+        ...(canOverrideRegos ? catalogOverrides : {}),
       });
       if (res.products.length > 0) {
         appendProducts(res.products);
@@ -255,6 +301,7 @@ export function ProductCatalog() {
         search,
         groupId: isGlobalSearch ? null : selectedGroupId,
         featuredOnly: isGlobalSearch ? false : featuredOnly,
+        ...(canOverrideRegos ? catalogOverrides : {}),
       });
       lastRequestedOffsetRef.current = null;
       setProducts(res.products);
@@ -303,6 +350,7 @@ export function ProductCatalog() {
           search: term,
           groupId: null,
           featuredOnly: false,
+          ...(canOverrideRegos ? catalogOverrides : {}),
         });
         firstProduct = firstAddableProduct(res.products);
       } catch (err) {
@@ -318,83 +366,43 @@ export function ProductCatalog() {
 
   return (
     <div className={styles.catalog}>
-      <div className={styles.header}>
-        <div>
-          <div className={styles.title}>Sell</div>
-          <div className={styles.subtitle}>
-            {loading
-              ? "Loading products..."
-              : `${products.length} ${products.length === 1 ? "product" : "products"}`}
+      <div className={styles.catalogToolbar}>
+        <form
+          className={styles.searchRow}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitSearchAddFirst(q.trim());
+          }}
+        >
+          <div className={styles.search}>
+            <Search size={16} className={styles.searchIcon} />
+            <input
+              className={styles.searchInput}
+              placeholder="Search by name or SKU..."
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
           </div>
-        </div>
-        {isMobile ? (
-        <div className={styles.viewToggle} role="group" aria-label="View mode">
-          <button
-            type="button"
-            className={clsx(styles.viewBtn, view === "single" && styles.viewBtnActive)}
-            onClick={() => setView("single")}
-            aria-label="One per row"
-            aria-pressed={view === "single"}
-          >
-            <Square size={16} />
-          </button>
-          <button
-            type="button"
-            className={clsx(styles.viewBtn, view === "double" && styles.viewBtnActive)}
-            onClick={() => setView("double")}
-            aria-label="Two per row"
-            aria-pressed={view === "double"}
-          >
-            <LayoutGrid size={16} />
-          </button>
-          <button
-            type="button"
-            className={clsx(styles.viewBtn, view === "list" && styles.viewBtnActive)}
-            onClick={() => setView("list")}
-            aria-label="Compact list"
-            aria-pressed={view === "list"}
-          >
-            <List size={16} />
-          </button>
-        </div>
-        ) : null}
+        </form>
+
+        <CategoryBar
+          groups={groups}
+          featuredOnly={featuredOnly}
+          selectedGroupId={selectedGroupId}
+          onSelectFeatured={() => {
+            setFeaturedOnly(true);
+            setSelectedGroupId(null);
+          }}
+          onSelectAll={() => {
+            setFeaturedOnly(false);
+            setSelectedGroupId(null);
+          }}
+          onSelectGroup={(groupId) => {
+            setFeaturedOnly(false);
+            setSelectedGroupId(groupId);
+          }}
+        />
       </div>
-
-      <form
-        className={styles.searchRow}
-        onSubmit={(event) => {
-          event.preventDefault();
-          void submitSearchAddFirst(q.trim());
-        }}
-      >
-        <div className={styles.search}>
-          <Search size={16} className={styles.searchIcon} />
-          <input
-            className={styles.searchInput}
-            placeholder="Search by name or SKU..."
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-          />
-        </div>
-      </form>
-
-      <CategoryBar
-        groups={groups}
-        featuredOnly={featuredOnly}
-        selectedGroupId={selectedGroupId}
-        onSelectFeatured={() => {
-          setFeaturedOnly(true);
-          setSelectedGroupId(null);
-        }}
-        onSelectAll={() => {
-          setFeaturedOnly(false);
-          setSelectedGroupId(null);
-        }}
-        onSelectGroup={(groupId) => {
-          setFeaturedOnly(false);
-          setSelectedGroupId(groupId);
-        }}
-      />
 
       {error ? (
         <div className={styles.statusBox}>

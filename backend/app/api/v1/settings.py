@@ -20,7 +20,6 @@ from app.services import featured_products as featured_products_service
 from app.services import pos_settings as pos_settings_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services import settings as settings_service
-from app.services import user_pos_settings as user_pos_settings_service
 from app.services.permissions import get_user_with_permissions
 
 router = APIRouter(tags=["settings"])
@@ -94,12 +93,44 @@ async def patch_my_settings(
     return SettingsResponse(settings=data)
 
 
+@router.get("/me/settings/regos-defaults", response_model=RegosDefaultsResponse)
+async def get_my_regos_defaults(
+    current: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> RegosDefaultsResponse:
+    defaults = await regos_defaults_service.get_effective_enriched_regos_defaults(
+        session, current.id, current.company_id
+    )
+    return RegosDefaultsResponse(defaults=defaults)
+
+
+@router.patch("/me/settings/regos-defaults", response_model=RegosDefaultsResponse)
+async def patch_my_regos_defaults(
+    body: RegosDefaultsPatchRequest,
+    current: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> RegosDefaultsResponse:
+    user = await get_user_with_permissions(session, current.id)
+    if not user:
+        from app.core.exceptions import not_found
+
+        raise not_found("User not found")
+    defaults = await regos_defaults_service.patch_user_regos_defaults(
+        session,
+        user,
+        body.model_dump(exclude_unset=True),
+    )
+    return RegosDefaultsResponse(defaults=defaults)
+
+
 @router.get("/me/settings/pos", response_model=UserPosSettingsResponse)
 async def get_my_pos_settings(
     current: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> UserPosSettingsResponse:
-    settings = await user_pos_settings_service.get_user_pos_settings(session, current.id)
+    settings = await pos_settings_service.get_effective_pos_settings(
+        session, current.id, current.company_id
+    )
     return UserPosSettingsResponse(settings=settings)
 
 
@@ -114,7 +145,7 @@ async def patch_my_pos_settings(
         from app.core.exceptions import not_found
 
         raise not_found("User not found")
-    settings = await user_pos_settings_service.patch_user_pos_settings(
+    settings = await pos_settings_service.patch_user_pos_settings(
         session,
         user,
         body.model_dump(exclude_unset=True),

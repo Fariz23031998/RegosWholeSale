@@ -3,6 +3,8 @@ export type RegosDefaultOption = {
   name: string;
 };
 
+export type VatCalculationType = "No" | "Exclude" | "Include";
+
 export type RegosDefaults = {
   warehouse: RegosDefaultOption | null;
   price_type: RegosDefaultOption | null;
@@ -11,6 +13,7 @@ export type RegosDefaults = {
   firm: RegosDefaultOption | null;
   payment_category: RegosDefaultOption | null;
   attached_user: RegosDefaultOption | null;
+  vat_calculation_type: VatCalculationType;
   zero_quantity: boolean;
   zero_price: boolean;
 };
@@ -25,6 +28,7 @@ export type RegosDefaultsPatchRequest = {
   partner_id?: number | null;
   payment_category_id?: number | null;
   attached_user_id?: number | null;
+  vat_calculation_type?: VatCalculationType | null;
   zero_quantity?: boolean;
   zero_price?: boolean;
 };
@@ -41,6 +45,7 @@ export type RegosTokenConfig = {
   configured: boolean;
   token: string;
   is_replicable: boolean;
+  webhook_url: string | null;
 };
 
 export type RegosTokenUpsertRequest = {
@@ -56,6 +61,7 @@ export type RegosTokenMessage = {
 export type PosSettings = {
   allow_out_of_stock: boolean;
   tendered_quick_amounts: number[];
+  auto_open_qty_keypad: boolean;
 };
 
 export type PosSettingsResponse = {
@@ -65,6 +71,7 @@ export type PosSettingsResponse = {
 export type PosSettingsPatchRequest = {
   allow_out_of_stock?: boolean;
   tendered_quick_amounts?: number[];
+  auto_open_qty_keypad?: boolean;
 };
 
 export type DefaultCategorySetting = {
@@ -73,7 +80,10 @@ export type DefaultCategorySetting = {
 };
 
 export type UserPosSettings = {
+  allow_out_of_stock: boolean;
+  tendered_quick_amounts: number[];
   default_category: DefaultCategorySetting;
+  auto_open_qty_keypad: boolean;
 };
 
 export type UserPosSettingsResponse = {
@@ -81,5 +91,17 @@ export type UserPosSettingsResponse = {
 };
 
 export type UserPosSettingsPatchRequest = {
+  allow_out_of_stock?: boolean;
+  tendered_quick_amounts?: number[];
   default_category?: DefaultCategorySetting;
+  auto_open_qty_keypad?: boolean;
 };
+
+export const VAT_CALCULATION_TYPE_OPTIONS: {
+  value: VatCalculationType;
+  label: string;
+}[] = [
+  { value: "No", label: "No VAT" },
+  { value: "Exclude", label: "VAT included in amount" },
+  { value: "Include", label: "VAT on top of amount" },
+];

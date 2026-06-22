@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, require_permission
+from app.api.deps import CurrentUser, require_any_permission, require_permission
+from app.core.exceptions import forbidden
 from app.core.regos_api import regos_async_api_request_for_company
 from app.database import get_db
 from app.schemas.catalog import (
@@ -74,7 +75,9 @@ async def delete_regos_token(
 
 @router.get("/reference-options", response_model=RegosReferenceOptionsResponse)
 async def get_regos_reference_options(
-    current: CurrentUser = Depends(require_permission("settings.manage")),
+    current: CurrentUser = Depends(
+        require_any_permission("settings.manage", "pos.override_regos")
+    ),
     session: AsyncSession = Depends(get_db),
 ) -> RegosReferenceOptionsResponse:
     data = await regos_defaults_service.list_reference_options(session, current.company_id)
@@ -88,9 +91,19 @@ async def get_regos_products(
     search: str | None = Query(default=None, max_length=255),
     group_id: int | None = Query(default=None, ge=1),
     featured_only: bool = Query(default=False),
+    warehouse_id: int | None = Query(default=None, ge=1),
+    price_type_id: int | None = Query(default=None, ge=1),
     current: CurrentUser = Depends(require_permission("pos.access")),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogProductsResponse:
+    if (warehouse_id is not None or price_type_id is not None) and (
+        "pos.override_regos" not in current.permissions
+    ):
+        raise forbidden(
+            "Missing permission: pos.override_regos",
+            "FORBIDDEN",
+        )
+
     data = await regos_products_service.list_products(
         session,
         current.company_id,
@@ -100,6 +113,8 @@ async def get_regos_products(
         group_id=group_id,
         featured_only=featured_only,
         user_id=current.id,
+        warehouse_id=warehouse_id,
+        price_type_id=price_type_id,
     )
     return CatalogProductsResponse(**data)
 

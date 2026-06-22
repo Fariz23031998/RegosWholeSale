@@ -35,6 +35,7 @@ class PaymentType(BaseModel):
     id: int = Field(ge=1)
     name: str
     is_cash: bool
+    allows_debt: bool = False
     image_url: str = ""
 
 

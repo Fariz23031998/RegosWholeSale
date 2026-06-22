@@ -1,7 +1,9 @@
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+
+VatCalculationType = Literal["No", "Exclude", "Include"]
 
 class SettingsResponse(BaseModel):
     settings: dict[str, Any]
@@ -24,6 +26,7 @@ class RegosDefaults(BaseModel):
     firm: RegosDefaultOption | None = None
     payment_category: RegosDefaultOption | None = None
     attached_user: RegosDefaultOption | None = None
+    vat_calculation_type: VatCalculationType = "Exclude"
     zero_quantity: bool = False
     zero_price: bool = False
 
@@ -38,6 +41,7 @@ class RegosDefaultsPatchRequest(BaseModel):
     partner_id: int | None = Field(default=None, ge=1)
     payment_category_id: int | None = Field(default=None, ge=1)
     attached_user_id: int | None = Field(default=None, ge=1)
+    vat_calculation_type: VatCalculationType | None = None
     zero_quantity: bool | None = None
     zero_price: bool | None = None
 

@@ -1,7 +1,12 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.config import get_settings
 from app.models import RegosToken
+
+
+def regos_webhook_url() -> str | None:
+    return get_settings().regos_webhook_url
 
 
 async def get_token_config(session: AsyncSession, company_id: int) -> dict:
@@ -10,11 +15,17 @@ async def get_token_config(session: AsyncSession, company_id: int) -> dict:
     )
     row = result.scalar_one_or_none()
     if not row or not row.integration_token.strip():
-        return {"configured": False, "token": "", "is_replicable": False}
+        return {
+            "configured": False,
+            "token": "",
+            "is_replicable": False,
+            "webhook_url": regos_webhook_url(),
+        }
     return {
         "configured": True,
         "token": row.integration_token,
         "is_replicable": bool(row.is_replicable),
+        "webhook_url": regos_webhook_url(),
     }
 
 

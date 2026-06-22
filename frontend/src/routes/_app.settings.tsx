@@ -6,29 +6,26 @@ import {
   fetchRegosDefaults,
   fetchRegosReferenceOptions,
   fetchRegosTokenConfig,
-  fetchUserPosSettings,
   patchPosSettings,
   patchRegosDefaults,
-  patchUserPosSettings,
   saveRegosToken,
 } from "@/lib/settings-api";
-import { fetchProductGroups } from "@/lib/catalog-api";
 import {
-  defaultCategoryToSelectValue,
-  selectValueToDefaultCategory,
-} from "@/lib/default-category";
+  deleteTelegramBot,
+  fetchTelegramBotConfig,
+  saveTelegramBot,
+} from "@/lib/telegram-api";
+import { formatAuthError, useAuth } from "@/store/auth";
 import {
   formatTenderedQuickAmounts,
   parseTenderedQuickAmounts,
 } from "@/lib/tendered-amounts";
-import { formatAuthError, useAuth } from "@/store/auth";
-import { useSettings } from "@/store/settings";
-import { usePosConfig } from "@/store/pos-config";
 import type {
   RegosDefaultOption,
   RegosReferenceOptionsResponse,
+  VatCalculationType,
 } from "@/types/settings";
-import type { ProductGroup } from "@/types/catalog";
+import { VAT_CALCULATION_TYPE_OPTIONS } from "@/types/settings";
 import styles from "./settings.module.css";
 
 export const Route = createFileRoute("/_app/settings")({
@@ -44,9 +41,6 @@ const EMPTY_OPTIONS: RegosReferenceOptionsResponse = {
 };
 
 function SettingsPage() {
-  const autoOpen = useSettings((s) => s.autoOpenQtyKeypad);
-  const setAutoOpen = useSettings((s) => s.setAutoOpenQtyKeypad);
-  const hydratePosConfig = usePosConfig((s) => s.hydrate);
   const token = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
 
@@ -56,20 +50,23 @@ function SettingsPage() {
   const [integrationToken, setIntegrationToken] = useState("");
   const [isReplicable, setIsReplicable] = useState(false);
   const [tokenConfigured, setTokenConfigured] = useState(false);
+  const [regosWebhookUrl, setRegosWebhookUrl] = useState<string | null>(null);
   const [warehouseId, setWarehouseId] = useState("");
   const [priceTypeId, setPriceTypeId] = useState("");
   const [partnerId, setPartnerId] = useState("");
   const [paymentCategoryId, setPaymentCategoryId] = useState("");
   const [attachedUserId, setAttachedUserId] = useState("");
+  const [vatCalculationType, setVatCalculationType] = useState<VatCalculationType>("Exclude");
   const [derivedCurrency, setDerivedCurrency] = useState<RegosDefaultOption | null>(null);
   const [derivedFirm, setDerivedFirm] = useState<RegosDefaultOption | null>(null);
   const [zeroQuantity, setZeroQuantity] = useState(false);
   const [zeroPrice, setZeroPrice] = useState(false);
   const [allowOutOfStock, setAllowOutOfStock] = useState(false);
+  const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
   const [tenderedAmountsInput, setTenderedAmountsInput] = useState("20, 50, 100");
+  const [loadingPosSettings, setLoadingPosSettings] = useState(false);
   const [savingPosSettings, setSavingPosSettings] = useState(false);
   const [posSettingsError, setPosSettingsError] = useState("");
-  const [loadingToken, setLoadingToken] = useState(false);
   const [savingToken, setSavingToken] = useState(false);
   const [loadingRegos, setLoadingRegos] = useState(false);
   const [savingRegosDefaults, setSavingRegosDefaults] = useState(false);
@@ -77,11 +74,15 @@ function SettingsPage() {
   const [tokenInfo, setTokenInfo] = useState("");
   const [regosError, setRegosError] = useState("");
   const [regosInfo, setRegosInfo] = useState("");
-  const [productGroups, setProductGroups] = useState<ProductGroup[]>([]);
-  const [defaultCategoryValue, setDefaultCategoryValue] = useState("all");
-  const [loadingUserPosSettings, setLoadingUserPosSettings] = useState(false);
-  const [savingUserPosSettings, setSavingUserPosSettings] = useState(false);
-  const [userPosSettingsError, setUserPosSettingsError] = useState("");
+  const [loadingToken, setLoadingToken] = useState(false);
+  const [telegramBotToken, setTelegramBotToken] = useState("");
+  const [telegramBotConfigured, setTelegramBotConfigured] = useState(false);
+  const [telegramBotUsername, setTelegramBotUsername] = useState<string | null>(null);
+  const [telegramWebhookUrl, setTelegramWebhookUrl] = useState<string | null>(null);
+  const [loadingTelegramBot, setLoadingTelegramBot] = useState(false);
+  const [savingTelegramBot, setSavingTelegramBot] = useState(false);
+  const [telegramBotError, setTelegramBotError] = useState("");
+  const [telegramBotInfo, setTelegramBotInfo] = useState("");
 
   const applyDefaults = (defaults: {
     warehouse: RegosDefaultOption | null;
@@ -91,6 +92,7 @@ function SettingsPage() {
     firm: RegosDefaultOption | null;
     payment_category: RegosDefaultOption | null;
     attached_user: RegosDefaultOption | null;
+    vat_calculation_type: VatCalculationType;
     zero_quantity: boolean;
     zero_price: boolean;
   }) => {
@@ -103,6 +105,7 @@ function SettingsPage() {
       defaults.payment_category ? String(defaults.payment_category.id) : "",
     );
     setAttachedUserId(defaults.attached_user ? String(defaults.attached_user.id) : "");
+    setVatCalculationType(defaults.vat_calculation_type);
     setZeroQuantity(defaults.zero_quantity);
     setZeroPrice(defaults.zero_price);
   };
@@ -116,6 +119,7 @@ function SettingsPage() {
     setDerivedFirm(null);
     setPaymentCategoryId("");
     setAttachedUserId("");
+    setVatCalculationType("Exclude");
     setZeroQuantity(false);
     setZeroPrice(false);
   };
@@ -130,76 +134,32 @@ function SettingsPage() {
   };
 
   useEffect(() => {
-    if (!token) return;
+    if (!token || !canManageSettings) return;
 
     let cancelled = false;
+    setLoadingPosSettings(true);
+    setPosSettingsError("");
 
     void fetchPosSettings(token)
       .then((res) => {
         if (cancelled) return;
         setAllowOutOfStock(res.settings.allow_out_of_stock);
+        setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
         setTenderedAmountsInput(
           formatTenderedQuickAmounts(res.settings.tendered_quick_amounts),
         );
       })
       .catch((err) => {
         if (!cancelled) setPosSettingsError(formatAuthError(err));
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
-
-  useEffect(() => {
-    if (!token) return;
-
-    let cancelled = false;
-    setLoadingUserPosSettings(true);
-    setUserPosSettingsError("");
-
-    void Promise.all([fetchUserPosSettings(token), fetchProductGroups(token)])
-      .then(([settingsRes, groupsRes]) => {
-        if (cancelled) return;
-        setDefaultCategoryValue(
-          defaultCategoryToSelectValue(settingsRes.settings.default_category),
-        );
-        setProductGroups(groupsRes.groups);
-      })
-      .catch((err) => {
-        if (!cancelled) setUserPosSettingsError(formatAuthError(err));
       })
       .finally(() => {
-        if (!cancelled) setLoadingUserPosSettings(false);
+        if (!cancelled) setLoadingPosSettings(false);
       });
 
     return () => {
       cancelled = true;
     };
-  }, [token]);
-
-  const handleDefaultCategoryChange = async (value: string) => {
-    if (!token) return;
-
-    const previous = defaultCategoryValue;
-    setDefaultCategoryValue(value);
-    setSavingUserPosSettings(true);
-    setUserPosSettingsError("");
-
-    try {
-      const res = await patchUserPosSettings(token, {
-        default_category: selectValueToDefaultCategory(value),
-      });
-      setDefaultCategoryValue(
-        defaultCategoryToSelectValue(res.settings.default_category),
-      );
-    } catch (err) {
-      setDefaultCategoryValue(previous);
-      setUserPosSettingsError(formatAuthError(err));
-    } finally {
-      setSavingUserPosSettings(false);
-    }
-  };
+  }, [canManageSettings, token]);
 
   useEffect(() => {
     if (!token || !canManageSettings) return;
@@ -216,6 +176,7 @@ function SettingsPage() {
         setIntegrationToken(config.token);
         setIsReplicable(config.is_replicable);
         setTokenConfigured(config.configured);
+        setRegosWebhookUrl(config.webhook_url);
 
         if (!config.configured) {
           clearRegosOptions();
@@ -251,6 +212,87 @@ function SettingsPage() {
       cancelled = true;
     };
   }, [canManageSettings, token]);
+
+  useEffect(() => {
+    if (!token || !canManageSettings) return;
+
+    let cancelled = false;
+
+    const loadTelegramBot = async () => {
+      setLoadingTelegramBot(true);
+      setTelegramBotError("");
+      try {
+        const config = await fetchTelegramBotConfig(token);
+        if (cancelled) return;
+        setTelegramBotConfigured(config.configured);
+        setTelegramBotUsername(config.bot_username);
+        setTelegramWebhookUrl(config.webhook_url);
+        if (!config.configured) {
+          setTelegramBotToken("");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setTelegramBotError(formatAuthError(err));
+          setTelegramBotConfigured(false);
+        }
+      } finally {
+        if (!cancelled) setLoadingTelegramBot(false);
+      }
+    };
+
+    void loadTelegramBot();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canManageSettings, token]);
+
+  const handleSaveTelegramBot = async () => {
+    if (!token) return;
+
+    const nextToken = telegramBotToken.trim();
+    if (!nextToken) {
+      setTelegramBotError("Bot token is required.");
+      return;
+    }
+
+    setSavingTelegramBot(true);
+    setTelegramBotError("");
+    setTelegramBotInfo("");
+    try {
+      const res = await saveTelegramBot(token, { bot_token: nextToken });
+      const bot = res.bot;
+      setTelegramBotConfigured(Boolean(bot?.configured));
+      setTelegramBotUsername(bot?.bot_username ?? null);
+      setTelegramWebhookUrl(bot?.webhook_url ?? null);
+      setTelegramBotToken("");
+      setTelegramBotInfo("Telegram bot saved and webhook registered");
+    } catch (err) {
+      setTelegramBotError(formatAuthError(err));
+    } finally {
+      setSavingTelegramBot(false);
+    }
+  };
+
+  const handleDeleteTelegramBot = async () => {
+    if (!token) return;
+
+    setSavingTelegramBot(true);
+    setTelegramBotError("");
+    setTelegramBotInfo("");
+    try {
+      await deleteTelegramBot(token);
+      setTelegramBotConfigured(false);
+      setTelegramBotUsername(null);
+      setTelegramWebhookUrl(null);
+      setTelegramBotToken("");
+      setTelegramBotInfo("Telegram bot removed");
+    } catch (err) {
+      setTelegramBotError(formatAuthError(err));
+    } finally {
+      setSavingTelegramBot(false);
+    }
+  };
 
   const handleSaveRegosToken = async () => {
     if (!token) return;
@@ -326,6 +368,7 @@ function SettingsPage() {
         partner_id: partnerId ? Number(partnerId) : null,
         payment_category_id: paymentCategoryId ? Number(paymentCategoryId) : null,
         attached_user_id: attachedUserId ? Number(attachedUserId) : null,
+        vat_calculation_type: vatCalculationType,
         zero_quantity: zeroQuantity,
         zero_price: zeroPrice,
       });
@@ -354,7 +397,6 @@ function SettingsPage() {
       setTenderedAmountsInput(
         formatTenderedQuickAmounts(res.settings.tendered_quick_amounts),
       );
-      await hydratePosConfig(token);
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
     } finally {
@@ -371,10 +413,26 @@ function SettingsPage() {
     try {
       const res = await patchPosSettings(token, { allow_out_of_stock: checked });
       setAllowOutOfStock(res.settings.allow_out_of_stock);
-      await hydratePosConfig(token);
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
       setAllowOutOfStock((prev) => !checked);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
+  const handleAutoOpenQtyKeypadChange = async (checked: boolean) => {
+    if (!token || !canManageSettings) return;
+
+    setAutoOpenQtyKeypad(checked);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(token, { auto_open_qty_keypad: checked });
+      setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setAutoOpenQtyKeypad((prev) => !checked);
     } finally {
       setSavingPosSettings(false);
     }
@@ -384,112 +442,82 @@ function SettingsPage() {
     <div className={styles.page}>
       <header className={styles.header}>
         <h1 className={styles.title}>Settings</h1>
-        <p className={styles.subtitle}>Configure your point of sale experience.</p>
+        <p className={styles.subtitle}>Configure company defaults and integrations.</p>
       </header>
-
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Sell</h2>
-
-        <div className={styles.fieldBlock}>
-          <div className={styles.rowTitle}>Default category</div>
-          <div className={styles.rowDesc}>
-            Category selected automatically when you open the Sell screen.
-          </div>
-          <select
-            className={styles.select}
-            value={defaultCategoryValue}
-            disabled={loadingUserPosSettings || savingUserPosSettings}
-            onChange={(e) => void handleDefaultCategoryChange(e.target.value)}
-          >
-            <option value="all">All</option>
-            <option value="featured">Featured</option>
-            {productGroups.map((group) => (
-              <option key={group.id} value={`group:${group.id}`}>
-                {group.path || group.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        {userPosSettingsError ? <p className={styles.error}>{userPosSettingsError}</p> : null}
-      </section>
-
-      <section className={styles.section}>
-        <h2 className={styles.sectionTitle}>Cart</h2>
-
-        <label className={styles.row}>
-          <div>
-            <div className={styles.rowTitle}>Auto-open quantity keypad</div>
-            <div className={styles.rowDesc}>
-              When you add a product to the cart, automatically open the numeric
-              keypad so you can type the exact quantity.
-            </div>
-          </div>
-          <span className={styles.switch}>
-            <input
-              type="checkbox"
-              checked={autoOpen}
-              onChange={(e) => setAutoOpen(e.target.checked)}
-            />
-            <span className={styles.slider} />
-          </span>
-        </label>
-
-        {canManageSettings ? (
-          <label className={styles.row}>
-            <div>
-              <div className={styles.rowTitle}>Allow out-of-stock sales</div>
-              <div className={styles.rowDesc}>
-                When enabled, cashiers can add products with zero or negative stock to the cart.
-                Default is off.
-              </div>
-            </div>
-            <span className={styles.switch}>
-              <input
-                type="checkbox"
-                checked={allowOutOfStock}
-                disabled={savingPosSettings}
-                onChange={(e) => void handleAllowOutOfStockChange(e.target.checked)}
-              />
-              <span className={styles.slider} />
-            </span>
-          </label>
-        ) : null}
-
-        <div className={styles.fieldBlock}>
-          <div className={styles.rowTitle}>Amount tendered shortcuts</div>
-          <div className={styles.rowDesc}>
-            Quick amounts shown at cash checkout (after Exact). Separate values with commas.
-            Up to 8 numbers.
-          </div>
-          <input
-            className={styles.input}
-            type="text"
-            inputMode="decimal"
-            value={tenderedAmountsInput}
-            disabled={!canManageSettings || savingPosSettings}
-            placeholder="20, 50, 100"
-            onChange={(e) => setTenderedAmountsInput(e.target.value)}
-          />
-          {canManageSettings ? (
-            <button
-              type="button"
-              className={styles.saveBtn}
-              disabled={savingPosSettings}
-              onClick={() => void handleSaveTenderedAmounts()}
-            >
-              {savingPosSettings ? "Saving…" : "Save amounts"}
-            </button>
-          ) : (
-            <p className={styles.hint}>Only managers can change company checkout settings.</p>
-          )}
-        </div>
-
-        {posSettingsError ? <p className={styles.error}>{posSettingsError}</p> : null}
-      </section>
 
       {canManageSettings ? (
         <>
+          <section className={styles.section}>
+            <h2 className={styles.sectionTitle}>Company POS defaults</h2>
+            <p className={styles.sectionDesc}>
+              Default checkout behavior for users without personal overrides. Configure
+              per-user settings from the Users menu.
+            </p>
+
+            <label className={styles.row}>
+              <div>
+                <div className={styles.rowTitle}>Allow out-of-stock sales</div>
+                <div className={styles.rowDesc}>
+                  When enabled, cashiers can add products with zero or negative stock to the cart.
+                </div>
+              </div>
+              <span className={styles.switch}>
+                <input
+                  type="checkbox"
+                  checked={allowOutOfStock}
+                  disabled={loadingPosSettings || savingPosSettings}
+                  onChange={(e) => void handleAllowOutOfStockChange(e.target.checked)}
+                />
+                <span className={styles.slider} />
+              </span>
+            </label>
+
+            <label className={styles.row}>
+              <div>
+                <div className={styles.rowTitle}>Auto-open quantity keypad</div>
+                <div className={styles.rowDesc}>
+                  When enabled, adding a product to the cart opens the numeric keypad
+                  automatically. Users without a personal override use this default.
+                </div>
+              </div>
+              <span className={styles.switch}>
+                <input
+                  type="checkbox"
+                  checked={autoOpenQtyKeypad}
+                  disabled={loadingPosSettings || savingPosSettings}
+                  onChange={(e) => void handleAutoOpenQtyKeypadChange(e.target.checked)}
+                />
+                <span className={styles.slider} />
+              </span>
+            </label>
+
+            <div className={styles.fieldBlock}>
+              <div className={styles.rowTitle}>Amount tendered shortcuts</div>
+              <div className={styles.rowDesc}>
+                Quick amounts shown at cash checkout (after Exact). Separate values with commas.
+                Up to 8 numbers.
+              </div>
+              <input
+                className={styles.input}
+                type="text"
+                inputMode="decimal"
+                value={tenderedAmountsInput}
+                disabled={loadingPosSettings || savingPosSettings}
+                placeholder="20, 50, 100"
+                onChange={(e) => setTenderedAmountsInput(e.target.value)}
+              />
+              <button
+                type="button"
+                className={styles.saveBtn}
+                disabled={loadingPosSettings || savingPosSettings}
+                onClick={() => void handleSaveTenderedAmounts()}
+              >
+                {savingPosSettings ? "Saving…" : "Save amounts"}
+              </button>
+            </div>
+
+            {posSettingsError ? <p className={styles.error}>{posSettingsError}</p> : null}
+          </section>
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
               <div>
@@ -561,9 +589,82 @@ function SettingsPage() {
                 {loadingToken
                   ? "Loading integration token..."
                   : tokenConfigured
-                    ? "Token is saved in the regos_tokens table and used for Regos API calls."
+                    ? regosWebhookUrl
+                      ? `Token saved. REGOS HandleWebhook URL: ${regosWebhookUrl}`
+                      : "Token saved. Set TELEGRAM_WEBHOOK_BASE_URL on the server to show the REGOS webhook URL."
                     : "No integration token saved yet."}
               </p>
+            </div>
+          </section>
+
+          <section className={styles.section}>
+            <div className={styles.sectionHeader}>
+              <div>
+                <h2 className={styles.sectionTitle}>Telegram bot</h2>
+                <p className={styles.sectionDesc}>
+                  Connect a BotFather token so customers can send /start and subscribe via
+                  webhook notifications.
+                </p>
+              </div>
+            </div>
+
+            {telegramBotError && <p className={styles.error}>{telegramBotError}</p>}
+            {telegramBotInfo && <p className={styles.success}>{telegramBotInfo}</p>}
+
+            <div className={styles.formGrid}>
+              <label className={styles.field}>
+                <span className={styles.label}>Bot token</span>
+                <input
+                  className={styles.input}
+                  type="password"
+                  value={telegramBotToken}
+                  disabled={loadingTelegramBot || savingTelegramBot}
+                  autoComplete="off"
+                  spellCheck={false}
+                  onChange={(e) => setTelegramBotToken(e.target.value)}
+                  placeholder={
+                    telegramBotConfigured ? "Enter a new token to replace the saved bot" : "BotFather token"
+                  }
+                />
+              </label>
+            </div>
+
+            <div className={styles.actions}>
+              <div className={styles.buttonRow}>
+                <button
+                  type="button"
+                  className={styles.btn}
+                  disabled={loadingTelegramBot || savingTelegramBot}
+                  onClick={() => void handleSaveTelegramBot()}
+                >
+                  {savingTelegramBot ? "Saving..." : "Save bot token"}
+                </button>
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  disabled={loadingTelegramBot || savingTelegramBot || !telegramBotConfigured}
+                  onClick={() => void handleDeleteTelegramBot()}
+                >
+                  Remove bot
+                </button>
+              </div>
+              <p className={styles.note}>
+                {loadingTelegramBot
+                  ? "Loading Telegram bot..."
+                  : telegramBotConfigured
+                    ? telegramBotUsername
+                      ? `Connected as @${telegramBotUsername}. Webhook: ${telegramWebhookUrl ?? "registered"}`
+                      : "Telegram bot is configured."
+                    : "No Telegram bot saved yet. TELEGRAM_WEBHOOK_BASE_URL must be set on the server."}
+              </p>
+              {telegramBotConfigured && telegramBotUsername ? (
+                <p className={styles.note}>
+                  Bot link:{" "}
+                  <a href={`https://t.me/${telegramBotUsername}`} target="_blank" rel="noreferrer">
+                    t.me/{telegramBotUsername}
+                  </a>
+                </p>
+              ) : null}
             </div>
           </section>
 
@@ -687,6 +788,24 @@ function SettingsPage() {
                   {options.attached_users.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className={styles.field}>
+                <span className={styles.label}>VAT calculation type</span>
+                <select
+                  className={styles.select}
+                  value={vatCalculationType}
+                  disabled={
+                    !tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults
+                  }
+                  onChange={(e) => setVatCalculationType(e.target.value as VatCalculationType)}
+                >
+                  {VAT_CALCULATION_TYPE_OPTIONS.map((item) => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
                     </option>
                   ))}
                 </select>

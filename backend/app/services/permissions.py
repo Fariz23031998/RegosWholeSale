@@ -6,6 +6,7 @@ from app.models import Permission, User, UserPermission, UserRole
 
 PERMISSION_CODES = [
     ("pos.access", "Access POS terminal"),
+    ("pos.override_regos", "Override warehouse, price type, and partner on sell screen"),
     ("sales.read", "View sales history"),
     ("sales.write", "Create and modify sales"),
     ("returns.manage", "Process returns"),

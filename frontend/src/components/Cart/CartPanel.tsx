@@ -1,10 +1,9 @@
-import { Minus, Plus, ShoppingBag, ShoppingCart, Trash2, X } from "lucide-react";
+import { Minus, Percent, Plus, ShoppingBag, ShoppingCart, Tag, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { cartTotals, useCart } from "@/store/cart";
 import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
-import { useSettings } from "@/store/settings";
 import {
   clampCartQty,
   canIncreaseCartQty,
@@ -20,19 +19,20 @@ import styles from "./Cart.module.css";
 
 export function CartPanel() {
   const items = useCart((s) => s.items);
-  const discount = useCart((s) => s.discount);
+  const discountMode = useCart((s) => s.discountMode);
+  const discountValue = useCart((s) => s.discountValue);
   const setQty = useCart((s) => s.setQty);
   const setPrice = useCart((s) => s.setPrice);
   const remove = useCart((s) => s.remove);
-  const setDiscount = useCart((s) => s.setDiscount);
+  const setDiscountValue = useCart((s) => s.setDiscountValue);
+  const toggleDiscountMode = useCart((s) => s.toggleDiscountMode);
   const clear = useCart((s) => s.clear);
   const catalogProducts = useCatalog((s) => s.products);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
-
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const autoOpenKeypad = usePosConfig((s) => s.autoOpenQtyKeypad);
   const [keypadFor, setKeypadFor] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const totals = cartTotals(items, discount);
+  const totals = cartTotals(items, discountMode, discountValue);
   const keypadItem = items.find((i) => i.productId === keypadFor) ?? null;
   const keypadMaxQty = keypadItem
     ? maxCartQty(
@@ -42,7 +42,7 @@ export function CartPanel() {
     : null;
   const itemCount = items.reduce((s, i) => s + i.qty, 0);
 
-  const autoOpenKeypad = useSettings((s) => s.autoOpenQtyKeypad);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const lastAddedId = useCart((s) => s.lastAddedId);
   const lastAddedAt = useCart((s) => s.lastAddedAt);
   const seenAddRef = useRef(0);
@@ -176,18 +176,55 @@ export function CartPanel() {
           <span>{formatCurrency(totals.subtotal)}</span>
         </div>
         <div className={styles.row}>
-          <span className={styles.discountInput}>
-            <Trash2 size={12} /> Discount
-          </span>
-          <input
-            className={styles.discountField}
-            type="number"
-            min={0}
-            step="0.01"
-            value={discount || ""}
-            placeholder="0.00"
-            onChange={(e) => setDiscount(parseFloat(e.target.value) || 0)}
-          />
+          <span className={styles.discountLabel}>Discount</span>
+          <div className={styles.discountControls}>
+            <button
+              type="button"
+              className={styles.discountModeBtn}
+              onClick={toggleDiscountMode}
+              aria-label={
+                discountMode === "percent"
+                  ? "Switch to fixed amount discount"
+                  : "Switch to percentage discount"
+              }
+              title={
+                discountMode === "percent"
+                  ? "Percentage — click for fixed amount"
+                  : "Fixed amount — click for percentage"
+              }
+            >
+              {discountMode === "percent" ? (
+                <Percent size={14} />
+              ) : (
+                <Tag size={14} />
+              )}
+            </button>
+            <input
+              className={styles.discountField}
+              type="number"
+              min={0}
+              max={discountMode === "percent" ? 100 : undefined}
+              step={discountMode === "percent" ? "0.01" : "0.01"}
+              value={discountValue || ""}
+              placeholder={discountMode === "percent" ? "0" : "0.00"}
+              aria-label={
+                discountMode === "percent"
+                  ? "Discount percentage"
+                  : "Discount amount"
+              }
+              onChange={(e) =>
+                setDiscountValue(parseFloat(e.target.value) || 0)
+              }
+            />
+            <span className={styles.discountSuffix}>
+              {discountMode === "percent" ? "%" : ""}
+            </span>
+            {discountMode === "percent" && totals.discount > 0 && (
+              <span className={styles.discountAmount}>
+                −{formatCurrency(totals.discount)}
+              </span>
+            )}
+          </div>
         </div>
         <div className={`${styles.row} ${styles.totalRow}`}>
           <span>Total</span>

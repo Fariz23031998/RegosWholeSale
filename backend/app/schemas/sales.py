@@ -14,9 +14,13 @@ class CheckoutRequest(BaseModel):
     discount: float = Field(default=0, ge=0)
     payment_type_id: int = Field(ge=1)
     total: float = Field(ge=0)
+    amount_paid: float | None = Field(default=None, ge=0)
     tendered: float | None = Field(default=None, ge=0)
     change: float | None = Field(default=None, ge=0)
     description: str | None = None
+    warehouse_id: int | None = Field(default=None, ge=1)
+    price_type_id: int | None = Field(default=None, ge=1)
+    partner_id: int | None = Field(default=None, ge=1)
 
 
 class CheckoutLineResponse(BaseModel):
@@ -28,8 +32,11 @@ class CheckoutLineResponse(BaseModel):
 
 class CheckoutPaymentResponse(BaseModel):
     payment_type_id: int
-    payment_doc_id: int
+    payment_doc_id: int | None = None
     amount: float
+    amount_paid: float
+    balance_due: float
+    is_fully_paid: bool
     tendered: float | None = None
     change: float | None = None
 
@@ -37,13 +44,16 @@ class CheckoutPaymentResponse(BaseModel):
 class CheckoutResponse(BaseModel):
     wholesale_doc_id: int
     wholesale_code: str
-    payment_doc_id: int
+    payment_doc_id: int | None = None
     performed_at: datetime
     lines: list[CheckoutLineResponse]
     payment: CheckoutPaymentResponse
     subtotal: float
     discount: float
     total: float
+    amount_paid: float
+    balance_due: float
+    is_fully_paid: bool
 
 
 class WholesaleDocument(BaseModel):

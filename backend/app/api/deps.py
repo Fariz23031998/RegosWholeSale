@@ -54,3 +54,13 @@ def require_permission(code: str):
         return current
 
     return _checker
+
+
+def require_any_permission(*codes: str):
+    async def _checker(current: CurrentUser = Depends(get_current_user)) -> CurrentUser:
+        if not any(code in current.permissions for code in codes):
+            missing = ", ".join(codes)
+            raise forbidden(f"Missing one of permissions: {missing}", "FORBIDDEN")
+        return current
+
+    return _checker

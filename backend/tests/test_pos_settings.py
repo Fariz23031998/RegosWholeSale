@@ -13,6 +13,7 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     initial = await client.get("/api/v1/company/settings/pos", headers=headers)
     assert initial.status_code == 200
     assert initial.json()["settings"]["allow_out_of_stock"] is False
+    assert initial.json()["settings"]["auto_open_qty_keypad"] is False
     assert initial.json()["settings"]["tendered_quick_amounts"] == [20.0, 50.0, 100.0]
 
     patched = await client.patch(

@@ -18,6 +18,7 @@ ENRICHED_DEFAULTS = {
     **FULL_DEFAULTS,
     "currency": {"id": 44, "name": "UZS"},
     "firm": {"id": 55, "name": "Main firm"},
+    "vat_calculation_type": "Include",
 }
 
 DOC_WHOLESALE_TYPE_ID = 77
@@ -95,7 +96,7 @@ async def test_checkout_happy_path(
     assert add_payload["stock_id"] == 11
     assert add_payload["currency_id"] == 44
     assert add_payload["price_type_id"] == 22
-    assert add_payload["vat_calculation_type"] == "Exclude"
+    assert add_payload["vat_calculation_type"] == "Include"
 
     lock_payload = mock_regos.call_args_list[1][0][3]
     assert lock_payload == {"ids": [1001]}
@@ -115,6 +116,144 @@ async def test_checkout_happy_path(
     assert payment_payload["firm_id"] == 55
     assert payment_payload["category_id"] == 66
     assert payment_payload["document_type_id"] == DOC_WHOLESALE_TYPE_ID
+
+
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_partial_payment(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 2001}]},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {"code": "WS-1001"}},
+        {"ok": True, "result": {"new_id": 3001}},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(client, email="checkout-partial@test.com", company_name="Partial Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 2, "price": 10000}],
+            "discount": 0,
+            "payment_type_id": 5,
+            "total": 20000,
+            "amount_paid": 8000,
+            "tendered": 8000,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["amount_paid"] == 8000
+    assert data["balance_due"] == 12000
+    assert data["is_fully_paid"] is False
+    assert data["payment"]["amount_paid"] == 8000
+
+    payment_payload = mock_regos.call_args_list[5][0][3]
+    assert payment_payload["amount"] == 8000
+
+
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_deferred_payment_skips_payment_doc(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 2001}]},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {"code": "WS-1001"}},
+    ]
+
+    reg = await register_owner(client, email="checkout-debt@test.com", company_name="Debt Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 1, "price": 15000}],
+            "discount": 0,
+            "payment_type_id": 9,
+            "total": 15000,
+            "amount_paid": 0,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["payment_doc_id"] is None
+    assert data["amount_paid"] == 0
+    assert data["balance_due"] == 15000
+    assert data["is_fully_paid"] is False
+
+    calls = [call[0][2] for call in mock_regos.call_args_list]
+    assert "docpayment/add" not in calls
+    assert "docpayment/perform" not in calls
+
+
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_amount_paid_exceeds_total_returns_400(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+
+    reg = await register_owner(client, email="checkout-overpay@test.com", company_name="Overpay Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 1, "price": 100}],
+            "discount": 0,
+            "payment_type_id": 5,
+            "total": 100,
+            "amount_paid": 150,
+        },
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "CHECKOUT_AMOUNT_PAID_EXCEEDS_TOTAL"
+    mock_regos.assert_not_called()
 
 
 @pytest.mark.asyncio

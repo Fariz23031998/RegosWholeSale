@@ -1,3 +1,4 @@
+import re
 from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +19,11 @@ _APP_ALLOWED_ENABLED = {
     3,
     "3",
 }
+
+_DEBT_NAME_PATTERN = re.compile(
+    r"credit|debt|account|on\s*account|pay\s*later|кредит|долг|сч[её]т|рассроч",
+    re.IGNORECASE,
+)
 
 
 async def list_payment_types(session: AsyncSession, company_id: int) -> dict[str, list[dict[str, Any]]]:
@@ -51,8 +57,17 @@ def _map_payment_type(row: dict[str, Any]) -> dict[str, Any]:
         "id": payment_type_id,
         "name": name,
         "is_cash": _coerce_bool(row.get("is_cash")),
+        "allows_debt": _allows_debt(row, name),
         "image_url": image_url,
     }
+
+
+def _allows_debt(row: dict[str, Any], name: str) -> bool:
+    if _coerce_bool(row.get("is_credit")) or _coerce_bool(row.get("credit")):
+        return True
+    if _coerce_bool(row.get("allows_debt")):
+        return True
+    return bool(_DEBT_NAME_PATTERN.search(name))
 
 
 def _is_app_enabled(value: Any) -> bool:

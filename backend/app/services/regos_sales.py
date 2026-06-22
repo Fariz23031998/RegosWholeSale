@@ -8,17 +8,22 @@ from app.core.exceptions import AppError, bad_request
 from app.core.regos_api import regos_async_api_request_for_company
 from app.services import regos_defaults as regos_defaults_service
 
-# VAT included in line prices (Regos: "Exclude" / "В сумме").
-DEFAULT_VAT_CALCULATION_TYPE = "Exclude"
-
 
 async def complete_checkout(
     session: AsyncSession,
     company_id: int,
     user_id: int,
     payload: dict[str, Any],
+    *,
+    allow_regos_overrides: bool = False,
 ) -> dict[str, Any]:
-    defaults = await regos_defaults_service.get_stored_regos_defaults(session, company_id)
+    session_overrides = _extract_session_overrides(payload, allow_regos_overrides)
+    defaults = await regos_defaults_service.apply_regos_session_overrides(
+        session,
+        company_id,
+        user_id,
+        **session_overrides,
+    )
     defaults = await regos_defaults_service.enrich_checkout_defaults(
         session, company_id, defaults, refresh=True
     )
@@ -28,6 +33,7 @@ async def complete_checkout(
     discount = float(payload.get("discount") or 0)
     payment_type_id = int(payload["payment_type_id"])
     total = float(payload["total"])
+    amount_paid_raw = payload.get("amount_paid")
     tendered = payload.get("tendered")
     change = payload.get("change")
     description = payload.get("description")
@@ -43,6 +49,18 @@ async def complete_checkout(
             f"Checkout total {total} does not match expected {expected_total}.",
             "CHECKOUT_TOTAL_MISMATCH",
         )
+
+    amount_paid = round(float(amount_paid_raw if amount_paid_raw is not None else total), 2)
+    if amount_paid > total + 0.02:
+        raise bad_request(
+            f"Amount paid {amount_paid} cannot exceed total {total}.",
+            "CHECKOUT_AMOUNT_PAID_EXCEEDS_TOTAL",
+        )
+    if amount_paid < 0:
+        raise bad_request("Amount paid cannot be negative.", "CHECKOUT_AMOUNT_PAID_INVALID")
+
+    balance_due = round(max(total - amount_paid, 0), 2)
+    is_fully_paid = balance_due <= 0.01
 
     doc_id: int | None = None
     try:
@@ -63,18 +81,20 @@ async def complete_checkout(
         document_type_id = await regos_defaults_service.get_doc_wholesale_document_type_id(
             session, company_id
         )
-        payment_doc = await _add_payment_document(
-            session,
-            company_id,
-            defaults,
-            wholesale_doc_id=doc_id,
-            document_type_id=document_type_id,
-            payment_type_id=payment_type_id,
-            amount=total,
-        )
-        payment_doc_id = int(payment_doc["id"])
 
-        await _regos_call(session, company_id, "docpayment/perform", {"id": payment_doc_id})
+        payment_doc_id: int | None = None
+        if amount_paid > 0:
+            payment_doc = await _add_payment_document(
+                session,
+                company_id,
+                defaults,
+                wholesale_doc_id=doc_id,
+                document_type_id=document_type_id,
+                payment_type_id=payment_type_id,
+                amount=amount_paid,
+            )
+            payment_doc_id = int(payment_doc["id"])
+            await _regos_call(session, company_id, "docpayment/perform", {"id": payment_doc_id})
 
         return {
             "wholesale_doc_id": doc_id,
@@ -86,12 +106,18 @@ async def complete_checkout(
                 "payment_type_id": payment_type_id,
                 "payment_doc_id": payment_doc_id,
                 "amount": total,
+                "amount_paid": amount_paid,
+                "balance_due": balance_due,
+                "is_fully_paid": is_fully_paid,
                 "tendered": tendered,
                 "change": change,
             },
             "subtotal": round(subtotal, 2),
             "discount": round(discount, 2),
             "total": total,
+            "amount_paid": amount_paid,
+            "balance_due": balance_due,
+            "is_fully_paid": is_fully_paid,
         }
     except AppError as exc:
         if doc_id is not None and isinstance(exc.detail, dict):
@@ -107,6 +133,7 @@ async def list_wholesale_documents(
     session: AsyncSession,
     company_id: int,
     *,
+    user_id: int,
     start_date: int | None = None,
     end_date: int | None = None,
     partner_ids: list[int] | None = None,
@@ -114,7 +141,9 @@ async def list_wholesale_documents(
     offset: int = 0,
     limit: int = 50,
 ) -> dict[str, Any]:
-    defaults = await regos_defaults_service.get_regos_defaults(session, company_id)
+    defaults = await regos_defaults_service.get_regos_defaults(
+        session, company_id, user_id=user_id
+    )
     warehouse = defaults.get("warehouse")
     partner = defaults.get("partner")
 
@@ -199,7 +228,9 @@ async def _add_wholesale_document(
         "stock_id": defaults["warehouse"]["id"],
         "currency_id": defaults["currency"]["id"],
         "price_type_id": defaults["price_type"]["id"],
-        "vat_calculation_type": DEFAULT_VAT_CALCULATION_TYPE,
+        "vat_calculation_type": defaults.get(
+            "vat_calculation_type", regos_defaults_service.DEFAULT_VAT_CALCULATION_TYPE
+        ),
     }
     attached_user = defaults.get("attached_user")
     if attached_user:
@@ -288,6 +319,20 @@ def _extract_code(response: dict[str, Any], doc_id: int) -> str:
         if isinstance(code, str) and code.strip():
             return code.strip()
     return str(doc_id)
+
+
+def _extract_session_overrides(
+    payload: dict[str, Any], allow_regos_overrides: bool
+) -> dict[str, int]:
+    if not allow_regos_overrides:
+        return {}
+
+    overrides: dict[str, int] = {}
+    for key in ("warehouse_id", "price_type_id", "partner_id"):
+        value = payload.get(key)
+        if value is not None:
+            overrides[key] = int(value)
+    return overrides
 
 
 def _map_wholesale_document(item: dict[str, Any]) -> dict[str, Any]:

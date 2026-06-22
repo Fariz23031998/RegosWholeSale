@@ -11,9 +11,13 @@ export type CheckoutRequest = {
   discount: number;
   payment_type_id: number;
   total: number;
+  amount_paid?: number;
   tendered?: number;
   change?: number;
   description?: string;
+  warehouse_id?: number;
+  price_type_id?: number;
+  partner_id?: number;
 };
 
 export type CheckoutLineResponse = {
@@ -25,8 +29,11 @@ export type CheckoutLineResponse = {
 
 export type CheckoutPaymentResponse = {
   payment_type_id: number;
-  payment_doc_id: number;
+  payment_doc_id: number | null;
   amount: number;
+  amount_paid: number;
+  balance_due: number;
+  is_fully_paid: boolean;
   tendered?: number | null;
   change?: number | null;
 };
@@ -34,13 +41,16 @@ export type CheckoutPaymentResponse = {
 export type CheckoutResponse = {
   wholesale_doc_id: number;
   wholesale_code: string;
-  payment_doc_id: number;
+  payment_doc_id: number | null;
   performed_at: string;
   lines: CheckoutLineResponse[];
   payment: CheckoutPaymentResponse;
   subtotal: number;
   discount: number;
   total: number;
+  amount_paid: number;
+  balance_due: number;
+  is_fully_paid: boolean;
 };
 
 export type WholesaleDocument = {

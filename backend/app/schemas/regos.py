@@ -10,6 +10,7 @@ class RegosTokenConfig(BaseModel):
     configured: bool = False
     token: str = ""
     is_replicable: bool = False
+    webhook_url: str | None = None
 
 
 class RegosTokenStatus(BaseModel):

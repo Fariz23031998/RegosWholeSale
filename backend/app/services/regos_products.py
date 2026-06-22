@@ -17,6 +17,8 @@ async def list_products(
     group_id: int | None = None,
     featured_only: bool = False,
     user_id: int | None = None,
+    warehouse_id: int | None = None,
+    price_type_id: int | None = None,
 ) -> dict[str, Any]:
     search_term = search.strip() if search and search.strip() else None
     global_search = search_term is not None
@@ -31,9 +33,20 @@ async def list_products(
             offset=offset,
             limit=limit,
             search=search,
+            warehouse_id=warehouse_id,
+            price_type_id=price_type_id,
         )
 
-    defaults = await regos_defaults_service.get_regos_defaults(session, company_id)
+    if user_id is None:
+        defaults = await regos_defaults_service.get_regos_defaults(session, company_id)
+    else:
+        defaults = await regos_defaults_service.apply_regos_session_overrides(
+            session,
+            company_id,
+            user_id,
+            warehouse_id=warehouse_id,
+            price_type_id=price_type_id,
+        )
     warehouse = defaults.get("warehouse")
     price_type = defaults.get("price_type")
     include_zero_quantity = bool(defaults.get("zero_quantity", False))
@@ -122,6 +135,8 @@ async def list_featured_products(
     offset: int,
     limit: int,
     search: str | None = None,
+    warehouse_id: int | None = None,
+    price_type_id: int | None = None,
 ) -> dict[str, Any]:
     from app.services import featured_products as featured_products_service
 
@@ -134,7 +149,13 @@ async def list_featured_products(
     if not page_ids:
         return {"products": [], "next_offset": 0, "total": total}
 
-    defaults = await regos_defaults_service.get_regos_defaults(session, company_id)
+    defaults = await regos_defaults_service.apply_regos_session_overrides(
+        session,
+        company_id,
+        user_id,
+        warehouse_id=warehouse_id,
+        price_type_id=price_type_id,
+    )
     warehouse = defaults.get("warehouse")
     price_type = defaults.get("price_type")
     include_zero_quantity = bool(defaults.get("zero_quantity", False))

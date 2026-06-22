@@ -45,3 +45,13 @@ async def patch_user_settings(
             session.add(UserSetting(user_id=user.id, key=key, value=value))
     await session.flush()
     return await get_user_settings(session, user.id)
+
+
+async def delete_user_setting(session: AsyncSession, user: User, key: str) -> None:
+    result = await session.execute(
+        select(UserSetting).where(UserSetting.user_id == user.id, UserSetting.key == key)
+    )
+    row = result.scalar_one_or_none()
+    if row is not None:
+        await session.delete(row)
+        await session.flush()

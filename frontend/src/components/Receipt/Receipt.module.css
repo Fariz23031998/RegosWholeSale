@@ -55,6 +55,27 @@
   font-weight: 700;
   margin-top: 6px;
 }
+.debtRow {
+  font-weight: 600;
+  color: var(--color-warning, #b45309);
+}
+.closedWithoutPayment {
+  margin-top: 10px;
+  padding: 10px 12px;
+  background: var(--color-warning-soft, #fef3c7);
+  border-radius: var(--radius-sm);
+  text-align: center;
+}
+.closedWithoutPaymentTitle {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-warning, #b45309);
+  margin-bottom: 4px;
+}
+.closedWithoutPaymentDebt {
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
 .thanks {
   text-align: center;
   margin-top: 16px;

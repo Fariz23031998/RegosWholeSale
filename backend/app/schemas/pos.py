@@ -14,12 +14,18 @@ class PosSettings(BaseModel):
     tendered_quick_amounts: list[float] = Field(
         default_factory=lambda: list(DEFAULT_TENDERED_QUICK_AMOUNTS)
     )
+    auto_open_qty_keypad: bool = False
 
 
 class UserPosSettings(BaseModel):
+    allow_out_of_stock: bool = False
+    tendered_quick_amounts: list[float] = Field(
+        default_factory=lambda: list(DEFAULT_TENDERED_QUICK_AMOUNTS)
+    )
     default_category: DefaultCategorySetting = Field(
         default_factory=lambda: DefaultCategorySetting(mode="all")
     )
+    auto_open_qty_keypad: bool = False
 
 
 class PosSettingsResponse(BaseModel):
@@ -33,7 +39,11 @@ class UserPosSettingsResponse(BaseModel):
 class PosSettingsPatchRequest(BaseModel):
     allow_out_of_stock: bool | None = None
     tendered_quick_amounts: list[float] | None = None
+    auto_open_qty_keypad: bool | None = None
 
 
 class UserPosSettingsPatchRequest(BaseModel):
+    allow_out_of_stock: bool | None = None
+    tendered_quick_amounts: list[float] | None = None
     default_category: DefaultCategorySetting | None = None
+    auto_open_qty_keypad: bool | None = None

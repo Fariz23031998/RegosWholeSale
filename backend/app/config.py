@@ -17,10 +17,19 @@ class Settings(BaseSettings):
     regos_oauth_token_url: str = "https://auth.regos.uz/oauth/token"
     regos_client_id: str = ""
     regos_client_secret: str = ""
+    # Public base URL for Telegram bot webhooks and REGOS integration HandleWebhook
+    telegram_webhook_base_url: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def regos_webhook_url(self) -> str | None:
+        base = self.telegram_webhook_base_url.strip().rstrip("/")
+        if not base:
+            return None
+        return f"{base}/api/v1/regos/webhook"
 
 
 @lru_cache

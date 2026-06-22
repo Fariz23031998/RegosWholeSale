@@ -3,6 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, require_permission
 from app.database import get_db
+from app.schemas.pos import UserPosSettingsPatchRequest, UserPosSettingsResponse
+from app.schemas.settings import RegosDefaultsPatchRequest, RegosDefaultsResponse
 from app.schemas.users import (
     PermissionsUpdateRequest,
     SchedulesUpdateRequest,
@@ -10,6 +12,8 @@ from app.schemas.users import (
     UserDetailResponse,
     UserUpdateRequest,
 )
+from app.services import pos_settings as pos_settings_service
+from app.services import regos_defaults as regos_defaults_service
 from app.services import users as users_service
 from app.services.permissions import set_user_permissions
 from app.services.users import get_company_user, user_to_dict
@@ -127,3 +131,83 @@ async def update_schedules(
     await session.flush()
     user = await get_company_user(session, current.company_id, user.id)
     return UserDetailResponse(**user_to_dict(user))
+
+
+@router.get("/{user_id}/settings/pos", response_model=UserPosSettingsResponse)
+async def get_user_pos_settings(
+    user_id: int,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> UserPosSettingsResponse:
+    user = await get_company_user(session, current.company_id, user_id)
+    settings = await pos_settings_service.get_effective_pos_settings(
+        session, user.id, current.company_id
+    )
+    return UserPosSettingsResponse(settings=settings)
+
+
+@router.patch("/{user_id}/settings/pos", response_model=UserPosSettingsResponse)
+async def patch_user_pos_settings(
+    user_id: int,
+    body: UserPosSettingsPatchRequest,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> UserPosSettingsResponse:
+    user = await get_company_user(session, current.company_id, user_id)
+    settings = await pos_settings_service.patch_user_pos_settings(
+        session,
+        user,
+        body.model_dump(exclude_unset=True),
+    )
+    return UserPosSettingsResponse(settings=settings)
+
+
+@router.delete("/{user_id}/settings/pos", response_model=UserPosSettingsResponse)
+async def clear_user_pos_settings(
+    user_id: int,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> UserPosSettingsResponse:
+    user = await get_company_user(session, current.company_id, user_id)
+    settings = await pos_settings_service.clear_user_pos_settings(session, user)
+    return UserPosSettingsResponse(settings=settings)
+
+
+@router.get("/{user_id}/settings/regos-defaults", response_model=RegosDefaultsResponse)
+async def get_user_regos_defaults(
+    user_id: int,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> RegosDefaultsResponse:
+    user = await get_company_user(session, current.company_id, user_id)
+    defaults = await regos_defaults_service.get_effective_enriched_regos_defaults(
+        session, user.id, current.company_id
+    )
+    return RegosDefaultsResponse(defaults=defaults)
+
+
+@router.patch("/{user_id}/settings/regos-defaults", response_model=RegosDefaultsResponse)
+async def patch_user_regos_defaults(
+    user_id: int,
+    body: RegosDefaultsPatchRequest,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> RegosDefaultsResponse:
+    user = await get_company_user(session, current.company_id, user_id)
+    defaults = await regos_defaults_service.patch_user_regos_defaults(
+        session,
+        user,
+        body.model_dump(exclude_unset=True),
+    )
+    return RegosDefaultsResponse(defaults=defaults)
+
+
+@router.delete("/{user_id}/settings/regos-defaults", response_model=RegosDefaultsResponse)
+async def clear_user_regos_defaults(
+    user_id: int,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> RegosDefaultsResponse:
+    user = await get_company_user(session, current.company_id, user_id)
+    defaults = await regos_defaults_service.clear_user_regos_defaults(session, user)
+    return RegosDefaultsResponse(defaults=defaults)

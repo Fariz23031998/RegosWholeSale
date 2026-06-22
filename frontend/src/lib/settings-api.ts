@@ -70,6 +70,10 @@ export async function fetchRegosReferenceOptions(
   return apiRequest("/api/v1/regos/reference-options", { token });
 }
 
+export async function fetchMyRegosDefaults(token: string): Promise<RegosDefaultsResponse> {
+  return apiRequest("/api/v1/me/settings/regos-defaults", { token });
+}
+
 export async function fetchUserPosSettings(token: string): Promise<UserPosSettingsResponse> {
   return apiRequest("/api/v1/me/settings/pos", { token });
 }

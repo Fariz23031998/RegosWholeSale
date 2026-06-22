@@ -12,8 +12,16 @@ type Props = {
 
 export function ReceiptModal({ sale, onClose }: Props) {
   if (!sale) return null;
+  const closedWithoutPayment =
+    (sale.amountPaid ?? 0) <= 0 && (sale.balanceDue ?? 0) > 0;
+
   return (
-    <Modal open={!!sale} onClose={onClose} title="Sale Complete" size="md">
+    <Modal
+      open={!!sale}
+      onClose={onClose}
+      title={closedWithoutPayment ? "Closed without payment" : "Sale Complete"}
+      size="md"
+    >
       <div className="print-area">
         <ReceiptView sale={sale} />
       </div>

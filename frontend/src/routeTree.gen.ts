@@ -14,6 +14,8 @@ import { Route as RegisterRouteImport } from './routes/register'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
+import { Route as AppUsersRouteImport } from './routes/_app.users'
+import { Route as AppTelegramUsersRouteImport } from './routes/_app.telegram-users'
 import { Route as AppSettingsRouteImport } from './routes/_app.settings'
 import { Route as AppSalesRouteImport } from './routes/_app.sales'
 import { Route as AppReturnsRouteImport } from './routes/_app.returns'
@@ -41,6 +43,16 @@ const AppRoute = AppRouteImport.update({
 const AppIndexRoute = AppIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppUsersRoute = AppUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTelegramUsersRoute = AppTelegramUsersRouteImport.update({
+  id: '/telegram-users',
+  path: '/telegram-users',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsRoute = AppSettingsRouteImport.update({
@@ -73,6 +85,8 @@ export interface FileRoutesByFullPath {
   '/returns': typeof AppReturnsRoute
   '/sales': typeof AppSalesRoute
   '/settings': typeof AppSettingsRoute
+  '/telegram-users': typeof AppTelegramUsersRoute
+  '/users': typeof AppUsersRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -82,6 +96,8 @@ export interface FileRoutesByTo {
   '/returns': typeof AppReturnsRoute
   '/sales': typeof AppSalesRoute
   '/settings': typeof AppSettingsRoute
+  '/telegram-users': typeof AppTelegramUsersRoute
+  '/users': typeof AppUsersRoute
   '/': typeof AppIndexRoute
 }
 export interface FileRoutesById {
@@ -94,6 +110,8 @@ export interface FileRoutesById {
   '/_app/returns': typeof AppReturnsRoute
   '/_app/sales': typeof AppSalesRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/_app/telegram-users': typeof AppTelegramUsersRoute
+  '/_app/users': typeof AppUsersRoute
   '/_app/': typeof AppIndexRoute
 }
 export interface FileRouteTypes {
@@ -107,6 +125,8 @@ export interface FileRouteTypes {
     | '/returns'
     | '/sales'
     | '/settings'
+    | '/telegram-users'
+    | '/users'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -116,6 +136,8 @@ export interface FileRouteTypes {
     | '/returns'
     | '/sales'
     | '/settings'
+    | '/telegram-users'
+    | '/users'
     | '/'
   id:
     | '__root__'
@@ -127,6 +149,8 @@ export interface FileRouteTypes {
     | '/_app/returns'
     | '/_app/sales'
     | '/_app/settings'
+    | '/_app/telegram-users'
+    | '/_app/users'
     | '/_app/'
   fileRoutesById: FileRoutesById
 }
@@ -174,6 +198,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/users': {
+      id: '/_app/users'
+      path: '/users'
+      fullPath: '/users'
+      preLoaderRoute: typeof AppUsersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/telegram-users': {
+      id: '/_app/telegram-users'
+      path: '/telegram-users'
+      fullPath: '/telegram-users'
+      preLoaderRoute: typeof AppTelegramUsersRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings': {
       id: '/_app/settings'
       path: '/settings'
@@ -210,6 +248,8 @@ interface AppRouteChildren {
   AppReturnsRoute: typeof AppReturnsRoute
   AppSalesRoute: typeof AppSalesRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppTelegramUsersRoute: typeof AppTelegramUsersRoute
+  AppUsersRoute: typeof AppUsersRoute
   AppIndexRoute: typeof AppIndexRoute
 }
 
@@ -218,6 +258,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppReturnsRoute: AppReturnsRoute,
   AppSalesRoute: AppSalesRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppTelegramUsersRoute: AppTelegramUsersRoute,
+  AppUsersRoute: AppUsersRoute,
   AppIndexRoute: AppIndexRoute,
 }
 

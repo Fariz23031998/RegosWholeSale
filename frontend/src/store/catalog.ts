@@ -1,12 +1,16 @@
 import { create } from "zustand";
 import type { Product } from "@/types/catalog";
 
+export type CatalogViewMode = "single" | "double" | "list";
+
 type CatalogState = {
   products: Product[];
   refreshNonce: number;
+  mobileViewMode: CatalogViewMode;
   setProducts: (products: Product[]) => void;
   appendProducts: (products: Product[]) => void;
   requestRefresh: () => void;
+  setMobileViewMode: (mode: CatalogViewMode) => void;
   decrementStock: (productId: string, qty: number) => void;
   incrementStock: (productId: string, qty: number) => void;
 };
@@ -14,8 +18,10 @@ type CatalogState = {
 export const useCatalog = create<CatalogState>((set) => ({
   products: [],
   refreshNonce: 0,
+  mobileViewMode: "double",
   setProducts: (products) => set({ products }),
   requestRefresh: () => set((s) => ({ refreshNonce: s.refreshNonce + 1 })),
+  setMobileViewMode: (mode) => set({ mobileViewMode: mode }),
   appendProducts: (products) =>
     set((s) => {
       const seen = new Set(s.products.map((p) => p.id));

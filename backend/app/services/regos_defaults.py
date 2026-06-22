@@ -4,9 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import bad_request, not_found
 from app.core.regos_api import regos_async_api_request_for_company
-from app.models import Company
+from app.models import Company, User
+from app.services import settings as settings_service
 
 REGOS_DEFAULTS_KEY = "regos_defaults"
+USER_REGOS_DEFAULTS_KEY = "regos_defaults"
 DOC_WHOLESALE_MODEL = "DocWholeSale"
 
 REFERENCE_ENDPOINTS = {
@@ -34,6 +36,9 @@ REFERENCE_NAMES = {
     "currency": "currency",
     "firm": "firm",
 }
+
+DEFAULT_VAT_CALCULATION_TYPE = "Exclude"
+VAT_CALCULATION_TYPES = frozenset({"No", "Exclude", "Include"})
 
 REFERENCE_REQUESTS = {
     "warehouse": {
@@ -76,6 +81,18 @@ CHECKOUT_REQUIRED_DEFAULTS = (
     "firm",
 )
 
+MERGEABLE_OPTION_KEYS = (
+    "warehouse",
+    "price_type",
+    "partner",
+    "currency",
+    "firm",
+    "payment_category",
+    "attached_user",
+)
+MERGEABLE_BOOL_KEYS = ("zero_quantity", "zero_price")
+MERGEABLE_ENUM_KEYS = ("vat_calculation_type",)
+
 
 async def get_doc_wholesale_document_type_id(
     session: AsyncSession, company_id: int
@@ -101,8 +118,81 @@ async def get_doc_wholesale_document_type_id(
     return option_id
 
 
-async def get_regos_defaults(session: AsyncSession, company_id: int) -> dict[str, Any]:
-    return await get_stored_regos_defaults(session, company_id)
+async def get_regos_defaults(
+    session: AsyncSession, company_id: int, *, user_id: int | None = None
+) -> dict[str, Any]:
+    if user_id is None:
+        return await get_stored_regos_defaults(session, company_id)
+    return await get_effective_stored_regos_defaults(session, user_id, company_id)
+
+
+async def get_effective_stored_regos_defaults(
+    session: AsyncSession, user_id: int, company_id: int
+) -> dict[str, Any]:
+    company_defaults = await get_stored_regos_defaults(session, company_id)
+    user_overrides = await _get_user_regos_overrides(session, user_id)
+    return _merge_stored_defaults(company_defaults, user_overrides)
+
+
+async def get_effective_enriched_regos_defaults(
+    session: AsyncSession, user_id: int, company_id: int
+) -> dict[str, Any]:
+    defaults = await get_effective_stored_regos_defaults(session, user_id, company_id)
+    return await enrich_checkout_defaults(session, company_id, defaults, refresh=True)
+
+
+async def patch_user_regos_defaults(
+    session: AsyncSession, user: User, patch: dict[str, Any]
+) -> dict[str, Any]:
+    if not patch:
+        return await get_effective_enriched_regos_defaults(session, user.id, user.company_id)
+
+    all_settings = await settings_service.get_user_settings(session, user.id)
+    current = _raw_user_regos_overrides(all_settings.get(USER_REGOS_DEFAULTS_KEY))
+    updates = await _resolve_patch(session, user.company_id, patch)
+    for key, value in updates.items():
+        if value is None:
+            current.pop(key, None)
+        else:
+            current[key] = value
+
+    await settings_service.patch_user_settings(
+        session,
+        user,
+        {USER_REGOS_DEFAULTS_KEY: current},
+    )
+    return await get_effective_enriched_regos_defaults(session, user.id, user.company_id)
+
+
+async def clear_user_regos_defaults(session: AsyncSession, user: User) -> dict[str, Any]:
+    await settings_service.delete_user_setting(session, user, USER_REGOS_DEFAULTS_KEY)
+    return await get_effective_enriched_regos_defaults(session, user.id, user.company_id)
+
+
+async def apply_regos_session_overrides(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    *,
+    warehouse_id: int | None = None,
+    price_type_id: int | None = None,
+    partner_id: int | None = None,
+) -> dict[str, Any]:
+    defaults = await get_effective_stored_regos_defaults(session, user_id, company_id)
+    patch: dict[str, Any] = {}
+    if warehouse_id is not None:
+        patch["warehouse_id"] = warehouse_id
+    if price_type_id is not None:
+        patch["price_type_id"] = price_type_id
+    if partner_id is not None:
+        patch["partner_id"] = partner_id
+    if not patch:
+        return defaults
+
+    updates = await _resolve_patch(session, company_id, patch)
+    merged = dict(defaults)
+    merged.update(updates)
+    return merged
 
 
 async def get_enriched_regos_defaults(session: AsyncSession, company_id: int) -> dict[str, Any]:
@@ -225,6 +315,11 @@ async def _resolve_patch(
             updates["attached_user"] = await _resolve_reference_value(
                 session, company_id, "attached_user", value
             )
+        elif field == "vat_calculation_type":
+            if value is None:
+                updates["vat_calculation_type"] = None
+            else:
+                updates["vat_calculation_type"] = _normalize_vat_calculation_type(value)
         elif field == "zero_quantity":
             updates["zero_quantity"] = bool(value)
         elif field == "zero_price":
@@ -331,9 +426,41 @@ def _normalize_defaults(raw: Any) -> dict[str, Any]:
         "firm": _normalize_option(data.get("firm")),
         "payment_category": _normalize_option(data.get("payment_category")),
         "attached_user": _normalize_option(data.get("attached_user")),
+        "vat_calculation_type": _normalize_vat_calculation_type(
+            data.get("vat_calculation_type", DEFAULT_VAT_CALCULATION_TYPE)
+        ),
         "zero_quantity": bool(data.get("zero_quantity", False)),
         "zero_price": bool(data.get("zero_price", False)),
     }
+
+
+def _raw_user_regos_overrides(raw: Any) -> dict[str, Any]:
+    return dict(raw) if isinstance(raw, dict) else {}
+
+
+async def _get_user_regos_overrides(session: AsyncSession, user_id: int) -> dict[str, Any]:
+    all_settings = await settings_service.get_user_settings(session, user_id)
+    return _raw_user_regos_overrides(all_settings.get(USER_REGOS_DEFAULTS_KEY))
+
+
+def _merge_stored_defaults(
+    company_defaults: dict[str, Any], user_overrides: dict[str, Any]
+) -> dict[str, Any]:
+    merged = dict(company_defaults)
+
+    for key in MERGEABLE_OPTION_KEYS:
+        if key in user_overrides:
+            merged[key] = _normalize_option(user_overrides[key])
+
+    for key in MERGEABLE_BOOL_KEYS:
+        if key in user_overrides:
+            merged[key] = bool(user_overrides[key])
+
+    for key in MERGEABLE_ENUM_KEYS:
+        if key in user_overrides:
+            merged[key] = _normalize_vat_calculation_type(user_overrides[key])
+
+    return merged
 
 
 def _normalize_option(raw: Any) -> dict[str, Any] | None:
@@ -394,6 +521,23 @@ def _reference_display_name(item: dict[str, Any], kind: str) -> str:
 
 def _map_option(item: dict[str, Any]) -> dict[str, Any]:
     return _map_reference_item(item, "warehouse")
+
+
+def _normalize_vat_calculation_type(raw: Any) -> str:
+    if raw is None:
+        return DEFAULT_VAT_CALCULATION_TYPE
+    if raw in VAT_CALCULATION_TYPES:
+        return str(raw)
+    if raw in (1, "1"):
+        return "No"
+    if raw in (2, "2"):
+        return "Exclude"
+    if raw in (3, "3"):
+        return "Include"
+    raise bad_request(
+        "Invalid VAT calculation type. Use No, Exclude, or Include.",
+        "REGOS_VAT_CALCULATION_TYPE_INVALID",
+    )
 
 
 async def _get_company(session: AsyncSession, company_id: int) -> Company:

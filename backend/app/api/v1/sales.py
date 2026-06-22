@@ -25,6 +25,7 @@ async def checkout_sale(
         current.company_id,
         current.id,
         body.model_dump(),
+        allow_regos_overrides="pos.override_regos" in current.permissions,
     )
     return CheckoutResponse(**result)
 
@@ -43,6 +44,7 @@ async def get_wholesale_documents(
     data = await regos_sales_service.list_wholesale_documents(
         session,
         current.company_id,
+        user_id=current.id,
         start_date=start_date,
         end_date=end_date,
         partner_ids=partner_ids,
