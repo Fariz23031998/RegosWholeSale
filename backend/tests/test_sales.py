@@ -16,12 +16,37 @@ FULL_DEFAULTS = {
 
 ENRICHED_DEFAULTS = {
     **FULL_DEFAULTS,
-    "currency": {"id": 44, "name": "UZS"},
+    "currency": {"id": 44, "name": "UZS", "code_chr": "UZS", "exchange_rate": 1},
     "firm": {"id": 55, "name": "Main firm"},
     "vat_calculation_type": "Include",
 }
 
+PAYMENT_TYPE_UZS = {
+    "id": 5,
+    "name": "Cash",
+    "is_cash": True,
+    "allows_debt": False,
+    "image_url": "",
+    "currency": {"id": 44, "name": "UZS", "code_chr": "UZS", "exchange_rate": 1},
+}
+
+PAYMENT_TYPE_USD = {
+    "id": 6,
+    "name": "Dollars",
+    "is_cash": True,
+    "allows_debt": False,
+    "image_url": "",
+    "currency": {"id": 2, "name": "US Dollar", "code_chr": "USD", "exchange_rate": 12600},
+}
+
 DOC_WHOLESALE_TYPE_ID = 77
+DOC_WHOLESALE_RETURN_TYPE_ID = 88
+
+
+async def _mock_payment_type_by_id(_session, _company_id, payment_type_id: int) -> dict:
+    if payment_type_id == PAYMENT_TYPE_USD["id"]:
+        return PAYMENT_TYPE_USD
+    return PAYMENT_TYPE_UZS
 
 
 async def _configure_checkout_defaults(client: AsyncClient, headers: dict) -> None:
@@ -33,6 +58,10 @@ async def _configure_checkout_defaults(client: AsyncClient, headers: dict) -> No
 
 
 @patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
     "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
     new_callable=AsyncMock,
 )
@@ -43,10 +72,12 @@ async def test_checkout_happy_path(
     mock_regos: AsyncMock,
     mock_enriched: AsyncMock,
     mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
     client: AsyncClient,
 ) -> None:
     mock_enriched.return_value = ENRICHED_DEFAULTS
     mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
     mock_regos.side_effect = [
         {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
         {"ok": True, "result": {}},
@@ -74,7 +105,7 @@ async def test_checkout_happy_path(
     assert response.status_code == 200
     data = response.json()
     assert data["wholesale_doc_id"] == 1001
-    assert data["wholesale_code"] == "WS-1001"
+    assert data["wholesale_code"] == "1001"
     assert data["payment_doc_id"] == 3001
     assert data["total"] == 20000
     assert len(data["lines"]) == 1
@@ -113,11 +144,17 @@ async def test_checkout_happy_path(
     assert payment_payload["document"] == 1001
     assert payment_payload["type_id"] == 5
     assert payment_payload["amount"] == 20000
+    assert payment_payload["exchange_rate"] == 1
+    assert payment_payload["description"] == "1001"
     assert payment_payload["firm_id"] == 55
     assert payment_payload["category_id"] == 66
     assert payment_payload["document_type_id"] == DOC_WHOLESALE_TYPE_ID
 
 
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
 @patch(
     "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
     new_callable=AsyncMock,
@@ -129,10 +166,12 @@ async def test_checkout_partial_payment(
     mock_regos: AsyncMock,
     mock_enriched: AsyncMock,
     mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
     client: AsyncClient,
 ) -> None:
     mock_enriched.return_value = ENRICHED_DEFAULTS
     mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
     mock_regos.side_effect = [
         {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
         {"ok": True, "result": {}},
@@ -168,8 +207,131 @@ async def test_checkout_partial_payment(
 
     payment_payload = mock_regos.call_args_list[5][0][3]
     assert payment_payload["amount"] == 8000
+    assert payment_payload["exchange_rate"] == 1
 
 
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_converts_payment_to_payment_currency(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 2001}]},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {"code": "WS-1001"}},
+        {"ok": True, "result": {"new_id": 3001}},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(client, email="checkout-fx@test.com", company_name="FX Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 1, "price": 120000}],
+            "discount": 0,
+            "payment_type_id": 6,
+            "total": 120000,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["amount_paid"] == 120000
+    assert data["balance_due"] == 0
+    assert data["payment"]["payment_amount"] == 9.52
+    assert data["payment"]["payment_currency"]["code_chr"] == "USD"
+    assert data["payment"]["sale_currency"]["code_chr"] == "UZS"
+
+    payment_payload = mock_regos.call_args_list[5][0][3]
+    assert payment_payload["type_id"] == 6
+    assert payment_payload["amount"] == 9.52
+    assert payment_payload["exchange_rate"] == 12600
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_partial_payment_converts_to_payment_currency(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 2001}]},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {"code": "WS-1001"}},
+        {"ok": True, "result": {"new_id": 3001}},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(
+        client, email="checkout-fx-partial@test.com", company_name="FX Partial Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 1, "price": 120000}],
+            "discount": 0,
+            "payment_type_id": 6,
+            "total": 120000,
+            "amount_paid": 63000,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["amount_paid"] == 63000
+    assert data["balance_due"] == 57000
+    assert data["payment"]["payment_amount"] == 5.0
+
+    payment_payload = mock_regos.call_args_list[5][0][3]
+    assert payment_payload["amount"] == 5.0
+    assert payment_payload["exchange_rate"] == 12600
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
 @patch(
     "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
     new_callable=AsyncMock,
@@ -181,10 +343,12 @@ async def test_checkout_deferred_payment_skips_payment_doc(
     mock_regos: AsyncMock,
     mock_enriched: AsyncMock,
     mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
     client: AsyncClient,
 ) -> None:
     mock_enriched.return_value = ENRICHED_DEFAULTS
     mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
     mock_regos.side_effect = [
         {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
         {"ok": True, "result": {}},
@@ -218,6 +382,84 @@ async def test_checkout_deferred_payment_skips_payment_doc(
     calls = [call[0][2] for call in mock_regos.call_args_list]
     assert "docpayment/add" not in calls
     assert "docpayment/perform" not in calls
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_multiple_payments(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 2001}]},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {"code": "WS-1001"}},
+        {"ok": True, "result": {"new_id": 3001}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {"new_id": 3002}},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(
+        client, email="checkout-multi@test.com", company_name="Multi Pay Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 1, "price": 120000}],
+            "discount": 0,
+            "total": 120000,
+            "payments": [
+                {"payment_type_id": 5, "amount_paid": 50000},
+                {"payment_type_id": 6, "amount_paid": 70000},
+            ],
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["amount_paid"] == 120000
+    assert data["balance_due"] == 0
+    assert data["is_fully_paid"] is True
+    assert len(data["payments"]) == 2
+    assert data["payments"][0]["payment_type_id"] == 5
+    assert data["payments"][0]["amount_paid"] == 50000
+    assert data["payments"][1]["payment_type_id"] == 6
+    assert data["payments"][1]["amount_paid"] == 70000
+    assert data["payments"][1]["payment_amount"] == 5.56
+
+    payment_calls = [
+        call[0][3]
+        for call in mock_regos.call_args_list
+        if call[0][2] == "docpayment/add"
+    ]
+    assert len(payment_calls) == 2
+    assert payment_calls[0]["type_id"] == 5
+    assert payment_calls[0]["amount"] == 50000
+    assert payment_calls[0]["description"] == "1001"
+    assert payment_calls[1]["type_id"] == 6
+    assert payment_calls[1]["amount"] == 5.56
+    assert payment_calls[1]["description"] == "1001"
 
 
 @patch(
@@ -276,6 +518,10 @@ async def test_checkout_missing_defaults_returns_400(client: AsyncClient) -> Non
 
 
 @patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
     "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
     new_callable=AsyncMock,
 )
@@ -286,12 +532,14 @@ async def test_checkout_perform_failure_returns_error(
     mock_regos: AsyncMock,
     mock_enriched: AsyncMock,
     mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
     client: AsyncClient,
 ) -> None:
     from app.core.exceptions import AppError
 
     mock_enriched.return_value = ENRICHED_DEFAULTS
     mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
     mock_regos.side_effect = [
         {"ok": True, "result": {"new_id": 1001}},
         {"ok": True, "result": {}},
@@ -395,7 +643,6 @@ async def test_list_wholesale_operations(mock_regos: AsyncMock, client: AsyncCli
 async def test_employee_can_read_wholesale_documents(client: AsyncClient) -> None:
     reg = await register_owner(client, email="sales-read@test.com", company_name="Read Co")
     owner_token = reg.json()["access_token"]
-    company_slug = reg.json()["user"]["company"]["slug"]
     owner_headers = {"Authorization": f"Bearer {owner_token}"}
 
     await client.post(
@@ -411,7 +658,7 @@ async def test_employee_can_read_wholesale_documents(client: AsyncClient) -> Non
 
     emp_login = await client.post(
         "/api/v1/auth/login",
-        json={"company_slug": company_slug, "login": "cashier", "password": "employee123"},
+        json={"login": "cashier", "password": "employee123"},
     )
     emp_headers = {"Authorization": f"Bearer {emp_login.json()['access_token']}"}
 
@@ -424,3 +671,342 @@ async def test_employee_can_read_wholesale_documents(client: AsyncClient) -> Non
 
     assert response.status_code == 200
     assert response.json()["documents"] == []
+
+
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_list_wholesale_return_documents(mock_regos: AsyncMock, client: AsyncClient) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "id": 2001,
+                "code": "WRT-2001",
+                "date": 1717000000,
+                "amount": 5000,
+                "performed": True,
+                "description": "pulse:ws:1001|Damaged goods",
+                "partner": {"id": 33, "name": "Walk-in"},
+                "stock": {"id": 11, "name": "Main warehouse"},
+            }
+        ],
+        "next_offset": 0,
+        "total": 1,
+    }
+
+    reg = await register_owner(client, email="returns-list@test.com", company_name="Returns Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.get("/api/v1/sales/wholesale-return-documents", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["documents"][0]["code"] == "WRT-2001"
+    assert data["documents"][0]["wholesale_doc_id"] == 1001
+    assert data["documents"][0]["reason"] == "Damaged goods"
+
+    payload = mock_regos.call_args[0][3]
+    assert payload["performed"] is True
+    assert mock_regos.call_args[0][2] == "docwholesalereturn/get"
+
+
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_wholesale_return_summary(mock_regos: AsyncMock, client: AsyncClient) -> None:
+    mock_regos.side_effect = [
+        {
+            "ok": True,
+            "result": [
+                {
+                    "id": 2001,
+                    "code": "WRT-2001",
+                    "date": 1717000000,
+                    "amount": 5000,
+                    "performed": True,
+                    "description": "pulse:ws:1001",
+                    "partner": {"id": 33, "name": "Walk-in"},
+                    "stock": {"id": 11, "name": "Main warehouse"},
+                }
+            ],
+            "next_offset": 0,
+            "total": 1,
+        },
+        {
+            "ok": True,
+            "result": [
+                {
+                    "id": 6001,
+                    "document_id": 2001,
+                    "quantity": 1,
+                    "price": 5000,
+                    "item": {"id": 101, "name": "Cola"},
+                }
+            ],
+        },
+    ]
+
+    reg = await register_owner(client, email="returns-summary@test.com", company_name="Summary Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.get(
+        "/api/v1/sales/wholesale-documents/1001/return-summary",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["wholesale_doc_id"] == 1001
+    assert data["items"] == [{"item_id": 101, "returned_qty": 1}]
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_return_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_create_wholesale_return(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_return_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_return_doc_type_id.return_value = DOC_WHOLESALE_RETURN_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = [
+        {
+            "ok": True,
+            "result": [
+                {
+                    "id": 5001,
+                    "document_id": 1001,
+                    "quantity": 2,
+                    "price": 10000,
+                    "price2": 10000,
+                    "item": {"id": 101, "name": "Cola"},
+                }
+            ],
+        },
+        {"ok": True, "result": [], "next_offset": 0, "total": 0},
+        {"ok": True, "result": {"new_id": 2001, "code": "WRT-2001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 6001}]},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {"code": "WRT-2001"}},
+        {"ok": True, "result": {"new_id": 3001}},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(client, email="returns-create@test.com", company_name="Create Return Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/wholesale-returns",
+        headers=headers,
+        json={
+            "wholesale_doc_id": 1001,
+            "items": [{"regos_item_id": 101, "qty": 1}],
+            "total": 10000,
+            "reason": "Customer changed mind",
+            "payment_type_id": 5,
+            "amount_paid": 10000,
+            "partner_id": 33,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["wholesale_return_doc_id"] == 2001
+    assert data["wholesale_return_code"] == "WRT-2001"
+    assert data["wholesale_doc_id"] == 1001
+    assert data["total"] == 10000
+    assert data["payment_doc_id"] == 3001
+    assert data["amount_paid"] == 10000
+    assert data["is_fully_paid"] is True
+
+    calls = [call[0][2] for call in mock_regos.call_args_list]
+    assert calls == [
+        "wholesaleoperation/get",
+        "docwholesalereturn/get",
+        "docwholesalereturn/add",
+        "docwholesalereturn/lock",
+        "wholesalereturnoperation/add",
+        "docwholesalereturn/unlock",
+        "docwholesalereturn/perform",
+        "docpayment/add",
+        "docpayment/perform",
+    ]
+
+    add_payload = mock_regos.call_args_list[2][0][3]
+    assert add_payload["description"] == "pulse:ws:1001|Customer changed mind"
+
+    payment_payload = mock_regos.call_args_list[7][0][3]
+    assert payment_payload["document"] == 2001
+    assert payment_payload["document_type_id"] == DOC_WHOLESALE_RETURN_TYPE_ID
+    assert payment_payload["amount"] == 10000
+
+
+PAYMENT_TYPE_DEBT = {
+    "id": 7,
+    "name": "On account",
+    "is_cash": False,
+    "allows_debt": True,
+    "image_url": "",
+    "currency": {"id": 44, "name": "UZS", "code_chr": "UZS", "exchange_rate": 1},
+}
+
+
+async def _mock_payment_type_with_debt(_session, _company_id, payment_type_id: int) -> dict:
+    if payment_type_id == PAYMENT_TYPE_DEBT["id"]:
+        return PAYMENT_TYPE_DEBT
+    return await _mock_payment_type_by_id(_session, _company_id, payment_type_id)
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_return_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_create_manual_wholesale_return(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_return_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_return_doc_type_id.return_value = DOC_WHOLESALE_RETURN_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 2001, "code": "WRT-2001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 6001}]},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {"code": "WRT-2001"}},
+        {"ok": True, "result": {"new_id": 3001}},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(client, email="manual-return@test.com", company_name="Manual Return Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/wholesale-returns",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 2, "price": 5000}],
+            "total": 10000,
+            "payment_type_id": 5,
+            "amount_paid": 10000,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["wholesale_return_doc_id"] == 2001
+    assert data["wholesale_doc_id"] is None
+    assert data["total"] == 10000
+
+    add_payload = mock_regos.call_args_list[0][0][3]
+    assert add_payload["description"] == "pulse:manual"
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_return_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_create_wholesale_return_deferred_refund(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_return_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_return_doc_type_id.return_value = DOC_WHOLESALE_RETURN_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_with_debt
+    mock_regos.side_effect = [
+        {
+            "ok": True,
+            "result": [
+                {
+                    "id": 5001,
+                    "document_id": 1001,
+                    "quantity": 2,
+                    "price": 10000,
+                    "price2": 10000,
+                    "item": {"id": 101, "name": "Cola"},
+                }
+            ],
+        },
+        {"ok": True, "result": [], "next_offset": 0, "total": 0},
+        {"ok": True, "result": {"new_id": 2001, "code": "WRT-2001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 6001}]},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {"code": "WRT-2001"}},
+    ]
+
+    reg = await register_owner(client, email="deferred-return@test.com", company_name="Deferred Return Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/wholesale-returns",
+        headers=headers,
+        json={
+            "wholesale_doc_id": 1001,
+            "items": [{"regos_item_id": 101, "qty": 1}],
+            "total": 10000,
+            "payment_type_id": 7,
+            "amount_paid": 0,
+            "partner_id": 33,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["amount_paid"] == 0
+    assert data["balance_due"] == 10000
+    assert data["is_fully_paid"] is False
+    assert data["payment_doc_id"] is None
+
+    calls = [call[0][2] for call in mock_regos.call_args_list]
+    assert "docpayment/add" not in calls
+
+
+@pytest.mark.asyncio
+async def test_manual_return_requires_price(client: AsyncClient) -> None:
+    reg = await register_owner(client, email="manual-price@test.com", company_name="Manual Price Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/wholesale-returns",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 1}],
+            "total": 10000,
+            "payment_type_id": 5,
+        },
+    )
+    assert response.status_code == 422

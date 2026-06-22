@@ -1,4 +1,5 @@
 import type { Product } from "@/types/catalog";
+import type { RegosCurrencyOption } from "@/types/settings";
 
 export type Cashier = {
   id: string;
@@ -71,11 +72,22 @@ export const SEED_CASHIERS: Cashier[] = [
 const SEED_EPOCH = new Date("2025-01-15T12:00:00Z").getTime();
 const dayMs = 24 * 60 * 60 * 1000;
 
+import type { RegosCurrencyOption } from "@/types/settings";
+
 export type SaleItem = {
   productId: string;
   name: string;
   price: number;
   qty: number;
+};
+
+export type SalePaymentLine = {
+  paymentTypeId: number;
+  paymentTypeName: string;
+  isCash: boolean;
+  amountPaid: number;
+  paymentCurrency?: RegosCurrencyOption | null;
+  paymentAmount?: number;
 };
 
 export type Sale = {
@@ -95,6 +107,12 @@ export type Sale = {
   change?: number;
   amountPaid?: number;
   balanceDue?: number;
+  saleCurrency?: RegosCurrencyOption | null;
+  paymentCurrency?: RegosCurrencyOption | null;
+  paymentAmount?: number;
+  tenderedInPaymentCurrency?: number;
+  changeInPaymentCurrency?: number;
+  payments?: SalePaymentLine[];
   type?: "sale" | "refund";
   refundOf?: string;
   reason?: string;

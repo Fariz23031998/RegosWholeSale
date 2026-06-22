@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Delete } from "lucide-react";
 import clsx from "clsx";
 import { Modal } from "@/components/posui/Modal";
@@ -14,11 +14,19 @@ type Props = {
   initialPrice?: number;
   productName?: string;
   maxQty?: number | null;
+  allowDecimals?: boolean;
   onClose: () => void;
   onConfirm: (qty: number, price?: number) => void;
 };
 
-const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "DEL"];
+const QTY_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", ".", "0", "DEL"];
+const INTEGER_QTY_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0", "DEL"];
+
+function sanitizeIntegerQtyInput(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  if (!digits) return "0";
+  return digits.replace(/^0+(?=\d)/, "") || "0";
+}
 
 export function QtyKeypad({
   open,
@@ -26,6 +34,7 @@ export function QtyKeypad({
   initialPrice,
   productName,
   maxQty,
+  allowDecimals = true,
   onClose,
   onConfirm,
 }: Props) {
@@ -35,6 +44,12 @@ export function QtyKeypad({
   const [focus, setFocus] = useState<Field>("qty");
   const [replaceOnNextInput, setReplaceOnNextInput] = useState(true);
 
+  const qtyAllowsDecimalInput = allowDecimals || (hasPrice && focus === "price");
+  const keys = useMemo(
+    () => (qtyAllowsDecimalInput ? QTY_KEYS : INTEGER_QTY_KEYS),
+    [qtyAllowsDecimalInput],
+  );
+
   const focusField = (field: Field) => {
     setFocus(field);
     setReplaceOnNextInput(true);
@@ -42,12 +57,13 @@ export function QtyKeypad({
 
   useEffect(() => {
     if (open) {
-      setQtyVal(String(initial));
+      const initialQty = allowDecimals ? initial : Math.round(initial);
+      setQtyVal(String(initialQty));
       setPriceVal(String(initialPrice ?? 0));
       setFocus("qty");
       setReplaceOnNextInput(true);
     }
-  }, [open, initial, initialPrice]);
+  }, [open, initial, initialPrice, allowDecimals]);
 
   useEffect(() => {
     if (!open) return;
@@ -56,6 +72,7 @@ export function QtyKeypad({
         e.preventDefault();
         press(e.key);
       } else if (e.key === "." || e.key === ",") {
+        if (focus === "qty" && !allowDecimals) return;
         e.preventDefault();
         press(".");
       } else if (e.key === "Backspace") {
@@ -72,9 +89,9 @@ export function QtyKeypad({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, qty, price, focus, replaceOnNextInput]);
+  }, [open, qty, price, focus, replaceOnNextInput, allowDecimals, hasPrice]);
 
-  function replaceValue(setter: (value: string) => void, k: string) {
+  function replaceValue(setter: (value: string) => void, k: string, field: Field) {
     if (k === "DEL") {
       setter("0");
       return;
@@ -83,36 +100,59 @@ export function QtyKeypad({
       setter("0.");
       return;
     }
+    if (field === "qty" && !allowDecimals) {
+      setter(sanitizeIntegerQtyInput(k));
+      return;
+    }
     setter(k);
   }
 
-  function update(setter: (u: (v: string) => string) => void, k: string) {
-    if (k === "DEL")
-      return setter((v) => (v.length <= 1 ? "0" : v.slice(0, -1)));
+  function update(
+    setter: (u: (v: string) => string) => void,
+    k: string,
+    field: Field,
+  ) {
+    if (k === "DEL") {
+      return setter((v) => {
+        const next = v.length <= 1 ? "0" : v.slice(0, -1);
+        return field === "qty" && !allowDecimals
+          ? sanitizeIntegerQtyInput(next)
+          : next;
+      });
+    }
     if (k === ".") {
       return setter((v) => (v.includes(".") ? v : (v || "0") + "."));
     }
     setter((v) => {
+      if (field === "qty" && !allowDecimals) {
+        const next = sanitizeIntegerQtyInput(v === "0" ? k : v + k);
+        return next.length > 8 ? v : next;
+      }
       const next = v === "0" ? k : v + k;
       return next.length > 8 ? v : next;
     });
   }
 
   function press(k: string) {
-    const setter = focus === "price" ? setPriceVal : setQtyVal;
+    if (k === "." && focus === "qty" && !allowDecimals) return;
+
+    const field = focus;
+    const setter = field === "price" ? setPriceVal : setQtyVal;
 
     if (replaceOnNextInput) {
-      replaceValue(setter, k);
+      replaceValue(setter, k, field);
       if (k !== "DEL") setReplaceOnNextInput(false);
       return;
     }
 
-    update(setter, k);
+    update(setter, k, field);
   }
 
   function confirm() {
-    const n = Math.max(0, parseFloat(qty || "0") || 0);
-    let rounded = Math.round(n * 1000) / 1000;
+    const parsed = Math.max(0, parseFloat(qty || "0") || 0);
+    let rounded = allowDecimals
+      ? Math.round(parsed * 1000) / 1000
+      : Math.round(parsed);
     if (maxQty !== null && maxQty !== undefined) {
       rounded = Math.min(rounded, maxQty);
     }
@@ -184,7 +224,7 @@ export function QtyKeypad({
         )}
 
         <div className={styles.grid}>
-          {KEYS.map((k) => (
+          {keys.map((k) => (
             <button
               key={k}
               className={`${styles.key} ${k === "DEL" ? styles.action : ""}`}

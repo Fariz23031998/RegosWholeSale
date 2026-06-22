@@ -40,7 +40,6 @@ async def test_upsert_and_status_regos_token(client: AsyncClient) -> None:
 async def test_employee_cannot_manage_regos_token(client: AsyncClient) -> None:
     reg = await register_owner(client, email="regos-emp@test.com", company_name="Emp Co")
     owner_token = reg.json()["access_token"]
-    company_slug = reg.json()["user"]["company"]["slug"]
 
     await client.post(
         "/api/v1/users",
@@ -55,7 +54,7 @@ async def test_employee_cannot_manage_regos_token(client: AsyncClient) -> None:
 
     emp_login = await client.post(
         "/api/v1/auth/login",
-        json={"company_slug": company_slug, "login": "cashier", "password": "employee123"},
+        json={"login": "cashier", "password": "employee123"},
     )
     emp_token = emp_login.json()["access_token"]
 
@@ -122,6 +121,9 @@ async def test_products_use_default_warehouse_and_price_type(
                     "id": 101,
                     "name": "Cola",
                     "articul": "SKU-101",
+                    "code": "COLA-101",
+                    "base_barcode": "4601234567890",
+                    "unit": {"name": "piece", "type": "pcs"},
                     "group": {"name": "Beverages"},
                 },
                 "quantity": {"allowed": 7},
@@ -161,6 +163,10 @@ async def test_products_use_default_warehouse_and_price_type(
     assert data["products"][0]["id"] == "101"
     assert data["products"][0]["stock"] == 7
     assert data["products"][0]["category"] == "Beverages"
+    assert data["products"][0]["code"] == "COLA-101"
+    assert data["products"][0]["barcode"] == "4601234567890"
+    assert data["products"][0]["unit_name"] == "piece"
+    assert data["products"][0]["unit_type"] == 1
     assert data["next_offset"] == 0
 
     call_args = mock_regos.call_args
@@ -168,7 +174,7 @@ async def test_products_use_default_warehouse_and_price_type(
     assert call_args[0][3]["stock_id"] == 11
     assert call_args[0][3]["price_type_id"] == 22
     assert call_args[0][3]["offset"] == 3
-    assert call_args[0][3]["limit"] == 25
+    assert call_args[0][3]["limit"] == 60
     assert call_args[0][3]["search"] == "cola"
     assert call_args[0][3]["zero_quantity"] is False
     assert call_args[0][3]["zero_price"] is False
@@ -214,6 +220,16 @@ async def test_payment_types_route_returns_regos_payment_types(
                 "is_cash": True,
                 "enabled": "True",
                 "image_url": "https://cdn.regos.uz/cash.png",
+                "account": {
+                    "id": 10,
+                    "name": "Cash account",
+                    "currency": {
+                        "id": 44,
+                        "name": "UZS",
+                        "code_chr": "UZS",
+                        "exchange_rate": 1,
+                    },
+                },
             },
             {
                 "id": 2,
@@ -221,6 +237,16 @@ async def test_payment_types_route_returns_regos_payment_types(
                 "is_cash": False,
                 "enabled": "backoffice",
                 "image_url": "",
+                "account": {
+                    "id": 11,
+                    "name": "Card account",
+                    "currency": {
+                        "id": 2,
+                        "name": "US Dollar",
+                        "code_chr": "USD",
+                        "exchange_rate": 12600,
+                    },
+                },
             },
             {
                 "id": 3,
@@ -255,13 +281,117 @@ async def test_payment_types_route_returns_regos_payment_types(
     assert data["payment_types"][0]["id"] == 1
     assert data["payment_types"][0]["name"] == "Наличные"
     assert data["payment_types"][0]["is_cash"] is True
+    assert data["payment_types"][0]["currency"]["code_chr"] == "UZS"
     assert data["payment_types"][1]["id"] == 2
     assert data["payment_types"][1]["is_cash"] is False
+    assert data["payment_types"][1]["currency"]["code_chr"] == "USD"
 
     mock_regos.assert_called_once()
     call_args = mock_regos.call_args
     assert call_args[0][2] == "paymenttype/get"
     assert call_args[0][3] == {}
+
+
+@patch("app.services.regos_partners.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_partners_route_lists_and_searches(mock_regos: AsyncMock, client: AsyncClient) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "id": 1,
+                "name": "Walk-in",
+                "legal_status": "Natural",
+                "phones": "+998901112233",
+                "inn": "123456789",
+                "group": {"id": 2, "name": "Buyers"},
+                "deleted_mark": False,
+            }
+        ],
+        "next_offset": 1,
+        "total": 1,
+    }
+
+    reg = await register_owner(client, email="partners@test.com", company_name="Partners Co")
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await client.put(
+        "/api/v1/regos/tokens",
+        headers=headers,
+        json={"token": REGOS_TOKEN, "is_replicable": False},
+    )
+
+    response = await client.get(
+        "/api/v1/regos/partners",
+        headers=headers,
+        params={"search": "walk"},
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["total"] == 1
+    assert data["partners"][0]["id"] == 1
+    assert data["partners"][0]["name"] == "Walk-in"
+    assert data["partners"][0]["group_id"] == 2
+    assert data["partners"][0]["group_name"] == "Buyers"
+
+    mock_regos.assert_called_once()
+    assert mock_regos.call_args[0][2] == "partner/get"
+    assert mock_regos.call_args[0][3]["search"] == "walk"
+    assert mock_regos.call_args[0][3]["deleted_mark"] is False
+
+
+@patch("app.services.regos_partners.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_partners_create_edit_delete_mark(mock_regos: AsyncMock, client: AsyncClient) -> None:
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 16}},
+        {"ok": True, "result": {"row_affected": 1}},
+        {"ok": True, "result": {"row_affected": 1}},
+    ]
+
+    reg = await register_owner(client, email="partners-crud@test.com", company_name="Partners CRUD Co")
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await client.put(
+        "/api/v1/regos/tokens",
+        headers=headers,
+        json={"token": REGOS_TOKEN, "is_replicable": False},
+    )
+
+    create = await client.post(
+        "/api/v1/regos/partners",
+        headers=headers,
+        json={
+            "group_id": 2,
+            "legal_status": "Natural",
+            "name": "Trade max",
+            "phones": "90 567-123-23",
+        },
+    )
+    assert create.status_code == 200
+    assert create.json()["id"] == 16
+
+    update = await client.patch(
+        "/api/v1/regos/partners/16",
+        headers=headers,
+        json={"name": "Trade max updated"},
+    )
+    assert update.status_code == 200
+    assert update.json()["row_affected"] == 1
+
+    delete_mark = await client.post(
+        "/api/v1/regos/partners/16/delete-mark",
+        headers=headers,
+    )
+    assert delete_mark.status_code == 200
+    assert delete_mark.json()["row_affected"] == 1
+
+    assert mock_regos.call_args_list[0][0][2] == "partner/add"
+    assert mock_regos.call_args_list[1][0][2] == "partner/edit"
+    assert mock_regos.call_args_list[2][0][2] == "partner/deletemark"
 
 
 @patch("app.services.regos_products.regos_async_api_request_for_company", new_callable=AsyncMock)
@@ -390,6 +520,239 @@ async def test_products_route_filters_zero_quantity_when_disabled(
     data = response.json()
     assert [product["id"] for product in data["products"]] == ["2"]
     assert mock_regos.await_count == 2
+
+
+@patch("app.services.regos_products.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_products_pagination_uses_regos_cursor_when_filters_skip_rows(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    def regos_page(_session, _company_id, _method, payload):
+        offset = payload["offset"]
+        if offset == 0:
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "item": {"id": 1, "name": "Zero stock", "articul": "SKU-1", "group": {"id": 10, "name": "A"}},
+                        "quantity": {"allowed": 0},
+                        "price": 12000,
+                    }
+                ],
+                "next_offset": 1,
+                "total": 100,
+            }
+        if offset == 1:
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "item": {"id": 2, "name": "Available", "articul": "SKU-2", "group": {"id": 10, "name": "A"}},
+                        "quantity": {"allowed": 5},
+                        "price": 13000,
+                    }
+                ],
+                "next_offset": 2,
+                "total": 100,
+            }
+        return {"ok": True, "result": [], "next_offset": 0, "total": 100}
+
+    mock_regos.side_effect = regos_page
+
+    reg = await register_owner(client, email="products-cursor@test.com", company_name="Products Cursor Co")
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await client.patch(
+        "/api/v1/company/settings",
+        headers=headers,
+        json={
+            "settings": {
+                "regos_defaults": {
+                    "warehouse": {"id": 11, "name": "Main warehouse"},
+                    "price_type": {"id": 22, "name": "Retail"},
+                    "zero_quantity": False,
+                    "zero_price": False,
+                }
+            }
+        },
+    )
+
+    first = await client.get("/api/v1/regos/products", headers=headers, params={"limit": 1, "offset": 0})
+    assert first.status_code == 200
+    first_data = first.json()
+    assert [product["id"] for product in first_data["products"]] == ["2"]
+    assert first_data["next_offset"] == 2
+
+    second = await client.get(
+        "/api/v1/regos/products",
+        headers=headers,
+        params={"limit": 1, "offset": first_data["next_offset"]},
+    )
+    assert second.status_code == 200
+    second_data = second.json()
+    assert second_data["products"] == []
+    assert second_data["next_offset"] == 0
+
+
+@patch("app.services.regos_products.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_products_keep_scanning_when_regos_omits_next_offset(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    """Regos sometimes returns next_offset=0 while more rows exist (common with zero_price on)."""
+
+    def regos_page(_session, _company_id, _method, payload):
+        offset = payload["offset"]
+        if offset == 0:
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "item": {"id": index, "name": f"Item {index}", "articul": f"SKU-{index}", "group": {"id": 10, "name": "A"}},
+                        "quantity": {"allowed": 5},
+                        "price": 0 if index % 2 == 0 else 1000,
+                    }
+                    for index in range(1, 11)
+                ],
+                "next_offset": 0,
+                "total": 25,
+            }
+        if offset == 10:
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "item": {"id": index, "name": f"Item {index}", "articul": f"SKU-{index}", "group": {"id": 10, "name": "A"}},
+                        "quantity": {"allowed": 5},
+                        "price": 0,
+                    }
+                    for index in range(11, 31)
+                ],
+                "next_offset": 0,
+                "total": 25,
+            }
+        if offset == 20:
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "item": {"id": index, "name": f"Item {index}", "articul": f"SKU-{index}", "group": {"id": 10, "name": "A"}},
+                        "quantity": {"allowed": 5},
+                        "price": 0,
+                    }
+                    for index in range(21, 26)
+                ],
+                "next_offset": 0,
+                "total": 25,
+            }
+        return {"ok": True, "result": [], "next_offset": 0, "total": 25}
+
+    mock_regos.side_effect = regos_page
+
+    reg = await register_owner(client, email="products-stall@test.com", company_name="Products Stall Co")
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await client.patch(
+        "/api/v1/company/settings",
+        headers=headers,
+        json={
+            "settings": {
+                "regos_defaults": {
+                    "warehouse": {"id": 11, "name": "Main warehouse"},
+                    "price_type": {"id": 22, "name": "Retail"},
+                    "zero_quantity": True,
+                    "zero_price": True,
+                }
+            }
+        },
+    )
+
+    response = await client.get("/api/v1/regos/products", headers=headers, params={"limit": 20, "offset": 0})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["products"]) == 20
+    assert data["next_offset"] == 20
+    assert mock_regos.await_count >= 2
+
+    second = await client.get(
+        "/api/v1/regos/products",
+        headers=headers,
+        params={"limit": 20, "offset": data["next_offset"]},
+    )
+    assert second.status_code == 200
+    second_data = second.json()
+    assert len(second_data["products"]) == 5
+    assert second_data["next_offset"] == 0
+
+
+@patch("app.services.regos_products.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_products_partial_page_without_total_returns_scan_cursor(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    """Regos often omits total; client must still receive a cursor to continue."""
+
+    def regos_page(_session, _company_id, _method, payload):
+        offset = payload["offset"]
+        if offset == 0:
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "item": {"id": index, "name": f"Item {index}", "articul": f"SKU-{index}", "group": {"id": 10, "name": "A"}},
+                        "quantity": {"allowed": 5},
+                        "price": 0,
+                    }
+                    for index in range(1, 11)
+                ],
+                "next_offset": 0,
+                "total": 0,
+            }
+        if offset == 10:
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "item": {"id": index, "name": f"Item {index}", "articul": f"SKU-{index}", "group": {"id": 10, "name": "A"}},
+                        "quantity": {"allowed": 5},
+                        "price": 0,
+                    }
+                    for index in range(11, 21)
+                ],
+                "next_offset": 0,
+                "total": 0,
+            }
+        return {"ok": True, "result": [], "next_offset": 0, "total": 0}
+
+    mock_regos.side_effect = regos_page
+
+    reg = await register_owner(client, email="products-no-total@test.com", company_name="No Total Co")
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await client.patch(
+        "/api/v1/company/settings",
+        headers=headers,
+        json={
+            "settings": {
+                "regos_defaults": {
+                    "warehouse": {"id": 11, "name": "Main warehouse"},
+                    "price_type": {"id": 22, "name": "Retail"},
+                    "zero_quantity": True,
+                    "zero_price": True,
+                }
+            }
+        },
+    )
+
+    response = await client.get("/api/v1/regos/products", headers=headers, params={"limit": 20, "offset": 0})
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["products"]) == 20
+    assert data["next_offset"] == 0
+    assert mock_regos.await_count >= 2
 
 
 @pytest.mark.asyncio
@@ -539,7 +902,6 @@ async def test_get_regos_reference_options_requires_settings_manage(
 
     reg = await register_owner(client, email="opts@test.com", company_name="Opts Co")
     owner_token = reg.json()["access_token"]
-    company_slug = reg.json()["user"]["company"]["slug"]
 
     await client.post(
         "/api/v1/users",
@@ -559,7 +921,7 @@ async def test_get_regos_reference_options_requires_settings_manage(
 
     emp_login = await client.post(
         "/api/v1/auth/login",
-        json={"company_slug": company_slug, "login": "cashier2", "password": "employee123"},
+        json={"login": "cashier2", "password": "employee123"},
     )
     emp_headers = {"Authorization": f"Bearer {emp_login.json()['access_token']}"}
     denied = await client.get("/api/v1/regos/reference-options", headers=emp_headers)
@@ -662,7 +1024,6 @@ async def test_employee_can_read_but_not_update_regos_defaults(
 
     reg = await register_owner(client, email="defaults-emp@test.com", company_name="Defaults Emp Co")
     owner_token = reg.json()["access_token"]
-    company_slug = reg.json()["user"]["company"]["slug"]
     owner_headers = {"Authorization": f"Bearer {owner_token}"}
 
     await client.patch(
@@ -683,7 +1044,7 @@ async def test_employee_can_read_but_not_update_regos_defaults(
     )
     emp_login = await client.post(
         "/api/v1/auth/login",
-        json={"company_slug": company_slug, "login": "cashier3", "password": "employee123"},
+        json={"login": "cashier3", "password": "employee123"},
     )
     emp_headers = {"Authorization": f"Bearer {emp_login.json()['access_token']}"}
 

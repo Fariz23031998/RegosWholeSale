@@ -1,5 +1,5 @@
-import { Search, Star } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { ImageOff, Search, Star, Undo2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
 import { canAddProductToCart } from "@/lib/cart-stock";
@@ -20,14 +20,69 @@ import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
 import type { Product } from "@/types/catalog";
 import type { ProductGroup } from "@/types/catalog";
 import { CategoryBar } from "./CategoryBar";
+import { ReturnModal } from "@/components/Returns/ReturnModal";
 import styles from "./POS.module.css";
 
 const PAGE_SIZE = 20;
+const PREPARE_TIMEOUT_MS = 15_000;
+const MAX_GRID_FILL_ROUNDS = 50;
+
+function nextCatalogCursor(
+  cursor: number,
+  productsReturned: number,
+  nextOffset: number,
+): number {
+  if (nextOffset > cursor) return nextOffset;
+  if (productsReturned > 0) return cursor + productsReturned;
+  return 0;
+}
+
+function catalogHasMore(
+  res: { products: unknown[]; next_offset: number; total: number },
+  cursor: number,
+  loadedCount: number,
+): boolean {
+  if (res.next_offset > cursor) return true;
+  if (res.total > 0 && loadedCount < res.total) return true;
+  if (loadedCount < PAGE_SIZE && res.products.length > 0) return true;
+  return res.products.length > 0 && res.products.length < PAGE_SIZE;
+}
+
+function applyCatalogPage(
+  res: { products: Product[] },
+  mode: "replace" | "append",
+  loadedCount: number,
+  setProducts: (products: Product[]) => void,
+  appendProducts: (products: Product[]) => void,
+): number {
+  if (mode === "replace") {
+    setProducts(res.products);
+    return res.products.length;
+  }
+  if (res.products.length > 0) {
+    appendProducts(res.products);
+    return useCatalog.getState().products.length;
+  }
+  return loadedCount;
+}
 
 function productIdNumber(product: Product): number {
   if (typeof product.regos_item_id === "number") return product.regos_item_id;
   const parsed = Number.parseInt(product.id, 10);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function productDisplayName(product: Product): string {
+  const unitName = product.unit_name?.trim();
+  if (!unitName) return product.name;
+  return `${product.name} (${unitName})`;
+}
+
+function productCodeLine(product: Product): string {
+  const code = product.code?.trim();
+  const barcode = product.barcode?.trim();
+  if (code && barcode) return `${code} · ${barcode}`;
+  return code || barcode || product.sku;
 }
 
 export function ProductCatalog() {
@@ -41,17 +96,22 @@ export function ProductCatalog() {
   const add = useCart((s) => s.add);
   const cartItems = useCart((s) => s.items);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
+  const hydratePosConfig = usePosConfig((s) => s.hydrate);
   const sellContextHydrated = useSellContext((s) => s.hydrated);
+  const hydrateSellContext = useSellContext((s) => s.hydrate);
   const warehouseId = useSellContext((s) => s.warehouseId);
   const priceTypeId = useSellContext((s) => s.priceTypeId);
   const clearCart = useCart((s) => s.clear);
   const gridRef = useRef<HTMLDivElement | null>(null);
   const isLoadingMoreRef = useRef(false);
+  const isEnsuringGridRef = useRef(false);
   const lastRequestedOffsetRef = useRef<number | null>(null);
   const [q, setQ] = useState("");
   const [groups, setGroups] = useState<ProductGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [featuredOnly, setFeaturedOnly] = useState(false);
+  const [hideCardImages, setHideCardImages] = useState(false);
+  const [returnOpen, setReturnOpen] = useState(false);
   const [categoryReady, setCategoryReady] = useState(false);
   const [featuredIds, setFeaturedIds] = useState<Set<number>>(() => new Set());
   const view = useCatalog((s) => s.mobileViewMode);
@@ -60,8 +120,12 @@ export function ProductCatalog() {
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
+  const [loadMoreError, setLoadMoreError] = useState("");
+  const [settingsNonce, setSettingsNonce] = useState(0);
   const [nextOffset, setNextOffset] = useState(0);
   const [total, setTotal] = useState(0);
+
+  const isPreparing = Boolean(token && (!categoryReady || !sellContextHydrated));
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearch(q.trim()), 250);
@@ -124,7 +188,20 @@ export function ProductCatalog() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [token, settingsNonce]);
+
+  useEffect(() => {
+    if (!isPreparing) return;
+
+    const timer = window.setTimeout(() => {
+      setCategoryReady(true);
+      void hydrateSellContext(token, canOverrideRegos);
+      void hydratePosConfig(token);
+      setSettingsNonce((value) => value + 1);
+    }, PREPARE_TIMEOUT_MS);
+
+    return () => window.clearTimeout(timer);
+  }, [canOverrideRegos, hydratePosConfig, hydrateSellContext, isPreparing, token]);
 
   const selectedGroup = useMemo(
     () => groups.find((group) => group.id === selectedGroupId) ?? null,
@@ -165,6 +242,77 @@ export function ProductCatalog() {
     add(product);
   };
 
+  const catalogFetchParams = useCallback(
+    (offset: number) => ({
+      offset,
+      limit: PAGE_SIZE,
+      search,
+      groupId: isGlobalSearch ? null : selectedGroupId,
+      featuredOnly: isGlobalSearch ? false : featuredOnly,
+      ...(canOverrideRegos ? catalogOverrides : {}),
+    }),
+    [canOverrideRegos, catalogOverrides, featuredOnly, isGlobalSearch, search, selectedGroupId],
+  );
+
+  const catalogCursorRef = useRef(0);
+
+  const ensureMinimumGridProducts = useCallback(
+    async (startOffset: number, mode: "replace" | "append") => {
+      if (!token || isEnsuringGridRef.current) return;
+
+      isEnsuringGridRef.current = true;
+      let cursor = startOffset;
+      let loadedCount = mode === "replace" ? 0 : useCatalog.getState().products.length;
+      let pageMode: "replace" | "append" = mode;
+      if (mode === "replace") {
+        catalogCursorRef.current = 0;
+      }
+
+      try {
+        for (let round = 0; round < MAX_GRID_FILL_ROUNDS && loadedCount < PAGE_SIZE; round++) {
+          const res = await fetchCatalogProducts(token, catalogFetchParams(cursor));
+          const countBefore = loadedCount;
+
+          loadedCount = applyCatalogPage(
+            res,
+            pageMode,
+            loadedCount,
+            setProducts,
+            appendProducts,
+          );
+          pageMode = "append";
+
+          setNextOffset(res.next_offset);
+          setTotal(res.total);
+          catalogCursorRef.current = res.next_offset;
+          lastRequestedOffsetRef.current = null;
+
+          if (loadedCount >= PAGE_SIZE) break;
+
+          const hasMore = catalogHasMore(res, cursor, loadedCount);
+          if (!hasMore) break;
+
+          const nextCursor = nextCatalogCursor(cursor, res.products.length, res.next_offset);
+          if (nextCursor <= cursor) break;
+
+          const uniqueAdded = loadedCount - countBefore;
+          if (uniqueAdded === 0 && res.products.length > 0) {
+            if (res.next_offset > cursor) {
+              cursor = res.next_offset;
+              continue;
+            }
+            break;
+          }
+
+          cursor = nextCursor;
+        }
+      } finally {
+        isEnsuringGridRef.current = false;
+      }
+    },
+    [appendProducts, catalogFetchParams, setProducts, token],
+  );
+
   const prevCatalogContextRef = useRef({ warehouseId, priceTypeId });
 
   useEffect(() => {
@@ -196,24 +344,12 @@ export function ProductCatalog() {
     const load = async () => {
       setLoading(true);
       setError("");
+      setLoadMoreError("");
       try {
-        const [groupsRes, productsRes] = await Promise.all([
-          fetchProductGroups(token),
-          fetchCatalogProducts(token, {
-            offset: 0,
-            limit: PAGE_SIZE,
-            search,
-            groupId: isGlobalSearch ? null : selectedGroupId,
-            featuredOnly: isGlobalSearch ? false : featuredOnly,
-            ...(canOverrideRegos ? catalogOverrides : {}),
-          }),
-        ]);
+        const groupsRes = await fetchProductGroups(token);
         if (cancelled) return;
-        lastRequestedOffsetRef.current = null;
         setGroups(groupsRes.groups);
-        setProducts(productsRes.products);
-        setNextOffset(productsRes.next_offset);
-        setTotal(productsRes.total);
+        await ensureMinimumGridProducts(0, "replace");
       } catch (err) {
         if (cancelled) return;
         lastRequestedOffsetRef.current = null;
@@ -244,42 +380,104 @@ export function ProductCatalog() {
     token,
     warehouseId,
     priceTypeId,
+    ensureMinimumGridProducts,
   ]);
 
-  const canLoadMore = nextOffset > 0 && (total === 0 || products.length < total);
+  const canLoadMore =
+    nextOffset > 0 || (total > 0 && products.length < total);
 
-  const loadMore = async () => {
-    if (!token || isLoadingMoreRef.current || !canLoadMore) return;
+  const loadMore = useCallback(
+    async (forcedOffset?: number) => {
+      const requestOffset =
+        forcedOffset ?? (nextOffset > 0 ? nextOffset : catalogCursorRef.current);
+      if (!token || isLoadingMoreRef.current) return;
+      if (requestOffset <= 0) return;
+      if (lastRequestedOffsetRef.current === requestOffset) return;
 
-    const requestOffset = nextOffset > 0 ? nextOffset : products.length;
-    if (lastRequestedOffsetRef.current === requestOffset) return;
+      isLoadingMoreRef.current = true;
+      lastRequestedOffsetRef.current = requestOffset;
+      setLoadingMore(true);
+      setLoadMoreError("");
+      try {
+        const countBefore = useCatalog.getState().products.length;
 
-    isLoadingMoreRef.current = true;
-    lastRequestedOffsetRef.current = requestOffset;
-    setLoadingMore(true);
-    setError("");
-    try {
-      const res = await fetchCatalogProducts(token, {
-        offset: requestOffset,
-        limit: PAGE_SIZE,
-        search,
-        groupId: isGlobalSearch ? null : selectedGroupId,
-        featuredOnly: isGlobalSearch ? false : featuredOnly,
-        ...(canOverrideRegos ? catalogOverrides : {}),
-      });
-      if (res.products.length > 0) {
-        appendProducts(res.products);
+        if (countBefore < PAGE_SIZE) {
+          await ensureMinimumGridProducts(requestOffset, "append");
+          return;
+        }
+
+        const res = await fetchCatalogProducts(token, catalogFetchParams(requestOffset));
+        if (res.products.length > 0) {
+          appendProducts(res.products);
+        }
+        setNextOffset(res.next_offset);
+        setTotal(res.total);
+        catalogCursorRef.current = res.next_offset;
+      } catch (err) {
+        lastRequestedOffsetRef.current = null;
+        setLoadMoreError(formatAuthError(err));
+      } finally {
+        isLoadingMoreRef.current = false;
+        setLoadingMore(false);
       }
-      setNextOffset(res.next_offset > requestOffset ? res.next_offset : 0);
-      setTotal(res.total);
-    } catch (err) {
-      lastRequestedOffsetRef.current = null;
-      setError(formatAuthError(err));
-    } finally {
-      isLoadingMoreRef.current = false;
-      setLoadingMore(false);
+    },
+    [appendProducts, catalogFetchParams, ensureMinimumGridProducts, nextOffset, token],
+  );
+
+  const fillViewportIfNeeded = useCallback(() => {
+    const el = gridRef.current;
+    const needsMoreProducts = products.length < PAGE_SIZE && nextOffset > 0;
+
+    if (
+      !loading &&
+      !loadingMore &&
+      !isLoadingMoreRef.current &&
+      !isEnsuringGridRef.current &&
+      !error &&
+      !isPreparing &&
+      needsMoreProducts
+    ) {
+      void ensureMinimumGridProducts(nextOffset, "append");
+      return;
     }
-  };
+
+    if (!el || loading || loadingMore || isLoadingMoreRef.current || error || isPreparing) {
+      return;
+    }
+
+    if (nextOffset <= 0 || products.length === 0) return;
+
+    const remaining = el.scrollHeight - el.clientHeight;
+    if (remaining <= 240) {
+      void loadMore();
+    }
+  }, [
+    ensureMinimumGridProducts,
+    error,
+    isPreparing,
+    loadMore,
+    loading,
+    loadingMore,
+    nextOffset,
+    products.length,
+  ]);
+
+  useEffect(() => {
+    fillViewportIfNeeded();
+  }, [fillViewportIfNeeded, products.length, nextOffset, loading, loadingMore]);
+
+  useEffect(() => {
+    const el = gridRef.current;
+    if (!el) return;
+
+    const ro = new ResizeObserver(() => fillViewportIfNeeded());
+    ro.observe(el);
+    window.addEventListener("resize", fillViewportIfNeeded);
+    return () => {
+      ro.disconnect();
+      window.removeEventListener("resize", fillViewportIfNeeded);
+    };
+  }, [fillViewportIfNeeded]);
 
   const handleGridScroll = () => {
     const el = gridRef.current;
@@ -290,29 +488,42 @@ export function ProductCatalog() {
     }
   };
 
+  const fetchCatalogPage = async () => {
+    if (!token) return;
+
+    const groupsRes = await fetchProductGroups(token);
+    lastRequestedOffsetRef.current = null;
+    setGroups(groupsRes.groups);
+    await ensureMinimumGridProducts(0, "replace");
+  };
+
   const retry = async () => {
     if (!token) return;
     setLoading(true);
     setError("");
+    setLoadMoreError("");
     try {
-      const res = await fetchCatalogProducts(token, {
-        offset: 0,
-        limit: PAGE_SIZE,
-        search,
-        groupId: isGlobalSearch ? null : selectedGroupId,
-        featuredOnly: isGlobalSearch ? false : featuredOnly,
-        ...(canOverrideRegos ? catalogOverrides : {}),
-      });
-      lastRequestedOffsetRef.current = null;
-      setProducts(res.products);
-      setNextOffset(res.next_offset);
-      setTotal(res.total);
+      await fetchCatalogPage();
     } catch (err) {
       lastRequestedOffsetRef.current = null;
+      setProducts([]);
+      setGroups([]);
+      setNextOffset(0);
+      setTotal(0);
       setError(formatAuthError(err));
     } finally {
       setLoading(false);
     }
+  };
+
+  const retryStartup = () => {
+    if (!token) return;
+    setError("");
+    setLoadMoreError("");
+    setCategoryReady(false);
+    setSettingsNonce((value) => value + 1);
+    void hydrateSellContext(token, canOverrideRegos);
+    void hydratePosConfig(token);
   };
 
   const toggleFeatured = async (product: Product) => {
@@ -383,6 +594,30 @@ export function ProductCatalog() {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
+          <button
+            type="button"
+            className={clsx(
+              styles.catalogFilterBtn,
+              hideCardImages && styles.catalogFilterBtnActive,
+            )}
+            aria-label="Hide product images"
+            aria-pressed={hideCardImages}
+            title="Hide images"
+            onClick={() => setHideCardImages((value) => !value)}
+          >
+            <ImageOff size={16} />
+            <span className={styles.catalogFilterBtnLabel}>Hide images</span>
+          </button>
+          <button
+            type="button"
+            className={styles.catalogFilterBtn}
+            aria-label="Return products"
+            title="Return"
+            onClick={() => setReturnOpen(true)}
+          >
+            <Undo2 size={16} />
+            <span className={styles.catalogFilterBtnLabel}>Return</span>
+          </button>
         </form>
 
         <CategoryBar
@@ -404,29 +639,46 @@ export function ProductCatalog() {
         />
       </div>
 
-      {error ? (
-        <div className={styles.statusBox}>
-          <div>{error}</div>
-          <button type="button" className={styles.retryBtn} onClick={() => void retry()}>
-            Retry
-          </button>
-        </div>
-      ) : loading ? (
-        <div className={styles.empty}>Loading products from Regos...</div>
-      ) : products.length === 0 ? (
-        <div className={styles.empty}>
-          {featuredOnly ? "No featured products yet. Star items to add them here." : "No products match your search."}
-        </div>
-      ) : (
-        <>
-          <div
-            ref={gridRef}
-            onScroll={handleGridScroll}
-            className={styles.gridScroll}
-          >
+      <div
+        ref={gridRef}
+        onScroll={handleGridScroll}
+        className={styles.gridScroll}
+      >
+        {error ? (
+          <div className={styles.statusBox}>
+            <div>{error}</div>
+            <div className={styles.statusActions}>
+              <button type="button" className={styles.retryBtn} onClick={() => void retry()}>
+                Retry
+              </button>
+              {isPreparing ? (
+                <button type="button" className={styles.retryBtn} onClick={retryStartup}>
+                  Restart setup
+                </button>
+              ) : null}
+            </div>
+          </div>
+        ) : isPreparing ? (
+          <div className={styles.empty}>Preparing catalog...</div>
+        ) : loading ? (
+          <div className={styles.empty}>Loading products from Regos...</div>
+        ) : products.length === 0 ? (
+          <div className={styles.empty}>
+            {featuredOnly
+              ? "No featured products yet. Star items to add them here."
+              : "No products match your search."}
+            <div className={styles.statusActions}>
+              <button type="button" className={styles.retryBtn} onClick={() => void retry()}>
+                Refresh
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
             <div
               className={clsx(
                 styles.grid,
+                hideCardImages && styles.gridNoImages,
                 isMobile && view === "single" && styles.gridSingle,
                 isMobile && view === "double" && styles.gridDouble,
                 isMobile && view === "list" && styles.gridList,
@@ -444,7 +696,11 @@ export function ProductCatalog() {
               return (
                 <div
                   key={p.id}
-                  className={clsx(styles.card, cannotAdd && styles.cardDisabled)}
+                  className={clsx(
+                    styles.card,
+                    hideCardImages && styles.cardNoImage,
+                    cannotAdd && styles.cardDisabled,
+                  )}
                   role="button"
                   tabIndex={cannotAdd ? -1 : 0}
                   aria-disabled={cannotAdd}
@@ -457,32 +713,54 @@ export function ProductCatalog() {
                     }
                   }}
                 >
-                  <div className={styles.cardMedia}>
-                    <img
-                      src={p.image || PRODUCT_FALLBACK_IMAGE}
-                      alt={p.name}
-                      className={styles.cardImg}
-                      loading="lazy"
-                    />
-                    <button
-                      type="button"
-                      className={clsx(styles.featureBtn, isFeatured && styles.featureBtnActive)}
-                      aria-label={isFeatured ? "Remove from featured" : "Add to featured"}
-                      aria-pressed={isFeatured}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void toggleFeatured(p);
-                      }}
-                    >
-                      <Star size={15} fill={isFeatured ? "currentColor" : "none"} />
-                    </button>
-                  </div>
+                  {!hideCardImages ? (
+                    <div className={styles.cardMedia}>
+                      <img
+                        src={p.image || PRODUCT_FALLBACK_IMAGE}
+                        alt={p.name}
+                        className={styles.cardImg}
+                        loading="lazy"
+                      />
+                      <button
+                        type="button"
+                        className={clsx(styles.featureBtn, isFeatured && styles.featureBtnActive)}
+                        aria-label={isFeatured ? "Remove from featured" : "Add to featured"}
+                        aria-pressed={isFeatured}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          void toggleFeatured(p);
+                        }}
+                      >
+                        <Star size={15} fill={isFeatured ? "currentColor" : "none"} />
+                      </button>
+                    </div>
+                  ) : null}
                   <div className={styles.cardBody}>
-                    <div className={styles.cardName}>{p.name}</div>
+                    <div className={styles.cardBodyHead}>
+                      <div className={styles.cardName}>{productDisplayName(p)}</div>
+                      {hideCardImages ? (
+                        <button
+                          type="button"
+                          className={clsx(
+                            styles.featureBtn,
+                            styles.featureBtnInline,
+                            isFeatured && styles.featureBtnActive,
+                          )}
+                          aria-label={isFeatured ? "Remove from featured" : "Add to featured"}
+                          aria-pressed={isFeatured}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void toggleFeatured(p);
+                          }}
+                        >
+                          <Star size={15} fill={isFeatured ? "currentColor" : "none"} />
+                        </button>
+                      ) : null}
+                    </div>
                     <div className={styles.cardCategory}>
                       {selectedGroup?.name ?? p.category}
                     </div>
-                    <div className={styles.cardSku}>{p.sku}</div>
+                    <div className={styles.cardSku}>{productCodeLine(p)}</div>
                     <div className={styles.cardFoot}>
                       <div className={styles.cardPrice}>{formatCurrency(p.price)}</div>
                       <span
@@ -500,11 +778,34 @@ export function ProductCatalog() {
               );
             })}
             </div>
-          </div>
 
-          {loadingMore ? <div className={styles.loadingMore}>Loading more products...</div> : null}
-        </>
-      )}
+            {loadMoreError ? (
+              <div className={styles.statusBox}>
+                <div>{loadMoreError}</div>
+                <button type="button" className={styles.retryBtn} onClick={() => void loadMore()}>
+                  Retry loading more
+                </button>
+              </div>
+            ) : null}
+
+            {loadingMore ? <div className={styles.loadingMore}>Loading more products...</div> : null}
+
+            {canLoadMore && !loadingMore ? (
+              <div className={styles.loadMoreWrap}>
+                <p className={styles.loadMoreHint}>
+                  Showing {products.length}
+                  {total > products.length ? ` · more available` : ""}
+                </p>
+                <button type="button" className={styles.loadMoreBtn} onClick={() => void loadMore()}>
+                  Load more
+                </button>
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+
+      <ReturnModal open={returnOpen} onClose={() => setReturnOpen(false)} />
     </div>
   );
 }

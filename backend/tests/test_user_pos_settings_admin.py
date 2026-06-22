@@ -8,7 +8,6 @@ from helpers import register_owner
 async def test_manager_can_configure_user_pos_settings(client: AsyncClient) -> None:
     reg = await register_owner(client, email="mgr-pos@test.com", company_name="Mgr POS Co")
     owner_token = reg.json()["access_token"]
-    company_slug = reg.json()["user"]["company"]["slug"]
     headers = {"Authorization": f"Bearer {owner_token}"}
 
     await client.patch(
@@ -57,7 +56,7 @@ async def test_manager_can_configure_user_pos_settings(client: AsyncClient) -> N
 
     emp_login = await client.post(
         "/api/v1/auth/login",
-        json={"company_slug": company_slug, "login": "cashier", "password": "employee123"},
+        json={"login": "cashier", "password": "employee123"},
     )
     emp_headers = {"Authorization": f"Bearer {emp_login.json()['access_token']}"}
 

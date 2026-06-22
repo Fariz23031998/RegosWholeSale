@@ -1,3 +1,10 @@
+export type RegosCurrencyOption = {
+  id: number;
+  name: string;
+  code_chr?: string | null;
+  exchange_rate?: number | null;
+};
+
 export type RegosDefaultOption = {
   id: number;
   name: string;
@@ -9,7 +16,7 @@ export type RegosDefaults = {
   warehouse: RegosDefaultOption | null;
   price_type: RegosDefaultOption | null;
   partner: RegosDefaultOption | null;
-  currency: RegosDefaultOption | null;
+  currency: RegosCurrencyOption | null;
   firm: RegosDefaultOption | null;
   payment_category: RegosDefaultOption | null;
   attached_user: RegosDefaultOption | null;

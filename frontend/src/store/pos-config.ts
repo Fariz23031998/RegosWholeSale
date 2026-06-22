@@ -25,6 +25,9 @@ export const usePosConfig = create<PosConfigState>((set) => ({
       });
       return;
     }
+
+    set({ hydrated: false });
+
     try {
       const res = await fetchUserPosSettings(token);
       const amounts = res.settings.tendered_quick_amounts;
@@ -33,15 +36,15 @@ export const usePosConfig = create<PosConfigState>((set) => ({
         tenderedQuickAmounts:
           amounts.length > 0 ? amounts : DEFAULT_TENDERED_QUICK_AMOUNTS,
         autoOpenQtyKeypad: res.settings.auto_open_qty_keypad,
-        hydrated: true,
       });
     } catch {
       set({
         allowOutOfStock: false,
         tenderedQuickAmounts: DEFAULT_TENDERED_QUICK_AMOUNTS,
         autoOpenQtyKeypad: false,
-        hydrated: true,
       });
+    } finally {
+      set({ hydrated: true });
     }
   },
 }));

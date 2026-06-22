@@ -42,7 +42,6 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
 async def test_employee_can_read_but_not_update_pos_settings(client: AsyncClient) -> None:
     reg = await register_owner(client, email="pos-emp@test.com", company_name="POS Emp Co")
     owner_token = reg.json()["access_token"]
-    company_slug = reg.json()["user"]["company"]["slug"]
     headers = {"Authorization": f"Bearer {owner_token}"}
 
     await client.patch(
@@ -64,7 +63,7 @@ async def test_employee_can_read_but_not_update_pos_settings(client: AsyncClient
 
     emp_login = await client.post(
         "/api/v1/auth/login",
-        json={"company_slug": company_slug, "login": "cashier", "password": "employee123"},
+        json={"login": "cashier", "password": "employee123"},
     )
     emp_token = emp_login.json()["access_token"]
     emp_headers = {"Authorization": f"Bearer {emp_token}"}

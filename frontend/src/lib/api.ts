@@ -30,11 +30,27 @@ export function getApiBaseUrl(): string {
   return API_BASE;
 }
 
+const DEFAULT_TIMEOUT_MS = 30_000;
+
 type RequestOptions = {
   method?: string;
   body?: unknown;
   token?: string | null;
+  timeoutMs?: number;
 };
+
+function abortSignalForTimeout(timeoutMs: number): { signal: AbortSignal; clear: () => void } {
+  if (typeof AbortSignal.timeout === "function") {
+    return { signal: AbortSignal.timeout(timeoutMs), clear: () => {} };
+  }
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  return {
+    signal: controller.signal,
+    clear: () => clearTimeout(timer),
+  };
+}
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   if (!API_BASE) {
@@ -48,11 +64,28 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     headers.Authorization = `Bearer ${options.token}`;
   }
 
-  const res = await fetch(`${API_BASE}${path}`, {
-    method: options.method ?? (options.body !== undefined ? "POST" : "GET"),
-    headers,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-  });
+  const { signal, clear } = abortSignalForTimeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method: options.method ?? (options.body !== undefined ? "POST" : "GET"),
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal,
+    });
+  } catch (err) {
+    clear();
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, "Request timed out. Check your connection and try again.");
+    }
+    if (err instanceof TypeError) {
+      throw new ApiError(0, "Unable to reach the server. Check your connection and try again.");
+    }
+    throw err;
+  } finally {
+    clear();
+  }
 
   let data: unknown = null;
   const text = await res.text();

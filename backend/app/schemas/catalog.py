@@ -1,5 +1,7 @@
 from pydantic import BaseModel, Field
 
+from app.schemas.settings import RegosCurrencyOption
+
 
 class CatalogProduct(BaseModel):
     id: str
@@ -11,6 +13,10 @@ class CatalogProduct(BaseModel):
     stock: float = 0
     image: str = ""
     sku: str
+    barcode: str = ""
+    code: str = ""
+    unit_name: str = ""
+    unit_type: int | None = None
 
 
 class CatalogProductsResponse(BaseModel):
@@ -37,6 +43,7 @@ class PaymentType(BaseModel):
     is_cash: bool
     allows_debt: bool = False
     image_url: str = ""
+    currency: RegosCurrencyOption | None = None
 
 
 class PaymentTypesResponse(BaseModel):

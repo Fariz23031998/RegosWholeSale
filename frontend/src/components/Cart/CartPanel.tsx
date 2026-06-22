@@ -5,10 +5,13 @@ import { cartTotals, useCart } from "@/store/cart";
 import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
 import {
+  allowsDecimalQty,
   clampCartQty,
   canIncreaseCartQty,
+  formatCartQty,
   getProductStock,
   maxCartQty,
+  resolveCartUnitType,
 } from "@/lib/cart-stock";
 import { formatCurrency } from "@/lib/format";
 import { Button } from "@/components/posui/Button";
@@ -34,6 +37,10 @@ export function CartPanel() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const totals = cartTotals(items, discountMode, discountValue);
   const keypadItem = items.find((i) => i.productId === keypadFor) ?? null;
+  const keypadUnitType = keypadItem
+    ? resolveCartUnitType(keypadItem.unitType, catalogProducts, keypadItem.productId)
+    : undefined;
+  const keypadQtyAllowsDecimals = allowsDecimalQty(keypadUnitType);
   const keypadMaxQty = keypadItem
     ? maxCartQty(
         getProductStock(catalogProducts, keypadItem.productId),
@@ -107,6 +114,11 @@ export function CartPanel() {
           </div>
         ) : (
           items.map((i) => {
+            const unitType = resolveCartUnitType(
+              i.unitType,
+              catalogProducts,
+              i.productId,
+            );
             const canIncrease = canIncreaseCartQty(
               i.productId,
               i.qty,
@@ -124,7 +136,7 @@ export function CartPanel() {
                 <div className={styles.qty} style={{ marginTop: 6, width: "fit-content" }}>
                   <button
                     className={styles.qtyBtn}
-                    onClick={() => setQty(i.productId, i.qty - 1)}
+                    onClick={() => setQty(i.productId, i.qty - 1, unitType)}
                     aria-label="Decrease"
                   >
                     <Minus size={13} />
@@ -136,14 +148,14 @@ export function CartPanel() {
                     aria-label={`Edit quantity for ${i.name}`}
                     title="Tap to enter quantity"
                   >
-                    {i.qty}
+                    {formatCartQty(i.qty, unitType)}
                   </button>
                   <button
                     className={styles.qtyBtn}
                     disabled={!canIncrease}
                     onClick={() => {
                       if (!canIncrease) return;
-                      setQty(i.productId, i.qty + 1);
+                      setQty(i.productId, i.qty + 1, unitType);
                     }}
                     aria-label="Increase"
                   >
@@ -253,13 +265,15 @@ export function CartPanel() {
         initial={keypadItem?.qty ?? 0}
         initialPrice={keypadItem?.price ?? 0}
         productName={keypadItem?.name}
+        allowDecimals={keypadQtyAllowsDecimals}
         onClose={() => setKeypadFor(null)}
         onConfirm={(n, p) => {
           if (!keypadItem) return;
           const stock = getProductStock(catalogProducts, keypadItem.productId);
           setQty(
             keypadItem.productId,
-            clampCartQty(n, stock, allowOutOfStock),
+            clampCartQty(n, stock, allowOutOfStock, keypadUnitType),
+            keypadUnitType,
           );
           if (p !== undefined) setPrice(keypadItem.productId, p);
         }}

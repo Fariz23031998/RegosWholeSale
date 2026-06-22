@@ -10,6 +10,7 @@ from app.services import settings as settings_service
 REGOS_DEFAULTS_KEY = "regos_defaults"
 USER_REGOS_DEFAULTS_KEY = "regos_defaults"
 DOC_WHOLESALE_MODEL = "DocWholeSale"
+DOC_WHOLESALE_RETURN_MODEL = "DocWholeSaleReturn"
 
 REFERENCE_ENDPOINTS = {
     "warehouse": "stock/get",
@@ -114,6 +115,30 @@ async def get_doc_wholesale_document_type_id(
         raise bad_request(
             "Regos returned an invalid DocWholeSale document type.",
             "REGOS_DOC_WHOLESALE_TYPE_NOT_FOUND",
+        )
+    return option_id
+
+
+async def get_doc_wholesale_return_document_type_id(
+    session: AsyncSession, company_id: int
+) -> int:
+    response = await regos_async_api_request_for_company(
+        session,
+        company_id,
+        "documenttype/get",
+        {"model": DOC_WHOLESALE_RETURN_MODEL},
+    )
+    items = response.get("result") or []
+    if not items or not isinstance(items[0], dict):
+        raise bad_request(
+            "DocWholeSaleReturn document type was not found in Regos.",
+            "REGOS_DOC_WHOLESALE_RETURN_TYPE_NOT_FOUND",
+        )
+    option_id = items[0].get("id")
+    if not isinstance(option_id, int) or option_id <= 0:
+        raise bad_request(
+            "Regos returned an invalid DocWholeSaleReturn document type.",
+            "REGOS_DOC_WHOLESALE_RETURN_TYPE_NOT_FOUND",
         )
     return option_id
 
@@ -259,7 +284,7 @@ async def enrich_checkout_defaults(
         price_type_item = await _fetch_regos_item_by_id(
             session, company_id, "price_type", price_type["id"]
         )
-        enriched["currency"] = _extract_nested_reference(price_type_item, "currency")
+        enriched["currency"] = _extract_currency_reference(price_type_item, "currency")
     elif not price_type:
         enriched["currency"] = None
 
@@ -352,7 +377,7 @@ async def _resolve_price_type_reference(
             f"Selected {REFERENCE_NAMES['price_type']} was not found in Regos.",
             REFERENCE_ERRORS["price_type"],
         )
-    return _map_option(item), _extract_nested_reference(item, "currency")
+    return _map_option(item), _extract_currency_reference(item, "currency")
 
 
 async def _fetch_regos_item_by_id(
@@ -470,7 +495,19 @@ def _normalize_option(raw: Any) -> dict[str, Any] | None:
     name = raw.get("name")
     if not isinstance(option_id, int) or option_id <= 0 or not isinstance(name, str) or not name:
         return None
-    return {"id": option_id, "name": name}
+    option: dict[str, Any] = {"id": option_id, "name": name}
+    code_chr = raw.get("code_chr")
+    if isinstance(code_chr, str) and code_chr.strip():
+        option["code_chr"] = code_chr.strip()
+    exchange_rate = raw.get("exchange_rate")
+    if exchange_rate is not None:
+        try:
+            rate = float(exchange_rate)
+            if rate > 0:
+                option["exchange_rate"] = rate
+        except (TypeError, ValueError):
+            pass
+    return option
 
 
 def _is_valid_option(raw: Any) -> bool:
@@ -488,6 +525,31 @@ def _extract_nested_reference(item: dict[str, Any], key: str) -> dict[str, Any] 
     if not isinstance(name, str) or not name.strip():
         name = f"#{option_id}"
     return {"id": option_id, "name": name.strip()}
+
+
+def _extract_currency_reference(item: dict[str, Any], key: str) -> dict[str, Any] | None:
+    nested = item.get(key)
+    if not isinstance(nested, dict):
+        return None
+    option_id = nested.get("id")
+    if not isinstance(option_id, int) or option_id <= 0:
+        return None
+    name = nested.get("name")
+    if not isinstance(name, str) or not name.strip():
+        name = f"#{option_id}"
+    currency: dict[str, Any] = {"id": option_id, "name": name.strip()}
+    code_chr = nested.get("code_chr")
+    if isinstance(code_chr, str) and code_chr.strip():
+        currency["code_chr"] = code_chr.strip()
+    exchange_rate = nested.get("exchange_rate")
+    if exchange_rate is not None:
+        try:
+            rate = float(exchange_rate)
+            if rate > 0:
+                currency["exchange_rate"] = rate
+        except (TypeError, ValueError):
+            pass
+    return currency
 
 
 def _map_reference_item(item: dict[str, Any], kind: str) -> dict[str, Any]:

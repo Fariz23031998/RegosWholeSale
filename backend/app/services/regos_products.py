@@ -2,9 +2,62 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import bad_request
+from app.core.exceptions import AppError, bad_request
 from app.core.regos_api import regos_async_api_request_for_company
 from app.services import regos_defaults as regos_defaults_service
+
+# When company filters (zero stock/price) discard many Regos rows, one client page may
+# require scanning multiple Regos pages. Cap per request to bound latency; return the
+# Regos cursor in next_offset so the client can continue.
+MAX_REGOS_PAGES_PER_REQUEST = 100
+
+
+def _regos_page_size(client_limit: int) -> int:
+    """Fetch more rows per Regos hop so filtered catalogs fill client pages faster."""
+    return max(client_limit, 60)
+
+
+def _next_regos_offset(
+    current_offset: int,
+    page_next_offset: int,
+    result_count: int,
+    regos_total: int,
+) -> int:
+    if page_next_offset > current_offset:
+        return page_next_offset
+    if result_count <= 0:
+        return 0
+    manual = current_offset + result_count
+    if regos_total <= 0 or regos_total > manual:
+        return manual
+    return 0
+
+
+def _regos_scan_cursor(page_offset: int, rows_consumed: int) -> int:
+    """Regos row index after the last consumed row on the current page."""
+    return page_offset + rows_consumed
+
+
+def _client_next_offset(
+    *,
+    total: int,
+    scan_cursor: int,
+    last_page_result_count: int,
+    regos_page_size: int,
+    collected_count: int,
+    limit: int,
+) -> int:
+    """Cursor for the client's next request after this response."""
+    if last_page_result_count <= 0:
+        return 0
+    if total > 0:
+        return scan_cursor if total > scan_cursor else 0
+    # Regos often omits total; keep the scan cursor so the client can continue.
+    if collected_count < limit:
+        return scan_cursor
+    if last_page_result_count >= regos_page_size:
+        return scan_cursor
+    return 0
 
 
 async def list_products(
@@ -80,28 +133,41 @@ async def list_products(
 
     collected: list[dict[str, Any]] = []
     current_offset = offset
-    next_offset = 0
     total = 0
+    regos_page_size = _regos_page_size(limit)
+    last_scan_cursor = offset
+    last_page_result_count = 0
 
-    while len(collected) < limit:
+    for _ in range(MAX_REGOS_PAGES_PER_REQUEST):
+        if len(collected) >= limit:
+            break
+
         response = await regos_async_api_request_for_company(
             session,
             company_id,
             "item/getext",
             {
                 **payload,
-                "limit": limit,
+                "limit": regos_page_size,
                 "offset": current_offset,
             },
         )
         result = response.get("result") or []
-        total = max(total, int(response.get("total") or len(result)))
+        result_count = len(result)
+        regos_total = int(response.get("total") or 0)
+        if regos_total > 0:
+            total = regos_total
         page_next_offset = max(0, int(response.get("next_offset") or 0))
 
+        rows_consumed = 0
         for row in result:
+            rows_consumed += 1
             if not isinstance(row, dict):
                 continue
-            product = _map_product(row)
+            try:
+                product = _map_product(row)
+            except AppError:
+                continue
             if _matches_product_filters(
                 product,
                 include_zero_quantity=include_zero_quantity,
@@ -111,18 +177,71 @@ async def list_products(
                 if len(collected) >= limit:
                     break
 
+        scan_cursor = _regos_scan_cursor(current_offset, rows_consumed)
+        last_scan_cursor = scan_cursor
+        last_page_result_count = result_count
+
         if len(collected) >= limit:
-            next_offset = page_next_offset if page_next_offset > current_offset else 0
-            break
-        if not result or page_next_offset <= current_offset:
-            next_offset = 0
-            break
-        current_offset = page_next_offset
-        next_offset = current_offset
+            return {
+                "products": collected,
+                "next_offset": _client_next_offset(
+                    total=total,
+                    scan_cursor=scan_cursor,
+                    last_page_result_count=result_count,
+                    regos_page_size=regos_page_size,
+                    collected_count=len(collected),
+                    limit=limit,
+                ),
+                "total": total,
+            }
+
+        if result_count == 0:
+            return {
+                "products": collected,
+                "next_offset": 0,
+                "total": total or offset + len(collected),
+            }
+
+        next_cursor = _next_regos_offset(
+            current_offset, page_next_offset, result_count, total
+        )
+        if next_cursor <= current_offset:
+            if (
+                len(collected) < limit
+                and result_count > 0
+                and (
+                    total <= 0
+                    or total > scan_cursor
+                    or result_count >= regos_page_size
+                )
+            ):
+                current_offset = current_offset + result_count
+                continue
+            return {
+                "products": collected,
+                "next_offset": _client_next_offset(
+                    total=total,
+                    scan_cursor=scan_cursor,
+                    last_page_result_count=result_count,
+                    regos_page_size=regos_page_size,
+                    collected_count=len(collected),
+                    limit=limit,
+                ),
+                "total": total or offset + len(collected),
+            }
+
+        current_offset = next_cursor
 
     return {
         "products": collected,
-        "next_offset": next_offset,
+        "next_offset": _client_next_offset(
+            total=total,
+            scan_cursor=last_scan_cursor,
+            last_page_result_count=last_page_result_count,
+            regos_page_size=regos_page_size,
+            collected_count=len(collected),
+            limit=limit,
+        ),
         "total": total,
     }
 
@@ -232,10 +351,15 @@ def _map_product(row: dict[str, Any]) -> dict[str, Any]:
         or _nested_text(item, "department", "name")
         or "Other"
     )
+    barcode = _coerce_text(item.get("base_barcode")) or ""
+    code = _coerce_text(item.get("code")) or ""
+    unit = item.get("unit") if isinstance(item.get("unit"), dict) else {}
+    unit_name = _coerce_text(unit.get("name")) or ""
+    unit_type = _coerce_unit_type(unit.get("type"))
     sku = (
         _coerce_text(item.get("articul"))
-        or _coerce_text(item.get("base_barcode"))
-        or _coerce_text(item.get("code"))
+        or barcode
+        or code
         or str(regos_item_id)
     )
 
@@ -251,6 +375,10 @@ def _map_product(row: dict[str, Any]) -> dict[str, Any]:
         "stock": _coerce_number(quantity.get("allowed"), quantity.get("common")),
         "image": _coerce_text(row.get("image_url")) or _coerce_text(item.get("image_url")) or "",
         "sku": sku,
+        "barcode": barcode,
+        "code": code,
+        "unit_name": unit_name,
+        "unit_type": unit_type,
     }
 
 
@@ -294,3 +422,15 @@ def _coerce_number(*values: Any) -> float:
             except ValueError:
                 continue
     return 0.0
+
+
+def _coerce_unit_type(value: Any) -> int | None:
+    if value in (1, 2):
+        return int(value)
+    if isinstance(value, str):
+        text = value.strip().lower()
+        if text in ("pcs", "1"):
+            return 1
+        if text in ("non_pcs", "2"):
+            return 2
+    return None

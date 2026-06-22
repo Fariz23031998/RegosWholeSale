@@ -96,7 +96,6 @@ Employee login:
 ```http
 POST /api/v1/auth/login
 {
-  "company_slug": "regos-wholesale",
   "login": "alice",
   "password": "temp-password"
 }

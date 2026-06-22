@@ -18,11 +18,18 @@ class RegosDefaultOption(BaseModel):
     name: str
 
 
+class RegosCurrencyOption(BaseModel):
+    id: int = Field(ge=1)
+    name: str
+    code_chr: str | None = None
+    exchange_rate: float | None = Field(default=None, gt=0)
+
+
 class RegosDefaults(BaseModel):
     warehouse: RegosDefaultOption | None = None
     price_type: RegosDefaultOption | None = None
     partner: RegosDefaultOption | None = None
-    currency: RegosDefaultOption | None = None
+    currency: RegosCurrencyOption | None = None
     firm: RegosDefaultOption | None = None
     payment_category: RegosDefaultOption | None = None
     attached_user: RegosDefaultOption | None = None

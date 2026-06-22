@@ -52,15 +52,13 @@ class LoginEmailRequest(BaseModel):
     password: str
 
 
-class LoginEmployeeRequest(BaseModel):
-    company_slug: str
+class LoginUsernameRequest(BaseModel):
     login: str
     password: str
 
 
 class LoginRequest(BaseModel):
     email: EmailStr | None = None
-    company_slug: str | None = None
     login: str | None = None
     password: str
 

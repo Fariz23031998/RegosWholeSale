@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { formatAuthError } from "@/store/auth";
+import { isValidScheduleTime, normalizeScheduleTime } from "@/lib/schedule-time";
 import { createUser, patchUser } from "@/lib/users-api";
 import {
   ROLE_DEFAULTS,
@@ -103,6 +104,24 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
       return;
     }
 
+    if (!isOwner) {
+      const invalidTime = schedules.some(
+        (s) => !isValidScheduleTime(s.start_time) || !isValidScheduleTime(s.end_time),
+      );
+      if (invalidTime) {
+        setError("Schedule times must use 24-hour format HH:MM (e.g. 09:00, 17:30).");
+        return;
+      }
+    }
+
+    const normalizedSchedules = isOwner
+      ? undefined
+      : schedules.map((s) => ({
+          ...s,
+          start_time: normalizeScheduleTime(s.start_time)!,
+          end_time: normalizeScheduleTime(s.end_time)!,
+        }));
+
     setSaving(true);
     try {
       if (isCreate) {
@@ -112,7 +131,7 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
           display_name: displayName.trim(),
           role,
           permission_codes: role === "employee" ? extraCodes : [],
-          schedules: isOwner ? undefined : schedules,
+          schedules: normalizedSchedules,
         });
         onSaved(created);
         onClose();
@@ -121,7 +140,7 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
 
       const body: Parameters<typeof patchUser>[2] = {
         display_name: displayName.trim(),
-        schedules: isOwner ? undefined : schedules,
+        schedules: normalizedSchedules,
       };
 
       if (password.trim()) {

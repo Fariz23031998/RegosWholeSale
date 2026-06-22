@@ -1,9 +1,23 @@
 import type { Sale } from "@/data/seed";
+import { currencyLabel } from "@/lib/currency-conversion";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import styles from "./Receipt.module.css";
 
+function formatAmountWithCurrency(
+  amount: number,
+  currency: Sale["saleCurrency"],
+): string {
+  const label = currencyLabel(currency);
+  const formatted = formatCurrency(amount);
+  return label ? `${formatted} ${label}` : formatted;
+}
+
 export function ReceiptView({ sale }: { sale: Sale }) {
   const closedWithoutPayment = (sale.amountPaid ?? 0) <= 0 && (sale.balanceDue ?? 0) > 0;
+  const currenciesDiffer =
+    sale.paymentCurrency != null &&
+    sale.saleCurrency != null &&
+    sale.paymentCurrency.id !== sale.saleCurrency.id;
 
   return (
     <div className={styles.receipt}>
@@ -33,23 +47,23 @@ export function ReceiptView({ sale }: { sale: Sale }) {
       <hr className={styles.divider} />
       <div className={styles.row}>
         <span>Subtotal</span>
-        <span>{formatCurrency(sale.subtotal)}</span>
+        <span>{formatAmountWithCurrency(sale.subtotal, sale.saleCurrency)}</span>
       </div>
       {sale.discount > 0 && (
         <div className={styles.row}>
           <span>Discount</span>
-          <span>−{formatCurrency(sale.discount)}</span>
+          <span>−{formatAmountWithCurrency(sale.discount, sale.saleCurrency)}</span>
         </div>
       )}
       <div className={`${styles.row} ${styles.totalRow}`}>
         <span>TOTAL</span>
-        <span>{formatCurrency(sale.total)}</span>
+        <span>{formatAmountWithCurrency(sale.total, sale.saleCurrency)}</span>
       </div>
       {closedWithoutPayment && (
         <div className={styles.closedWithoutPayment}>
           <div className={styles.closedWithoutPaymentTitle}>Closed without payment</div>
           <div className={styles.closedWithoutPaymentDebt}>
-            Customer debt is {formatCurrency(sale.balanceDue ?? sale.total)}.
+            Customer debt is {formatAmountWithCurrency(sale.balanceDue ?? sale.total, sale.saleCurrency)}.
           </div>
         </div>
       )}
@@ -57,28 +71,76 @@ export function ReceiptView({ sale }: { sale: Sale }) {
         <>
           <div className={styles.row}>
             <span>Paid</span>
-            <span>{formatCurrency(sale.amountPaid ?? 0)}</span>
+            <span>
+              {sale.payments && sale.payments.length > 1
+                ? formatAmountWithCurrency(sale.amountPaid ?? 0, sale.saleCurrency)
+                : currenciesDiffer && sale.paymentAmount != null
+                  ? formatAmountWithCurrency(sale.paymentAmount, sale.paymentCurrency)
+                  : formatAmountWithCurrency(sale.amountPaid ?? 0, sale.saleCurrency)}
+            </span>
           </div>
           <div className={`${styles.row} ${styles.debtRow}`}>
             <span>Balance due</span>
-            <span>{formatCurrency(sale.balanceDue ?? 0)}</span>
+            <span>{formatAmountWithCurrency(sale.balanceDue ?? 0, sale.saleCurrency)}</span>
           </div>
         </>
       )}
       <hr className={styles.divider} />
-      <div className={styles.row}>
-        <span>Payment</span>
-        <span>{closedWithoutPayment ? "None" : sale.paymentTypeName}</span>
-      </div>
+      {sale.payments && sale.payments.length > 1 ? (
+        sale.payments.map((payment, index) => {
+          const lineCurrenciesDiffer =
+            payment.paymentCurrency != null &&
+            sale.saleCurrency != null &&
+            payment.paymentCurrency.id !== sale.saleCurrency.id;
+          return (
+            <div key={`${payment.paymentTypeId}-${index}`} className={styles.row}>
+              <span>{payment.paymentTypeName}</span>
+              <span>
+                {lineCurrenciesDiffer && payment.paymentAmount != null
+                  ? formatAmountWithCurrency(payment.paymentAmount, payment.paymentCurrency)
+                  : formatAmountWithCurrency(payment.amountPaid, sale.saleCurrency)}
+              </span>
+            </div>
+          );
+        })
+      ) : (
+        <div className={styles.row}>
+          <span>Payment</span>
+          <span>{closedWithoutPayment ? "None" : sale.paymentTypeName}</span>
+        </div>
+      )}
+      {!closedWithoutPayment && currenciesDiffer && sale.paymentAmount != null && !sale.payments?.length && (
+        <div className={styles.row}>
+          <span>Paid amount</span>
+          <span>{formatAmountWithCurrency(sale.paymentAmount, sale.paymentCurrency)}</span>
+        </div>
+      )}
       {sale.isCash && !closedWithoutPayment && (
         <>
           <div className={styles.row}>
             <span>Tendered</span>
-            <span>{formatCurrency(sale.tendered ?? 0)}</span>
+            <span>
+              {currenciesDiffer && sale.tenderedInPaymentCurrency != null
+                ? formatAmountWithCurrency(
+                    sale.tenderedInPaymentCurrency,
+                    sale.paymentCurrency,
+                  )
+                : formatCurrency(sale.tendered ?? 0)}
+            </span>
           </div>
           <div className={styles.row}>
             <span>Change</span>
-            <span>{formatCurrency(sale.change ?? 0)}</span>
+            <span>
+              {currenciesDiffer && sale.changeInPaymentCurrency != null ? (
+                <>
+                  {formatAmountWithCurrency(sale.changeInPaymentCurrency, sale.paymentCurrency)}
+                  {" · "}
+                  {formatAmountWithCurrency(sale.change ?? 0, sale.saleCurrency)}
+                </>
+              ) : (
+                formatAmountWithCurrency(sale.change ?? 0, sale.saleCurrency)
+              )}
+            </span>
           </div>
         </>
       )}

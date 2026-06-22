@@ -1,137 +1,129 @@
-import { useMemo, useState } from "react";
-import { Undo2 } from "lucide-react";
-import { useSales } from "@/store/sales";
+import { useEffect, useState } from "react";
+import clsx from "clsx";
+import { formatAuthError, useAuth } from "@/store/auth";
 import { formatCurrency, formatDateTime } from "@/lib/format";
-import type { Sale } from "@/data/seed";
-import { Button } from "@/components/posui/Button";
-import { ReturnModal } from "./ReturnModal";
+import {
+  fetchWholesaleReturnDocuments,
+  type WholesaleReturnDocument,
+} from "@/lib/sales-api";
 import styles from "./Returns.module.css";
 
+type Range = "today" | "week" | "all";
+
+function rangeToTimestamps(range: Range): { start_date?: number; end_date?: number } {
+  if (range === "all") return {};
+  const now = Math.floor(Date.now() / 1000);
+  const day = 24 * 60 * 60;
+  if (range === "today") {
+    return { start_date: now - day, end_date: now };
+  }
+  return { start_date: now - 7 * day, end_date: now };
+}
+
 export function ReturnsPage() {
-  const sales = useSales((s) => s.sales);
-  const refundedQty = useSales((s) => s.refundedQty);
-  const [active, setActive] = useState<Sale | null>(null);
+  const token = useAuth((s) => s.accessToken);
+  const [range, setRange] = useState<Range>("week");
+  const [returnDocuments, setReturnDocuments] = useState<WholesaleReturnDocument[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
-  const eligible = useMemo(
-    () => sales.filter((s) => s.type !== "refund"),
-    [sales],
-  );
+  const reload = () => {
+    if (!token) {
+      setReturnDocuments([]);
+      return;
+    }
 
-  const refunds = useMemo(
-    () => sales.filter((s) => s.type === "refund"),
-    [sales],
-  );
+    setLoading(true);
+    setError("");
+    const params = rangeToTimestamps(range);
 
-  const remainingTotal = (s: Sale) => {
-    const refundedSubtotal = s.items.reduce(
-      (sum, i) => sum + i.price * refundedQty(s.id, i.productId),
-      0,
-    );
-    return Math.max(0, s.subtotal - refundedSubtotal);
+    fetchWholesaleReturnDocuments(token, { ...params, limit: 100 })
+      .then((returnsRes) => {
+        setReturnDocuments(returnsRes.documents);
+      })
+      .catch((err: unknown) => {
+        setReturnDocuments([]);
+        setError(formatAuthError(err, "Failed to load returns"));
+      })
+      .finally(() => setLoading(false));
   };
+
+  useEffect(() => {
+    reload();
+  }, [token, range]);
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
-        <h1 className={styles.title}>Returns</h1>
-        <div className={styles.subtitle}>
-          Process refunds from past sales. Returned items are added back to stock.
+        <div>
+          <h1 className={styles.title}>Returns</h1>
+          <div className={styles.subtitle}>
+            View wholesale return documents from Regos.
+          </div>
+        </div>
+        <div className={styles.filters}>
+          {(["today", "week", "all"] as Range[]).map((r) => (
+            <button
+              key={r}
+              type="button"
+              className={clsx(styles.filter, range === r && styles.filterActive)}
+              onClick={() => setRange(r)}
+            >
+              {r === "today" ? "Today" : r === "week" ? "Last 7 days" : "All time"}
+            </button>
+          ))}
         </div>
       </div>
 
+      {error && <div className={styles.empty}>{error}</div>}
+
       <div className={styles.table}>
-        {eligible.length === 0 ? (
-          <div className={styles.empty}>No sales available to return.</div>
+        {loading ? (
+          <div className={styles.empty}>Loading returns from Regos…</div>
+        ) : returnDocuments.length === 0 ? (
+          <div className={styles.empty}>No return documents found.</div>
         ) : (
           <table className={styles.tbl}>
             <thead>
               <tr>
-                <th>Receipt</th>
+                <th>Return</th>
+                <th>Original</th>
                 <th>Time</th>
-                <th>Cashier</th>
-                <th>Items</th>
+                <th>Partner</th>
+                <th>Warehouse</th>
+                <th>Reason</th>
                 <th className={styles.right}>Total</th>
-                <th className={styles.right}>Refundable</th>
-                <th></th>
               </tr>
             </thead>
             <tbody>
-              {eligible.map((s) => {
-                const remaining = remainingTotal(s);
-                const fullyRefunded = remaining === 0;
-                return (
-                  <tr key={s.id}>
-                    <td className={styles.id}>#{s.id}</td>
-                    <td>{formatDateTime(s.createdAt)}</td>
-                    <td>{s.cashierName}</td>
-                    <td>{s.items.reduce((n, i) => n + i.qty, 0)}</td>
-                    <td className={styles.right} style={{ fontWeight: 600 }}>
-                      {formatCurrency(s.total)}
-                    </td>
-                    <td className={styles.right}>
-                      {fullyRefunded ? (
-                        <span style={{ color: "var(--color-text-muted)", fontSize: 12 }}>
-                          fully refunded
-                        </span>
-                      ) : (
-                        formatCurrency(remaining)
-                      )}
-                    </td>
-                    <td className={styles.right}>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => setActive(s)}
-                        disabled={fullyRefunded}
-                      >
-                        <Undo2 size={14} /> Return
-                      </Button>
-                    </td>
-                  </tr>
-                );
-              })}
+              {returnDocuments.map((doc) => (
+                <tr key={doc.id}>
+                  <td className={styles.id}>#{doc.code || doc.id}</td>
+                  <td className={styles.id}>
+                    {doc.wholesale_doc_id ? `#${doc.wholesale_doc_id}` : "—"}
+                  </td>
+                  <td>
+                    {doc.date > 0
+                      ? formatDateTime(new Date(doc.date * 1000).toISOString())
+                      : "—"}
+                  </td>
+                  <td>{doc.partner_name ?? "—"}</td>
+                  <td>{doc.stock_name ?? "—"}</td>
+                  <td style={{ color: "var(--color-text-muted)" }}>
+                    {doc.reason || "—"}
+                  </td>
+                  <td
+                    className={styles.right}
+                    style={{ fontWeight: 600, color: "var(--color-danger, #dc2626)" }}
+                  >
+                    {formatCurrency(doc.amount ?? 0)}
+                  </td>
+                </tr>
+              ))}
             </tbody>
           </table>
         )}
       </div>
-
-      {refunds.length > 0 && (
-        <>
-          <h2 style={{ fontSize: 16, marginTop: 32, marginBottom: 12 }}>
-            Recent refunds
-          </h2>
-          <div className={styles.table}>
-            <table className={styles.tbl}>
-              <thead>
-                <tr>
-                  <th>Refund</th>
-                  <th>Original</th>
-                  <th>Time</th>
-                  <th>Reason</th>
-                  <th className={styles.right}>Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                {refunds.map((r) => (
-                  <tr key={r.id}>
-                    <td className={styles.id}>#{r.id}</td>
-                    <td className={styles.id}>#{r.refundOf}</td>
-                    <td>{formatDateTime(r.createdAt)}</td>
-                    <td style={{ color: "var(--color-text-muted)" }}>
-                      {r.reason || "—"}
-                    </td>
-                    <td className={styles.right} style={{ fontWeight: 600, color: "var(--color-danger, #dc2626)" }}>
-                      {formatCurrency(r.total)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-
-      <ReturnModal sale={active} onClose={() => setActive(null)} />
     </div>
   );
 }

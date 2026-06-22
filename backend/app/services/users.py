@@ -94,11 +94,9 @@ async def create_employee(
     if role == UserRole.owner:
         raise bad_request("Cannot create another owner via this endpoint", "INVALID_ROLE")
 
-    result = await session.execute(
-        select(User).where(User.company_id == company_id, User.login == login)
-    )
+    result = await session.execute(select(User).where(User.login == login))
     if result.scalar_one_or_none():
-        raise conflict("Login already exists in this company", "LOGIN_EXISTS")
+        raise conflict("Login already exists", "LOGIN_EXISTS")
 
     user = User(
         company_id=company_id,

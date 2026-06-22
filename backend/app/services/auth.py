@@ -53,27 +53,18 @@ async def login_with_email(session: AsyncSession, *, email: str, password: str) 
     return await _authenticate(session, user, password)
 
 
-async def login_with_company_login(
-    session: AsyncSession, *, company_slug: str, login: str, password: str
+async def login_with_login(
+    session: AsyncSession, *, login: str, password: str
 ) -> tuple[User, str]:
-    result = await session.execute(select(Company).where(Company.slug == company_slug))
-    company = result.scalar_one_or_none()
-    if not company:
-        raise unauthorized("Invalid credentials")
-
-    result = await session.execute(
-        select(User).where(User.company_id == company.id, User.login == login)
-    )
-    user = result.scalar_one_or_none()
-    if not user:
-        raise unauthorized("Invalid credentials")
-
-    user = await _load_user_for_login(session, user_id=user.id)
+    user = await _load_user_for_login(session, login=login)
     return await _authenticate(session, user, password)
 
 
 async def _load_user_for_login(
-    session: AsyncSession, *, email: str | None = None, user_id: int | None = None
+    session: AsyncSession,
+    *,
+    email: str | None = None,
+    login: str | None = None,
 ) -> User:
     query = select(User).options(
         selectinload(User.company),
@@ -83,7 +74,7 @@ async def _load_user_for_login(
     if email is not None:
         query = query.where(User.email == email)
     else:
-        query = query.where(User.id == user_id)
+        query = query.where(User.login == login)
 
     result = await session.execute(query)
     user = result.scalar_one_or_none()

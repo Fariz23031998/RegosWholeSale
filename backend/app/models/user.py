@@ -1,6 +1,6 @@
 import enum
 
-from sqlalchemy import Boolean, Enum, ForeignKey, String, UniqueConstraint
+from sqlalchemy import Boolean, Enum, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -14,12 +14,11 @@ class UserRole(str, enum.Enum):
 
 class User(Base, TimestampMixin):
     __tablename__ = "users"
-    __table_args__ = (UniqueConstraint("company_id", "login", name="uq_users_company_login"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id", ondelete="CASCADE"), nullable=False)
     email: Mapped[str | None] = mapped_column(String(255), unique=True, nullable=True, index=True)
-    login: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    login: Mapped[str | None] = mapped_column(String(64), unique=True, nullable=True, index=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False)

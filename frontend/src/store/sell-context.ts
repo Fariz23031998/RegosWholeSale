@@ -1,6 +1,10 @@
 import { create } from "zustand";
 import { fetchMyRegosDefaults, fetchRegosReferenceOptions } from "@/lib/settings-api";
-import type { RegosDefaultOption, RegosReferenceOptionsResponse } from "@/types/settings";
+import type {
+  RegosCurrencyOption,
+  RegosDefaultOption,
+  RegosReferenceOptionsResponse,
+} from "@/types/settings";
 
 const EMPTY_OPTIONS: RegosReferenceOptionsResponse = {
   warehouses: [],
@@ -14,12 +18,14 @@ type SellContextState = {
   warehouseId: number | null;
   priceTypeId: number | null;
   partnerId: number | null;
+  saleCurrency: RegosCurrencyOption | null;
   options: RegosReferenceOptionsResponse;
   hydrated: boolean;
   hydrate: (token: string | null, canOverride: boolean) => Promise<void>;
   setWarehouseId: (id: number | null) => void;
   setPriceTypeId: (id: number | null) => void;
   setPartnerId: (id: number | null) => void;
+  refreshPartnerOptions: (token: string) => Promise<void>;
   checkoutOverrides: () => {
     warehouse_id?: number;
     price_type_id?: number;
@@ -39,6 +45,7 @@ export const useSellContext = create<SellContextState>((set, get) => ({
   warehouseId: null,
   priceTypeId: null,
   partnerId: null,
+  saleCurrency: null,
   options: EMPTY_OPTIONS,
   hydrated: false,
 
@@ -48,11 +55,14 @@ export const useSellContext = create<SellContextState>((set, get) => ({
         warehouseId: null,
         priceTypeId: null,
         partnerId: null,
+        saleCurrency: null,
         options: EMPTY_OPTIONS,
         hydrated: true,
       });
       return;
     }
+
+    set({ hydrated: false });
 
     try {
       const defaultsRes = await fetchMyRegosDefaults(token);
@@ -61,7 +71,7 @@ export const useSellContext = create<SellContextState>((set, get) => ({
         warehouseId: optionId(defaults.warehouse),
         priceTypeId: optionId(defaults.price_type),
         partnerId: optionId(defaults.partner),
-        hydrated: true,
+        saleCurrency: defaults.currency,
       };
 
       if (canOverride) {
@@ -75,15 +85,30 @@ export const useSellContext = create<SellContextState>((set, get) => ({
         warehouseId: null,
         priceTypeId: null,
         partnerId: null,
+        saleCurrency: null,
         options: EMPTY_OPTIONS,
-        hydrated: true,
       });
+    } finally {
+      set({ hydrated: true });
     }
   },
-
   setWarehouseId: (id) => set({ warehouseId: id }),
   setPriceTypeId: (id) => set({ priceTypeId: id }),
   setPartnerId: (id) => set({ partnerId: id }),
+
+  refreshPartnerOptions: async (token) => {
+    try {
+      const options = await fetchRegosReferenceOptions(token);
+      set((state) => ({
+        options: {
+          ...state.options,
+          partners: options.partners,
+        },
+      }));
+    } catch {
+      // Keep existing partner options on refresh failure.
+    }
+  },
 
   checkoutOverrides: () => {
     const { warehouseId, priceTypeId, partnerId } = get();

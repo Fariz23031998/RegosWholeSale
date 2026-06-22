@@ -141,6 +141,10 @@
   overflow-y: auto;
 }
 
+.main:has(.page) {
+  overflow: hidden;
+}
+
 .navLink {
   display: flex;
   align-items: center;
@@ -207,10 +211,5 @@
   }
   .main {
     min-height: 0;
-  }
-  .main:has(.page) {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
   }
 }

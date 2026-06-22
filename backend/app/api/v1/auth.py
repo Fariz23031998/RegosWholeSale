@@ -136,13 +136,11 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_db)) -> 
 
         )
 
-    elif body.company_slug and body.login:
+    elif body.login:
 
-        user, token = await auth_service.login_with_company_login(
+        user, token = await auth_service.login_with_login(
 
             session,
-
-            company_slug=body.company_slug,
 
             login=body.login,
 
@@ -154,7 +152,7 @@ async def login(body: LoginRequest, session: AsyncSession = Depends(get_db)) -> 
 
         raise bad_request(
 
-            "Provide email+password or company_slug+login+password",
+            "Provide email or login with password",
 
             "INVALID_LOGIN_REQUEST",
 

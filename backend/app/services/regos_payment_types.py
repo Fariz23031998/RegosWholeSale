@@ -3,8 +3,9 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import bad_request
+from app.core.exceptions import bad_request, not_found
 from app.core.regos_api import regos_async_api_request_for_company
+from app.services.regos_defaults import _extract_currency_reference
 
 # Regos enabled: true/1 (everywhere), backoffice/3 (backoffice); exclude frontoffice/2 and false/4.
 _APP_ALLOWED_ENABLED = {
@@ -45,6 +46,24 @@ async def list_payment_types(session: AsyncSession, company_id: int) -> dict[str
     return {"payment_types": payment_types}
 
 
+async def get_payment_type_by_id(
+    session: AsyncSession,
+    company_id: int,
+    payment_type_id: int,
+) -> dict[str, Any]:
+    response = await regos_async_api_request_for_company(
+        session,
+        company_id,
+        "paymenttype/get",
+        {"ids": [payment_type_id]},
+    )
+    result = response.get("result") or []
+    for row in result:
+        if isinstance(row, dict) and row.get("id") == payment_type_id:
+            return _map_payment_type(row)
+    raise not_found("Payment type not found.", "REGOS_PAYMENT_TYPE_NOT_FOUND")
+
+
 def _map_payment_type(row: dict[str, Any]) -> dict[str, Any]:
     payment_type_id = row.get("id")
     if not isinstance(payment_type_id, int) or payment_type_id <= 0:
@@ -53,13 +72,21 @@ def _map_payment_type(row: dict[str, Any]) -> dict[str, Any]:
     name = _coerce_text(row.get("name")) or f"#{payment_type_id}"
     image_url = _coerce_text(row.get("image_url")) or ""
 
-    return {
+    account = row.get("account")
+    currency = None
+    if isinstance(account, dict):
+        currency = _extract_currency_reference(account, "currency")
+
+    mapped: dict[str, Any] = {
         "id": payment_type_id,
         "name": name,
         "is_cash": _coerce_bool(row.get("is_cash")),
         "allows_debt": _allows_debt(row, name),
         "image_url": image_url,
     }
+    if currency:
+        mapped["currency"] = currency
+    return mapped
 
 
 def _allows_debt(row: dict[str, Any], name: str) -> bool:

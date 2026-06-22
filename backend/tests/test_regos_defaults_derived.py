@@ -29,7 +29,7 @@ async def test_enrich_checkout_defaults_from_price_type_and_warehouse(
                 {
                     "id": 22,
                     "name": "Retail",
-                    "currency": {"id": 44, "name": "UZS"},
+                    "currency": {"id": 44, "name": "UZS", "code_chr": "UZS", "exchange_rate": 1},
                 }
             ],
         },
@@ -47,7 +47,12 @@ async def test_enrich_checkout_defaults_from_price_type_and_warehouse(
 
     enriched = await regos_defaults_service.enrich_checkout_defaults(None, 1, defaults)
 
-    assert enriched["currency"] == {"id": 44, "name": "UZS"}
+    assert enriched["currency"] == {
+        "id": 44,
+        "name": "UZS",
+        "code_chr": "UZS",
+        "exchange_rate": 1,
+    }
     assert enriched["firm"] == {"id": 55, "name": "Main firm"}
     regos_defaults_service.validate_checkout_defaults(
         {

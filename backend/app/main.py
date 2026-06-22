@@ -1,3 +1,9 @@
+import sys
+from pathlib import Path
+
+if __name__ == "__main__" and __package__ is None:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import asyncio
 import logging
 from contextlib import asynccontextmanager
@@ -78,4 +84,4 @@ app = create_app()
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000)

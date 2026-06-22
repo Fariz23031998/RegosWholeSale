@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import type { Product } from "@/types/catalog";
+import { normalizeCartQty } from "@/lib/cart-stock";
 
 export type CartItem = {
   productId: string;
@@ -8,6 +9,7 @@ export type CartItem = {
   price: number;
   qty: number;
   image: string;
+  unitType?: number | null;
 };
 
 export type DiscountMode = "percent" | "amount";
@@ -20,7 +22,7 @@ type CartState = {
   lastAddedAt: number;
   add: (p: Product) => void;
   remove: (productId: string) => void;
-  setQty: (productId: string, qty: number) => void;
+  setQty: (productId: string, qty: number, unitType?: number | null) => void;
   setPrice: (productId: string, price: number) => void;
   setDiscountValue: (value: number) => void;
   toggleDiscountMode: () => void;
@@ -50,7 +52,12 @@ export const useCart = create<CartState>((set, get) => ({
         return {
           ...base,
           items: s.items.map((i) =>
-            i.productId === p.id ? { ...i, qty: i.qty + 1 } : i,
+            i.productId === p.id
+              ? {
+                  ...i,
+                  qty: normalizeCartQty(i.qty + 1, i.unitType ?? p.unit_type),
+                }
+              : i,
           ),
         };
       }
@@ -68,16 +75,25 @@ export const useCart = create<CartState>((set, get) => ({
             price: p.price,
             qty: 1,
             image: p.image,
+            unitType: p.unit_type ?? null,
           },
         ],
       };
     }),
   remove: (productId) =>
     set((s) => ({ items: s.items.filter((i) => i.productId !== productId) })),
-  setQty: (productId, qty) =>
+  setQty: (productId, qty, unitType) =>
     set((s) => ({
       items: s.items
-        .map((i) => (i.productId === productId ? { ...i, qty } : i))
+        .map((i) => {
+          if (i.productId !== productId) return i;
+          const resolvedUnitType = unitType ?? i.unitType;
+          return {
+            ...i,
+            unitType: resolvedUnitType ?? i.unitType,
+            qty: normalizeCartQty(qty, resolvedUnitType),
+          };
+        })
         .filter((i) => i.qty > 0),
     })),
   setPrice: (productId, price) =>

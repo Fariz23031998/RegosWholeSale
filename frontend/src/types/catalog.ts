@@ -8,6 +8,10 @@ export type Product = {
   stock: number;
   image: string;
   sku: string;
+  barcode?: string;
+  code?: string;
+  unit_name?: string;
+  unit_type?: number | null;
 };
 
 export type CatalogProductsResponse = {

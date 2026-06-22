@@ -108,7 +108,6 @@ async def test_create_employee_and_login(client: AsyncClient) -> None:
         company_name="Retail Inc",
     )
     owner_token = reg.json()["access_token"]
-    company_slug = reg.json()["user"]["company"]["slug"]
     headers = {"Authorization": f"Bearer {owner_token}"}
 
     create = await client.post(
@@ -127,7 +126,6 @@ async def test_create_employee_and_login(client: AsyncClient) -> None:
     emp_login = await client.post(
         "/api/v1/auth/login",
         json={
-            "company_slug": company_slug,
             "login": "alice",
             "password": "employee123",
         },
@@ -148,7 +146,6 @@ async def test_login_schedule_blocks_outside_window(client: AsyncClient) -> None
         company_name="Sched Co",
     )
     owner_token = reg.json()["access_token"]
-    company_slug = reg.json()["user"]["company"]["slug"]
     headers = {"Authorization": f"Bearer {owner_token}"}
 
     await client.post(
@@ -168,7 +165,7 @@ async def test_login_schedule_blocks_outside_window(client: AsyncClient) -> None
         mock_dt.now.return_value = fake_now
         blocked = await client.post(
             "/api/v1/auth/login",
-            json={"company_slug": company_slug, "login": "bob", "password": "employee123"},
+            json={"login": "bob", "password": "employee123"},
         )
     assert blocked.status_code == 403
     assert blocked.json()["code"] == "OUTSIDE_LOGIN_SCHEDULE"
@@ -178,7 +175,6 @@ async def test_login_schedule_blocks_outside_window(client: AsyncClient) -> None
 async def test_permission_denied_without_users_manage(client: AsyncClient) -> None:
     reg = await register_owner(client, email="perm@test.com", company_name="Perm Co")
     owner_token = reg.json()["access_token"]
-    company_slug = reg.json()["user"]["company"]["slug"]
 
     await client.post(
         "/api/v1/users",
@@ -193,7 +189,7 @@ async def test_permission_denied_without_users_manage(client: AsyncClient) -> No
 
     emp_login = await client.post(
         "/api/v1/auth/login",
-        json={"company_slug": company_slug, "login": "emp", "password": "employee123"},
+        json={"login": "emp", "password": "employee123"},
     )
     emp_token = emp_login.json()["access_token"]
 
@@ -220,3 +216,36 @@ async def test_company_settings(client: AsyncClient) -> None:
 
     get = await client.get("/api/v1/company/settings", headers=headers)
     assert get.json()["settings"]["currency"] == "USD"
+
+
+@pytest.mark.asyncio
+async def test_login_globally_unique_across_companies(client: AsyncClient) -> None:
+    reg_a = await register_owner(client, email="owner-a@test.com", company_name="Company A")
+    reg_b = await register_owner(client, email="owner-b@test.com", company_name="Company B")
+    token_a = reg_a.json()["access_token"]
+    token_b = reg_b.json()["access_token"]
+
+    create_a = await client.post(
+        "/api/v1/users",
+        headers={"Authorization": f"Bearer {token_a}"},
+        json={
+            "login": "shared-user",
+            "password": "employee123",
+            "display_name": "User A",
+            "role": "employee",
+        },
+    )
+    assert create_a.status_code == 201
+
+    duplicate = await client.post(
+        "/api/v1/users",
+        headers={"Authorization": f"Bearer {token_b}"},
+        json={
+            "login": "shared-user",
+            "password": "employee123",
+            "display_name": "User B",
+            "role": "employee",
+        },
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.json()["code"] == "LOGIN_EXISTS"

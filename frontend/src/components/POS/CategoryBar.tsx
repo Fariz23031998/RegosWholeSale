@@ -2,10 +2,10 @@ import { Star } from "lucide-react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import type { ProductGroup } from "@/types/catalog";
+import { CategoryPickerModal } from "./CategoryPickerModal";
 import styles from "./POS.module.css";
 
 const CATEGORY_GAP = 8;
-const MIN_PRODUCT_GRID_HEIGHT = 180;
 
 type Props = {
   groups: ProductGroup[];
@@ -25,23 +25,9 @@ export function CategoryBar({
   onSelectGroup,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
-  const wrapRef = useRef<HTMLDivElement | null>(null);
   const measureRef = useRef<HTMLDivElement | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [modalOpen, setModalOpen] = useState(false);
   const [visibleGroupCount, setVisibleGroupCount] = useState(groups.length);
-  const [expandedMaxHeight, setExpandedMaxHeight] = useState<number | null>(null);
-
-  const recomputeExpandedMaxHeight = useCallback(() => {
-    const wrap = wrapRef.current;
-    const catalog = wrap?.parentElement;
-    if (!wrap || !catalog) return;
-
-    const wrapTop = wrap.getBoundingClientRect().top;
-    const catalogBottom = catalog.getBoundingClientRect().bottom;
-    const maxHeight = catalogBottom - wrapTop - MIN_PRODUCT_GRID_HEIGHT;
-
-    setExpandedMaxHeight(Math.max(96, Math.floor(maxHeight)));
-  }, []);
 
   const recomputeVisible = useCallback(() => {
     const container = containerRef.current;
@@ -86,8 +72,6 @@ export function CategoryBar({
   }, [groups]);
 
   useLayoutEffect(() => {
-    if (expanded) return;
-
     recomputeVisible();
 
     const container = containerRef.current;
@@ -96,35 +80,14 @@ export function CategoryBar({
     const observer = new ResizeObserver(() => recomputeVisible());
     observer.observe(container);
     return () => observer.disconnect();
-  }, [expanded, groups, recomputeVisible]);
-
-  useLayoutEffect(() => {
-    if (!expanded) {
-      setExpandedMaxHeight(null);
-      return;
-    }
-
-    recomputeExpandedMaxHeight();
-
-    const catalog = wrapRef.current?.parentElement;
-    if (!catalog) return;
-
-    const observer = new ResizeObserver(() => recomputeExpandedMaxHeight());
-    observer.observe(catalog);
-    window.addEventListener("resize", recomputeExpandedMaxHeight);
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", recomputeExpandedMaxHeight);
-    };
-  }, [expanded, recomputeExpandedMaxHeight]);
+  }, [groups, recomputeVisible]);
 
   const hiddenGroupCount = Math.max(0, groups.length - visibleGroupCount);
-  const showToggle = !expanded && hiddenGroupCount > 0;
-  const visibleGroups = expanded ? groups : groups.slice(0, visibleGroupCount);
+  const showToggle = hiddenGroupCount > 0;
+  const visibleGroups = groups.slice(0, visibleGroupCount);
 
   return (
-    <div ref={wrapRef} className={styles.categoriesWrap}>
+    <div className={styles.categoriesWrap}>
       <div ref={measureRef} className={styles.categoriesMeasure} aria-hidden>
         <button type="button" className={clsx(styles.chip, styles.chipIcon)} data-chip>
           <Star size={14} />
@@ -142,11 +105,7 @@ export function CategoryBar({
         </button>
       </div>
 
-      <div
-        ref={containerRef}
-        className={clsx(styles.categories, expanded && styles.categoriesExpanded)}
-        style={expanded && expandedMaxHeight ? { maxHeight: expandedMaxHeight } : undefined}
-      >
+      <div ref={containerRef} className={styles.categories}>
         <button
           type="button"
           className={clsx(styles.chip, styles.chipIcon, featuredOnly && styles.chipActive)}
@@ -184,21 +143,23 @@ export function CategoryBar({
           <button
             type="button"
             className={clsx(styles.chip, styles.chipShowAll)}
-            onClick={() => setExpanded(true)}
+            onClick={() => setModalOpen(true)}
           >
             Show all
           </button>
         ) : null}
-        {expanded && groups.length > 0 ? (
-          <button
-            type="button"
-            className={clsx(styles.chip, styles.chipShowAll)}
-            onClick={() => setExpanded(false)}
-          >
-            Show less
-          </button>
-        ) : null}
       </div>
+
+      <CategoryPickerModal
+        open={modalOpen}
+        onClose={() => setModalOpen(false)}
+        groups={groups}
+        featuredOnly={featuredOnly}
+        selectedGroupId={selectedGroupId}
+        onSelectFeatured={onSelectFeatured}
+        onSelectAll={onSelectAll}
+        onSelectGroup={onSelectGroup}
+      />
     </div>
   );
 }

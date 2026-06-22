@@ -1,5 +1,6 @@
 import { Trash2 } from "lucide-react";
 import { Button } from "@/components/posui/Button";
+import { normalizeScheduleTime } from "@/lib/schedule-time";
 import { DAY_LABELS, type ScheduleItem } from "@/types/users";
 import styles from "./Users.module.css";
 
@@ -29,7 +30,9 @@ export function ScheduleEditor({ schedules, onChange, disabled }: Props) {
   return (
     <div className={styles.field}>
       <div className={styles.sectionTitle}>Login schedules</div>
-      <p className={styles.hint}>No schedules = login allowed anytime. Add windows to restrict when this user can sign in.</p>
+      <p className={styles.hint}>
+        No schedules = login allowed anytime. Times use 24-hour format (HH:MM, e.g. 09:00, 17:30).
+      </p>
 
       {schedules.length > 0 && (
         <div className={styles.scheduleRows}>
@@ -48,18 +51,36 @@ export function ScheduleEditor({ schedules, onChange, disabled }: Props) {
                 ))}
               </select>
               <input
-                type="time"
-                className={styles.input}
+                type="text"
+                className={`${styles.input} ${styles.mono}`}
                 value={row.start_time}
                 disabled={disabled}
+                placeholder="09:00"
+                inputMode="numeric"
+                pattern="([01]?[0-9]|2[0-3]):[0-5][0-9]"
+                title="24-hour time (HH:MM)"
+                aria-label="Start time"
                 onChange={(e) => updateRow(index, { start_time: e.target.value })}
+                onBlur={(e) => {
+                  const normalized = normalizeScheduleTime(e.target.value);
+                  if (normalized) updateRow(index, { start_time: normalized });
+                }}
               />
               <input
-                type="time"
-                className={styles.input}
+                type="text"
+                className={`${styles.input} ${styles.mono}`}
                 value={row.end_time}
                 disabled={disabled}
+                placeholder="17:00"
+                inputMode="numeric"
+                pattern="([01]?[0-9]|2[0-3]):[0-5][0-9]"
+                title="24-hour time (HH:MM)"
+                aria-label="End time"
                 onChange={(e) => updateRow(index, { end_time: e.target.value })}
+                onBlur={(e) => {
+                  const normalized = normalizeScheduleTime(e.target.value);
+                  if (normalized) updateRow(index, { end_time: normalized });
+                }}
               />
               <Button
                 type="button"

@@ -15,8 +15,7 @@ type AuthState = {
   setHydrated: () => void;
   setSession: (accessToken: string, user: AuthUser) => void;
   clearSession: () => void;
-  loginOwner: (email: string, password: string) => Promise<void>;
-  loginEmployee: (companySlug: string, login: string, password: string) => Promise<void>;
+  login: (identifier: string, password: string) => Promise<void>;
   logout: () => void;
   refreshMe: () => Promise<boolean>;
 };
@@ -46,13 +45,8 @@ export const useAuth = create<AuthState>()(
       clearSession: () =>
         set({ accessToken: null, user: null, session: null, cashier: null }),
 
-      loginOwner: async (email, password) => {
-        const res = await authApi.loginOwner(email, password);
-        applyUser(set, res.access_token, res.user);
-      },
-
-      loginEmployee: async (companySlug, login, password) => {
-        const res = await authApi.loginEmployee(companySlug, login, password);
+      login: async (identifier, password) => {
+        const res = await authApi.login(identifier, password);
         applyUser(set, res.access_token, res.user);
       },
 
@@ -94,8 +88,8 @@ export function isAuthenticated(): boolean {
   return Boolean(useAuth.getState().accessToken);
 }
 
-export function formatAuthError(err: unknown): string {
+export function formatAuthError(err: unknown, fallback = "Something went wrong"): string {
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) return err.message;
-  return "Something went wrong";
+  return fallback;
 }

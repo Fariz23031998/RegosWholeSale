@@ -16,9 +16,19 @@ from app.schemas.regos import (
     RegosTokenStatus,
     RegosTokenUpsert,
 )
+from app.schemas.partners import (
+    Partner,
+    PartnerCreateRequest,
+    PartnerCreateResponse,
+    PartnerGroupsResponse,
+    PartnerMutationResponse,
+    PartnerUpdateRequest,
+    PartnersListResponse,
+)
 from app.schemas.settings import RegosReferenceOptionsResponse
 from app.services import regos_defaults as regos_defaults_service
 from app.services import regos_groups as regos_groups_service
+from app.services import regos_partners as regos_partners_service
 from app.services import regos_payment_types as regos_payment_types_service
 from app.services import regos_products as regos_products_service
 from app.services import regos_tokens as regos_tokens_service
@@ -135,6 +145,103 @@ async def get_regos_payment_types(
 ) -> PaymentTypesResponse:
     data = await regos_payment_types_service.list_payment_types(session, current.company_id)
     return PaymentTypesResponse(**data)
+
+
+@router.get("/partners", response_model=PartnersListResponse)
+async def get_regos_partners(
+    offset: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    search: str | None = Query(default=None, max_length=255),
+    current: CurrentUser = Depends(
+        require_any_permission("settings.manage", "pos.override_regos")
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> PartnersListResponse:
+    data = await regos_partners_service.list_partners(
+        session,
+        current.company_id,
+        search=search,
+        offset=offset,
+        limit=limit,
+    )
+    return PartnersListResponse(**data)
+
+
+@router.get("/partners/{partner_id}", response_model=Partner)
+async def get_regos_partner(
+    partner_id: int,
+    current: CurrentUser = Depends(
+        require_any_permission("settings.manage", "pos.override_regos")
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> Partner:
+    data = await regos_partners_service.get_partner_by_id(
+        session,
+        current.company_id,
+        partner_id,
+    )
+    return Partner(**data)
+
+
+@router.get("/partner-groups", response_model=PartnerGroupsResponse)
+async def get_regos_partner_groups(
+    current: CurrentUser = Depends(
+        require_any_permission("settings.manage", "pos.override_regos")
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerGroupsResponse:
+    data = await regos_partners_service.list_partner_groups(session, current.company_id)
+    return PartnerGroupsResponse(**data)
+
+
+@router.post("/partners", response_model=PartnerCreateResponse)
+async def create_regos_partner(
+    body: PartnerCreateRequest,
+    current: CurrentUser = Depends(
+        require_any_permission("settings.manage", "pos.override_regos")
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerCreateResponse:
+    data = await regos_partners_service.add_partner(
+        session,
+        current.company_id,
+        body.model_dump(exclude_unset=True),
+    )
+    return PartnerCreateResponse(**data)
+
+
+@router.patch("/partners/{partner_id}", response_model=PartnerMutationResponse)
+async def update_regos_partner(
+    partner_id: int,
+    body: PartnerUpdateRequest,
+    current: CurrentUser = Depends(
+        require_any_permission("settings.manage", "pos.override_regos")
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerMutationResponse:
+    data = await regos_partners_service.edit_partner(
+        session,
+        current.company_id,
+        partner_id,
+        body.model_dump(exclude_unset=True),
+    )
+    return PartnerMutationResponse(**data)
+
+
+@router.post("/partners/{partner_id}/delete-mark", response_model=PartnerMutationResponse)
+async def delete_mark_regos_partner(
+    partner_id: int,
+    current: CurrentUser = Depends(
+        require_any_permission("settings.manage", "pos.override_regos")
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerMutationResponse:
+    data = await regos_partners_service.delete_mark_partner(
+        session,
+        current.company_id,
+        partner_id,
+    )
+    return PartnerMutationResponse(**data)
 
 
 @router.post("/proxy/{endpoint:path}")

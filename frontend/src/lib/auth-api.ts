@@ -21,21 +21,13 @@ export async function registerOwner(payload: {
   return apiRequest("/api/v1/auth/register", { method: "POST", body: payload });
 }
 
-export async function loginOwner(email: string, password: string): Promise<AuthResponse> {
+export async function login(identifier: string, password: string): Promise<AuthResponse> {
+  const body = identifier.includes("@")
+    ? { email: identifier, password }
+    : { login: identifier, password };
   return apiRequest("/api/v1/auth/login", {
     method: "POST",
-    body: { email, password },
-  });
-}
-
-export async function loginEmployee(
-  company_slug: string,
-  login: string,
-  password: string,
-): Promise<AuthResponse> {
-  return apiRequest("/api/v1/auth/login", {
-    method: "POST",
-    body: { company_slug, login, password },
+    body,
   });
 }
 
