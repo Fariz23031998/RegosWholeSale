@@ -13,6 +13,8 @@ router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 async def get_dashboard_stats(
     start_date: int | None = Query(default=None),
     end_date: int | None = Query(default=None),
+    partner_ids: list[int] | None = Query(default=None),
+    all_partners: bool = Query(default=True),
     stock_ids: list[int] | None = Query(default=None),
     all_stocks: bool = Query(default=True),
     current: CurrentUser = Depends(require_permission("dashboard.read")),
@@ -24,6 +26,8 @@ async def get_dashboard_stats(
         current.id,
         start_date=start_date,
         end_date=end_date,
+        partner_ids=partner_ids,
+        all_partners=all_partners,
         stock_ids=stock_ids,
         all_stocks=all_stocks,
     )
@@ -34,6 +38,8 @@ async def get_dashboard_stats(
 async def get_dashboard_products(
     start_date: int | None = Query(default=None),
     end_date: int | None = Query(default=None),
+    partner_ids: list[int] | None = Query(default=None),
+    all_partners: bool = Query(default=True),
     stock_ids: list[int] | None = Query(default=None),
     all_stocks: bool = Query(default=True),
     offset: int = Query(default=0, ge=0),
@@ -47,6 +53,8 @@ async def get_dashboard_products(
         current.id,
         start_date=start_date,
         end_date=end_date,
+        partner_ids=partner_ids,
+        all_partners=all_partners,
         stock_ids=stock_ids,
         all_stocks=all_stocks,
         offset=offset,

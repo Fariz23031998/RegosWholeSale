@@ -93,6 +93,8 @@ export type DashboardQueryParams = {
   end_date?: number;
   all_stocks?: boolean;
   stock_ids?: number[];
+  all_partners?: boolean;
+  partner_ids?: number[];
 };
 
 export const DASHBOARD_PRODUCTS_PAGE_SIZE = 50;
@@ -203,7 +205,12 @@ export function formatDashboardPeriodLabel(
 export function resolveDashboardQueryParams(
   preset: DashboardPeriodPreset,
   customRange: DashboardCustomRange | null,
-  warehouseFilter: { allStocks: boolean; stockIds: number[] },
+  filters: {
+    allStocks: boolean;
+    stockIds: number[];
+    allPartners: boolean;
+    partnerIds: number[];
+  },
 ): DashboardQueryParams {
   const period =
     preset === "custom" && customRange
@@ -211,12 +218,20 @@ export function resolveDashboardQueryParams(
       : periodToTimestamps(preset === "custom" ? "week" : preset);
 
   const params: DashboardQueryParams = { ...period };
-  if (warehouseFilter.allStocks) {
+  if (filters.allStocks) {
     params.all_stocks = true;
   } else {
     params.all_stocks = false;
-    if (warehouseFilter.stockIds.length > 0) {
-      params.stock_ids = warehouseFilter.stockIds;
+    if (filters.stockIds.length > 0) {
+      params.stock_ids = filters.stockIds;
+    }
+  }
+  if (filters.allPartners) {
+    params.all_partners = true;
+  } else {
+    params.all_partners = false;
+    if (filters.partnerIds.length > 0) {
+      params.partner_ids = filters.partnerIds;
     }
   }
   return params;
@@ -233,6 +248,14 @@ function buildDashboardSearch(
   if (params.stock_ids?.length) {
     for (const stockId of params.stock_ids) {
       search.append("stock_ids", String(stockId));
+    }
+  }
+  if (params.all_partners !== undefined) {
+    search.set("all_partners", params.all_partners ? "true" : "false");
+  }
+  if (params.partner_ids?.length) {
+    for (const partnerId of params.partner_ids) {
+      search.append("partner_ids", String(partnerId));
     }
   }
   if (extra) {

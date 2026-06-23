@@ -231,6 +231,8 @@ export async function fetchWholesaleDocuments(
     end_date?: number;
     all_stocks?: boolean;
     stock_ids?: number[];
+    all_partners?: boolean;
+    partner_ids?: number[];
     performed?: boolean;
     offset?: number;
     limit?: number;
@@ -240,10 +242,16 @@ export async function fetchWholesaleDocuments(
   if (params.start_date !== undefined) search.set("start_date", String(params.start_date));
   if (params.end_date !== undefined) search.set("end_date", String(params.end_date));
   if (params.all_stocks !== undefined) search.set("all_stocks", params.all_stocks ? "true" : "false");
+  if (params.all_partners !== undefined) search.set("all_partners", params.all_partners ? "true" : "false");
   if (params.performed !== undefined) search.set("performed", params.performed ? "true" : "false");
   if (params.stock_ids?.length) {
     for (const stockId of params.stock_ids) {
       search.append("stock_ids", String(stockId));
+    }
+  }
+  if (params.partner_ids?.length) {
+    for (const partnerId of params.partner_ids) {
+      search.append("partner_ids", String(partnerId));
     }
   }
   if (params.offset !== undefined) search.set("offset", String(params.offset));
@@ -291,6 +299,8 @@ export async function fetchWholesaleReturnDocuments(
     end_date?: number;
     all_stocks?: boolean;
     stock_ids?: number[];
+    all_partners?: boolean;
+    partner_ids?: number[];
     offset?: number;
     limit?: number;
   } = {},
@@ -299,9 +309,15 @@ export async function fetchWholesaleReturnDocuments(
   if (params.start_date !== undefined) search.set("start_date", String(params.start_date));
   if (params.end_date !== undefined) search.set("end_date", String(params.end_date));
   if (params.all_stocks !== undefined) search.set("all_stocks", params.all_stocks ? "true" : "false");
+  if (params.all_partners !== undefined) search.set("all_partners", params.all_partners ? "true" : "false");
   if (params.stock_ids?.length) {
     for (const stockId of params.stock_ids) {
       search.append("stock_ids", String(stockId));
+    }
+  }
+  if (params.partner_ids?.length) {
+    for (const partnerId of params.partner_ids) {
+      search.append("partner_ids", String(partnerId));
     }
   }
   if (params.offset !== undefined) search.set("offset", String(params.offset));

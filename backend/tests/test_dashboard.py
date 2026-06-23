@@ -292,3 +292,59 @@ async def test_dashboard_stats_filters_by_stock_ids(
     assert mock_sales.await_args.kwargs["all_stocks"] is False
     assert mock_returns.await_args.kwargs["stock_ids"] == [11, 22]
     assert mock_payments.await_args.kwargs["stock_ids"] == [11, 22]
+
+
+@patch(
+    "app.services.regos_dashboard.regos_sales_service.list_payment_documents",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_dashboard.regos_sales_service.list_wholesale_return_operations_batch",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_dashboard.regos_sales_service.list_wholesale_return_documents",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_dashboard.regos_sales_service.list_wholesale_operations_batch",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_dashboard.regos_sales_service.list_wholesale_documents",
+    new_callable=AsyncMock,
+)
+@pytest.mark.asyncio
+async def test_dashboard_stats_filters_by_partner_ids(
+    mock_sales: AsyncMock,
+    mock_operations: AsyncMock,
+    mock_returns: AsyncMock,
+    mock_return_operations: AsyncMock,
+    mock_payments: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_sales.return_value = {"documents": [], "next_offset": 0, "total": 0}
+    mock_returns.return_value = {"documents": [], "next_offset": 0, "total": 0}
+    mock_operations.return_value = {"operations": []}
+    mock_return_operations.return_value = {"operations": []}
+    mock_payments.return_value = {"documents": [], "next_offset": 0, "total": 0}
+
+    reg = await register_owner(client, email="dashboard-partners@test.com", company_name="Dashboard Partners")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_defaults(client, headers)
+
+    response = await client.get(
+        "/api/v1/dashboard/stats",
+        headers=headers,
+        params={
+            "start_date": 1_716_000_000,
+            "end_date": 1_718_000_000,
+            "all_partners": "false",
+            "partner_ids": [33, 44],
+        },
+    )
+    assert response.status_code == 200
+    assert mock_sales.await_args.kwargs["partner_ids"] == [33, 44]
+    assert mock_sales.await_args.kwargs["all_partners"] is False
+    assert mock_returns.await_args.kwargs["partner_ids"] == [33, 44]
+    assert mock_payments.await_args.kwargs["partner_ids"] == [33, 44]

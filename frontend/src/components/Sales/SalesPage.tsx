@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { CalendarRange, Printer, Warehouse } from "lucide-react";
+import { CalendarRange, Printer, Users, Warehouse } from "lucide-react";
 import { Button } from "@/components/posui/Button";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
 import { wholesaleDocumentToPrintContext, type ReceiptPrintContext } from "@/lib/receipt-print-context";
 import { DashboardPeriodModal } from "@/components/Dashboard/DashboardPeriodModal";
+import {
+  DashboardPartnersModal,
+  formatPartnerFilterLabel,
+} from "@/components/Dashboard/DashboardPartnersModal";
 import {
   DashboardWarehousesModal,
   formatWarehouseFilterLabel,
@@ -95,9 +99,13 @@ export function SalesPage() {
   const [customRange, setCustomRange] = useState<DashboardCustomRange | null>(null);
   const [periodModalOpen, setPeriodModalOpen] = useState(false);
   const [warehouseModalOpen, setWarehouseModalOpen] = useState(false);
+  const [partnerModalOpen, setPartnerModalOpen] = useState(false);
   const [warehouses, setWarehouses] = useState<RegosDefaultOption[]>([]);
+  const [partners, setPartners] = useState<RegosDefaultOption[]>([]);
   const [allStocks, setAllStocks] = useState(true);
   const [selectedStockIds, setSelectedStockIds] = useState<number[]>([]);
+  const [allPartners, setAllPartners] = useState(true);
+  const [selectedPartnerIds, setSelectedPartnerIds] = useState<number[]>([]);
   const [documents, setDocuments] = useState<WholesaleDocument[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -111,8 +119,10 @@ export function SalesPage() {
       resolveDashboardQueryParams(periodPreset, customRange, {
         allStocks,
         stockIds: selectedStockIds,
+        allPartners,
+        partnerIds: selectedPartnerIds,
       }),
-    [allStocks, customRange, periodPreset, selectedStockIds],
+    [allPartners, allStocks, customRange, periodPreset, selectedPartnerIds, selectedStockIds],
   );
 
   const periodModalRange = useMemo(() => {
@@ -124,6 +134,7 @@ export function SalesPage() {
   useEffect(() => {
     if (!token) {
       setWarehouses([]);
+      setPartners([]);
       return;
     }
 
@@ -132,12 +143,19 @@ export function SalesPage() {
       .then((options) => {
         if (cancelled) return;
         setWarehouses(options.warehouses);
+        setPartners(options.partners);
         setSelectedStockIds((current) =>
           current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
         );
+        setSelectedPartnerIds((current) =>
+          current.length > 0 ? current : options.partners.map((partner) => partner.id),
+        );
       })
       .catch(() => {
-        if (!cancelled) setWarehouses([]);
+        if (!cancelled) {
+          setWarehouses([]);
+          setPartners([]);
+        }
       });
 
     return () => {
@@ -235,6 +253,7 @@ export function SalesPage() {
                   total: formatCurrency(total),
                   period: formatDashboardPeriodLabel(periodPreset, customRange, t),
                   warehouses: formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t),
+                  partners: formatPartnerFilterLabel(allPartners, selectedPartnerIds, partners, t),
                 })}
           </div>
         </div>
@@ -270,6 +289,14 @@ export function SalesPage() {
           <button
             type="button"
             className={clsx(dashboardStyles.filter, dashboardStyles.filterMenu)}
+            onClick={() => setPartnerModalOpen(true)}
+          >
+            <Users size={14} />
+            {formatPartnerFilterLabel(allPartners, selectedPartnerIds, partners, t)}
+          </button>
+          <button
+            type="button"
+            className={clsx(dashboardStyles.filter, dashboardStyles.filterMenu)}
             onClick={() => setWarehouseModalOpen(true)}
           >
             <Warehouse size={14} />
@@ -285,6 +312,17 @@ export function SalesPage() {
         onApply={(range) => {
           setCustomRange(range);
           setPeriodPreset("custom");
+        }}
+      />
+      <DashboardPartnersModal
+        open={partnerModalOpen}
+        onClose={() => setPartnerModalOpen(false)}
+        partners={partners}
+        allPartners={allPartners}
+        selectedPartnerIds={selectedPartnerIds}
+        onApply={({ allPartners: nextAllPartners, partnerIds }) => {
+          setAllPartners(nextAllPartners);
+          setSelectedPartnerIds(partnerIds);
         }}
       />
       <DashboardWarehousesModal

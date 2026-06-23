@@ -929,8 +929,39 @@ async def test_list_wholesale_documents(mock_regos: AsyncMock, client: AsyncClie
 
     payload = mock_regos.call_args[0][3]
     assert payload["start_date"] == 1716000000
-    assert payload["partner_ids"] == [33]
-    assert payload["stock_ids"] == [11]
+    assert "partner_ids" not in payload
+    assert "stock_ids" not in payload
+
+
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_list_wholesale_documents_filters_by_partner_ids(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [],
+        "next_offset": 0,
+        "total": 0,
+    }
+
+    reg = await register_owner(client, email="sales-partners@test.com", company_name="Sales Partners Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.get(
+        "/api/v1/sales/wholesale-documents",
+        headers=headers,
+        params={
+            "start_date": 1716000000,
+            "end_date": 1718000000,
+            "all_partners": "false",
+            "partner_ids": [33, 44],
+        },
+    )
+    assert response.status_code == 200
+    payload = mock_regos.call_args[0][3]
+    assert payload["partner_ids"] == [33, 44]
 
 
 @patch(

@@ -1,6 +1,7 @@
 import { X } from "lucide-react";
 import { useEffect, type ReactNode } from "react";
 import clsx from "clsx";
+import { useLanguage } from "@/contexts/LanguageContext";
 import styles from "./Modal.module.css";
 
 type Props = {
@@ -24,6 +25,8 @@ export function Modal({
   bodyClassName,
   children,
 }: Props) {
+  const { t } = useLanguage();
+
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -43,7 +46,7 @@ export function Modal({
         {title && (
           <div className={styles.header}>
             <div className={styles.title}>{title}</div>
-            <button className={styles.close} onClick={onClose} aria-label="Close">
+            <button className={styles.close} onClick={onClose} aria-label={t("common.close", "Close")}>
               <X size={18} />
             </button>
           </div>

@@ -159,6 +159,7 @@ async def list_wholesale_documents(
     start_date: int | None = None,
     end_date: int | None = None,
     partner_ids: list[int] | None = None,
+    all_partners: bool = True,
     stock_ids: list[int] | None = None,
     all_stocks: bool = False,
     performed: bool | None = None,
@@ -184,7 +185,7 @@ async def list_wholesale_documents(
         payload["end_date"] = end_date
     if partner_ids:
         payload["partner_ids"] = partner_ids
-    elif partner:
+    elif not all_partners and partner:
         payload["partner_ids"] = [partner["id"]]
     if stock_ids:
         payload["stock_ids"] = stock_ids
@@ -328,51 +329,8 @@ async def list_payment_documents(
     user_id: int,
     start_date: int | None = None,
     end_date: int | None = None,
-    stock_ids: list[int] | None = None,
-    all_stocks: bool = False,
-    offset: int = 0,
-    limit: int = 50,
-) -> dict[str, Any]:
-    defaults = await regos_defaults_service.get_regos_defaults(
-        session, company_id, user_id=user_id
-    )
-    warehouse = defaults.get("warehouse")
-    partner = defaults.get("partner")
-
-    payload: dict[str, Any] = {
-        "limit": limit,
-        "offset": offset,
-        "performed": True,
-        "deleted_mark": False,
-        "sort_orders": [{"column": "Date", "direction": "desc"}],
-    }
-    if start_date is not None:
-        payload["start_date"] = start_date
-    if end_date is not None:
-        payload["end_date"] = end_date
-    if partner:
-        payload["partner_ids"] = [partner["id"]]
-    if stock_ids:
-        payload["stock_ids"] = stock_ids
-    elif not all_stocks and warehouse:
-        payload["stock_ids"] = [warehouse["id"]]
-
-    response = await _regos_call(session, company_id, "docpayment/get", payload)
-    raw_items = response.get("result") or []
-    documents = [_map_payment_document(item) for item in raw_items if isinstance(item, dict)]
-    next_offset = int(response.get("next_offset") or 0)
-    total = int(response.get("total") or len(documents))
-    return {"documents": documents, "next_offset": next_offset, "total": total}
-
-
-async def list_wholesale_return_documents(
-    session: AsyncSession,
-    company_id: int,
-    *,
-    user_id: int,
-    start_date: int | None = None,
-    end_date: int | None = None,
     partner_ids: list[int] | None = None,
+    all_partners: bool = True,
     stock_ids: list[int] | None = None,
     all_stocks: bool = False,
     offset: int = 0,
@@ -397,7 +355,55 @@ async def list_wholesale_return_documents(
         payload["end_date"] = end_date
     if partner_ids:
         payload["partner_ids"] = partner_ids
-    elif partner:
+    elif not all_partners and partner:
+        payload["partner_ids"] = [partner["id"]]
+    if stock_ids:
+        payload["stock_ids"] = stock_ids
+    elif not all_stocks and warehouse:
+        payload["stock_ids"] = [warehouse["id"]]
+
+    response = await _regos_call(session, company_id, "docpayment/get", payload)
+    raw_items = response.get("result") or []
+    documents = [_map_payment_document(item) for item in raw_items if isinstance(item, dict)]
+    next_offset = int(response.get("next_offset") or 0)
+    total = int(response.get("total") or len(documents))
+    return {"documents": documents, "next_offset": next_offset, "total": total}
+
+
+async def list_wholesale_return_documents(
+    session: AsyncSession,
+    company_id: int,
+    *,
+    user_id: int,
+    start_date: int | None = None,
+    end_date: int | None = None,
+    partner_ids: list[int] | None = None,
+    all_partners: bool = True,
+    stock_ids: list[int] | None = None,
+    all_stocks: bool = False,
+    offset: int = 0,
+    limit: int = 50,
+) -> dict[str, Any]:
+    defaults = await regos_defaults_service.get_regos_defaults(
+        session, company_id, user_id=user_id
+    )
+    warehouse = defaults.get("warehouse")
+    partner = defaults.get("partner")
+
+    payload: dict[str, Any] = {
+        "limit": limit,
+        "offset": offset,
+        "performed": True,
+        "deleted_mark": False,
+        "sort_orders": [{"column": "Date", "direction": "desc"}],
+    }
+    if start_date is not None:
+        payload["start_date"] = start_date
+    if end_date is not None:
+        payload["end_date"] = end_date
+    if partner_ids:
+        payload["partner_ids"] = partner_ids
+    elif not all_partners and partner:
         payload["partner_ids"] = [partner["id"]]
     if stock_ids:
         payload["stock_ids"] = stock_ids

@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api";
+import { FALLBACK_TRANSLATIONS } from "@/lib/fallback-translations";
 import {
   clearLanguageData,
   getLanguage,
@@ -119,52 +120,7 @@ class LanguageService {
   }
 
   private getFallbackTranslations(): TranslationDictionary {
-    return {
-      "common.loading": "Loading...",
-      "common.save": "Save",
-      "common.cancel": "Cancel",
-      "common.delete": "Delete",
-      "common.edit": "Edit",
-      "common.close": "Close",
-      "common.confirm": "Confirm",
-      "common.search": "Search",
-      "common.add": "Add",
-      "common.create": "Create",
-      "common.error": "Error",
-      "common.success": "Success",
-      "common.tryAgain": "Try again",
-      "common.goHome": "Go home",
-      "nav.sell": "Sell",
-      "nav.sales": "Sales",
-      "nav.returns": "Returns",
-      "nav.dashboard": "Dashboard",
-      "nav.users": "Users",
-      "nav.telegramUsers": "Telegram users",
-      "nav.settings": "Settings",
-      "nav.signOut": "Sign out",
-      "nav.openMenu": "Open menu",
-      "nav.closeMenu": "Close menu",
-      "auth.title": "Regos Optom",
-      "auth.signIn": "Sign in",
-      "auth.signingIn": "Signing in…",
-      "auth.signInSubtitle": "Sign in to your account",
-      "auth.emailOrUsername": "Email or username",
-      "auth.password": "Password",
-      "auth.forgotPassword": "Forgot password?",
-      "auth.newCompany": "New company?",
-      "auth.createAccount": "Create account",
-      "auth.passwordUpdated": "Password updated. You can sign in now.",
-      "errors.generic": "Something went wrong",
-      "errors.pageNotFound": "Page not found",
-      "errors.pageNotFoundDesc": "The page you're looking for doesn't exist or has been moved.",
-      "errors.pageLoadFailed": "This page didn't load",
-      "errors.pageLoadFailedDesc": "Something went wrong on our end. You can try refreshing or head back home.",
-      "language.uz": "O'zbekcha",
-      "language.ru": "Русский",
-      "language.en": "English",
-      "language.tj": "Тоҷикӣ",
-      "language.selectorLabel": "Language",
-    };
+    return { ...FALLBACK_TRANSLATIONS };
   }
 
   async clearCache(): Promise<void> {
