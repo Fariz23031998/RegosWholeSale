@@ -1,6 +1,7 @@
 import { Minus, Percent, Plus, ShoppingBag, ShoppingCart, Tag, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { cartTotals, useCart } from "@/store/cart";
 import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
@@ -27,6 +28,7 @@ import { QtyKeypad } from "./QtyKeypad";
 import styles from "./Cart.module.css";
 
 export function CartPanel() {
+  const { t } = useLanguage();
   const items = useCart((s) => s.items);
   const discountMode = useCart((s) => s.discountMode);
   const discountValue = useCart((s) => s.discountValue);
@@ -82,7 +84,7 @@ export function CartPanel() {
 
     const cartItems = items.filter((item) => item.regosItemId > 0);
     if (cartItems.length !== items.length) {
-      setPostponeError("Some cart items are missing Regos product ids.");
+      setPostponeError(t("cart.missingRegosIds", "Some cart items are missing Regos product ids."));
       return;
     }
 
@@ -108,7 +110,7 @@ export function CartPanel() {
       clearActiveTabAfterCheckout();
       setMobileOpen(false);
     } catch (err: unknown) {
-      setPostponeError(formatAuthError(err, "Failed to postpone sale"));
+      setPostponeError(formatAuthError(err, t("cart.errors.postponeFailed", "Failed to postpone sale")));
     } finally {
       setPostponing(false);
     }
@@ -120,7 +122,7 @@ export function CartPanel() {
         type="button"
         className={styles.fab}
         onClick={() => setMobileOpen(true)}
-        aria-label="Open current sale"
+        aria-label={t("cart.openCurrentSale", "Open current sale")}
       >
         <ShoppingCart size={22} />
         {itemCount > 0 && <span className={styles.fabBadge}>{itemCount}</span>}
@@ -137,19 +139,19 @@ export function CartPanel() {
       <aside className={clsx(styles.cart, mobileOpen && styles.cartOpen)}>
         <div className={styles.header}>
           <div className={styles.title}>
-            Current Sale{" "}
+            {t("cart.currentSale", "Current Sale")}{" "}
             <span className={styles.count}>{items.length}</span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
             {items.length > 0 && (
               <button className={styles.clear} onClick={clear}>
-                Clear
+                {t("cart.clear", "Clear")}
               </button>
             )}
             <button
               className={styles.closeBtn}
               onClick={() => setMobileOpen(false)}
-              aria-label="Close"
+              aria-label={t("common.close", "Close")}
             >
               <X size={18} />
             </button>
@@ -160,7 +162,9 @@ export function CartPanel() {
 
         {postponedWholesaleDocId !== null && (
           <div className={styles.postponedBanner}>
-            Continuing postponed sale #{postponedWholesaleDocId}
+            {t("cart.postponedBanner", "Continuing postponed sale #{{id}}", {
+              id: postponedWholesaleDocId,
+            })}
           </div>
         )}
 
@@ -171,9 +175,9 @@ export function CartPanel() {
               <ShoppingBag size={22} />
             </div>
             <div style={{ fontWeight: 500, color: "var(--color-text-muted)" }}>
-              Cart is empty
+              {t("cart.empty", "Cart is empty")}
             </div>
-            <div>Tap a product to add it to the sale.</div>
+            <div>{t("cart.emptyHint", "Tap a product to add it to the sale.")}</div>
           </div>
         ) : (
           items.map((i) => {
@@ -194,13 +198,13 @@ export function CartPanel() {
               <div>
                 <div className={styles.lineName}>{i.name}</div>
                 <div className={styles.linePrice}>
-                  {formatCurrency(i.price)} ea
+                  {t("cart.priceEa", "{{price}} ea", { price: formatCurrency(i.price) })}
                 </div>
                 <div className={styles.qty} style={{ marginTop: 6, width: "fit-content" }}>
                   <button
                     className={styles.qtyBtn}
                     onClick={() => setQty(i.productId, i.qty - 1, unitType)}
-                    aria-label="Decrease"
+                    aria-label={t("cart.qty.decrease", "Decrease")}
                   >
                     <Minus size={13} />
                   </button>
@@ -209,7 +213,7 @@ export function CartPanel() {
                     className={styles.qtyVal}
                     onClick={() => setKeypadFor(i.productId)}
                     aria-label={`Edit quantity for ${i.name}`}
-                    title="Tap to enter quantity"
+                    title={t("cart.qty.tapToEnter", "Tap to enter quantity")}
                   >
                     {formatCartQty(i.qty, unitType)}
                   </button>
@@ -220,7 +224,7 @@ export function CartPanel() {
                       if (!canIncrease) return;
                       setQty(i.productId, i.qty + 1, unitType);
                     }}
-                    aria-label="Increase"
+                    aria-label={t("cart.qty.increase", "Increase")}
                   >
                     <Plus size={13} />
                   </button>
@@ -230,8 +234,8 @@ export function CartPanel() {
                 <button
                   className={styles.qtyBtn}
                   onClick={() => remove(i.productId)}
-                  aria-label="Remove"
-                  title="Remove"
+                  aria-label={t("cart.qty.remove", "Remove")}
+                  title={t("cart.qty.remove", "Remove")}
                 >
                   <X size={14} />
                 </button>
@@ -247,11 +251,11 @@ export function CartPanel() {
 
       <div className={styles.summary}>
         <div className={styles.row}>
-          <span>Subtotal</span>
+          <span>{t("cart.subtotal", "Subtotal")}</span>
           <span>{formatCurrency(totals.subtotal)}</span>
         </div>
         <div className={styles.row}>
-          <span className={styles.discountLabel}>Discount</span>
+          <span className={styles.discountLabel}>{t("cart.discount", "Discount")}</span>
           <div className={styles.discountControls}>
             <button
               type="button"
@@ -259,13 +263,13 @@ export function CartPanel() {
               onClick={toggleDiscountMode}
               aria-label={
                 discountMode === "percent"
-                  ? "Switch to fixed amount discount"
-                  : "Switch to percentage discount"
+                  ? t("cart.discountMode.toFixed", "Switch to fixed amount discount")
+                  : t("cart.discountMode.toPercent", "Switch to percentage discount")
               }
               title={
                 discountMode === "percent"
-                  ? "Percentage — click for fixed amount"
-                  : "Fixed amount — click for percentage"
+                  ? t("cart.discountMode.percentHint", "Percentage — click for fixed amount")
+                  : t("cart.discountMode.fixedHint", "Fixed amount — click for percentage")
               }
             >
               {discountMode === "percent" ? (
@@ -284,8 +288,8 @@ export function CartPanel() {
               placeholder={discountMode === "percent" ? "0" : "0.00"}
               aria-label={
                 discountMode === "percent"
-                  ? "Discount percentage"
-                  : "Discount amount"
+                  ? t("cart.discountLabel.percent", "Discount percentage")
+                  : t("cart.discountLabel.amount", "Discount amount")
               }
               onChange={(e) =>
                 setDiscountValue(parseFloat(e.target.value) || 0)
@@ -302,7 +306,7 @@ export function CartPanel() {
           </div>
         </div>
         <div className={`${styles.row} ${styles.totalRow}`}>
-          <span>Total</span>
+          <span>{t("cart.total", "Total")}</span>
           <span>{formatCurrency(totals.total)}</span>
         </div>
         {postponeError && <div className={styles.postponeError}>{postponeError}</div>}
@@ -313,7 +317,7 @@ export function CartPanel() {
             disabled={postponing}
             onClick={() => setContinueOpen(true)}
           >
-            Continue Sale
+            {t("cart.continueSale", "Continue Sale")}
           </Button>
           <Button
             full
@@ -321,7 +325,7 @@ export function CartPanel() {
             disabled={items.length === 0 || postponing}
             onClick={() => void handlePostponeSale()}
           >
-            {postponing ? "Postponing…" : "Postpone Sale"}
+            {postponing ? t("cart.postponing", "Postponing…") : t("cart.postponeSale", "Postpone Sale")}
           </Button>
         </div>
         <Button
@@ -331,7 +335,7 @@ export function CartPanel() {
           disabled={items.length === 0 || postponing}
           onClick={() => setCheckoutOpen(true)}
         >
-          Charge {formatCurrency(totals.total)}
+          {t("cart.charge", "Charge {{total}}", { total: formatCurrency(totals.total) })}
         </Button>
       </div>
 

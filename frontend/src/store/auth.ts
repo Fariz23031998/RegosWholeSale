@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import * as authApi from "@/lib/auth-api";
 import { ApiError } from "@/lib/api";
+import { languageService } from "@/services/language";
 import { sessionFromUser, type SessionDisplay } from "@/lib/user-display";
 import type { AuthUser } from "@/types/auth";
 
@@ -88,7 +89,10 @@ export function isAuthenticated(): boolean {
   return Boolean(useAuth.getState().accessToken);
 }
 
-export function formatAuthError(err: unknown, fallback = "Something went wrong"): string {
+export function formatAuthError(
+  err: unknown,
+  fallback = languageService.t("errors.generic", "Something went wrong"),
+): string {
   if (err instanceof ApiError) return err.message;
   if (err instanceof Error) return err.message;
   return fallback;

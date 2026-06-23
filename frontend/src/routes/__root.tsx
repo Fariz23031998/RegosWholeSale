@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-router";
 
 import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
+import { languageService } from "@/services/language";
 import appCss from "../styles.css?url";
 
 function NotFoundComponent() {
@@ -81,11 +82,25 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Regos Optom — Modern Point of Sale" },
-      { name: "description", content: "Fast, beautiful point-of-sale for retail. Sell, take payments, track sales." },
+      {
+        title: languageService.t("meta.appTitle", "Regos Optom — Modern Point of Sale"),
+      },
+      {
+        name: "description",
+        content: languageService.t(
+          "meta.appDescription",
+          "Fast, beautiful point-of-sale for retail. Sell, take payments, track sales.",
+        ),
+      },
       { name: "author", content: "Regos Optom" },
-      { property: "og:title", content: "Regos Optom — Modern Point of Sale" },
-      { property: "og:description", content: "Fast, beautiful point-of-sale for retail." },
+      {
+        property: "og:title",
+        content: languageService.t("meta.appTitle", "Regos Optom — Modern Point of Sale"),
+      },
+      {
+        property: "og:description",
+        content: languageService.t("meta.appOgDescription", "Fast, beautiful point-of-sale for retail."),
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },
       { name: "twitter:site", content: "@Lovable" },

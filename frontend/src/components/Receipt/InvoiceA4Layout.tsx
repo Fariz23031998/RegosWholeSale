@@ -1,3 +1,4 @@
+import { useLanguage } from "@/contexts/LanguageContext";
 import type { ReceiptPrintContext } from "@/lib/receipt-print-context";
 import type { ReceiptTemplate } from "@/types/receipt-templates";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
@@ -13,6 +14,7 @@ type Props = {
 };
 
 export function InvoiceA4Layout({ template, context }: Props) {
+  const { t } = useLanguage();
   const { sale } = context;
   const { sections, header, footer_text: footerText, invoice_title: invoiceTitle } =
     template;
@@ -28,9 +30,15 @@ export function InvoiceA4Layout({ template, context }: Props) {
               <div className={styles.companyName}>{header.company_name}</div>
             )}
             {header.address && <div className={styles.sellerLine}>{header.address}</div>}
-            {header.phone && <div className={styles.sellerLine}>Tel: {header.phone}</div>}
+            {header.phone && (
+              <div className={styles.sellerLine}>
+                {t("receipt.labels.tel", "Tel:")} {header.phone}
+              </div>
+            )}
             {header.tax_id && (
-              <div className={styles.sellerLine}>Tax ID: {header.tax_id}</div>
+              <div className={styles.sellerLine}>
+                {t("receipt.labels.taxId", "Tax ID:")} {header.tax_id}
+              </div>
             )}
           </div>
           {invoiceTitle && <div className={styles.invoiceTitle}>{invoiceTitle}</div>}
@@ -40,17 +48,27 @@ export function InvoiceA4Layout({ template, context }: Props) {
       <div className={styles.infoGrid}>
         {sections.meta && (
           <div className={styles.infoBlock}>
-            <div className={styles.infoLabel}>Document</div>
+            <div className={styles.infoLabel}>
+              {t("receipt.labels.document", "Document")}
+            </div>
             <div>#{docId}</div>
             <div>{formatDate(sale.createdAt)}</div>
             <div>{formatDateTime(sale.createdAt)}</div>
-            <div>Cashier: {sale.cashierName}</div>
-            {context.stock_name && <div>Warehouse: {context.stock_name}</div>}
+            <div>
+              {t("receipt.labels.cashier", "Cashier:")} {sale.cashierName}
+            </div>
+            {context.stock_name && (
+              <div>
+                {t("receipt.labels.warehouse", "Warehouse:")} {context.stock_name}
+              </div>
+            )}
           </div>
         )}
         {sections.partner && context.partner_name && (
           <div className={styles.infoBlock}>
-            <div className={styles.infoLabel}>Bill to</div>
+            <div className={styles.infoLabel}>
+              {t("receipt.labels.billTo", "Bill to")}
+            </div>
             <div className={styles.partnerName}>{context.partner_name}</div>
           </div>
         )}
@@ -60,10 +78,14 @@ export function InvoiceA4Layout({ template, context }: Props) {
         <table className={styles.itemsTable}>
           <thead>
             <tr>
-              <th className={styles.colItem}>Item</th>
-              <th className={styles.colQty}>Qty</th>
-              <th className={styles.colPrice}>Unit price</th>
-              <th className={styles.colAmount}>Amount</th>
+              <th className={styles.colItem}>{t("receipt.labels.item", "Item")}</th>
+              <th className={styles.colQty}>{t("receipt.labels.qty", "Qty")}</th>
+              <th className={styles.colPrice}>
+                {t("receipt.labels.unitPrice", "Unit price")}
+              </th>
+              <th className={styles.colAmount}>
+                {t("receipt.labels.amount", "Amount")}
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -84,19 +106,19 @@ export function InvoiceA4Layout({ template, context }: Props) {
       <div className={styles.totals}>
         {sections.subtotal && (
           <div className={styles.totalRow}>
-            <span>Subtotal</span>
+            <span>{t("receipt.labels.subtotal", "Subtotal")}</span>
             <span>{formatAmountWithCurrency(sale.subtotal, sale.saleCurrency)}</span>
           </div>
         )}
         {sections.discount && sale.discount > 0 && (
           <div className={styles.totalRow}>
-            <span>Discount</span>
+            <span>{t("receipt.labels.discount", "Discount")}</span>
             <span>−{formatAmountWithCurrency(sale.discount, sale.saleCurrency)}</span>
           </div>
         )}
         {sections.total && (
           <div className={`${styles.totalRow} ${styles.grandTotal}`}>
-            <span>Total</span>
+            <span>{t("receipt.sections.total", "Total")}</span>
             <span>{formatAmountWithCurrency(sale.total, sale.saleCurrency)}</span>
           </div>
         )}
@@ -104,8 +126,12 @@ export function InvoiceA4Layout({ template, context }: Props) {
 
       {sections.closed_without_payment && closedWithoutPayment && (
         <div className={styles.notice}>
-          Closed without payment — customer debt:{" "}
-          {formatAmountWithCurrency(sale.balanceDue ?? sale.total, sale.saleCurrency)}
+          {t("receipt.invoice.closedWithoutDebt", "Closed without payment — customer debt: {{amount}}", {
+            amount: formatAmountWithCurrency(
+              sale.balanceDue ?? sale.total,
+              sale.saleCurrency,
+            ),
+          })}
         </div>
       )}
 
@@ -114,13 +140,13 @@ export function InvoiceA4Layout({ template, context }: Props) {
         (sale.balanceDue ?? 0) > 0 && (
           <div className={styles.payments}>
             <div className={styles.totalRow}>
-              <span>Paid</span>
+              <span>{t("receipt.labels.paid", "Paid")}</span>
               <span>
                 {formatAmountWithCurrency(sale.amountPaid ?? 0, sale.saleCurrency)}
               </span>
             </div>
             <div className={`${styles.totalRow} ${styles.debtRow}`}>
-              <span>Balance due</span>
+              <span>{t("receipt.labels.balanceDue", "Balance due")}</span>
               <span>
                 {formatAmountWithCurrency(sale.balanceDue ?? 0, sale.saleCurrency)}
               </span>
@@ -141,8 +167,12 @@ export function InvoiceA4Layout({ template, context }: Props) {
             ))
           ) : (
             <div className={styles.totalRow}>
-              <span>Payment</span>
-              <span>{closedWithoutPayment ? "None" : sale.paymentTypeName}</span>
+              <span>{t("receipt.labels.payment", "Payment")}</span>
+              <span>
+                {closedWithoutPayment
+                  ? t("receipt.labels.none", "None")
+                  : sale.paymentTypeName}
+              </span>
             </div>
           )}
           {!closedWithoutPayment &&
@@ -150,7 +180,7 @@ export function InvoiceA4Layout({ template, context }: Props) {
             sale.paymentAmount != null &&
             !sale.payments?.length && (
               <div className={styles.totalRow}>
-                <span>Paid amount</span>
+                <span>{t("receipt.labels.paidAmount", "Paid amount")}</span>
                 <span>
                   {formatAmountWithCurrency(sale.paymentAmount, sale.paymentCurrency)}
                 </span>
@@ -162,7 +192,7 @@ export function InvoiceA4Layout({ template, context }: Props) {
       {sections.tendered_change && sale.isCash && !closedWithoutPayment && (
         <div className={styles.payments}>
           <div className={styles.totalRow}>
-            <span>Tendered</span>
+            <span>{t("receipt.labels.tendered", "Tendered")}</span>
             <span>
               {currenciesDiffer && sale.tenderedInPaymentCurrency != null
                 ? formatAmountWithCurrency(
@@ -173,7 +203,7 @@ export function InvoiceA4Layout({ template, context }: Props) {
             </span>
           </div>
           <div className={styles.totalRow}>
-            <span>Change</span>
+            <span>{t("receipt.labels.change", "Change")}</span>
             <span>
               {formatAmountWithCurrency(sale.change ?? 0, sale.saleCurrency)}
             </span>

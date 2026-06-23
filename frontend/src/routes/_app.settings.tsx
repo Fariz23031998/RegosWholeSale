@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   createDocPaymentSaleIdField,
   deleteRegosToken,
@@ -28,7 +29,7 @@ import type {
   RegosReferenceOptionsResponse,
   VatCalculationType,
 } from "@/types/settings";
-import { VAT_CALCULATION_TYPE_OPTIONS } from "@/types/settings";
+import { getVatCalculationTypeOptions } from "@/types/settings";
 import { ReceiptTemplatesSection } from "@/components/Settings/ReceiptTemplatesSection";
 import styles from "./settings.module.css";
 
@@ -46,6 +47,7 @@ const EMPTY_OPTIONS: RegosReferenceOptionsResponse = {
 };
 
 function SettingsPage() {
+  const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
 
@@ -275,7 +277,7 @@ function SettingsPage() {
 
     const nextToken = telegramBotToken.trim();
     if (!nextToken) {
-      setTelegramBotError("Bot token is required.");
+      setTelegramBotError(t("settings.telegram.tokenRequired", "Bot token is required."));
       return;
     }
 
@@ -289,7 +291,9 @@ function SettingsPage() {
       setTelegramBotUsername(bot?.bot_username ?? null);
       setTelegramWebhookUrl(bot?.webhook_url ?? null);
       setTelegramBotToken("");
-      setTelegramBotInfo("Telegram bot saved and webhook registered");
+      setTelegramBotInfo(
+        t("settings.telegram.saved", "Telegram bot saved and webhook registered."),
+      );
     } catch (err) {
       setTelegramBotError(formatAuthError(err));
     } finally {
@@ -309,7 +313,7 @@ function SettingsPage() {
       setTelegramBotUsername(null);
       setTelegramWebhookUrl(null);
       setTelegramBotToken("");
-      setTelegramBotInfo("Telegram bot removed");
+      setTelegramBotInfo(t("settings.telegram.removed", "Telegram bot removed."));
     } catch (err) {
       setTelegramBotError(formatAuthError(err));
     } finally {
@@ -327,7 +331,9 @@ function SettingsPage() {
 
     try {
       if (nextToken.length !== 32) {
-        setTokenError("Integration token must be exactly 32 characters.");
+        setTokenError(
+          t("settings.regos.tokenLength", "Integration token must be exactly 32 characters."),
+        );
         return;
       }
 
@@ -337,7 +343,7 @@ function SettingsPage() {
       });
       setIntegrationToken(nextToken);
       setTokenConfigured(true);
-      setTokenInfo("Regos integration token saved");
+      setTokenInfo(t("settings.regos.tokenSaved", "Regos integration token saved."));
 
       setLoadingRegos(true);
       setRegosError("");
@@ -367,7 +373,7 @@ function SettingsPage() {
       setIsReplicable(false);
       setTokenConfigured(false);
       clearRegosOptions();
-      setTokenInfo("Regos integration token removed");
+      setTokenInfo(t("settings.regos.tokenRemoved", "Regos integration token removed."));
       setRegosError("");
       setRegosInfo("");
     } catch (err) {
@@ -389,8 +395,11 @@ function SettingsPage() {
       setSaleIdField(res.field);
       setSaleIdFieldInfo(
         res.created
-          ? "Sale ID field created in Regos."
-          : "Sale ID field is already configured.",
+          ? t("settings.saleIdField.created", "Sale ID field created and linked to payments.")
+          : t(
+              "settings.saleIdField.alreadyConfigured",
+              "Sale ID field is already configured.",
+            ),
       );
     } catch (err) {
       setSaleIdFieldError(formatAuthError(err));
@@ -421,7 +430,7 @@ function SettingsPage() {
         zero_price: zeroPrice,
       });
       applyDefaults(res.defaults);
-      setRegosInfo("Regos defaults saved");
+      setRegosInfo(t("settings.defaults.saved", "Regos defaults saved"));
     } catch (err) {
       setRegosError(formatAuthError(err));
     } finally {
@@ -434,7 +443,12 @@ function SettingsPage() {
 
     const amounts = parseTenderedQuickAmounts(tenderedAmountsInput);
     if (amounts.length === 0) {
-      setPosSettingsError("Enter at least one positive amount (e.g. 20, 50, 100).");
+      setPosSettingsError(
+        t(
+          "settings.pos.tenderedValidation",
+          "Enter at least one positive amount (e.g. 20, 50, 100).",
+        ),
+      );
       return;
     }
 
@@ -489,24 +503,35 @@ function SettingsPage() {
   return (
     <div className={styles.page}>
       <header className={styles.header}>
-        <h1 className={styles.title}>Settings</h1>
-        <p className={styles.subtitle}>Configure company defaults and integrations.</p>
+        <h1 className={styles.title}>{t("settings.title", "Settings")}</h1>
+        <p className={styles.subtitle}>
+          {t("settings.subtitle", "Configure company defaults and integrations.")}
+        </p>
       </header>
 
       {canManageSettings ? (
         <>
           <section className={styles.section}>
-            <h2 className={styles.sectionTitle}>Company POS defaults</h2>
+            <h2 className={styles.sectionTitle}>
+              {t("settings.pos.title", "Company POS defaults")}
+            </h2>
             <p className={styles.sectionDesc}>
-              Default checkout behavior for users without personal overrides. Configure
-              per-user settings from the Users menu.
+              {t(
+                "settings.pos.subtitle",
+                "Default checkout behavior for users without personal overrides. Configure per-user settings from the Users menu.",
+              )}
             </p>
 
             <label className={styles.row}>
               <div>
-                <div className={styles.rowTitle}>Allow out-of-stock sales</div>
+                <div className={styles.rowTitle}>
+                  {t("settings.pos.allowOutOfStock", "Allow out-of-stock sales")}
+                </div>
                 <div className={styles.rowDesc}>
-                  When enabled, cashiers can add products with zero or negative stock to the cart.
+                  {t(
+                    "settings.pos.allowOutOfStockDesc",
+                    "Let cashiers sell products even when stock is zero.",
+                  )}
                 </div>
               </div>
               <span className={styles.switch}>
@@ -522,10 +547,14 @@ function SettingsPage() {
 
             <label className={styles.row}>
               <div>
-                <div className={styles.rowTitle}>Auto-open quantity keypad</div>
+                <div className={styles.rowTitle}>
+                  {t("settings.pos.autoOpenQtyKeypad", "Auto-open quantity keypad")}
+                </div>
                 <div className={styles.rowDesc}>
-                  When enabled, adding a product to the cart opens the numeric keypad
-                  automatically. Users without a personal override use this default.
+                  {t(
+                    "settings.pos.autoOpenQtyKeypadDesc",
+                    "Show the quantity keypad when a product is added to the cart.",
+                  )}
                 </div>
               </div>
               <span className={styles.switch}>
@@ -540,10 +569,14 @@ function SettingsPage() {
             </label>
 
             <div className={styles.fieldBlock}>
-              <div className={styles.rowTitle}>Amount tendered shortcuts</div>
+              <div className={styles.rowTitle}>
+                {t("settings.pos.tenderedShortcuts", "Amount tendered shortcuts")}
+              </div>
               <div className={styles.rowDesc}>
-                Quick amounts shown at cash checkout (after Exact). Separate values with commas.
-                Up to 8 numbers.
+                {t(
+                  "settings.pos.tenderedShortcutsDesc",
+                  "Quick buttons for cash payments (comma-separated amounts).",
+                )}
               </div>
               <input
                 className={styles.input}
@@ -551,7 +584,7 @@ function SettingsPage() {
                 inputMode="decimal"
                 value={tenderedAmountsInput}
                 disabled={loadingPosSettings || savingPosSettings}
-                placeholder="20, 50, 100"
+                placeholder={t("settings.pos.tenderedPlaceholder", "20, 50, 100")}
                 onChange={(e) => setTenderedAmountsInput(e.target.value)}
               />
               <button
@@ -560,7 +593,9 @@ function SettingsPage() {
                 disabled={loadingPosSettings || savingPosSettings}
                 onClick={() => void handleSaveTenderedAmounts()}
               >
-                {savingPosSettings ? "Saving…" : "Save amounts"}
+                {savingPosSettings
+                  ? t("common.saving", "Saving…")
+                  : t("settings.pos.saveAmounts", "Save amounts")}
               </button>
             </div>
 
@@ -570,17 +605,21 @@ function SettingsPage() {
           {token ? (
             <ReceiptTemplatesSection
               token={token}
-              companyName={user?.company?.name ?? "Company"}
+              companyName={user?.company?.name ?? t("settings.companyFallback", "Company")}
             />
           ) : null}
 
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
               <div>
-                <h2 className={styles.sectionTitle}>Regos integration</h2>
+                <h2 className={styles.sectionTitle}>
+                  {t("settings.regos.title", "Regos integration")}
+                </h2>
                 <p className={styles.sectionDesc}>
-                  Save the integration token from `regos_tokens` so the app can fetch
-                  warehouses, price types, partners, and other Regos data.
+                  {t(
+                    "settings.regos.desc",
+                    "Save the integration token from regos_tokens so the app can fetch warehouses, price types, partners, and other Regos data.",
+                  )}
                 </p>
               </div>
             </div>
@@ -590,7 +629,9 @@ function SettingsPage() {
 
             <div className={styles.formGrid}>
               <label className={styles.field}>
-                <span className={styles.label}>Integration token</span>
+                <span className={styles.label}>
+                  {t("settings.regos.integrationToken", "Integration token")}
+                </span>
                 <input
                   className={styles.input}
                   type="text"
@@ -599,15 +640,23 @@ function SettingsPage() {
                   autoComplete="off"
                   spellCheck={false}
                   onChange={(e) => setIntegrationToken(e.target.value)}
-                  placeholder="32-character Regos integration token"
+                  placeholder={t(
+                    "settings.regos.tokenPlaceholder",
+                    "32-character Regos integration token",
+                  )}
                 />
               </label>
 
               <label className={styles.row}>
                 <div>
-                  <div className={styles.rowTitle}>Replicable token</div>
+                  <div className={styles.rowTitle}>
+                    {t("settings.regos.replicable", "Replicable token")}
+                  </div>
                   <div className={styles.rowDesc}>
-                    Enable OAuth bearer-token usage for replicable Regos integrations.
+                    {t(
+                      "settings.regos.replicableOAuthDesc",
+                      "Enable OAuth bearer-token usage for replicable Regos integrations.",
+                    )}
                   </div>
                 </div>
                 <span className={styles.switch}>
@@ -630,7 +679,9 @@ function SettingsPage() {
                   disabled={loadingToken || savingToken}
                   onClick={() => void handleSaveRegosToken()}
                 >
-                  {savingToken ? "Saving..." : "Save integration token"}
+                  {savingToken
+                    ? t("common.saving", "Saving…")
+                    : t("settings.regos.saveToken", "Save integration token")}
                 </button>
                 <button
                   type="button"
@@ -638,26 +689,36 @@ function SettingsPage() {
                   disabled={loadingToken || savingToken || !tokenConfigured}
                   onClick={() => void handleDeleteSavedToken()}
                 >
-                  Remove token
+                  {t("settings.regos.removeToken", "Remove token")}
                 </button>
               </div>
               <p className={styles.note}>
                 {loadingToken
-                  ? "Loading integration token..."
+                  ? t("settings.regos.loadingToken", "Loading integration token…")
                   : tokenConfigured
                     ? regosWebhookUrl
-                      ? `Token saved. REGOS HandleWebhook URL: ${regosWebhookUrl}`
-                      : "Token saved. Set TELEGRAM_WEBHOOK_BASE_URL on the server to show the REGOS webhook URL."
-                    : "No integration token saved yet."}
+                      ? t(
+                          "settings.regos.tokenSavedWebhook",
+                          "Token saved. REGOS HandleWebhook URL: {{url}}",
+                          { url: regosWebhookUrl },
+                        )
+                      : t(
+                          "settings.regos.tokenSavedNoWebhookUrl",
+                          "Token saved. Set TELEGRAM_WEBHOOK_BASE_URL on the server to show the REGOS webhook URL.",
+                        )
+                    : t("settings.regos.noToken", "No integration token saved yet.")}
               </p>
             </div>
 
             <div className={styles.subsection}>
-              <div className={styles.rowTitle}>Payment sale ID field</div>
+              <div className={styles.rowTitle}>
+                {t("settings.saleIdField.title", "Payment sale ID field")}
+              </div>
               <p className={styles.rowDesc}>
-                Creates a custom Regos field on DocPayment documents (`sale_id`, stored as
-                `field_sale_id`). Checkout and return payments store the wholesale or wholesale
-                return document id in this field.
+                {t(
+                  "settings.saleIdField.longDesc",
+                  "Creates a custom Regos field on DocPayment documents (sale_id, stored as field_sale_id). Checkout and return payments store the wholesale or wholesale return document id in this field.",
+                )}
               </p>
               {saleIdFieldError ? <p className={styles.error}>{saleIdFieldError}</p> : null}
               {saleIdFieldInfo ? <p className={styles.success}>{saleIdFieldInfo}</p> : null}
@@ -675,18 +736,31 @@ function SettingsPage() {
                   onClick={() => void handleCreateSaleIdField()}
                 >
                   {creatingSaleIdField
-                    ? "Creating..."
+                    ? t("settings.saleIdField.creating", "Creating…")
                     : saleIdFieldConfigured
-                      ? "Sale ID field ready"
-                      : "Create sale_id field"}
+                      ? t("settings.saleIdField.ready", "Sale ID field ready")
+                      : t("settings.saleIdField.create", "Create sale_id field")}
                 </button>
               </div>
               {saleIdField ? (
                 <p className={styles.note}>
-                  Field `{saleIdField.key}` · {saleIdField.name} · {saleIdField.entity_type}
+                  {t(
+                    "settings.saleIdField.fieldDetail",
+                    "Field {{key}} · {{name}} · {{entity}}",
+                    {
+                      key: saleIdField.key,
+                      name: saleIdField.name,
+                      entity: saleIdField.entity_type,
+                    },
+                  )}
                 </p>
               ) : tokenConfigured ? (
-                <p className={styles.note}>Sale ID field is not configured yet.</p>
+                <p className={styles.note}>
+                  {t(
+                    "settings.saleIdField.notConfigured",
+                    "Sale ID field is not configured yet.",
+                  )}
+                </p>
               ) : null}
             </div>
           </section>
@@ -694,10 +768,14 @@ function SettingsPage() {
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
               <div>
-                <h2 className={styles.sectionTitle}>Telegram bot</h2>
+                <h2 className={styles.sectionTitle}>
+                  {t("settings.telegram.title", "Telegram bot")}
+                </h2>
                 <p className={styles.sectionDesc}>
-                  Connect a BotFather token so customers can send /start and subscribe via
-                  webhook notifications.
+                  {t(
+                    "settings.telegram.desc",
+                    "Connect a BotFather token so customers can send /start and subscribe via webhook notifications.",
+                  )}
                 </p>
               </div>
             </div>
@@ -707,7 +785,9 @@ function SettingsPage() {
 
             <div className={styles.formGrid}>
               <label className={styles.field}>
-                <span className={styles.label}>Bot token</span>
+                <span className={styles.label}>
+                  {t("settings.telegram.botToken", "Bot token")}
+                </span>
                 <input
                   className={styles.input}
                   type="password"
@@ -717,7 +797,12 @@ function SettingsPage() {
                   spellCheck={false}
                   onChange={(e) => setTelegramBotToken(e.target.value)}
                   placeholder={
-                    telegramBotConfigured ? "Enter a new token to replace the saved bot" : "BotFather token"
+                    telegramBotConfigured
+                      ? t(
+                          "settings.telegram.replaceTokenPlaceholder",
+                          "Enter a new token to replace the saved bot",
+                        )
+                      : t("settings.telegram.botFatherPlaceholder", "BotFather token")
                   }
                 />
               </label>
@@ -731,7 +816,9 @@ function SettingsPage() {
                   disabled={loadingTelegramBot || savingTelegramBot}
                   onClick={() => void handleSaveTelegramBot()}
                 >
-                  {savingTelegramBot ? "Saving..." : "Save bot token"}
+                  {savingTelegramBot
+                    ? t("common.saving", "Saving…")
+                    : t("settings.telegram.saveToken", "Save bot token")}
                 </button>
                 <button
                   type="button"
@@ -739,21 +826,31 @@ function SettingsPage() {
                   disabled={loadingTelegramBot || savingTelegramBot || !telegramBotConfigured}
                   onClick={() => void handleDeleteTelegramBot()}
                 >
-                  Remove bot
+                  {t("settings.telegram.removeBot", "Remove bot")}
                 </button>
               </div>
               <p className={styles.note}>
                 {loadingTelegramBot
-                  ? "Loading Telegram bot..."
+                  ? t("settings.telegram.loading", "Loading Telegram bot...")
                   : telegramBotConfigured
                     ? telegramBotUsername
-                      ? `Connected as @${telegramBotUsername}. Webhook: ${telegramWebhookUrl ?? "registered"}`
-                      : "Telegram bot is configured."
-                    : "No Telegram bot saved yet. TELEGRAM_WEBHOOK_BASE_URL must be set on the server."}
+                      ? t(
+                          "settings.telegram.connectedWebhook",
+                          "Connected as @{{username}}. Webhook: {{webhook}}",
+                          {
+                            username: telegramBotUsername,
+                            webhook: telegramWebhookUrl ?? "registered",
+                          },
+                        )
+                      : t("settings.telegram.configured", "Telegram bot is configured.")
+                    : t(
+                        "settings.telegram.noWebhookBaseUrl",
+                        "No Telegram bot saved yet. TELEGRAM_WEBHOOK_BASE_URL must be set on the server.",
+                      )}
               </p>
               {telegramBotConfigured && telegramBotUsername ? (
                 <p className={styles.note}>
-                  Bot link:{" "}
+                  {t("settings.telegram.botLink", "Bot link:")}{" "}
                   <a href={`https://t.me/${telegramBotUsername}`} target="_blank" rel="noreferrer">
                     t.me/{telegramBotUsername}
                   </a>
@@ -765,11 +862,14 @@ function SettingsPage() {
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
               <div>
-                <h2 className={styles.sectionTitle}>Regos defaults</h2>
+                <h2 className={styles.sectionTitle}>
+                  {t("settings.defaults.title", "Regos defaults")}
+                </h2>
                 <p className={styles.sectionDesc}>
-                  Choose warehouse, price type, partner, and payment defaults used for
-                  checkout. Currency and firm are resolved automatically from the price type
-                  and warehouse.
+                  {t(
+                    "settings.defaults.desc",
+                    "Default warehouse, price type, and partner for new sales.",
+                  )}
                 </p>
               </div>
             </div>
@@ -779,7 +879,9 @@ function SettingsPage() {
 
             <div className={styles.formGrid}>
               <label className={styles.field}>
-                <span className={styles.label}>Default warehouse</span>
+                <span className={styles.label}>
+                  {t("settings.defaults.warehouse", "Default warehouse")}
+                </span>
                 <select
                   className={styles.select}
                   value={warehouseId}
@@ -788,7 +890,7 @@ function SettingsPage() {
                   }
                   onChange={(e) => setWarehouseId(e.target.value)}
                 >
-                  <option value="">Not selected</option>
+                  <option value="">{t("common.notSelected", "Not selected")}</option>
                   {options.warehouses.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
@@ -798,7 +900,9 @@ function SettingsPage() {
               </label>
 
               <label className={styles.field}>
-                <span className={styles.label}>Default price type</span>
+                <span className={styles.label}>
+                  {t("settings.defaults.priceType", "Default price type")}
+                </span>
                 <select
                   className={styles.select}
                   value={priceTypeId}
@@ -807,7 +911,7 @@ function SettingsPage() {
                   }
                   onChange={(e) => setPriceTypeId(e.target.value)}
                 >
-                  <option value="">Not selected</option>
+                  <option value="">{t("common.notSelected", "Not selected")}</option>
                   {options.price_types.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
@@ -817,7 +921,9 @@ function SettingsPage() {
               </label>
 
               <label className={styles.field}>
-                <span className={styles.label}>Default partner</span>
+                <span className={styles.label}>
+                  {t("settings.defaults.partner", "Default partner")}
+                </span>
                 <select
                   className={styles.select}
                   value={partnerId}
@@ -826,7 +932,7 @@ function SettingsPage() {
                   }
                   onChange={(e) => setPartnerId(e.target.value)}
                 >
-                  <option value="">Not selected</option>
+                  <option value="">{t("common.notSelected", "Not selected")}</option>
                   {options.partners.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
@@ -836,21 +942,31 @@ function SettingsPage() {
               </label>
 
               <div className={styles.field}>
-                <span className={styles.label}>Currency (from price type)</span>
+                <span className={styles.label}>
+                  {t("settings.defaults.currency", "Currency (from price type)")}
+                </span>
                 <div className={styles.note}>
-                  {derivedCurrency ? derivedCurrency.name : "Select a price type"}
+                  {derivedCurrency
+                    ? derivedCurrency.name
+                    : t("settings.defaults.selectPriceType", "Select a price type")}
                 </div>
               </div>
 
               <div className={styles.field}>
-                <span className={styles.label}>Firm (from warehouse)</span>
+                <span className={styles.label}>
+                  {t("settings.defaults.firm", "Firm (from warehouse)")}
+                </span>
                 <div className={styles.note}>
-                  {derivedFirm ? derivedFirm.name : "Select a warehouse"}
+                  {derivedFirm
+                    ? derivedFirm.name
+                    : t("settings.defaults.selectWarehouse", "Select a warehouse")}
                 </div>
               </div>
 
               <label className={styles.field}>
-                <span className={styles.label}>Default payment category (income)</span>
+                <span className={styles.label}>
+                  {t("settings.defaults.paymentCategoryIncome", "Default payment category (income)")}
+                </span>
                 <select
                   className={styles.select}
                   value={paymentCategoryId}
@@ -859,7 +975,7 @@ function SettingsPage() {
                   }
                   onChange={(e) => setPaymentCategoryId(e.target.value)}
                 >
-                  <option value="">Not selected</option>
+                  <option value="">{t("common.notSelected", "Not selected")}</option>
                   {options.payment_categories.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
@@ -869,7 +985,9 @@ function SettingsPage() {
               </label>
 
               <label className={styles.field}>
-                <span className={styles.label}>Default payment category (refund)</span>
+                <span className={styles.label}>
+                  {t("settings.defaults.paymentCategoryRefund", "Default payment category (refund)")}
+                </span>
                 <select
                   className={styles.select}
                   value={refundPaymentCategoryId}
@@ -878,7 +996,7 @@ function SettingsPage() {
                   }
                   onChange={(e) => setRefundPaymentCategoryId(e.target.value)}
                 >
-                  <option value="">Not selected</option>
+                  <option value="">{t("common.notSelected", "Not selected")}</option>
                   {options.refund_payment_categories.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
@@ -888,7 +1006,9 @@ function SettingsPage() {
               </label>
 
               <label className={styles.field}>
-                <span className={styles.label}>Attached user (optional)</span>
+                <span className={styles.label}>
+                  {t("settings.defaults.attachedUser", "Attached user (optional)")}
+                </span>
                 <select
                   className={styles.select}
                   value={attachedUserId}
@@ -897,7 +1017,7 @@ function SettingsPage() {
                   }
                   onChange={(e) => setAttachedUserId(e.target.value)}
                 >
-                  <option value="">Not selected</option>
+                  <option value="">{t("common.notSelected", "Not selected")}</option>
                   {options.attached_users.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
@@ -907,7 +1027,9 @@ function SettingsPage() {
               </label>
 
               <label className={styles.field}>
-                <span className={styles.label}>VAT calculation type</span>
+                <span className={styles.label}>
+                  {t("settings.defaults.vatType", "VAT calculation type")}
+                </span>
                 <select
                   className={styles.select}
                   value={vatCalculationType}
@@ -916,7 +1038,7 @@ function SettingsPage() {
                   }
                   onChange={(e) => setVatCalculationType(e.target.value as VatCalculationType)}
                 >
-                  {VAT_CALCULATION_TYPE_OPTIONS.map((item) => (
+                  {getVatCalculationTypeOptions(t).map((item) => (
                     <option key={item.value} value={item.value}>
                       {item.label}
                     </option>
@@ -926,9 +1048,14 @@ function SettingsPage() {
 
               <label className={styles.row}>
                 <div>
-                  <div className={styles.rowTitle}>Include zero quantity products</div>
+                  <div className={styles.rowTitle}>
+                    {t("settings.defaults.zeroQuantity", "Include zero quantity products")}
+                  </div>
                   <div className={styles.rowDesc}>
-                    Show products even when allowed stock is 0. Default is off.
+                    {t(
+                      "settings.defaults.zeroQuantityDesc",
+                      "Show products with zero stock in the catalog.",
+                    )}
                   </div>
                 </div>
                 <span className={styles.switch}>
@@ -946,9 +1073,14 @@ function SettingsPage() {
 
               <label className={styles.row}>
                 <div>
-                  <div className={styles.rowTitle}>Include zero price products</div>
+                  <div className={styles.rowTitle}>
+                    {t("settings.defaults.zeroPrice", "Include zero price products")}
+                  </div>
                   <div className={styles.rowDesc}>
-                    Show products even when Regos returns price 0. Default is off.
+                    {t(
+                      "settings.defaults.zeroPriceDesc",
+                      "Show products with zero price in the catalog.",
+                    )}
                   </div>
                 </div>
                 <span className={styles.switch}>
@@ -972,14 +1104,19 @@ function SettingsPage() {
                 disabled={!tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults}
                 onClick={() => void handleSaveRegosDefaults()}
               >
-                {savingRegosDefaults ? "Saving..." : "Save Regos defaults"}
+                {savingRegosDefaults
+                  ? t("common.saving", "Saving…")
+                  : t("settings.defaults.save", "Save Regos defaults")}
               </button>
               <p className={styles.note}>
                 {!tokenConfigured
-                  ? "Save the integration token first."
+                  ? t("settings.defaults.saveTokenFirst", "Save the integration token first.")
                   : loadingRegos
-                    ? "Loading Regos references..."
-                    : "These settings are shared for the whole company."}
+                    ? t("settings.defaults.loadingRefs", "Loading Regos references…")
+                    : t(
+                        "settings.defaults.sharedNote",
+                        "These settings are shared across all POS terminals in your company.",
+                      )}
               </p>
             </div>
           </section>

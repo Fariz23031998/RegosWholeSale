@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
+import { useLanguage } from "@/contexts/LanguageContext";
 import type { DashboardCustomRange } from "@/lib/dashboard-api";
 import styles from "./Dashboard.module.css";
 
@@ -12,6 +13,7 @@ type Props = {
 };
 
 export function DashboardPeriodModal({ open, onClose, initialRange, onApply }: Props) {
+  const { t } = useLanguage();
   const [startDate, setStartDate] = useState(initialRange.startDate);
   const [endDate, setEndDate] = useState(initialRange.endDate);
   const [error, setError] = useState("");
@@ -25,11 +27,11 @@ export function DashboardPeriodModal({ open, onClose, initialRange, onApply }: P
 
   const handleApply = () => {
     if (!startDate || !endDate) {
-      setError("Choose both start and end dates.");
+      setError(t("dashboard.periodModal.bothDatesRequired"));
       return;
     }
     if (startDate > endDate) {
-      setError("Start date must be on or before end date.");
+      setError(t("dashboard.periodModal.startBeforeEnd"));
       return;
     }
     onApply({ startDate, endDate });
@@ -37,10 +39,10 @@ export function DashboardPeriodModal({ open, onClose, initialRange, onApply }: P
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Choose period" size="md">
+    <Modal open={open} onClose={onClose} title={t("dashboard.periodModal.title")} size="md">
       <div className={styles.modalForm}>
         <label className={styles.field}>
-          <span className={styles.fieldLabel}>From</span>
+          <span className={styles.fieldLabel}>{t("common.from")}</span>
           <input
             type="date"
             className={styles.fieldInput}
@@ -49,7 +51,7 @@ export function DashboardPeriodModal({ open, onClose, initialRange, onApply }: P
           />
         </label>
         <label className={styles.field}>
-          <span className={styles.fieldLabel}>To</span>
+          <span className={styles.fieldLabel}>{t("common.to")}</span>
           <input
             type="date"
             className={styles.fieldInput}
@@ -60,10 +62,10 @@ export function DashboardPeriodModal({ open, onClose, initialRange, onApply }: P
         {error && <div className={styles.fieldError}>{error}</div>}
         <div className={styles.modalActions}>
           <Button type="button" variant="secondary" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button type="button" onClick={handleApply}>
-            Apply
+            {t("common.apply")}
           </Button>
         </div>
       </div>

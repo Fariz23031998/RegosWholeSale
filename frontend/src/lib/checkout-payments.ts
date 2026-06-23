@@ -74,40 +74,48 @@ export function remainingBalanceInPaymentCurrency(
 
 export type PaymentPanelMode = "sale" | "return";
 
-export function paymentPanelLabels(mode: PaymentPanelMode) {
-  if (mode === "return") {
-    return {
-      amountPayingNow: "Amount refunding",
-      payingNow: "Refunding now",
-      closeWithout: "Close without refund",
-      closingWithout: "Closing without refund",
-      closingWithoutProcessing: "Closing without refund…",
-      noPaymentNotice: "Closing without refund",
-      noPaymentDescription: "No refund will be recorded in Regos. Customer account credit will be",
-      charge: "Process refund",
-      processing: "Processing refund…",
-      cashHint:
-        "Enter the refund amount in payment currency, or leave at 0 to credit the full amount to the customer account.",
-      cashHintSame:
-        "Enter the refund amount now, or leave at 0 to credit the full amount to the customer account.",
-      cardPrompt: "Tap Process refund to confirm",
-      postingToRegos: "Posting return to Regos",
-    };
-  }
+type TranslateFn = (
+  key: string,
+  fallback?: string,
+  params?: Record<string, string | number>,
+) => string;
+
+export function paymentPanelLabels(mode: PaymentPanelMode, t: TranslateFn) {
+  const prefix = mode === "return" ? "checkout.labels.return" : "checkout.labels.sale";
   return {
-    amountPayingNow: "Amount paying now",
-    payingNow: "Paying now",
-    closeWithout: "Close without payment",
-    closingWithout: "Closing without payment",
-    closingWithoutProcessing: "Closing without payment…",
-    noPaymentNotice: "Closing without payment",
-    noPaymentDescription: "No payment will be recorded in Regos. Customer debt will be",
-    charge: "Charge",
-    processing: "Processing…",
-    cashHint:
-      "Enter the amount received in payment currency, or leave at 0 to close without payment.",
-    cashHintSame: "Enter the amount received now, or leave at 0 to close without payment.",
-    cardPrompt: "Tap Charge to confirm",
-    postingToRegos: "Posting sale to Regos",
+    amountPayingNow: t(`${prefix}.amountPayingNow`, mode === "return" ? "Amount refunding" : "Amount paying now"),
+    payingNow: t(`${prefix}.payingNow`, mode === "return" ? "Refunding now" : "Paying now"),
+    closeWithout: t(`${prefix}.closeWithout`, mode === "return" ? "Close without refund" : "Close without payment"),
+    closingWithout: t(`${prefix}.closingWithout`, mode === "return" ? "Closing without refund" : "Closing without payment"),
+    closingWithoutProcessing: t(
+      `${prefix}.closingWithoutProcessing`,
+      mode === "return" ? "Closing without refund…" : "Closing without payment…",
+    ),
+    noPaymentNotice: t(`${prefix}.noPaymentNotice`, mode === "return" ? "Closing without refund" : "Closing without payment"),
+    noPaymentDescription: t(
+      `${prefix}.noPaymentDescription`,
+      mode === "return"
+        ? "No refund will be recorded in Regos. Customer account credit will be"
+        : "No payment will be recorded in Regos. Customer debt will be",
+    ),
+    charge: t(`${prefix}.charge`, mode === "return" ? "Process refund" : "Charge"),
+    processing: t(`${prefix}.processing`, mode === "return" ? "Processing refund…" : "Processing…"),
+    cashHint: t(
+      `${prefix}.cashHint`,
+      mode === "return"
+        ? "Enter the refund amount in payment currency, or leave at 0 to credit the full amount to the customer account."
+        : "Enter the amount received in payment currency, or leave at 0 to close without payment.",
+    ),
+    cashHintSame: t(
+      `${prefix}.cashHintSame`,
+      mode === "return"
+        ? "Enter the refund amount now, or leave at 0 to credit the full amount to the customer account."
+        : "Enter the amount received now, or leave at 0 to close without payment.",
+    ),
+    cardPrompt: t(`${prefix}.cardPrompt`, mode === "return" ? "Tap Process refund to confirm" : "Tap Charge to confirm"),
+    postingToRegos: t(
+      `${prefix}.postingToRegos`,
+      mode === "return" ? "Posting return to Regos" : "Posting sale to Regos",
+    ),
   };
 }

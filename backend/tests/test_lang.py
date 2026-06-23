@@ -8,7 +8,7 @@ def test_get_language_en():
     response = client.get("/api/v1/lang/en")
     assert response.status_code == 200
     data = response.json()
-    assert data["version"] == "1.0.0"
+    assert data["version"] == "1.1.0"
     assert data["translations"]["nav.sell"] == "Sell"
 
 
@@ -17,7 +17,7 @@ def test_get_language_version():
     response = client.get("/api/v1/lang/ru/version")
     assert response.status_code == 200
     data = response.json()
-    assert data["version"] == "1.0.0"
+    assert data["version"] == "1.1.0"
     assert "last_updated" in data
 
 

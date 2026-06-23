@@ -1,5 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { ResetPasswordScreen } from "@/components/Auth/ResetPasswordScreen";
+import { languageService } from "@/services/language";
 import { isAuthenticated } from "@/store/auth";
 
 export const Route = createFileRoute("/reset-password")({
@@ -10,8 +11,11 @@ export const Route = createFileRoute("/reset-password")({
   },
   head: () => ({
     meta: [
-      { title: "Reset password · Regos Optom" },
-      { name: "description", content: "Reset your account password." },
+      { title: languageService.t("meta.resetPasswordTitle", "Reset password · Regos Optom") },
+      {
+        name: "description",
+        content: languageService.t("meta.resetPasswordDescription", "Reset your account password."),
+      },
     ],
   }),
   component: ResetPasswordScreen,

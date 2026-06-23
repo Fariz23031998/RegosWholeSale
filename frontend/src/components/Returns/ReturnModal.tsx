@@ -9,6 +9,7 @@ import {
   type PaymentSubmitPayload,
 } from "@/components/Checkout/PaymentPanel";
 import { PartnerPickerModal } from "@/components/POS/PartnerPickerModal";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
 import { fetchCatalogProducts } from "@/lib/catalog-api";
@@ -50,6 +51,7 @@ function rangeToTimestamps(): { start_date: number; end_date: number } {
 }
 
 export function ReturnModal({ open, onClose }: Props) {
+  const { t } = useLanguage();
   const accessToken = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
   const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
@@ -116,7 +118,7 @@ export function ReturnModal({ open, onClose }: Props) {
         if (!cancelled) setDocuments(res.documents);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(formatAuthError(err, "Failed to load sales"));
+        if (!cancelled) setError(formatAuthError(err, t("returns.errors.loadSales")));
       })
       .finally(() => {
         if (!cancelled) setDocumentsLoading(false);
@@ -148,7 +150,7 @@ export function ReturnModal({ open, onClose }: Props) {
         if (!cancelled) setSearchResults(res.products);
       })
       .catch((err: unknown) => {
-        if (!cancelled) setError(formatAuthError(err, "Product search failed"));
+        if (!cancelled) setError(formatAuthError(err, t("returns.errors.productSearch")));
       })
       .finally(() => {
         if (!cancelled) setSearchLoading(false);
@@ -191,7 +193,7 @@ export function ReturnModal({ open, onClose }: Props) {
           .map((op) => mapOperationToLine(op, returnedByItem.get(op.item_id) ?? 0)),
       );
     } catch (err: unknown) {
-      setError(formatAuthError(err, "Failed to load sale details"));
+      setError(formatAuthError(err, t("returns.errors.loadDetails")));
       setSelectedSale(null);
     }
   };
@@ -204,7 +206,7 @@ export function ReturnModal({ open, onClose }: Props) {
     const remaining = Math.max(0, soldQty - returnedQty);
     return {
       regosItemId: op.item_id,
-      name: op.item_name ?? `Item #${op.item_id}`,
+      name: op.item_name ?? t("sales.itemFallback", undefined, { id: op.item_id }),
       price: op.price,
       qty: 0,
       maxQty: remaining,
@@ -305,7 +307,7 @@ export function ReturnModal({ open, onClose }: Props) {
       setSuccessCode(result.wholesale_return_code);
       setStep("done");
     } catch (err: unknown) {
-      setError(formatAuthError(err, "Return failed"));
+      setError(formatAuthError(err, t("returns.errors.failed")));
     } finally {
       setProcessing(false);
     }
@@ -327,38 +329,40 @@ export function ReturnModal({ open, onClose }: Props) {
       <Modal
         open={open}
         onClose={handleClose}
-        title="Return products"
+        title={t("returns.modal.title")}
         size="lg"
       >
         {step === "done" && successCode ? (
           <div className={styles.successBox}>
             <Undo2 size={32} className={styles.successIcon} />
-            <div className={styles.successTitle}>Return completed</div>
+            <div className={styles.successTitle}>{t("returns.modal.completed")}</div>
             <div className={styles.successCode}>#{successCode}</div>
             <div className={styles.successMeta}>
-              Refund total: {formatCurrency(total)}
+              {t("returns.modal.refundTotal")}: {formatCurrency(total)}
             </div>
             <Button full onClick={handleClose}>
-              Done
+              {t("common.done")}
             </Button>
           </div>
         ) : step === "payment" ? (
           <div className={styles.paymentStep}>
             <div className={styles.totalLine}>
-              <span>Refund total</span>
+              <span>{t("returns.modal.refundTotal")}</span>
               <span>{formatAmountWithCurrency(total, saleCurrency)}</span>
             </div>
 
             {canOverrideRegos && (
               <div className={styles.partnerRow}>
-                <span className={styles.partnerLabel}>Customer</span>
+                <span className={styles.partnerLabel}>{t("returns.modal.customer")}</span>
                 <button
                   type="button"
                   className={styles.partnerBtn}
                   onClick={() => setPartnerPickerOpen(true)}
                 >
                   {returnPartnerName ??
-                    (effectivePartnerId ? `Partner #${effectivePartnerId}` : "Select partner")}
+                    (effectivePartnerId
+                      ? t("returns.modal.partnerId", undefined, { id: effectivePartnerId })
+                      : t("returns.modal.selectPartner"))}
                 </button>
               </div>
             )}
@@ -376,7 +380,7 @@ export function ReturnModal({ open, onClose }: Props) {
             />
 
             <Button variant="ghost" full onClick={() => setStep("items")} disabled={processing}>
-              Back to items
+              {t("returns.modal.backToItems")}
             </Button>
           </div>
         ) : (
@@ -387,14 +391,14 @@ export function ReturnModal({ open, onClose }: Props) {
                 className={clsx(styles.sourceTab, sourceMode === "sale" && styles.sourceTabActive)}
                 onClick={() => switchSourceMode("sale")}
               >
-                From sale
+                {t("returns.modal.fromSale")}
               </button>
               <button
                 type="button"
                 className={clsx(styles.sourceTab, sourceMode === "manual" && styles.sourceTabActive)}
                 onClick={() => switchSourceMode("manual")}
               >
-                Manual
+                {t("returns.modal.manual")}
               </button>
             </div>
 
@@ -406,15 +410,15 @@ export function ReturnModal({ open, onClose }: Props) {
                       <Search size={16} />
                       <input
                         className={styles.searchInput}
-                        placeholder="Search sales by code or customer…"
+                        placeholder={t("returns.modal.searchSales")}
                         value={saleSearch}
                         onChange={(e) => setSaleSearch(e.target.value)}
                       />
                     </div>
                     {documentsLoading ? (
-                      <div className={styles.status}>Loading sales…</div>
+                      <div className={styles.status}>{t("returns.modal.loadingSales")}</div>
                     ) : filteredDocuments.length === 0 ? (
-                      <div className={styles.status}>No sales found for the last 7 days.</div>
+                      <div className={styles.status}>{t("returns.modal.noSales")}</div>
                     ) : (
                       <div className={styles.saleList}>
                         {filteredDocuments.map((doc) => (
@@ -454,7 +458,7 @@ export function ReturnModal({ open, onClose }: Props) {
                           setLines([]);
                         }}
                       >
-                        Change sale
+                        {t("returns.modal.changeSale")}
                       </button>
                     </div>
                     {lines.map((line) => {
@@ -466,13 +470,13 @@ export function ReturnModal({ open, onClose }: Props) {
                             <div className={styles.itemName}>
                               {line.name}
                               {allReturned && (
-                                <span className={styles.refunded}>fully returned</span>
+                                <span className={styles.refunded}>{t("returns.modal.fullyReturned")}</span>
                               )}
                             </div>
                             <div className={styles.itemMeta}>
-                              {formatCurrency(line.price)} ea · sold {line.soldQty}
+                              {formatCurrency(line.price)} {t("returns.modal.ea")} · {t("returns.modal.sold")} {line.soldQty}
                               {(line.returnedQty ?? 0) > 0 &&
-                                ` · ${line.returnedQty} already returned`}
+                                ` · ${line.returnedQty} ${t("returns.modal.alreadyReturned")}`}
                             </div>
                           </div>
                           <button
@@ -499,14 +503,14 @@ export function ReturnModal({ open, onClose }: Props) {
                   <Search size={16} />
                   <input
                     className={styles.searchInput}
-                    placeholder="Search products by name or SKU…"
+                    placeholder={t("returns.modal.searchProducts")}
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
                   />
                 </div>
-                {searchLoading && <div className={styles.status}>Searching…</div>}
+                {searchLoading && <div className={styles.status}>{t("returns.modal.searching")}</div>}
                 {productSearch.trim().length >= 2 && !searchLoading && searchResults.length === 0 && (
-                  <div className={styles.status}>No products found.</div>
+                  <div className={styles.status}>{t("returns.modal.noProducts")}</div>
                 )}
                 {searchResults.length > 0 && (
                   <div className={styles.searchResults}>
@@ -535,10 +539,12 @@ export function ReturnModal({ open, onClose }: Props) {
                               className={styles.removeLineBtn}
                               onClick={() => removeManualLine(line.regosItemId)}
                             >
-                              Remove
+                              {t("common.remove")}
                             </button>
                           </div>
-                          <div className={styles.itemMeta}>{formatCurrency(line.price)} ea</div>
+                          <div className={styles.itemMeta}>
+                            {formatCurrency(line.price)} {t("returns.modal.ea")}
+                          </div>
                         </div>
                         <button
                           type="button"
@@ -561,13 +567,13 @@ export function ReturnModal({ open, onClose }: Props) {
             <textarea
               className={styles.reason}
               rows={2}
-              placeholder="Reason for return (optional)"
+              placeholder={t("returns.modal.reasonPlaceholder")}
               value={reason}
               onChange={(e) => setReason(e.target.value)}
             />
 
             <div className={styles.summary}>
-              <span>Refund total</span>
+              <span>{t("returns.modal.refundTotal")}</span>
               <span>{formatCurrency(total)}</span>
             </div>
 
@@ -575,14 +581,14 @@ export function ReturnModal({ open, onClose }: Props) {
 
             <div className={styles.actions}>
               <Button variant="ghost" full onClick={handleClose}>
-                Cancel
+                {t("common.cancel")}
               </Button>
               <Button
                 full
                 disabled={selectedLines.length === 0}
                 onClick={() => setStep("payment")}
               >
-                Continue to refund
+                {t("returns.modal.continueToRefund")}
               </Button>
             </div>
           </>
@@ -592,7 +598,7 @@ export function ReturnModal({ open, onClose }: Props) {
           <QtyKeypad
             open={keypadFor !== null}
             initial={keypadLine.qty}
-            productName={`${keypadLine.name}${keypadLine.maxQty !== undefined ? ` · max ${keypadLine.maxQty}` : ""}`}
+            productName={`${keypadLine.name}${keypadLine.maxQty !== undefined ? ` · ${t("returns.modal.maxQty", undefined, { n: keypadLine.maxQty })}` : ""}`}
             onClose={() => setKeypadFor(null)}
             onConfirm={(n) => {
               setLineQty(keypadLine.regosItemId, n);

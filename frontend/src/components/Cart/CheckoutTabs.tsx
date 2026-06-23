@@ -1,5 +1,6 @@
 import clsx from "clsx";
 import { Plus, X } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   checkoutTabItemCount,
   useCheckoutTabs,
@@ -7,6 +8,7 @@ import {
 import styles from "./CheckoutTabs.module.css";
 
 export function CheckoutTabs() {
+  const { t } = useLanguage();
   const tabs = useCheckoutTabs((s) => s.tabs);
   const activeTabId = useCheckoutTabs((s) => s.activeTabId);
   const hydrated = useCheckoutTabs((s) => s.hydrated);
@@ -18,7 +20,7 @@ export function CheckoutTabs() {
 
   return (
     <div className={styles.bar}>
-      <div className={styles.scroll} role="tablist" aria-label="Open sales">
+      <div className={styles.scroll} role="tablist" aria-label={t("cart.tabs.openSales", "Open sales")}>
         {tabs.map((tab) => {
           const itemCount = checkoutTabItemCount(tab);
           const isActive = tab.id === activeTabId;
@@ -43,7 +45,7 @@ export function CheckoutTabs() {
                 type="button"
                 className={styles.closeBtn}
                 onClick={() => closeTab(tab.id)}
-                aria-label={`Close ${tab.label}`}
+                aria-label={t("cart.tabs.closeTab", "Close {{label}}", { label: tab.label })}
               >
                 <X size={12} />
               </button>
@@ -55,8 +57,8 @@ export function CheckoutTabs() {
         type="button"
         className={styles.addBtn}
         onClick={addTab}
-        aria-label="New sale tab"
-        title="New sale"
+        aria-label={t("cart.tabs.newTab", "New sale tab")}
+        title={t("cart.tabs.newSale", "New sale")}
       >
         <Plus size={16} />
       </button>

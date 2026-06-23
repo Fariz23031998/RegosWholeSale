@@ -1,0 +1,100 @@
+.root {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.menuTrigger {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-size: 14px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.menuTrigger:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.iconTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 36px;
+  height: 36px;
+  padding: 0 8px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.iconTrigger:hover {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.menu {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.menuAbove {
+  bottom: calc(100% + 6px);
+}
+
+.menuBelow {
+  top: calc(100% + 6px);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.15s, color 0.15s;
+}
+
+.menuItem:hover {
+  background: var(--color-surface-2);
+}
+
+.menuItemActive {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.menuFlag {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-subtle);
+  min-width: 1.5rem;
+}

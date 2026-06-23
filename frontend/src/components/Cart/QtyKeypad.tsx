@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Delete } from "lucide-react";
 import clsx from "clsx";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { formatCurrency } from "@/lib/format";
@@ -38,6 +39,7 @@ export function QtyKeypad({
   onClose,
   onConfirm,
 }: Props) {
+  const { t } = useLanguage();
   const hasPrice = initialPrice !== undefined;
   const [qty, setQtyVal] = useState(String(initial));
   const [price, setPriceVal] = useState(String(initialPrice ?? 0));
@@ -166,11 +168,13 @@ export function QtyKeypad({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title="Set quantity">
+    <Modal open={open} onClose={onClose} title={t("cart.keypad.title", "Set quantity")}>
       <div className={styles.wrap}>
         {productName && <div className={styles.product}>{productName}</div>}
         {maxQty !== null && maxQty !== undefined ? (
-          <div className={styles.limit}>Max available: {maxQty}</div>
+          <div className={styles.limit}>
+            {t("cart.keypad.maxAvailable", "Max available: {{n}}", { n: maxQty })}
+          </div>
         ) : null}
 
         {hasPrice ? (
@@ -183,7 +187,7 @@ export function QtyKeypad({
               )}
               onClick={() => focusField("qty")}
             >
-              <span className={styles.fieldLabel}>Quantity</span>
+              <span className={styles.fieldLabel}>{t("cart.keypad.quantity", "Quantity")}</span>
               <span
                 className={clsx(
                   styles.fieldValue,
@@ -201,7 +205,7 @@ export function QtyKeypad({
               )}
               onClick={() => focusField("price")}
             >
-              <span className={styles.fieldLabel}>Price</span>
+              <span className={styles.fieldLabel}>{t("cart.keypad.price", "Price")}</span>
               <span
                 className={clsx(
                   styles.fieldValue,
@@ -236,8 +240,8 @@ export function QtyKeypad({
           ))}
         </div>
         <div className={styles.footer}>
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button onClick={confirm}>Set</Button>
+          <Button variant="ghost" onClick={onClose}>{t("common.cancel", "Cancel")}</Button>
+          <Button onClick={confirm}>{t("cart.keypad.set", "Set")}</Button>
         </div>
       </div>
     </Modal>

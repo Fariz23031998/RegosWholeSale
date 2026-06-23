@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   fetchReceiptTemplates,
   patchReceiptTemplates,
@@ -25,6 +26,7 @@ type EditorState = {
 } | null;
 
 export function ReceiptTemplatesSection({ token, companyName }: Props) {
+  const { t } = useLanguage();
   const [templates, setTemplates] = useState<ReceiptTemplate[]>([]);
   const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -40,7 +42,12 @@ export function ReceiptTemplatesSection({ token, companyName }: Props) {
       setTemplates(response.settings.templates);
       setDefaultTemplateId(response.settings.default_template_id);
     } catch (err: unknown) {
-      setError(formatAuthError(err, "Failed to load receipt templates"));
+      setError(
+        formatAuthError(
+          err,
+          t("settings.receiptTemplates.errors.load", "Failed to load receipt templates"),
+        ),
+      );
     } finally {
       setLoading(false);
     }
@@ -67,7 +74,12 @@ export function ReceiptTemplatesSection({ token, companyName }: Props) {
       setTemplates(response.settings.templates);
       setDefaultTemplateId(response.settings.default_template_id);
     } catch (err: unknown) {
-      setError(formatAuthError(err, "Failed to save receipt templates"));
+      setError(
+        formatAuthError(
+          err,
+          t("settings.receiptTemplates.errors.save", "Failed to save receipt templates"),
+        ),
+      );
       throw err;
     } finally {
       setSaving(false);
@@ -116,10 +128,14 @@ export function ReceiptTemplatesSection({ token, companyName }: Props) {
     <section className={settingsStyles.section}>
       <div className={settingsStyles.sectionHeader}>
         <div>
-          <h2 className={settingsStyles.sectionTitle}>Receipt templates</h2>
+          <h2 className={settingsStyles.sectionTitle}>
+            {t("settings.receiptTemplates.title", "Receipt templates")}
+          </h2>
           <p className={settingsStyles.sectionDesc}>
-            Configure 80mm receipts and A4 invoices. Cashiers choose a template when
-            printing after checkout; reprints use the company default.
+            {t(
+              "settings.receiptTemplates.descExtended",
+              "Configure 80mm receipts and A4 invoices. Cashiers choose a template when printing after checkout; reprints use the company default.",
+            )}
           </p>
         </div>
       </div>
@@ -132,7 +148,7 @@ export function ReceiptTemplatesSection({ token, companyName }: Props) {
             disabled={loading || saving}
             onClick={() => openCreate("80mm")}
           >
-            New 80mm receipt
+            {t("settings.receiptTemplates.new80mm", "New 80mm receipt")}
           </button>
           <button
             type="button"
@@ -140,7 +156,7 @@ export function ReceiptTemplatesSection({ token, companyName }: Props) {
             disabled={loading || saving}
             onClick={() => openCreate("a4")}
           >
-            New A4 invoice
+            {t("settings.receiptTemplates.newA4", "New A4 invoice")}
           </button>
         </div>
 
@@ -148,7 +164,9 @@ export function ReceiptTemplatesSection({ token, companyName }: Props) {
 
         <div className={styles.templateList}>
           {loading && templates.length === 0 ? (
-            <p className={settingsStyles.note}>Loading templates…</p>
+            <p className={settingsStyles.note}>
+              {t("settings.receiptTemplates.loading", "Loading templates…")}
+            </p>
           ) : null}
           {templates.map((template) => (
             <div key={template.id} className={styles.templateRow}>
@@ -156,11 +174,15 @@ export function ReceiptTemplatesSection({ token, companyName }: Props) {
                 <div className={styles.templateName}>
                   {template.name}
                   {template.is_default ? (
-                    <span className={styles.defaultBadge}>Default</span>
+                    <span className={styles.defaultBadge}>
+                      {t("settings.receiptTemplates.defaultBadge", "Default")}
+                    </span>
                   ) : null}
                 </div>
                 <div className={styles.templateMeta}>
-                  {template.format === "a4" ? "A4 invoice" : "80mm receipt"}
+                  {template.format === "a4"
+                    ? t("settings.receiptTemplates.formatA4", "A4 invoice")
+                    : t("settings.receiptTemplates.format80mm", "80mm receipt")}
                   {template.header.company_name
                     ? ` · ${template.header.company_name}`
                     : ""}
@@ -173,7 +195,7 @@ export function ReceiptTemplatesSection({ token, companyName }: Props) {
                   disabled={saving}
                   onClick={() => openEdit(template)}
                 >
-                  Edit
+                  {t("common.edit", "Edit")}
                 </button>
                 {!template.is_default ? (
                   <button
@@ -182,7 +204,7 @@ export function ReceiptTemplatesSection({ token, companyName }: Props) {
                     disabled={saving}
                     onClick={() => void handleSetDefault(template.id)}
                   >
-                    Set default
+                    {t("settings.receiptTemplates.setDefault", "Set default")}
                   </button>
                 ) : null}
                 {templates.length > 1 ? (
@@ -192,7 +214,7 @@ export function ReceiptTemplatesSection({ token, companyName }: Props) {
                     disabled={saving}
                     onClick={() => void handleDelete(template.id)}
                   >
-                    Delete
+                    {t("common.delete", "Delete")}
                   </button>
                 ) : null}
               </div>

@@ -100,12 +100,43 @@ export const DASHBOARD_PRODUCTS_PAGE_SIZE = 50;
 const DASHBOARD_STATS_TIMEOUT_MS = 60_000;
 const DASHBOARD_PRODUCTS_TIMEOUT_MS = 90_000;
 
-export const PERIOD_LABELS: Record<Exclude<DashboardPeriodPreset, "custom">, string> = {
+export type TranslateFn = (
+  key: string,
+  fallback?: string,
+  params?: Record<string, string | number>,
+) => string;
+
+const PERIOD_LABEL_KEYS: Record<Exclude<DashboardPeriodPreset, "custom">, string> = {
+  today: "dashboard.period.today",
+  week: "dashboard.period.week",
+  month: "dashboard.period.month",
+  all: "dashboard.period.all",
+};
+
+const PERIOD_LABEL_FALLBACKS: Record<Exclude<DashboardPeriodPreset, "custom">, string> = {
   today: "Today",
   week: "Last 7 days",
   month: "Last 30 days",
   all: "All time",
 };
+
+export function getPeriodLabel(
+  preset: Exclude<DashboardPeriodPreset, "custom">,
+  t: TranslateFn,
+): string {
+  return t(PERIOD_LABEL_KEYS[preset], PERIOD_LABEL_FALLBACKS[preset]);
+}
+
+export function getPeriodLabels(
+  t: TranslateFn,
+): Record<Exclude<DashboardPeriodPreset, "custom">, string> {
+  return {
+    today: getPeriodLabel("today", t),
+    week: getPeriodLabel("week", t),
+    month: getPeriodLabel("month", t),
+    all: getPeriodLabel("all", t),
+  };
+}
 
 export function toDateInputValue(date: Date): string {
   const year = date.getFullYear();
@@ -160,12 +191,13 @@ export function presetToCustomRange(
 export function formatDashboardPeriodLabel(
   preset: DashboardPeriodPreset,
   customRange: DashboardCustomRange | null,
+  t: TranslateFn,
 ): string {
   if (preset === "custom" && customRange) {
     return `${formatDate(customRange.startDate)} – ${formatDate(customRange.endDate)}`;
   }
-  if (preset === "custom") return "Custom period";
-  return PERIOD_LABELS[preset];
+  if (preset === "custom") return t("dashboard.period.custom", "Custom period");
+  return getPeriodLabel(preset, t);
 }
 
 export function resolveDashboardQueryParams(

@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AuthLayout } from "@/components/Auth/AuthLayout";
 import { VerificationCodeInput } from "@/components/Auth/VerificationCodeInput";
+import { LanguageSelector } from "@/components/LanguageSelector";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { sendVerificationCode, registerOwner } from "@/lib/auth-api";
 import { formatAuthError, useAuth } from "@/store/auth";
 import styles from "./Auth.module.css";
@@ -9,6 +11,7 @@ import styles from "./Auth.module.css";
 type Step = "form" | "verify";
 
 export function RegisterScreen() {
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const setSession = useAuth((s) => s.setSession);
 
@@ -39,22 +42,22 @@ export function RegisterScreen() {
     setCompanyName(companyVal);
 
     if (!emailVal) {
-      setError("Enter your email first");
+      setError(t("auth.enterEmailFirst", "Enter your email first"));
       return;
     }
     if (passwordVal.length < 8) {
-      setError("Password must be at least 8 characters");
+      setError(t("auth.passwordMinLength", "Password must be at least 8 characters"));
       return;
     }
     if (!displayVal || !companyVal) {
-      setError("Enter your name and company name");
+      setError(t("auth.enterNameAndCompany", "Enter your name and company name"));
       return;
     }
 
     setLoading(true);
     try {
       await sendVerificationCode(emailVal, "register");
-      setInfo("Verification code sent to your email");
+      setInfo(t("auth.codeSent", "Verification code sent to your email"));
       setStep("verify");
     } catch (err) {
       setError(formatAuthError(err));
@@ -75,11 +78,16 @@ export function RegisterScreen() {
     const verificationCode = String(fd.get("verification_code") ?? code).replace(/\D/g, "");
 
     if (verificationCode.length !== 6) {
-      setError("Enter the 6-digit verification code");
+      setError(t("auth.enterSixDigitCode", "Enter the 6-digit verification code"));
       return;
     }
     if (passwordVal.length < 8) {
-      setError("Password must be at least 8 characters. Go back and re-enter your password.");
+      setError(
+        t(
+          "auth.passwordMinLengthGoBack",
+          "Password must be at least 8 characters. Go back and re-enter your password.",
+        ),
+      );
       return;
     }
 
@@ -103,13 +111,14 @@ export function RegisterScreen() {
 
   return (
     <AuthLayout
-      title="Create your company"
-      subtitle="Register as the first owner account"
+      title={t("auth.registerTitle", "Create your company")}
+      subtitle={t("auth.registerSubtitle", "Register as the first owner account")}
+      headerAction={<LanguageSelector />}
       footer={
         <p className={styles.footer}>
-          Already have an account?{" "}
+          {t("auth.alreadyHaveAccount", "Already have an account?")}{" "}
           <Link to="/login" className={styles.link}>
-            Sign in
+            {t("auth.signIn", "Sign in")}
           </Link>
         </p>
       }
@@ -117,7 +126,7 @@ export function RegisterScreen() {
       {step === "form" ? (
         <form className={styles.form} onSubmit={sendCode}>
           <div className={styles.field}>
-            <label htmlFor="regEmail">Email</label>
+            <label htmlFor="regEmail">{t("auth.email", "Email")}</label>
             <input
               id="regEmail"
               name="email"
@@ -130,7 +139,7 @@ export function RegisterScreen() {
             />
           </div>
           <div className={styles.field}>
-            <label htmlFor="regPassword">Password</label>
+            <label htmlFor="regPassword">{t("auth.password", "Password")}</label>
             <input
               id="regPassword"
               name="password"
@@ -144,7 +153,7 @@ export function RegisterScreen() {
             />
           </div>
           <div className={styles.field}>
-            <label htmlFor="displayName">Your name</label>
+            <label htmlFor="displayName">{t("auth.yourName", "Your name")}</label>
             <input
               id="displayName"
               name="display_name"
@@ -157,7 +166,7 @@ export function RegisterScreen() {
             />
           </div>
           <div className={styles.field}>
-            <label htmlFor="companyName">Company name</label>
+            <label htmlFor="companyName">{t("auth.companyName", "Company name")}</label>
             <input
               id="companyName"
               name="company_name"
@@ -172,7 +181,9 @@ export function RegisterScreen() {
           {error && <p className={styles.error}>{error}</p>}
           {info && <p className={styles.success}>{info}</p>}
           <button type="submit" className={styles.btn} disabled={loading}>
-            {loading ? "Sending…" : "Send verification code"}
+            {loading
+              ? t("auth.sending", "Sending…")
+              : t("auth.sendVerificationCode", "Send verification code")}
           </button>
         </form>
       ) : (
@@ -182,11 +193,15 @@ export function RegisterScreen() {
           <input type="hidden" name="display_name" value={displayName} />
           <input type="hidden" name="company_name" value={companyName} />
           <input type="hidden" name="verification_code" value={code.replace(/\D/g, "")} />
-          <p className={styles.stepHint}>Code sent to {email}</p>
+          <p className={styles.stepHint}>
+            {t("auth.codeSentTo", "Code sent to {{email}}", { email })}
+          </p>
           <VerificationCodeInput value={code} onChange={setCode} disabled={loading} />
           {error && <p className={styles.error}>{error}</p>}
           <button type="submit" className={styles.btn} disabled={loading}>
-            {loading ? "Creating account…" : "Create account"}
+            {loading
+              ? t("auth.creatingAccount", "Creating account…")
+              : t("auth.createAccount", "Create account")}
           </button>
           <button
             type="button"
@@ -197,7 +212,7 @@ export function RegisterScreen() {
               setCode("");
             }}
           >
-            Back
+            {t("common.back", "Back")}
           </button>
         </form>
       )}

@@ -4,6 +4,7 @@ import {
   saveCheckoutTabs,
   type CheckoutTabData,
 } from "@/lib/checkout-tabs-db";
+import { languageService } from "@/services/language";
 import { useCart } from "@/store/cart";
 
 const PERSIST_DEBOUNCE_MS = 300;
@@ -17,7 +18,8 @@ function createTabId(): string {
 }
 
 function defaultTabLabel(index: number): string {
-  return `Sale ${index}`;
+  const template = languageService.t("cart.tabLabel", "Sale {{n}}");
+  return template.replace(/\{\{n\}\}/g, String(index));
 }
 
 function createEmptyTab(index: number): CheckoutTabData {

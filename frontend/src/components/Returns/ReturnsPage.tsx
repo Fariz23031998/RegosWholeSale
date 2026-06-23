@@ -10,14 +10,16 @@ import {
   formatWarehouseFilterLabel,
 } from "@/components/Dashboard/DashboardWarehousesModal";
 import { ReturnsDetailModal } from "@/components/Returns/ReturnsDetailModal";
+import { useLanguage } from "@/contexts/LanguageContext";
 import type { Sale } from "@/data/seed";
 import {
   formatDashboardPeriodLabel,
-  PERIOD_LABELS,
+  getPeriodLabel,
   presetToCustomRange,
   resolveDashboardQueryParams,
   type DashboardCustomRange,
   type DashboardPeriodPreset,
+  type TranslateFn,
 } from "@/lib/dashboard-api";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
@@ -46,11 +48,12 @@ function documentToSale(
   doc: WholesaleReturnDocument,
   operations: WholesaleOperationLine[],
   payments: WholesalePaymentLine[] = [],
+  t: TranslateFn,
 ): Sale {
   const createdAt = doc.date > 0 ? new Date(doc.date * 1000).toISOString() : new Date().toISOString();
   const items = operations.map((op) => ({
     productId: String(op.item_id),
-    name: op.item_name ?? `Item #${op.item_id}`,
+    name: op.item_name ?? t("sales.itemFallback", undefined, { id: op.item_id }),
     price: op.price,
     qty: op.quantity,
   }));
@@ -59,7 +62,7 @@ function documentToSale(
   const amountPaid = payments.reduce((sum, payment) => sum + (payment.amount ?? 0), 0);
   const paymentLines = payments.map((payment, index) => ({
     paymentTypeId: payment.id || index + 1,
-    paymentTypeName: payment.payment_type_name ?? "Payment",
+    paymentTypeName: payment.payment_type_name ?? t("sales.paymentFallback"),
     isCash: false,
     amountPaid: payment.amount ?? 0,
   }));
@@ -76,7 +79,7 @@ function documentToSale(
     tax: 0,
     total: +total.toFixed(2),
     paymentTypeId: 0,
-    paymentTypeName: primaryPayment?.payment_type_name ?? (payments.length === 0 ? "—" : "Payment"),
+    paymentTypeName: primaryPayment?.payment_type_name ?? (payments.length === 0 ? "—" : t("sales.paymentFallback")),
     isCash: false,
     amountPaid: payments.length > 0 ? +amountPaid.toFixed(2) : undefined,
     balanceDue: payments.length > 0 ? +Math.max(total - amountPaid, 0).toFixed(2) : undefined,
@@ -86,6 +89,7 @@ function documentToSale(
 
 
 export function ReturnsPage() {
+  const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
   const [periodPreset, setPeriodPreset] = useState<DashboardPeriodPreset>("week");
   const [customRange, setCustomRange] = useState<DashboardCustomRange | null>(null);
@@ -159,7 +163,7 @@ export function ReturnsPage() {
       .catch((err: unknown) => {
         if (cancelled) return;
         setReturnDocuments([]);
-        setError(formatAuthError(err, "Failed to load returns"));
+        setError(formatAuthError(err, t("returns.errors.load")));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -174,7 +178,7 @@ export function ReturnsPage() {
 
   const loadReturnDetail = async (doc: WholesaleReturnDocument): Promise<ReturnDetail> => {
     if (!token) {
-      throw new Error("Not authenticated");
+      throw new Error(t("common.notAuthenticated"));
     }
     const [operationsRes, paymentsRes] = await Promise.all([
       fetchWholesaleReturnOperations(token, doc.id),
@@ -196,7 +200,7 @@ export function ReturnsPage() {
       setOpen(detail);
     } catch (err: unknown) {
       setOpen(null);
-      setError(formatAuthError(err, "Failed to load return details"));
+      setError(formatAuthError(err, t("returns.errors.loadDetails")));
     } finally {
       setDetailLoading(false);
     }
@@ -208,10 +212,10 @@ export function ReturnsPage() {
     setError("");
     try {
       const detail = await loadReturnDetail(doc);
-      const sale = documentToSale(detail.document, detail.operations, detail.payments);
+      const sale = documentToSale(detail.document, detail.operations, detail.payments, t);
       setPrintContext(wholesaleDocumentToPrintContext(detail.document, sale));
     } catch (err: unknown) {
-      setError(formatAuthError(err, "Failed to load return for printing"));
+      setError(formatAuthError(err, t("returns.errors.loadPrint")));
     } finally {
       setPrintingId(null);
     }
@@ -221,11 +225,11 @@ export function ReturnsPage() {
     <div className={styles.page}>
       <div className={styles.header}>
         <div>
-          <h1 className={styles.title}>Returns</h1>
+          <h1 className={styles.title}>{t("returns.title")}</h1>
           <div className={styles.subtitle}>
             {loading
-              ? "Loading from Regos…"
-              : `${returnDocuments.length} returns · ${formatCurrency(total)} · ${formatDashboardPeriodLabel(periodPreset, customRange)} · ${formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses)}`}
+              ? t("common.loadingFromRegos")
+              : `${returnDocuments.length} ${t("returns.title").toLowerCase()} · ${formatCurrency(total)} · ${formatDashboardPeriodLabel(periodPreset, customRange, t)} · ${formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}`}
           </div>
         </div>
         <div className={dashboardStyles.filters}>
@@ -242,7 +246,7 @@ export function ReturnsPage() {
                 setCustomRange(null);
               }}
             >
-              {PERIOD_LABELS[value]}
+              {getPeriodLabel(value, t)}
             </button>
           ))}
           <button
@@ -255,7 +259,7 @@ export function ReturnsPage() {
             onClick={() => setPeriodModalOpen(true)}
           >
             <CalendarRange size={14} />
-            Period
+            {t("dashboard.period")}
           </button>
           <button
             type="button"
@@ -263,7 +267,7 @@ export function ReturnsPage() {
             onClick={() => setWarehouseModalOpen(true)}
           >
             <Warehouse size={14} />
-            {formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses)}
+            {formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}
           </button>
         </div>
       </div>
@@ -293,22 +297,22 @@ export function ReturnsPage() {
 
       <div className={styles.table}>
         {loading ? (
-          <div className={styles.empty}>Loading returns from Regos…</div>
+          <div className={styles.empty}>{t("returns.loading")}</div>
         ) : returnDocuments.length === 0 ? (
-          <div className={styles.empty}>No returns match these filters.</div>
+          <div className={styles.empty}>{t("returns.empty")}</div>
         ) : (
           <table className={styles.tbl}>
             <thead>
               <tr>
-                <th>Return</th>
-                <th>Original</th>
-                <th>Time</th>
-                <th>Partner</th>
-                <th>Attached user</th>
-                <th>Warehouse</th>
-                <th>Reason</th>
-                <th className={styles.right}>Total</th>
-                <th className={styles.printCol} aria-label="Print" />
+                <th>{t("returns.table.return")}</th>
+                <th>{t("returns.table.original")}</th>
+                <th>{t("common.time")}</th>
+                <th>{t("sales.table.partner")}</th>
+                <th>{t("sales.table.attachedUser")}</th>
+                <th>{t("sales.table.warehouse")}</th>
+                <th>{t("returns.table.reason")}</th>
+                <th className={styles.right}>{t("common.total")}</th>
+                <th className={styles.printCol} aria-label={t("sales.print")} />
               </tr>
             </thead>
             <tbody>
@@ -344,7 +348,7 @@ export function ReturnsPage() {
                       type="button"
                       variant="ghost"
                       size="icon"
-                      aria-label={`Print return #${doc.code || doc.id}`}
+                      aria-label={`${t("returns.printModalTitle")} #${doc.code || doc.id}`}
                       disabled={printingId === doc.id}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -373,8 +377,8 @@ export function ReturnsPage() {
 
       <ReceiptModal
         context={printContext}
-        title="Print return"
-        closeLabel="Close"
+        title={t("returns.printModalTitle")}
+        closeLabel={t("common.close")}
         onClose={() => setPrintContext(null)}
       />
     </div>

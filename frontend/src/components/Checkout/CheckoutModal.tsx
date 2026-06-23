@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Modal } from "@/components/posui/Modal";
 import { useCart } from "@/store/cart";
 import { formatAuthError, useAuth } from "@/store/auth";
@@ -29,6 +30,7 @@ type Props = {
 };
 
 export function CheckoutModal({ open, onClose, totals }: Props) {
+  const { t } = useLanguage();
   const items = useCart((s) => s.items);
   const clearCart = useCart((s) => s.clear);
   const clearActiveTabAfterCheckout = useCheckoutTabs(
@@ -69,7 +71,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
       const type = types.find((t) => t.id === payment.payment_type_id);
       return {
         paymentTypeId: payment.payment_type_id,
-        paymentTypeName: type?.name ?? `Payment ${payment.payment_type_id}`,
+        paymentTypeName: type?.name ?? t("checkout.paymentFallback", "Payment"),
         isCash: type?.is_cash ?? false,
         amountPaid: payment.amount_paid,
         paymentCurrency: payment.payment_currency ?? type?.currency ?? null,
@@ -85,7 +87,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
     id: result.wholesale_code,
     createdAt: result.performed_at,
     cashierId: cashier?.id ?? "",
-    cashierName: cashier?.name ?? "Cashier",
+    cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
     items: items.map((i) => ({
       productId: i.productId,
       name: i.name,
@@ -113,7 +115,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
 
     const cartItems = items.filter((i) => i.regosItemId > 0);
     if (cartItems.length !== items.length) {
-      setCheckoutError("Some cart items are missing Regos product ids.");
+      setCheckoutError(t("checkout.missingRegosIds", "Some cart items are missing Regos product ids."));
       return;
     }
 
@@ -147,7 +149,9 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
       const paymentTypeId = payload.payment_type_id ?? payload.payments?.[0]?.payment_type_id ?? 0;
       const paymentType: PaymentType = {
         id: paymentTypeId,
-        name: result.payment.payment_type_id ? `Payment ${paymentTypeId}` : "Payment",
+        name: result.payment.payment_type_id
+          ? t("checkout.paymentFallback", "Payment")
+          : t("checkout.paymentFallback", "Payment"),
         is_cash: false,
         allows_debt: false,
         image_url: "",
@@ -159,7 +163,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
             id: result.wholesale_code,
             createdAt: result.performed_at,
             cashierId: cashier?.id ?? "",
-            cashierName: cashier?.name ?? "Cashier",
+            cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
             items: items.map((i) => ({
               productId: i.productId,
               name: i.name,
@@ -173,8 +177,10 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
             paymentTypeId: result.payment.payment_type_id,
             paymentTypeName:
               (result.payments ?? []).length > 1
-                ? (result.payments ?? []).map((p) => `Payment ${p.payment_type_id}`).join(" + ")
-                : `Payment ${result.payment.payment_type_id}`,
+                ? (result.payments ?? [])
+                    .map(() => t("checkout.paymentFallback", "Payment"))
+                    .join(" + ")
+                : t("checkout.paymentFallback", "Payment"),
             isCash: false,
             amountPaid: result.amount_paid,
             balanceDue: result.balance_due,
@@ -196,7 +202,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
       reset();
       onClose();
     } catch (err: unknown) {
-      setCheckoutError(formatAuthError(err, "Checkout failed"));
+      setCheckoutError(formatAuthError(err, t("checkout.errors.failed", "Checkout failed")));
     } finally {
       setProcessing(false);
     }
@@ -207,7 +213,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
       <Modal
         open={open}
         onClose={handleClose}
-        title="Checkout"
+        title={t("checkout.title", "Checkout")}
         overlayClassName={styles.checkoutOverlay}
         modalClassName={styles.checkoutModal}
         bodyClassName={styles.checkoutBody}
@@ -215,7 +221,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
         <div className={styles.checkoutInner}>
           <div className={styles.checkoutScroll}>
             <div className={styles.totalLine}>
-              <div className={styles.totalLabel}>Total due</div>
+              <div className={styles.totalLabel}>{t("checkout.totalDue", "Total due")}</div>
               <div className={styles.totalValue}>
                 {formatAmountWithCurrency(totals.total, saleCurrency)}
               </div>

@@ -28,7 +28,7 @@ interface LanguageProviderProps {
 export function LanguageProvider({ children }: LanguageProviderProps) {
   const [currentLanguage, setCurrentLanguage] = useState<SupportedLanguage>("en");
   const [isLoading, setIsLoading] = useState(true);
-  const [, setTranslations] = useState<TranslationDictionary>({});
+  const [translations, setTranslations] = useState<TranslationDictionary>({});
 
   useEffect(() => {
     const initializeLanguage = async () => {
@@ -36,6 +36,7 @@ export function LanguageProvider({ children }: LanguageProviderProps) {
       try {
         const detectedLang = await languageService.initialize();
         setCurrentLanguage(detectedLang);
+        setTranslations({ ...languageService.getTranslations() });
       } catch (error) {
         console.error("Failed to initialize language:", error);
       } finally {
@@ -47,11 +48,13 @@ export function LanguageProvider({ children }: LanguageProviderProps) {
   }, []);
 
   const changeLanguage = async (lang: SupportedLanguage) => {
+    if (lang === currentLanguage) return;
+
     setIsLoading(true);
     try {
       await languageService.changeLanguage(lang);
-      setCurrentLanguage(lang);
-      setTranslations({});
+      setCurrentLanguage(languageService.getCurrentLanguage());
+      setTranslations({ ...languageService.getTranslations() });
     } catch (error) {
       console.error("Failed to change language:", error);
     } finally {
@@ -60,7 +63,7 @@ export function LanguageProvider({ children }: LanguageProviderProps) {
   };
 
   const t = (key: string, fallback?: string, params?: Record<string, string | number>): string => {
-    let translation = languageService.t(key, fallback);
+    let translation = translations[key] || fallback || key;
 
     if (params) {
       Object.keys(params).forEach((param) => {

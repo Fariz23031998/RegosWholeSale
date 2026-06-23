@@ -72,15 +72,40 @@ export const ROLE_DEFAULTS: Record<UserRole, readonly string[]> = {
 
 export const DAY_LABELS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] as const;
 
+const DAY_LABEL_KEYS = [
+  "users.days.mon",
+  "users.days.tue",
+  "users.days.wed",
+  "users.days.thu",
+  "users.days.fri",
+  "users.days.sat",
+  "users.days.sun",
+] as const;
+
+type TranslateFn = (
+  key: string,
+  fallback?: string,
+  params?: Record<string, string | number>,
+) => string;
+
+export function getDayLabels(t: TranslateFn): string[] {
+  return DAY_LABEL_KEYS.map((key, index) => t(key, DAY_LABELS[index]));
+}
+
 export function extraPermissionCodes(role: UserRole, effective: string[]): string[] {
   const defaults = new Set(ROLE_DEFAULTS[role]);
   return effective.filter((code) => !defaults.has(code));
 }
 
-export function formatScheduleSummary(schedules: ScheduleItem[]): string {
-  if (schedules.length === 0) return "Anytime";
+export function formatScheduleSummary(schedules: ScheduleItem[], t: TranslateFn): string {
+  if (schedules.length === 0) return t("users.schedule.anytime", "Anytime");
+  const dayLabels = getDayLabels(t);
   const days = new Set(schedules.map((s) => s.day_of_week));
-  if (days.size === 7) return `${schedules.length} window${schedules.length === 1 ? "" : "s"}`;
-  const labels = [...days].sort((a, b) => a - b).map((d) => DAY_LABELS[d]);
+  if (days.size === 7) {
+    return schedules.length === 1
+      ? t("users.schedule.windowCount", "{{n}} window", { n: schedules.length })
+      : t("users.schedule.windowCountPlural", "{{n}} windows", { n: schedules.length });
+  }
+  const labels = [...days].sort((a, b) => a - b).map((d) => dayLabels[d]);
   return labels.join(", ");
 }

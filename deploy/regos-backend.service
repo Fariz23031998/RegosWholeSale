@@ -1,0 +1,41 @@
+# Regos Wholesale FastAPI backend — systemd unit (Ubuntu)
+#
+# Install:
+#   sudo cp deploy/regos-backend.service /etc/systemd/system/regos-backend.service
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now regos-backend
+#
+# Prerequisites on the server:
+#   - Repo at /srv/RegosWholeSale
+#   - Python venv: cd /srv/RegosWholeSale/backend && python3 -m venv .venv && .venv/bin/pip install -e .
+#   - Config: /srv/RegosWholeSale/backend/.env (see backend/.env.example)
+#   - DB migrations: cd /srv/RegosWholeSale/backend && .venv/bin/alembic upgrade head
+#   - data/ directory writable by the service user
+#
+# Logs:
+#   journalctl -u regos-backend -f
+#
+# Nginx proxies /api/ and /health to 127.0.0.1:8005 (see regosoptom.uz.conf).
+
+[Unit]
+Description=Regos Wholesale FastAPI Backend
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=app
+Group=app
+WorkingDirectory=/srv/RegosWholeSale/backend
+Environment=PATH=/srv/RegosWholeSale/backend/.venv/bin
+EnvironmentFile=-/srv/RegosWholeSale/backend/.env
+ExecStart=/srv/RegosWholeSale/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8005
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+
+# Allow SQLite DB and logs under backend/data/
+ReadWritePaths=/srv/RegosWholeSale/backend/data
+
+[Install]
+WantedBy=multi-user.target

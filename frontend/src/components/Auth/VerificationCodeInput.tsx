@@ -1,4 +1,5 @@
 import { useRef, type KeyboardEvent } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import styles from "./Auth.module.css";
 
 type Props = {
@@ -8,6 +9,7 @@ type Props = {
 };
 
 export function VerificationCodeInput({ value, onChange, disabled }: Props) {
+  const { t } = useLanguage();
   const refs = useRef<(HTMLInputElement | null)[]>([]);
   const digits = value.padEnd(6, " ").split("").slice(0, 6);
 
@@ -57,7 +59,7 @@ export function VerificationCodeInput({ value, onChange, disabled }: Props) {
           disabled={disabled}
           onChange={(e) => handleChange(i, e.target.value)}
           onKeyDown={(e) => handleKeyDown(i, e)}
-          aria-label={`Digit ${i + 1}`}
+          aria-label={t("auth.digitN", "Digit {{n}}", { n: i + 1 })}
         />
       ))}
     </div>

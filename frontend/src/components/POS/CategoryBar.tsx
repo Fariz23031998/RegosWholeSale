@@ -1,6 +1,7 @@
 import { Star } from "lucide-react";
 import { useCallback, useLayoutEffect, useRef, useState } from "react";
 import clsx from "clsx";
+import { useLanguage } from "@/contexts/LanguageContext";
 import type { ProductGroup } from "@/types/catalog";
 import { CategoryPickerModal } from "./CategoryPickerModal";
 import styles from "./POS.module.css";
@@ -24,6 +25,7 @@ export function CategoryBar({
   onSelectAll,
   onSelectGroup,
 }: Props) {
+  const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const measureRef = useRef<HTMLDivElement | null>(null);
   const [modalOpen, setModalOpen] = useState(false);
@@ -93,7 +95,7 @@ export function CategoryBar({
           <Star size={14} />
         </button>
         <button type="button" className={styles.chip} data-chip>
-          All
+          {t("pos.categories.all", "All")}
         </button>
         {groups.map((group) => (
           <button key={group.id} type="button" className={styles.chip} data-chip>
@@ -101,7 +103,7 @@ export function CategoryBar({
           </button>
         ))}
         <button type="button" className={styles.chip} data-chip>
-          Show all
+          {t("pos.categories.showAll", "Show all")}
         </button>
       </div>
 
@@ -110,8 +112,8 @@ export function CategoryBar({
           type="button"
           className={clsx(styles.chip, styles.chipIcon, featuredOnly && styles.chipActive)}
           onClick={onSelectFeatured}
-          aria-label="Featured products"
-          title="Featured"
+          aria-label={t("pos.categories.featuredAria", "Featured products")}
+          title={t("pos.categories.featured", "Featured")}
         >
           <Star size={14} fill={featuredOnly ? "currentColor" : "none"} />
         </button>
@@ -123,7 +125,7 @@ export function CategoryBar({
           )}
           onClick={onSelectAll}
         >
-          All
+          {t("pos.categories.all", "All")}
         </button>
         {visibleGroups.map((group) => (
           <button
@@ -145,7 +147,7 @@ export function CategoryBar({
             className={clsx(styles.chip, styles.chipShowAll)}
             onClick={() => setModalOpen(true)}
           >
-            Show all
+            {t("pos.categories.showAll", "Show all")}
           </button>
         ) : null}
       </div>

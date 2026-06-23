@@ -17,12 +17,13 @@ import {
   YAxis,
 } from "recharts";
 import { formatAuthError, useAuth } from "@/store/auth";
+import { useLanguage } from "@/contexts/LanguageContext";
 import {
   DASHBOARD_PRODUCTS_PAGE_SIZE,
   fetchDashboardProducts,
   fetchDashboardStats,
   formatDashboardPeriodLabel,
-  PERIOD_LABELS,
+  getPeriodLabel,
   presetToCustomRange,
   resolveDashboardQueryParams,
   type DashboardCustomRange,
@@ -31,6 +32,7 @@ import {
   type DashboardProductRow,
   type DashboardStats,
   type DashboardTopProduct,
+  type TranslateFn,
 } from "@/lib/dashboard-api";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
 import type { RegosDefaultOption } from "@/types/settings";
@@ -130,25 +132,31 @@ function topProductsChartHeight(products: { name: string }[]): number {
   return Math.max(260, count * rowHeight + 16);
 }
 
-function DashboardPaymentTable({ payments }: { payments: DashboardPaymentRow[] }) {
+function DashboardPaymentTable({
+  payments,
+  t,
+}: {
+  payments: DashboardPaymentRow[];
+  t: TranslateFn;
+}) {
   return (
     <div className={styles.paymentTableWrap}>
       <table className={styles.paymentTable}>
         <thead>
           <tr>
-            <th>Receipt</th>
-            <th>Date</th>
-            <th>Type</th>
-            <th className={styles.right}>Amount</th>
+            <th>{t("dashboard.payments.receipt")}</th>
+            <th>{t("common.date")}</th>
+            <th>{t("common.type")}</th>
+            <th className={styles.right}>{t("common.amount")}</th>
           </tr>
         </thead>
         <tbody>
           {payments.map((payment) => (
             <tr key={payment.id}>
-              <td data-label="Receipt">#{payment.code || payment.id}</td>
-              <td data-label="Date">{formatPaymentDate(payment.date)}</td>
-              <td data-label="Type">{payment.payment_type_name ?? "—"}</td>
-              <td data-label="Amount" className={styles.right}>
+              <td data-label={t("dashboard.payments.receipt")}>#{payment.code || payment.id}</td>
+              <td data-label={t("common.date")}>{formatPaymentDate(payment.date)}</td>
+              <td data-label={t("common.type")}>{payment.payment_type_name ?? "—"}</td>
+              <td data-label={t("common.amount")} className={styles.right}>
                 {formatCurrency(payment.amount ?? 0)}
               </td>
             </tr>
@@ -180,25 +188,29 @@ function TopProductsRevenueList({
 function BestSellersSection({
   products,
   loading,
+  t,
 }: {
   products: DashboardTopProduct[];
   loading: boolean;
+  t: TranslateFn;
 }) {
   return (
     <>
-      <div className={styles.cardTitle}>Best sellers</div>
-      <div className={styles.cardSub}>Units sold</div>
+      <div className={styles.cardTitle}>{t("dashboard.charts.bestSellers")}</div>
+      <div className={styles.cardSub}>{t("dashboard.charts.unitsSold")}</div>
       <div className={styles.topList}>
         {products.length === 0 && !loading && (
           <div style={{ color: "var(--color-text-muted)", fontSize: 13 }}>
-            No sales in this period.
+            {t("dashboard.charts.noSales")}
           </div>
         )}
         {products.map((item, index) => (
           <div key={item.item_id} className={styles.topItem}>
             <div className={styles.topRank}>{index + 1}</div>
             <div className={styles.topName}>{item.name}</div>
-            <div className={styles.topVal}>{item.qty} sold</div>
+            <div className={styles.topVal}>
+              {t("dashboard.charts.sold", undefined, { qty: item.qty })}
+            </div>
           </div>
         ))}
       </div>
@@ -207,6 +219,7 @@ function BestSellersSection({
 }
 
 export function DashboardPage() {
+  const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
   const [periodPreset, setPeriodPreset] = useState<DashboardPeriodPreset>("week");
   const [customRange, setCustomRange] = useState<DashboardCustomRange | null>(null);
@@ -305,7 +318,7 @@ export function DashboardPage() {
       .catch((err: unknown) => {
         if (cancelled) return;
         setStats(null);
-        setError(formatAuthError(err, "Failed to load dashboard"));
+        setError(formatAuthError(err, t("dashboard.errors.load")));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -323,7 +336,7 @@ export function DashboardPage() {
         setProducts([]);
         setProductsTotal(0);
         setProductsNextOffset(0);
-        setProductsError(formatAuthError(err, "Failed to load products"));
+        setProductsError(formatAuthError(err, t("dashboard.errors.loadProducts")));
       })
       .finally(() => {
         if (!cancelled) setProductsLoading(false);
@@ -357,7 +370,7 @@ export function DashboardPage() {
         setProductsNextOffset(res.next_offset);
       })
       .catch((err: unknown) => {
-        setProductsError(formatAuthError(err, "Failed to load more products"));
+        setProductsError(formatAuthError(err, t("dashboard.errors.loadMoreProducts")));
       })
       .finally(() => {
         setLoadingMoreProducts(false);
@@ -375,11 +388,11 @@ export function DashboardPage() {
     <div className={styles.page}>
       <div className={styles.header}>
         <div>
-          <h1 className={styles.title}>Dashboard</h1>
+          <h1 className={styles.title}>{t("dashboard.title")}</h1>
           <div className={styles.subtitle}>
             {loading
-              ? "Loading from Regos…"
-              : `${formatDashboardPeriodLabel(periodPreset, customRange)} · ${formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses)}`}
+              ? t("common.loadingFromRegos")
+              : `${formatDashboardPeriodLabel(periodPreset, customRange, t)} · ${formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}`}
           </div>
         </div>
         <div className={styles.filters}>
@@ -393,7 +406,7 @@ export function DashboardPage() {
                 setCustomRange(null);
               }}
             >
-              {PERIOD_LABELS[value]}
+              {getPeriodLabel(value, t)}
             </button>
           ))}
           <button
@@ -406,7 +419,7 @@ export function DashboardPage() {
             onClick={() => setPeriodModalOpen(true)}
           >
             <CalendarRange size={14} />
-            Period
+            {t("dashboard.period")}
           </button>
           <button
             type="button"
@@ -414,7 +427,7 @@ export function DashboardPage() {
             onClick={() => setWarehouseModalOpen(true)}
           >
             <Warehouse size={14} />
-            {formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses)}
+            {formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}
           </button>
         </div>
       </div>
@@ -444,24 +457,24 @@ export function DashboardPage() {
 
       <div className={styles.totalsWidget}>
         <div className={styles.totalsHeader}>
-          <div className={styles.totalsTitle}>Net totals</div>
-          <div className={styles.totalsSub}>Sales, cost, and profit after refunds</div>
+          <div className={styles.totalsTitle}>{t("dashboard.totals.title")}</div>
+          <div className={styles.totalsSub}>{t("dashboard.totals.subtitle")}</div>
         </div>
         <div className={styles.totalsGrid}>
           <div className={styles.totalItem}>
-            <div className={styles.totalLabel}>Total sales</div>
+            <div className={styles.totalLabel}>{t("dashboard.totals.totalSales")}</div>
             <div className={styles.totalValue}>
               {loading ? "—" : formatCurrency(stats?.net_sales_total ?? 0)}
             </div>
           </div>
           <div className={styles.totalItem}>
-            <div className={styles.totalLabel}>Total cost</div>
+            <div className={styles.totalLabel}>{t("dashboard.totals.totalCost")}</div>
             <div className={styles.totalValue}>
               {loading ? "—" : formatCurrency(stats?.net_cost_total ?? 0)}
             </div>
           </div>
           <div className={styles.totalItem}>
-            <div className={styles.totalLabel}>Gross profit</div>
+            <div className={styles.totalLabel}>{t("dashboard.totals.grossProfit")}</div>
             <div className={styles.totalValue}>
               {loading ? "—" : formatCurrency(stats?.net_gross_profit ?? 0)}
             </div>
@@ -471,79 +484,88 @@ export function DashboardPage() {
 
       <div className={styles.kpis}>
         <div className={styles.kpi}>
-          <div className={styles.kpiLabel}>Gross sales</div>
+          <div className={styles.kpiLabel}>{t("dashboard.kpi.grossSales")}</div>
           <div className={styles.kpiValue}>
             {loading ? "—" : formatCurrency(stats?.sales_total ?? 0)}
           </div>
           <div className={styles.kpiDelta}>
-            {loading ? "…" : `${stats?.transaction_count ?? 0} transactions`}
+            {loading
+              ? "…"
+              : t("dashboard.kpi.transactions", undefined, { n: stats?.transaction_count ?? 0 })}
           </div>
         </div>
         <div className={styles.kpi}>
-          <div className={styles.kpiLabel}>Gross cost</div>
+          <div className={styles.kpiLabel}>{t("dashboard.kpi.grossCost")}</div>
           <div className={styles.kpiValue}>
             {loading ? "—" : formatCurrency(stats?.cost_total ?? 0)}
           </div>
-          <div className={styles.kpiDelta}>before refunds</div>
+          <div className={styles.kpiDelta}>{t("dashboard.kpi.beforeRefunds")}</div>
         </div>
         <div className={styles.kpi}>
-          <div className={styles.kpiLabel}>Gross profit</div>
+          <div className={styles.kpiLabel}>{t("dashboard.kpi.grossProfit")}</div>
           <div className={styles.kpiValue}>
             {loading ? "—" : formatCurrency(stats?.gross_profit ?? 0)}
           </div>
-          <div className={styles.kpiDelta}>before refunds</div>
+          <div className={styles.kpiDelta}>{t("dashboard.kpi.beforeRefunds")}</div>
         </div>
         <div className={styles.kpi}>
-          <div className={styles.kpiLabel}>Refunds</div>
+          <div className={styles.kpiLabel}>{t("dashboard.kpi.refunds")}</div>
           <div className={styles.kpiValue}>
             {loading ? "—" : formatCurrency(stats?.refunds_total ?? 0)}
           </div>
           <div className={styles.kpiDelta}>
             {loading
               ? "…"
-              : `${stats?.refund_count ?? 0} returns · cost ${formatCurrency(stats?.refunds_cost_total ?? 0)}`}
+              : t("dashboard.kpi.returnsCost", undefined, {
+                  n: stats?.refund_count ?? 0,
+                  cost: formatCurrency(stats?.refunds_cost_total ?? 0),
+                })}
           </div>
         </div>
         <div className={styles.kpi}>
-          <div className={styles.kpiLabel}>Income payments</div>
+          <div className={styles.kpiLabel}>{t("dashboard.kpi.incomePayments")}</div>
           <div className={styles.kpiValue}>
             {loading ? "—" : formatCurrency(stats?.income_payments_total ?? 0)}
           </div>
           <div className={styles.kpiDelta}>
-            {stats?.income_payment_category_name ?? "No income category configured"}
+            {stats?.income_payment_category_name ?? t("dashboard.kpi.noIncomeCategory")}
           </div>
         </div>
         <div className={styles.kpi}>
-          <div className={styles.kpiLabel}>Outcome payments</div>
+          <div className={styles.kpiLabel}>{t("dashboard.kpi.outcomePayments")}</div>
           <div className={styles.kpiValue}>
             {loading ? "—" : formatCurrency(stats?.outcome_payments_total ?? 0)}
           </div>
           <div className={styles.kpiDelta}>
-            {stats?.outcome_payment_category_name ?? "No refund category configured"}
+            {stats?.outcome_payment_category_name ?? t("dashboard.kpi.noRefundCategory")}
           </div>
         </div>
         <div className={styles.kpi}>
-          <div className={styles.kpiLabel}>Items sold</div>
+          <div className={styles.kpiLabel}>{t("dashboard.kpi.itemsSold")}</div>
           <div className={styles.kpiValue}>
             {loading ? "—" : stats?.items_sold ?? 0}
           </div>
           <div className={styles.kpiDelta}>
-            {loading ? "…" : `${formatCurrency(stats?.avg_basket ?? 0)} avg basket`}
+            {loading
+              ? "…"
+              : t("dashboard.kpi.avgBasket", undefined, {
+                  amount: formatCurrency(stats?.avg_basket ?? 0),
+                })}
           </div>
         </div>
         <div className={styles.kpi}>
-          <div className={styles.kpiLabel}>All-time sales</div>
+          <div className={styles.kpiLabel}>{t("dashboard.kpi.allTimeSales")}</div>
           <div className={styles.kpiValue}>
             {loading ? "—" : stats?.sales_count_total ?? 0}
           </div>
-          <div className={styles.kpiDelta}>transactions in Regos</div>
+          <div className={styles.kpiDelta}>{t("dashboard.kpi.transactionsInRegos")}</div>
         </div>
       </div>
 
       <div className={styles.charts}>
         <div className={styles.card}>
-          <div className={styles.cardTitle}>Sales, cost & profit</div>
-          <div className={styles.cardSub}>Daily totals for selected period</div>
+          <div className={styles.cardTitle}>{t("dashboard.charts.salesCostProfit")}</div>
+          <div className={styles.cardSub}>{t("dashboard.charts.dailyTotals")}</div>
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={stats?.days ?? []} margin={{ left: -12, right: 8, top: 8 }}>
               <CartesianGrid stroke="#eef0f6" vertical={false} />
@@ -558,19 +580,19 @@ export function DashboardPage() {
                 }}
               />
               <Legend wrapperStyle={{ fontSize: 12 }} />
-              <Line type="monotone" dataKey="sales" name="Sales" stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="cost" name="Cost" stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
-              <Line type="monotone" dataKey="profit" name="Profit" stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="sales" name={t("dashboard.charts.sales")} stroke="#4f46e5" strokeWidth={2.5} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="cost" name={t("dashboard.charts.cost")} stroke="#f59e0b" strokeWidth={2} dot={{ r: 3 }} />
+              <Line type="monotone" dataKey="profit" name={t("dashboard.charts.profit")} stroke="#10b981" strokeWidth={2} dot={{ r: 3 }} />
             </LineChart>
           </ResponsiveContainer>
         </div>
 
         <div className={styles.card}>
-          <div className={styles.cardTitle}>Top partners</div>
-          <div className={styles.cardSub}>By transaction count</div>
+          <div className={styles.cardTitle}>{t("dashboard.charts.topPartners")}</div>
+          <div className={styles.cardSub}>{t("dashboard.charts.byTransactionCount")}</div>
           {topPartners.length === 0 && !loading ? (
             <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "80px 0", textAlign: "center" }}>
-              No sales in this period.
+              {t("dashboard.charts.noSales")}
             </div>
           ) : (
             <>
@@ -607,11 +629,11 @@ export function DashboardPage() {
 
       <div className={styles.row2}>
         <div className={styles.card}>
-          <div className={styles.cardTitle}>Top products by revenue</div>
-          <div className={styles.cardSub}>{formatDashboardPeriodLabel(periodPreset, customRange)}</div>
+          <div className={styles.cardTitle}>{t("dashboard.charts.bestSellers")}</div>
+          <div className={styles.cardSub}>{formatDashboardPeriodLabel(periodPreset, customRange, t)}</div>
           {(topProducts.length ?? 0) === 0 && !loading ? (
             <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "80px 0", textAlign: "center" }}>
-              No sales in this period.
+              {t("dashboard.charts.noSales")}
             </div>
           ) : isNarrow ? (
             <TopProductsRevenueList products={topProducts} />
@@ -651,59 +673,59 @@ export function DashboardPage() {
           )}
           {isNarrow && (
             <div className={styles.cardSection}>
-              <BestSellersSection products={stats?.top_products ?? []} loading={loading} />
+              <BestSellersSection products={stats?.top_products ?? []} loading={loading} t={t} />
             </div>
           )}
         </div>
 
         {!isNarrow && (
           <div className={styles.card}>
-            <BestSellersSection products={stats?.top_products ?? []} loading={loading} />
+            <BestSellersSection products={stats?.top_products ?? []} loading={loading} t={t} />
           </div>
         )}
       </div>
 
       <div className={styles.row2} style={{ marginTop: "var(--space-4)" }}>
         <div className={styles.card}>
-          <div className={styles.cardTitle}>Income payments</div>
+          <div className={styles.cardTitle}>{t("dashboard.payments.income")}</div>
           <div className={styles.cardSub}>
             {stats?.income_payment_category_name
-              ? `Category: ${stats.income_payment_category_name}`
-              : "No income category configured"}
+              ? t("dashboard.payments.category", undefined, { name: stats.income_payment_category_name })
+              : t("dashboard.kpi.noIncomeCategory")}
           </div>
           {(stats?.income_payments.length ?? 0) === 0 && !loading ? (
             <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
-              No matching payments in this period.
+              {t("dashboard.payments.empty")}
             </div>
           ) : (
-            <DashboardPaymentTable payments={stats?.income_payments ?? []} />
+            <DashboardPaymentTable payments={stats?.income_payments ?? []} t={t} />
           )}
         </div>
 
         <div className={styles.card}>
-          <div className={styles.cardTitle}>Outcome payments</div>
+          <div className={styles.cardTitle}>{t("dashboard.payments.outcome")}</div>
           <div className={styles.cardSub}>
             {stats?.outcome_payment_category_name
-              ? `Category: ${stats.outcome_payment_category_name}`
-              : "No refund category configured"}
+              ? t("dashboard.payments.category", undefined, { name: stats.outcome_payment_category_name })
+              : t("dashboard.kpi.noRefundCategory")}
           </div>
           {(stats?.outcome_payments.length ?? 0) === 0 && !loading ? (
             <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
-              No matching payments in this period.
+              {t("dashboard.payments.empty")}
             </div>
           ) : (
-            <DashboardPaymentTable payments={stats?.outcome_payments ?? []} />
+            <DashboardPaymentTable payments={stats?.outcome_payments ?? []} t={t} />
           )}
         </div>
       </div>
 
       <div className={clsx(styles.card, styles.productsCard)}>
-        <div className={styles.cardTitle}>Products</div>
+        <div className={styles.cardTitle}>{t("dashboard.products.title")}</div>
         <div className={styles.cardSub}>
-          {formatDashboardPeriodLabel(periodPreset, customRange)} · sold or refunded only
+          {formatDashboardPeriodLabel(periodPreset, customRange, t)} · {t("dashboard.products.subtitle")}
           {productsTotal > 0
             ? productsSearchQuery
-              ? ` · ${filteredProducts.length} of ${products.length} shown`
+              ? ` · ${t("dashboard.products.shown", undefined, { n: filteredProducts.length, m: products.length })}`
               : ` · ${products.length} of ${productsTotal}`
             : ""}
         </div>
@@ -713,21 +735,21 @@ export function DashboardPage() {
             <input
               className={styles.productsSearchInput}
               type="search"
-              placeholder="Search loaded products…"
+              placeholder={t("dashboard.products.searchPlaceholder")}
               value={productsSearch}
               onChange={(event) => setProductsSearch(event.target.value)}
-              aria-label="Search products"
+              aria-label={t("dashboard.products.searchAria")}
             />
           </div>
         )}
         {productsError && <div className={styles.empty}>{productsError}</div>}
         {products.length === 0 && !productsLoading && !productsError ? (
           <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
-            No sold or refunded products in this period.
+            {t("dashboard.products.empty")}
           </div>
         ) : filteredProducts.length === 0 && !productsLoading ? (
           <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
-            No products match your search.
+            {t("dashboard.products.emptySearch")}
           </div>
         ) : (
           <div className={styles.productsTableWrap}>
@@ -735,41 +757,41 @@ export function DashboardPage() {
               <thead>
                 <tr>
                   <th className={styles.groupHead} colSpan={5}>
-                    Product
+                    {t("dashboard.products.title")}
                   </th>
                   <th className={styles.groupHead} colSpan={3}>
-                    Sell
+                    {t("dashboard.products.group.sell")}
                   </th>
                   <th className={styles.groupHead} colSpan={3}>
-                    Refund
+                    {t("dashboard.products.group.refund")}
                   </th>
                   <th className={styles.groupHead} colSpan={4}>
-                    Net
+                    {t("dashboard.products.group.net")}
                   </th>
                 </tr>
                 <tr>
-                  <th>Code</th>
-                  <th>Name</th>
-                  <th>Category</th>
-                  <th className={styles.num}>Purchase cost</th>
-                  <th className={styles.num}>Avg price</th>
-                  <th className={styles.num}>Qty</th>
-                  <th className={styles.num}>Purchase cost</th>
-                  <th className={styles.num}>Total sells</th>
-                  <th className={styles.num}>Qty</th>
-                  <th className={styles.num}>Purchase cost</th>
-                  <th className={styles.num}>Total refunds</th>
-                  <th className={styles.num}>Qty</th>
-                  <th className={styles.num}>Purchase cost</th>
-                  <th className={styles.num}>Total sells</th>
-                  <th className={styles.num}>Gross profit</th>
+                  <th>{t("dashboard.products.col.code")}</th>
+                  <th>{t("dashboard.products.col.name")}</th>
+                  <th>{t("dashboard.products.col.category")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.avgPrice")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.qty")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.totalSells")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.qty")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.totalRefunds")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.qty")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.totalSells")}</th>
+                  <th className={styles.num}>{t("dashboard.products.col.grossProfit")}</th>
                 </tr>
               </thead>
               <tbody>
                 {productsLoading && products.length === 0 ? (
                   <tr>
                     <td colSpan={15} style={{ color: "var(--color-text-muted)", padding: "24px 10px" }}>
-                      Loading products…
+                      {t("dashboard.products.loading")}
                     </td>
                   </tr>
                 ) : (
@@ -807,7 +829,9 @@ export function DashboardPage() {
               onClick={loadMoreProducts}
               disabled={loadingMoreProducts}
             >
-              {loadingMoreProducts ? "Loading…" : `Load more (${DASHBOARD_PRODUCTS_PAGE_SIZE})`}
+              {loadingMoreProducts
+                ? t("common.loading")
+                : t("dashboard.products.loadMore", undefined, { n: DASHBOARD_PRODUCTS_PAGE_SIZE })}
             </button>
           </div>
         )}

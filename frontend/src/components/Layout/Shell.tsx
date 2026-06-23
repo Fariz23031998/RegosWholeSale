@@ -95,7 +95,6 @@ export function Shell() {
             </div>
           </div>
           <div className={styles.sidebarActions}>
-            <LanguageSelector />
             <button
             type="button"
             className={styles.closeBtn}
@@ -127,6 +126,8 @@ export function Shell() {
         })}
 
         <div className={styles.spacer} />
+
+        <LanguageSelector variant="menu" />
 
         {session && (
           <div className={styles.cashier}>
@@ -160,7 +161,6 @@ export function Shell() {
             >
               <Menu size={20} />
             </button>
-            <LanguageSelector className={styles.langBtn} />
             {showSellContext ? <SellContextBar className={styles.topBarContext} /> : null}
             {showCatalogViewToggle ? (
               <CatalogViewToggle className={styles.topBarViewToggle} />

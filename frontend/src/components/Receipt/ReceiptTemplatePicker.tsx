@@ -1,3 +1,4 @@
+import { useLanguage } from "@/contexts/LanguageContext";
 import type { ReceiptTemplate } from "@/types/receipt-templates";
 import styles from "./Receipt.module.css";
 
@@ -14,11 +15,15 @@ export function ReceiptTemplatePicker({
   onChange,
   disabled = false,
 }: Props) {
+  const { t } = useLanguage();
+
   if (templates.length <= 1) return null;
 
   return (
     <label className={styles.templatePicker}>
-      <span className={styles.templatePickerLabel}>Template</span>
+      <span className={styles.templatePickerLabel}>
+        {t("receipt.template", "Template")}
+      </span>
       <select
         className={styles.templateSelect}
         value={value}
@@ -27,8 +32,11 @@ export function ReceiptTemplatePicker({
       >
         {templates.map((template) => (
           <option key={template.id} value={template.id}>
-            {template.name} ({template.format === "a4" ? "A4" : "80mm"})
-            {template.is_default ? " · default" : ""}
+            {template.name} (
+            {template.format === "a4"
+              ? t("receipt.format.a4Short", "A4")
+              : t("receipt.format.80mmShort", "80mm")}
+            ){template.is_default ? ` ${t("receipt.defaultSuffix", "· default")}` : ""}
           </option>
         ))}
       </select>

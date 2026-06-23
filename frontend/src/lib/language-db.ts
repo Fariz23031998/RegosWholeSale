@@ -25,9 +25,16 @@ async function withStore<T>(
     const tx = db.transaction(STORE_NAME, mode);
     const store = tx.objectStore(STORE_NAME);
     const request = fn(store);
+    let result: T | undefined;
+
     request.onerror = () => reject(request.error ?? new Error("Language IndexedDB request failed"));
-    request.onsuccess = () => resolve(request.result as T);
-    tx.oncomplete = () => db.close();
+    request.onsuccess = () => {
+      result = request.result as T;
+    };
+    tx.oncomplete = () => {
+      db.close();
+      resolve(result as T);
+    };
     tx.onerror = () => {
       db.close();
       reject(tx.error ?? new Error("Language IndexedDB transaction failed"));

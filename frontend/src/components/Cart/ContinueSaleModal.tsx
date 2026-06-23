@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Modal } from "@/components/posui/Modal";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useCart, type CartItem, type DiscountMode } from "@/store/cart";
@@ -23,6 +24,7 @@ type Props = {
 function operationsToCartItems(
   operations: WholesaleOperationLine[],
   catalogProducts: Product[],
+  t: (key: string, fallback?: string, params?: Record<string, string | number>) => string,
 ): CartItem[] {
   return operations.map((op) => {
     const productId = String(op.item_id);
@@ -33,7 +35,10 @@ function operationsToCartItems(
     return {
       productId,
       regosItemId: op.item_id,
-      name: op.item_name ?? catalogProduct?.name ?? `Item #${op.item_id}`,
+      name:
+        op.item_name ??
+        catalogProduct?.name ??
+        t("sales.itemFallback", "Item #{{id}}", { id: op.item_id }),
       price: op.price2 ?? op.price,
       qty: op.quantity,
       image: catalogProduct?.image ?? PRODUCT_FALLBACK_IMAGE,
@@ -59,6 +64,7 @@ function discountFromOperations(operations: WholesaleOperationLine[]): {
 }
 
 export function ContinueSaleModal({ open, onClose }: Props) {
+  const { t } = useLanguage();
   const accessToken = useAuth((s) => s.accessToken);
   const restore = useCart((s) => s.restore);
   const setPostponedWholesaleDocId = useCart((s) => s.setPostponedWholesaleDocId);
@@ -97,7 +103,7 @@ export function ContinueSaleModal({ open, onClose }: Props) {
       })
       .catch((err: unknown) => {
         if (!cancelled) {
-          setError(formatAuthError(err, "Failed to load postponed sales"));
+          setError(formatAuthError(err, t("cart.continueModal.errors.load", "Failed to load postponed sales")));
         }
       })
       .finally(() => {
@@ -129,13 +135,13 @@ export function ContinueSaleModal({ open, onClose }: Props) {
     try {
       const { operations } = await fetchWholesaleOperations(accessToken, doc.id);
       if (operations.length === 0) {
-        setError("This postponed sale has no line items.");
+        setError(t("cart.continueModal.noItems", "This postponed sale has no line items."));
         return;
       }
 
       const { discountMode, discountValue } = discountFromOperations(operations);
       restore({
-        items: operationsToCartItems(operations, catalogProducts),
+        items: operationsToCartItems(operations, catalogProducts, t),
         discountMode,
         discountValue,
         postponedWholesaleDocId: doc.id,
@@ -144,19 +150,22 @@ export function ContinueSaleModal({ open, onClose }: Props) {
       reset();
       onClose();
     } catch (err: unknown) {
-      setError(formatAuthError(err, "Failed to load postponed sale"));
+      setError(formatAuthError(err, t("cart.continueModal.errors.select", "Failed to load postponed sale")));
     } finally {
       setSelectingId(null);
     }
   };
 
   return (
-    <Modal open={open} onClose={handleClose} title="Continue Sale">
+    <Modal open={open} onClose={handleClose} title={t("cart.continueModal.title", "Continue Sale")}>
       <div className={styles.searchBox}>
         <Search size={16} />
         <input
           className={styles.searchInput}
-          placeholder="Search by code, customer, or warehouse…"
+          placeholder={t(
+            "cart.continueModal.searchPlaceholder",
+            "Search by code, customer, or warehouse…",
+          )}
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -165,9 +174,11 @@ export function ContinueSaleModal({ open, onClose }: Props) {
       {error && <div className={styles.error}>{error}</div>}
 
       {loading ? (
-        <div className={styles.status}>Loading postponed sales…</div>
+        <div className={styles.status}>{t("cart.continueModal.loading", "Loading postponed sales…")}</div>
       ) : filteredDocuments.length === 0 ? (
-        <div className={styles.status}>No unperformed wholesale sales found.</div>
+        <div className={styles.status}>
+          {t("cart.continueModal.empty", "No unperformed wholesale sales found.")}
+        </div>
       ) : (
         <div className={styles.saleList}>
           {filteredDocuments.map((doc) => (
@@ -187,7 +198,9 @@ export function ContinueSaleModal({ open, onClose }: Props) {
                 </div>
               </div>
               <div className={styles.saleAmount}>
-                {selectingId === doc.id ? "Loading…" : formatCurrency(doc.amount ?? 0)}
+                {selectingId === doc.id
+                  ? t("common.loading", "Loading...")
+                  : formatCurrency(doc.amount ?? 0)}
               </div>
             </button>
           ))}

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
+import { useLanguage } from "@/contexts/LanguageContext";
+import type { TranslateFn } from "@/lib/dashboard-api";
 import type { RegosDefaultOption } from "@/types/settings";
 import styles from "./Dashboard.module.css";
 
@@ -21,6 +23,7 @@ export function DashboardWarehousesModal({
   selectedStockIds,
   onApply,
 }: Props) {
+  const { t } = useLanguage();
   const [draftAllStocks, setDraftAllStocks] = useState(allStocks);
   const [draftIds, setDraftIds] = useState<number[]>(selectedStockIds);
   const [error, setError] = useState("");
@@ -48,7 +51,7 @@ export function DashboardWarehousesModal({
 
   const handleApply = () => {
     if (!draftAllStocks && draftIds.length === 0) {
-      setError("Select at least one warehouse or choose all warehouses.");
+      setError(t("dashboard.warehouses.selectOneOrAll"));
       return;
     }
     const everySelected = draftIds.length === warehouses.length && warehouses.length > 0;
@@ -60,7 +63,7 @@ export function DashboardWarehousesModal({
   };
 
   return (
-    <Modal open={open} onClose={onClose} title="Choose warehouses" size="md">
+    <Modal open={open} onClose={onClose} title={t("dashboard.warehousesModal.title")} size="md">
       <div className={styles.modalForm}>
         <label className={styles.checkRow}>
           <input
@@ -75,7 +78,7 @@ export function DashboardWarehousesModal({
               }
             }}
           />
-          <span>All warehouses</span>
+          <span>{t("dashboard.warehouses.all")}</span>
         </label>
 
         <div className={styles.checkList}>
@@ -104,17 +107,17 @@ export function DashboardWarehousesModal({
             );
           })}
           {warehouses.length === 0 && (
-            <div className={styles.emptyList}>No warehouses available from Regos.</div>
+            <div className={styles.emptyList}>{t("dashboard.warehouses.noneAvailable")}</div>
           )}
         </div>
 
         {error && <div className={styles.fieldError}>{error}</div>}
         <div className={styles.modalActions}>
           <Button type="button" variant="secondary" onClick={onClose}>
-            Cancel
+            {t("common.cancel")}
           </Button>
           <Button type="button" onClick={handleApply}>
-            Apply
+            {t("common.apply")}
           </Button>
         </div>
       </div>
@@ -126,13 +129,14 @@ export function formatWarehouseFilterLabel(
   allStocks: boolean,
   selectedStockIds: number[],
   warehouses: RegosDefaultOption[],
+  t: TranslateFn,
 ): string {
   if (allStocks || (warehouses.length > 0 && selectedStockIds.length === warehouses.length)) {
-    return "All warehouses";
+    return t("dashboard.warehouses.all");
   }
   if (selectedStockIds.length === 1) {
     const warehouse = warehouses.find((item) => item.id === selectedStockIds[0]);
-    return warehouse?.name ?? "1 warehouse";
+    return warehouse?.name ?? t("dashboard.warehouses.one");
   }
-  return `${selectedStockIds.length} warehouses`;
+  return t("dashboard.warehouses.count", undefined, { n: selectedStockIds.length });
 }

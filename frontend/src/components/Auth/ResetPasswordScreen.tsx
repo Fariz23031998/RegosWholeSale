@@ -2,6 +2,8 @@ import { useState } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
 import { AuthLayout } from "@/components/Auth/AuthLayout";
 import { VerificationCodeInput } from "@/components/Auth/VerificationCodeInput";
+import { LanguageSelector } from "@/components/LanguageSelector";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { resetPassword, sendVerificationCode } from "@/lib/auth-api";
 import { formatAuthError } from "@/store/auth";
 import styles from "./Auth.module.css";
@@ -9,6 +11,7 @@ import styles from "./Auth.module.css";
 type Step = "email" | "reset";
 
 export function ResetPasswordScreen() {
+  const { t } = useLanguage();
   const navigate = useNavigate();
 
   const [step, setStep] = useState<Step>("email");
@@ -26,7 +29,7 @@ export function ResetPasswordScreen() {
     setLoading(true);
     try {
       await sendVerificationCode(email.trim(), "reset_password");
-      setInfo("Verification code sent to your email");
+      setInfo(t("auth.codeSent", "Verification code sent to your email"));
       setStep("reset");
     } catch (err) {
       setError(formatAuthError(err));
@@ -39,7 +42,7 @@ export function ResetPasswordScreen() {
     e.preventDefault();
     setError("");
     if (code.length !== 6) {
-      setError("Enter the 6-digit verification code");
+      setError(t("auth.enterSixDigitCode", "Enter the 6-digit verification code"));
       return;
     }
     setLoading(true);
@@ -59,12 +62,13 @@ export function ResetPasswordScreen() {
 
   return (
     <AuthLayout
-      title="Reset password"
-      subtitle="We'll email you a verification code"
+      title={t("auth.resetPasswordTitle", "Reset password")}
+      subtitle={t("auth.resetPasswordSubtitle", "We'll email you a verification code")}
+      headerAction={<LanguageSelector />}
       footer={
         <p className={styles.footer}>
           <Link to="/login" className={styles.link}>
-            Back to sign in
+            {t("auth.backToSignIn", "Back to sign in")}
           </Link>
         </p>
       }
@@ -72,7 +76,7 @@ export function ResetPasswordScreen() {
       {step === "email" ? (
         <form className={styles.form} onSubmit={sendCode}>
           <div className={styles.field}>
-            <label htmlFor="resetEmail">Email</label>
+            <label htmlFor="resetEmail">{t("auth.email", "Email")}</label>
             <input
               id="resetEmail"
               type="email"
@@ -85,15 +89,19 @@ export function ResetPasswordScreen() {
           {error && <p className={styles.error}>{error}</p>}
           {info && <p className={styles.success}>{info}</p>}
           <button type="submit" className={styles.btn} disabled={loading}>
-            {loading ? "Sending…" : "Send verification code"}
+            {loading
+              ? t("auth.sending", "Sending…")
+              : t("auth.sendVerificationCode", "Send verification code")}
           </button>
         </form>
       ) : (
         <form className={styles.form} onSubmit={submitReset}>
-          <p className={styles.stepHint}>Code sent to {email}</p>
+          <p className={styles.stepHint}>
+            {t("auth.codeSentTo", "Code sent to {{email}}", { email })}
+          </p>
           <VerificationCodeInput value={code} onChange={setCode} disabled={loading} />
           <div className={styles.field}>
-            <label htmlFor="newPassword">New password</label>
+            <label htmlFor="newPassword">{t("auth.newPassword", "New password")}</label>
             <input
               id="newPassword"
               type="password"
@@ -106,7 +114,7 @@ export function ResetPasswordScreen() {
           </div>
           {error && <p className={styles.error}>{error}</p>}
           <button type="submit" className={styles.btn} disabled={loading}>
-            {loading ? "Updating…" : "Set new password"}
+            {loading ? t("auth.updating", "Updating…") : t("auth.setNewPassword", "Set new password")}
           </button>
         </form>
       )}

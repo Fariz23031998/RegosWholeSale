@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { formatAuthError } from "@/store/auth";
 import { isValidScheduleTime, normalizeScheduleTime } from "@/lib/schedule-time";
 import { createUser, patchUser } from "@/lib/users-api";
@@ -30,6 +31,7 @@ type Props = {
 const EDITABLE_ROLES: UserRole[] = ["employee", "admin"];
 
 export function UserFormModal({ open, mode, token, user, permissions, onClose, onSaved }: Props) {
+  const { t } = useLanguage();
   const isOwner = user?.role === "owner";
   const isCreate = mode === "create";
 
@@ -97,7 +99,12 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
 
     if (isCreate) {
       if (!displayName.trim() || !login.trim() || password.length < 8) {
-        setError("Display name, login, and password (min 8 characters) are required.");
+        setError(
+          t(
+            "users.form.validationRequired",
+            "Display name, login, and password (min 8 characters) are required.",
+          ),
+        );
         return;
       }
     } else if (!user) {
@@ -109,7 +116,12 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
         (s) => !isValidScheduleTime(s.start_time) || !isValidScheduleTime(s.end_time),
       );
       if (invalidTime) {
-        setError("Schedule times must use 24-hour format HH:MM (e.g. 09:00, 17:30).");
+        setError(
+          t(
+            "users.form.validationSchedule",
+            "Schedule times must use 24-hour format HH:MM (e.g. 09:00, 17:30).",
+          ),
+        );
         return;
       }
     }
@@ -166,7 +178,11 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
     <Modal
       open={open}
       onClose={onClose}
-      title={isCreate ? "Add user" : "Edit user"}
+      title={
+        isCreate
+          ? t("users.form.addTitle", "Add user")
+          : t("users.form.editTitle", "Edit user")
+      }
       size="lg"
     >
       <form onSubmit={handleSubmit} className={styles.formGrid}>
@@ -174,7 +190,7 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
 
         <div className={styles.field}>
           <label className={styles.label} htmlFor="user-display-name">
-            Display name
+            {t("users.form.displayName", "Display name")}
           </label>
           <input
             id="user-display-name"
@@ -187,7 +203,7 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
 
         <div className={styles.field}>
           <label className={styles.label} htmlFor="user-login">
-            Login
+            {t("users.form.login", "Login")}
           </label>
           <input
             id="user-login"
@@ -197,12 +213,16 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
             disabled={!isCreate}
             required={isCreate}
           />
-          {!isCreate && <p className={styles.hint}>Login cannot be changed after creation.</p>}
+          {!isCreate && (
+            <p className={styles.hint}>
+              {t("users.form.loginImmutable", "Login cannot be changed after creation.")}
+            </p>
+          )}
         </div>
 
         <div className={styles.field}>
           <label className={styles.label} htmlFor="user-password">
-            Password
+            {t("users.form.password", "Password")}
           </label>
           <input
             id="user-password"
@@ -212,14 +232,16 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
             onChange={(e) => setPassword(e.target.value)}
             required={isCreate}
             minLength={isCreate ? 8 : undefined}
-            placeholder={isCreate ? "" : "Leave blank to keep current password"}
+            placeholder={
+              isCreate ? "" : t("users.form.passwordPlaceholder", "Leave blank to keep current password")
+            }
           />
         </div>
 
         {!isOwner && (
           <div className={styles.field}>
             <label className={styles.label} htmlFor="user-role">
-              Role
+              {t("users.form.role", "Role")}
             </label>
             <select
               id="user-role"
@@ -229,7 +251,9 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
             >
               {EDITABLE_ROLES.map((r) => (
                 <option key={r} value={r}>
-                  {r.charAt(0).toUpperCase() + r.slice(1)}
+                  {r === "admin"
+                    ? t("users.role.admin", "Admin")
+                    : t("users.role.employee", "Employee")}
                 </option>
               ))}
             </select>
@@ -249,9 +273,11 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
                 <span className={styles.slider} />
               </label>
               <div>
-                <div className={styles.label}>Active</div>
+                <div className={styles.label}>{t("users.form.active", "Active")}</div>
                 <p className={styles.hint}>
-                  {isOwner ? "Owner account cannot be deactivated." : "Inactive users cannot sign in."}
+                  {isOwner
+                    ? t("users.form.ownerCannotDeactivate", "Owner account cannot be deactivated.")
+                    : t("users.form.inactiveCannotSignIn", "Inactive users cannot sign in.")}
                 </p>
               </div>
             </div>
@@ -260,9 +286,14 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
 
         {role === "employee" && assignablePermissions.length > 0 && (
           <div className={styles.field}>
-            <div className={styles.sectionTitle}>Extra permissions</div>
+            <div className={styles.sectionTitle}>
+              {t("users.form.extraPermissions", "Extra permissions")}
+            </div>
             <p className={styles.hint}>
-              Employees receive POS and sales access by default. Grant additional permissions below.
+              {t(
+                "users.form.extraPermissionsHint",
+                "Employees receive POS access by default. Add extra permissions here.",
+              )}
             </p>
             <div className={styles.checkboxGrid}>
               {assignablePermissions.map((perm) => (
@@ -283,19 +314,23 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
         )}
 
         {role === "admin" && (
-          <p className={styles.hint}>Admins receive all permissions by default.</p>
+          <p className={styles.hint}>
+            {t("users.form.adminDefaults", "Admins receive all permissions by default.")}
+          </p>
         )}
 
-        {!isOwner && (
-          <ScheduleEditor schedules={schedules} onChange={setSchedules} />
-        )}
+        {!isOwner && <ScheduleEditor schedules={schedules} onChange={setSchedules} />}
 
         <div className={styles.modalActions}>
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
-            Cancel
+            {t("common.cancel", "Cancel")}
           </Button>
           <Button type="submit" disabled={saving}>
-            {saving ? "Saving…" : isCreate ? "Create user" : "Save changes"}
+            {saving
+              ? t("common.saving", "Saving…")
+              : isCreate
+                ? t("users.form.createUser", "Create user")
+                : t("users.form.saveChanges", "Save changes")}
           </Button>
         </div>
       </form>

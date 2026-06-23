@@ -1,4 +1,4 @@
-import { getApiBaseUrl } from "@/lib/api";
+import { apiRequest } from "@/lib/api";
 import {
   clearLanguageData,
   getLanguage,
@@ -46,73 +46,54 @@ class LanguageService {
     const storedLang = await getLanguageSetting<SupportedLanguage>("current_language");
     const langToUse: SupportedLanguage = storedLang ?? detectedLang;
 
-    await this.loadLanguage(langToUse);
-    return langToUse;
-  }
-
-  async loadLanguage(langCode: SupportedLanguage): Promise<void> {
     try {
-      const needsUpdate = await this.checkLanguageVersion(langCode);
-
-      if (needsUpdate) {
-        await this.fetchLanguageFromBackend(langCode);
-      }
-
-      const cachedTranslations = await getLanguage(langCode);
-
-      if (cachedTranslations) {
-        this.translations = cachedTranslations;
-        this.currentLanguage = langCode;
-        await saveLanguageSetting("current_language", langCode);
-      } else {
-        await this.fetchLanguageFromBackend(langCode);
-      }
+      await this.loadLanguage(langToUse);
     } catch (error) {
       console.error("Error loading language:", error);
       this.translations = this.getFallbackTranslations();
       this.currentLanguage = "en";
+      await saveLanguageSetting("current_language", "en");
     }
+
+    return this.currentLanguage;
+  }
+
+  async loadLanguage(langCode: SupportedLanguage): Promise<void> {
+    const cachedTranslations = await getLanguage(langCode);
+    let needsFetch = !cachedTranslations;
+
+    if (cachedTranslations) {
+      try {
+        needsFetch = await this.checkLanguageVersion(langCode);
+      } catch (error) {
+        console.error("Error checking language version:", error);
+        needsFetch = false;
+      }
+    }
+
+    if (needsFetch) {
+      await this.fetchLanguageFromBackend(langCode);
+      return;
+    }
+
+    this.translations = { ...cachedTranslations! };
+    this.currentLanguage = langCode;
+    await saveLanguageSetting("current_language", langCode);
   }
 
   async checkLanguageVersion(langCode: SupportedLanguage): Promise<boolean> {
-    const apiBase = getApiBaseUrl();
-    if (!apiBase) return false;
+    const data = await apiRequest<LanguageVersion>(`/api/v1/lang/${langCode}/version`);
+    const cachedVersion = await getLanguageVersion(langCode);
 
-    try {
-      const response = await fetch(`${apiBase}/lang/${langCode}/version`);
-
-      if (!response.ok) return false;
-
-      const data: LanguageVersion = await response.json();
-      const cachedVersion = await getLanguageVersion(langCode);
-
-      return !cachedVersion || cachedVersion !== data.version;
-    } catch (error) {
-      console.error("Error checking language version:", error);
-      return false;
-    }
+    return !cachedVersion || cachedVersion !== data.version;
   }
 
   async fetchLanguageFromBackend(langCode: SupportedLanguage): Promise<void> {
-    const apiBase = getApiBaseUrl();
-    if (!apiBase) {
-      throw new Error("API URL not configured");
-    }
-
-    const response = await fetch(`${apiBase}/lang/${langCode}`, {
-      method: "GET",
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!response.ok) throw new Error("Failed to fetch language data");
-
-    const data = (await response.json()) as LanguageApiResponse;
+    const data = await apiRequest<LanguageApiResponse>(`/api/v1/lang/${langCode}`);
 
     await saveLanguage(langCode, data.version, data.translations);
 
-    this.translations = data.translations;
+    this.translations = { ...data.translations };
     this.currentLanguage = langCode;
     await saveLanguageSetting("current_language", langCode);
   }
@@ -123,6 +104,10 @@ class LanguageService {
 
   getCurrentLanguage(): SupportedLanguage {
     return this.currentLanguage;
+  }
+
+  getTranslations(): TranslationDictionary {
+    return this.translations;
   }
 
   getSupportedLanguages(): SupportedLanguage[] {
@@ -169,6 +154,7 @@ class LanguageService {
       "auth.newCompany": "New company?",
       "auth.createAccount": "Create account",
       "auth.passwordUpdated": "Password updated. You can sign in now.",
+      "errors.generic": "Something went wrong",
       "errors.pageNotFound": "Page not found",
       "errors.pageNotFoundDesc": "The page you're looking for doesn't exist or has been moved.",
       "errors.pageLoadFailed": "This page didn't load",
@@ -177,6 +163,7 @@ class LanguageService {
       "language.ru": "Русский",
       "language.en": "English",
       "language.tj": "Тоҷикӣ",
+      "language.selectorLabel": "Language",
     };
   }
 

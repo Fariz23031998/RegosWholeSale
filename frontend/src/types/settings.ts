@@ -121,11 +121,19 @@ export type UserPosSettingsPatchRequest = {
   auto_open_qty_keypad?: boolean;
 };
 
-export const VAT_CALCULATION_TYPE_OPTIONS: {
+type TranslateFn = (
+  key: string,
+  fallback?: string,
+  params?: Record<string, string | number>,
+) => string;
+
+export function getVatCalculationTypeOptions(t: TranslateFn): {
   value: VatCalculationType;
   label: string;
-}[] = [
-  { value: "No", label: "No VAT" },
-  { value: "Exclude", label: "VAT included in amount" },
-  { value: "Include", label: "VAT on top of amount" },
-];
+}[] {
+  return [
+    { value: "No", label: t("settings.vat.no", "No VAT") },
+    { value: "Exclude", label: t("settings.vat.exclude", "VAT included in amount") },
+    { value: "Include", label: t("settings.vat.include", "VAT on top of amount") },
+  ];
+}

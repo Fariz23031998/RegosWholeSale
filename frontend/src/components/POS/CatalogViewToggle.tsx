@@ -1,5 +1,6 @@
 import { LayoutGrid, List, Square } from "lucide-react";
 import clsx from "clsx";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useCatalog, type CatalogViewMode } from "@/store/catalog";
 import styles from "./POS.module.css";
 
@@ -8,6 +9,7 @@ type CatalogViewToggleProps = {
 };
 
 export function CatalogViewToggle({ className }: CatalogViewToggleProps) {
+  const { t } = useLanguage();
   const view = useCatalog((s) => s.mobileViewMode);
   const setView = useCatalog((s) => s.setMobileViewMode);
 
@@ -17,13 +19,13 @@ export function CatalogViewToggle({ className }: CatalogViewToggleProps) {
     <div
       className={clsx(styles.viewToggle, className)}
       role="group"
-      aria-label="View mode"
+      aria-label={t("pos.viewMode.title", "View mode")}
     >
       <button
         type="button"
         className={clsx(styles.viewBtn, view === "single" && styles.viewBtnActive)}
         onClick={() => setMode("single")}
-        aria-label="One per row"
+        aria-label={t("pos.viewMode.onePerRow", "One per row")}
         aria-pressed={view === "single"}
       >
         <Square size={16} />
@@ -32,7 +34,7 @@ export function CatalogViewToggle({ className }: CatalogViewToggleProps) {
         type="button"
         className={clsx(styles.viewBtn, view === "double" && styles.viewBtnActive)}
         onClick={() => setMode("double")}
-        aria-label="Two per row"
+        aria-label={t("pos.viewMode.twoPerRow", "Two per row")}
         aria-pressed={view === "double"}
       >
         <LayoutGrid size={16} />
@@ -41,7 +43,7 @@ export function CatalogViewToggle({ className }: CatalogViewToggleProps) {
         type="button"
         className={clsx(styles.viewBtn, view === "list" && styles.viewBtnActive)}
         onClick={() => setMode("list")}
-        aria-label="Compact list"
+        aria-label={t("pos.viewMode.compactList", "Compact list")}
         aria-pressed={view === "list"}
       >
         <List size={16} />

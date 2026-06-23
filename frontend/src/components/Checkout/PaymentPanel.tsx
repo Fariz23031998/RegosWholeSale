@@ -1,6 +1,7 @@
 import { Banknote, CreditCard, Plus, Trash2, Wallet } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/posui/Button";
 import { formatAuthError } from "@/store/auth";
 import { formatCurrency } from "@/lib/format";
@@ -61,7 +62,8 @@ export function PaymentPanel({
   onConfirm,
   onCloseWithoutPayment,
 }: Props) {
-  const labels = paymentPanelLabels(mode);
+  const { t } = useLanguage();
+  const labels = paymentPanelLabels(mode, t);
   const totals = useMemo(() => ({ total }), [total]);
 
   const [paymentTypes, setPaymentTypes] = useState<PaymentType[]>([]);
@@ -189,7 +191,7 @@ export function PaymentPanel({
         if (cancelled) return;
         setPaymentTypes([]);
         setSelectedId(null);
-        setTypesError(formatAuthError(err, "Failed to load payment types"));
+        setTypesError(formatAuthError(err, t("checkout.errors.loadPaymentTypes", "Failed to load payment types")));
       })
       .finally(() => {
         if (!cancelled) setTypesLoading(false);
@@ -347,7 +349,7 @@ export function PaymentPanel({
     <>
       {currenciesDiffer && selected && !splitPayment && (
         <div className={styles.balanceDue}>
-          <span>Pay in {paymentCurrencyCode}</span>
+          <span>{t("checkout.payInCurrency", "Pay in {{currency}}", { currency: paymentCurrencyCode })}</span>
           <span>{formatAmountWithCurrency(totalInPaymentCurrency, paymentCurrency)}</span>
         </div>
       )}
@@ -363,13 +365,13 @@ export function PaymentPanel({
 
       {displayIsPartialPayment && (selected || splitPayment) && (
         <div className={styles.balanceDue}>
-          <span>Balance due</span>
+          <span>{t("checkout.balanceDue", "Balance due")}</span>
           <span>{formatCurrency(displayBalanceDue)}</span>
         </div>
       )}
 
       {typesLoading ? (
-        <div className={styles.statusMessage}>Loading payment types…</div>
+        <div className={styles.statusMessage}>{t("checkout.loadingTypes", "Loading payment types…")}</div>
       ) : typesError ? (
         <div className={styles.statusError}>
           <div>{typesError}</div>
@@ -388,16 +390,18 @@ export function PaymentPanel({
                   setSelectedId(defaultType?.id ?? null);
                 })
                 .catch((err: unknown) => {
-                  setTypesError(formatAuthError(err, "Failed to load payment types"));
+                  setTypesError(formatAuthError(err, t("checkout.errors.loadPaymentTypes", "Failed to load payment types")));
                 })
                 .finally(() => setTypesLoading(false));
             }}
           >
-            Retry
+            {t("common.retry", "Retry")}
           </Button>
         </div>
       ) : paymentTypes.length === 0 ? (
-        <div className={styles.statusMessage}>No payment types configured in Regos.</div>
+        <div className={styles.statusMessage}>
+          {t("checkout.noPaymentTypes", "No payment types configured in Regos.")}
+        </div>
       ) : (
         <>
           <div className={styles.paymentModeRow}>
@@ -409,7 +413,7 @@ export function PaymentPanel({
               }}
               disabled={processing}
             >
-              Single payment
+              {t("checkout.singlePayment", "Single payment")}
             </button>
             <button
               type="button"
@@ -419,7 +423,7 @@ export function PaymentPanel({
               }}
               disabled={processing}
             >
-              Split payment
+              {t("checkout.splitPayment", "Split payment")}
             </button>
           </div>
 
@@ -463,14 +467,14 @@ export function PaymentPanel({
                           className={styles.splitPaymentRemove}
                           onClick={() => removePaymentLine(line.key)}
                           disabled={processing}
-                          aria-label="Remove payment"
+                          aria-label={t("checkout.removePayment", "Remove payment")}
                         >
                           <Trash2 size={16} />
                         </button>
                       )}
                     </div>
                     <div className={styles.label}>
-                      Amount
+                      {t("checkout.amount", "Amount")}
                       {lineCurrenciesDiffer && lineCurrencyCode ? ` (${lineCurrencyCode})` : ""}
                     </div>
                     <input
@@ -485,7 +489,9 @@ export function PaymentPanel({
                     />
                     {lineCurrenciesDiffer && lineAmountNum > 0 && (
                       <div className={styles.splitPaymentConverted}>
-                        ≈ {formatAmountWithCurrency(linePaidInSale, saleCurrency)} in sale currency
+                        {t("checkout.convertedAmount", "≈ {{amount}} in sale currency", {
+                          amount: formatAmountWithCurrency(linePaidInSale, saleCurrency),
+                        })}
                       </div>
                     )}
                     <div className={styles.quickAmounts}>
@@ -503,7 +509,7 @@ export function PaymentPanel({
                         }
                         disabled={processing}
                       >
-                        Remaining
+                        {t("checkout.remaining", "Remaining")}
                       </button>
                       <button
                         type="button"
@@ -511,7 +517,7 @@ export function PaymentPanel({
                         onClick={() => updatePaymentLine(line.key, { amount: "0" })}
                         disabled={processing}
                       >
-                        Clear
+                        {t("checkout.clear", "Clear")}
                       </button>
                     </div>
                   </div>
@@ -524,7 +530,7 @@ export function PaymentPanel({
                 disabled={processing || splitBalanceDue <= 0.009}
               >
                 <Plus size={16} />
-                Add payment
+                {t("checkout.addPayment", "Add payment")}
               </Button>
               <div className={styles.splitPaymentSummary}>
                 <div className={styles.paidNow}>
@@ -533,7 +539,7 @@ export function PaymentPanel({
                 </div>
                 {splitBalanceDue > 0.009 && (
                   <div className={styles.balanceDue}>
-                    <span>Remaining</span>
+                    <span>{t("checkout.remaining", "Remaining")}</span>
                     <span>{formatCurrency(splitBalanceDue)}</span>
                   </div>
                 )}
@@ -541,7 +547,7 @@ export function PaymentPanel({
             </div>
           ) : (
             <>
-              <div className={styles.tabs} role="tablist" aria-label="Payment type">
+              <div className={styles.tabs} role="tablist" aria-label={t("checkout.paymentTypeAria", "Payment type")}>
                 {paymentTypes.map((type) => (
                   <button
                     key={type.id}
@@ -570,7 +576,7 @@ export function PaymentPanel({
                 <>
                   <div className={styles.cashSection}>
                     <div className={styles.label}>
-                      Amount tendered
+                      {t("checkout.tendered.amount", "Amount tendered")}
                       {currenciesDiffer && paymentCurrencyCode ? ` (${paymentCurrencyCode})` : ""}
                     </div>
                     <input
@@ -593,7 +599,7 @@ export function PaymentPanel({
                           )
                         }
                       >
-                        Exact
+                        {t("checkout.tendered.exact", "Exact")}
                       </button>
                       {tenderedQuickAmounts.map((amt) => (
                         <button
@@ -615,7 +621,7 @@ export function PaymentPanel({
                   {changeInPaymentCurrency > 0 && (
                     <div className={styles.change}>
                       <span>
-                        Change
+                        {t("checkout.tendered.change", "Change")}
                         {currenciesDiffer && paymentCurrencyCode ? ` (${paymentCurrencyCode})` : ""}
                       </span>
                       <span>{formatCurrency(changeInPaymentCurrency)}</span>
@@ -623,7 +629,9 @@ export function PaymentPanel({
                   )}
                   {currenciesDiffer && changeInSaleCurrency > 0 && (
                     <div className={styles.change}>
-                      <span>Change ({currencyLabel(saleCurrency)})</span>
+                      <span>
+                        {t("checkout.tendered.change", "Change")} ({currencyLabel(saleCurrency)})
+                      </span>
                       <span>{formatAmountWithCurrency(changeInSaleCurrency, saleCurrency)}</span>
                     </div>
                   )}
@@ -657,7 +665,7 @@ export function PaymentPanel({
                   />
                   <div className={styles.quickAmounts}>
                     <button type="button" className={styles.quick} onClick={() => setDebtAmount("0")}>
-                      No payment
+                      {t("checkout.debt.noPayment", "No payment")}
                     </button>
                     <button
                       type="button"
@@ -668,7 +676,7 @@ export function PaymentPanel({
                         )
                       }
                     >
-                      Pay full
+                      {t("checkout.debt.payFull", "Pay full")}
                     </button>
                     <button
                       type="button"
@@ -679,7 +687,7 @@ export function PaymentPanel({
                         )
                       }
                     >
-                      Half
+                      {t("checkout.debt.half", "Half")}
                     </button>
                   </div>
                   <div className={styles.hint}>
@@ -693,7 +701,9 @@ export function PaymentPanel({
                   {processing ? (
                     <>
                       <div className={styles.spinner} />
-                      <div style={{ fontWeight: 500 }}>Processing {selected.name}…</div>
+                      <div style={{ fontWeight: 500 }}>
+                        {t("checkout.processing", "Processing {{type}}…", { type: selected.name })}
+                      </div>
                       <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 4 }}>
                         {labels.postingToRegos}
                       </div>
@@ -703,7 +713,11 @@ export function PaymentPanel({
                       <div className={styles.cardIcon}>
                         <CreditCard size={28} />
                       </div>
-                      <div style={{ fontWeight: 500 }}>Complete {selected.name} payment</div>
+                      <div style={{ fontWeight: 500 }}>
+                        {t("checkout.completePayment", "Complete {{type}} payment", {
+                          type: selected.name,
+                        })}
+                      </div>
                       <div style={{ fontSize: 12, color: "var(--color-text-muted)", marginTop: 4 }}>
                         {labels.cardPrompt}
                       </div>

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Printer } from "lucide-react";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useReceiptTemplates } from "@/hooks/use-receipt-templates";
 import type { ReceiptPrintContext } from "@/lib/receipt-print-context";
 import { useAuth } from "@/store/auth";
@@ -24,8 +25,9 @@ export function ReceiptModal({
   context,
   onClose,
   title,
-  closeLabel = "Done",
+  closeLabel,
 }: Props) {
+  const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
   const { templates, defaultTemplateId } = useReceiptTemplates(token);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
@@ -47,16 +49,15 @@ export function ReceiptModal({
 
   const modalTitle =
     title ??
-    (closedWithoutPayment ? "Closed without payment" : "Sale Complete");
+    (closedWithoutPayment
+      ? t("receipt.closedWithoutPayment", "Closed without payment")
+      : t("receipt.saleComplete", "Sale Complete"));
+
+  const resolvedCloseLabel = closeLabel ?? t("common.done", "Done");
 
   return (
     <>
-      <Modal
-        open={!!context}
-        onClose={onClose}
-        title={modalTitle}
-        size="md"
-      >
+      <Modal open={!!context} onClose={onClose} title={modalTitle} size="md">
         <ReceiptTemplatePicker
           templates={templates}
           value={selectedTemplateId}
@@ -67,7 +68,7 @@ export function ReceiptModal({
             <TemplatedReceiptView template={selectedTemplate} context={context} />
           ) : (
             <div className={styles.templatePickerLabel}>
-              Receipt templates are not available.
+              {t("receipt.noTemplates", "Receipt templates are not available.")}
             </div>
           )}
         </div>
@@ -78,10 +79,10 @@ export function ReceiptModal({
             onClick={() => window.print()}
             disabled={!selectedTemplate}
           >
-            <Printer size={16} /> Print
+            <Printer size={16} /> {t("receipt.print", "Print")}
           </Button>
           <Button full onClick={onClose}>
-            {closeLabel}
+            {resolvedCloseLabel}
           </Button>
         </div>
       </Modal>

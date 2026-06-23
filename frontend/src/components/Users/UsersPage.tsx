@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import clsx from "clsx";
 import { Button } from "@/components/posui/Button";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { deactivateUser, fetchPermissions, fetchUsers, patchUser } from "@/lib/users-api";
 import { formatScheduleSummary, type Permission, type UserDetail } from "@/types/users";
@@ -19,12 +20,25 @@ function roleBadgeClass(role: UserDetail["role"]): string {
   return styles.roleEmployee;
 }
 
-function permissionsSummary(user: UserDetail): string {
+function roleLabel(
+  role: UserDetail["role"],
+  t: (key: string, fallback?: string) => string,
+): string {
+  if (role === "owner") return t("users.role.owner", "Owner");
+  if (role === "admin") return t("users.role.admin", "Admin");
+  return t("users.role.employee", "Employee");
+}
+
+function permissionsSummary(
+  user: UserDetail,
+  t: (key: string, fallback?: string, params?: Record<string, string | number>) => string,
+): string {
   if (user.permissions.length <= 3) return user.permissions.join(", ");
-  return `${user.permissions.length} permissions`;
+  return t("users.permissionsCount", "{{n}} permissions", { n: user.permissions.length });
 }
 
 export function UsersPage() {
+  const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
   const canManageUsers = Boolean(user?.permissions.includes("users.manage"));
@@ -123,26 +137,30 @@ export function UsersPage() {
       <div className={styles.page}>
         <div className={styles.header}>
           <div>
-            <h1 className={styles.title}>Users</h1>
-            <div className={styles.subtitle}>You do not have permission to manage users.</div>
+            <h1 className={styles.title}>{t("users.title", "Users")}</h1>
+            <div className={styles.subtitle}>
+              {t("users.noPermission", "You do not have permission to manage users.")}
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
+  const subtitle = loading
+    ? t("common.loading", "Loading...")
+    : users.length === 1
+      ? t("users.subtitle", "{{n}} user in your company", { n: users.length })
+      : t("users.subtitlePlural", "{{n}} users in your company", { n: users.length });
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <div>
-          <h1 className={styles.title}>Users</h1>
-          <div className={styles.subtitle}>
-            {loading
-              ? "Loading…"
-              : `${users.length} user${users.length === 1 ? "" : "s"} in your company`}
-          </div>
+          <h1 className={styles.title}>{t("users.title", "Users")}</h1>
+          <div className={styles.subtitle}>{subtitle}</div>
         </div>
-        <Button onClick={openCreate}>Add user</Button>
+        <Button onClick={openCreate}>{t("users.addUser", "Add user")}</Button>
       </div>
 
       {error && <div className={styles.error}>{error}</div>}
@@ -150,20 +168,22 @@ export function UsersPage() {
 
       <div className={styles.table}>
         {loading ? (
-          <div className={styles.empty}>Loading users…</div>
+          <div className={styles.empty}>{t("users.loadingList", "Loading users…")}</div>
         ) : users.length === 0 ? (
-          <div className={styles.empty}>No users yet. Add your first employee.</div>
+          <div className={styles.empty}>
+            {t("users.empty", "No users yet. Add your first employee.")}
+          </div>
         ) : (
           <table className={styles.tbl}>
             <thead>
               <tr>
-                <th>Name</th>
-                <th>Login / Email</th>
-                <th>Role</th>
-                <th>Permissions</th>
-                <th>Schedules</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th>{t("common.name", "Name")}</th>
+                <th>{t("users.table.login", "Login")} / {t("users.table.email", "Email")}</th>
+                <th>{t("users.table.role", "Role")}</th>
+                <th>{t("users.table.permissions", "Permissions")}</th>
+                <th>{t("users.table.schedules", "Schedules")}</th>
+                <th>{t("common.status", "Status")}</th>
+                <th>{t("common.actions", "Actions")}</th>
               </tr>
             </thead>
             <tbody>
@@ -175,12 +195,14 @@ export function UsersPage() {
                     <td className={styles.mono}>{loginOrEmail(item)}</td>
                     <td>
                       <span className={clsx(styles.badge, roleBadgeClass(item.role))}>
-                        {item.role}
+                        {roleLabel(item.role, t)}
                       </span>
                     </td>
-                    <td className={styles.muted}>{permissionsSummary(item)}</td>
+                    <td className={styles.muted}>{permissionsSummary(item, t)}</td>
                     <td className={styles.muted}>
-                      {item.role === "owner" ? "—" : formatScheduleSummary(item.schedules)}
+                      {item.role === "owner"
+                        ? "—"
+                        : formatScheduleSummary(item.schedules, t)}
                     </td>
                     <td>
                       <span
@@ -189,7 +211,9 @@ export function UsersPage() {
                           item.is_active ? styles.active : styles.inactive,
                         )}
                       >
-                        {item.is_active ? "Active" : "Inactive"}
+                        {item.is_active
+                          ? t("common.active", "Active")
+                          : t("common.inactive", "Inactive")}
                       </span>
                     </td>
                     <td>
@@ -199,14 +223,14 @@ export function UsersPage() {
                           size="sm"
                           onClick={() => openSettings(item)}
                         >
-                          Settings
+                          {t("users.actions.settings", "Settings")}
                         </Button>
                         <Button
                           variant="secondary"
                           size="sm"
                           onClick={() => openEdit(item)}
                         >
-                          Edit
+                          {t("common.edit", "Edit")}
                         </Button>
                         {item.role !== "owner" && (
                           item.is_active ? (
@@ -216,7 +240,9 @@ export function UsersPage() {
                               disabled={busy}
                               onClick={() => void handleDeactivate(item)}
                             >
-                              {busy ? "…" : "Deactivate"}
+                              {busy
+                                ? "…"
+                                : t("users.actions.deactivate", "Deactivate")}
                             </Button>
                           ) : (
                             <Button
@@ -225,7 +251,9 @@ export function UsersPage() {
                               disabled={busy}
                               onClick={() => void handleReactivate(item)}
                             >
-                              {busy ? "…" : "Reactivate"}
+                              {busy
+                                ? "…"
+                                : t("users.actions.reactivate", "Reactivate")}
                             </Button>
                           )
                         )}

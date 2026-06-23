@@ -4,6 +4,8 @@ import { ChevronDown, SlidersHorizontal } from "lucide-react";
 
 import { useEffect, useMemo, useState } from "react";
 
+import { useLanguage } from "@/contexts/LanguageContext";
+
 import { Modal } from "@/components/posui/Modal";
 
 import { PartnerPickerModal } from "@/components/POS/PartnerPickerModal";
@@ -27,6 +29,8 @@ type SellContextBarProps = {
 
 
 function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
+
+  const { t } = useLanguage();
 
   const token = useAuth((s) => s.accessToken);
 
@@ -118,7 +122,7 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
 
       <label className={fieldClassName}>
 
-        <span className={styles.sellContextLabel}>Warehouse</span>
+        <span className={styles.sellContextLabel}>{t("pos.sellContext.warehouse", "Warehouse")}</span>
 
         <select
 
@@ -136,7 +140,7 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
 
           <option value="" disabled>
 
-            Select warehouse
+            {t("pos.sellContext.selectWarehouse", "Select warehouse")}
 
           </option>
 
@@ -158,7 +162,7 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
 
       <label className={fieldClassName}>
 
-        <span className={styles.sellContextLabel}>Price type</span>
+        <span className={styles.sellContextLabel}>{t("pos.sellContext.priceType", "Price type")}</span>
 
         <select
 
@@ -176,7 +180,7 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
 
           <option value="" disabled>
 
-            Select price type
+            {t("pos.sellContext.selectPriceType", "Select price type")}
 
           </option>
 
@@ -198,7 +202,7 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
 
       <div className={fieldClassName}>
 
-        <span className={styles.sellContextLabel}>Partner</span>
+        <span className={styles.sellContextLabel}>{t("pos.sellContext.partner", "Partner")}</span>
 
         <button
 
@@ -212,7 +216,7 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
 
           <span className={styles.sellContextPartnerLabel}>
 
-            {selectedPartnerName ?? "Select partner"}
+            {selectedPartnerName ?? t("pos.sellContext.selectPartner", "Select partner")}
 
           </span>
 
@@ -254,6 +258,8 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
 
 export function SellContextBar({ className }: SellContextBarProps) {
 
+  const { t } = useLanguage();
+
   const [isCompact, setIsCompact] = useState(false);
 
   const [modalOpen, setModalOpen] = useState(false);
@@ -290,7 +296,7 @@ export function SellContextBar({ className }: SellContextBarProps) {
 
           onClick={() => setModalOpen(true)}
 
-          aria-label="Warehouse, price type, and partner"
+          aria-label={t("pos.sellContext.ariaLabel", "Warehouse, price type, and partner")}
 
         >
 
@@ -304,7 +310,7 @@ export function SellContextBar({ className }: SellContextBarProps) {
 
           onClose={() => setModalOpen(false)}
 
-          title="Sell context"
+          title={t("pos.sellContext.title", "Sell context")}
 
           bodyClassName={styles.sellContextModalBody}
 

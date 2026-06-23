@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { fetchProductGroups } from "@/lib/catalog-api";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
 import {
@@ -27,7 +28,7 @@ import type {
   RegosReferenceOptionsResponse,
   VatCalculationType,
 } from "@/types/settings";
-import { VAT_CALCULATION_TYPE_OPTIONS } from "@/types/settings";
+import { getVatCalculationTypeOptions } from "@/types/settings";
 import type { UserDetail } from "@/types/users";
 import styles from "./Users.module.css";
 
@@ -78,6 +79,8 @@ function applyRegosDefaults(defaults: {
 }
 
 export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
+  const { t } = useLanguage();
+  const vatOptions = getVatCalculationTypeOptions(t);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [resettingPos, setResettingPos] = useState(false);
@@ -167,7 +170,12 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
 
     const amounts = parseTenderedQuickAmounts(tenderedAmountsInput);
     if (amounts.length === 0) {
-      setError("Enter at least one positive tendered amount (e.g. 20, 50, 100).");
+      setError(
+        t(
+          "users.settings.tenderedValidation",
+          "Enter at least one positive tendered amount (e.g. 20, 50, 100).",
+        ),
+      );
       return;
     }
 
@@ -277,22 +285,36 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
     <Modal
       open={open}
       onClose={onClose}
-      title={user ? `User settings — ${user.display_name}` : "User settings"}
+      title={
+        user
+          ? t("users.settings.titleWithName", "User settings — {{name}}", {
+              name: user.display_name,
+            })
+          : t("users.settings.title", "User settings")
+      }
       size="lg"
     >
       <form onSubmit={handleSave} className={styles.formGrid}>
         {error && <div className={styles.formError}>{error}</div>}
 
         <p className={styles.hint}>
-          Personal overrides for this user. Unset values fall back to company defaults.
+          {t(
+            "users.settings.intro",
+            "Personal overrides for this user. Leave blank to use company defaults.",
+          )}
         </p>
 
-        <div className={styles.sectionTitle}>POS</div>
+        <div className={styles.sectionTitle}>{t("users.settings.pos", "POS")}</div>
 
         <div className={styles.field}>
-          <div className={styles.label}>Default category</div>
+          <div className={styles.label}>
+            {t("users.settings.defaultCategory", "Default category")}
+          </div>
           <p className={styles.hint}>
-            Category selected automatically when this user opens the Sell screen.
+            {t(
+              "users.settings.defaultCategoryHint",
+              "Category selected automatically when this user opens the Sell screen.",
+            )}
           </p>
           <select
             className={styles.select}
@@ -300,8 +322,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
             disabled={busy}
             onChange={(e) => setDefaultCategoryValue(e.target.value)}
           >
-            <option value="all">All</option>
-            <option value="featured">Featured</option>
+            <option value="all">{t("common.all", "All")}</option>
+            <option value="featured">{t("users.settings.featured", "Featured")}</option>
             {productGroups.map((group) => (
               <option key={group.id} value={`group:${group.id}`}>
                 {group.path || group.name}
@@ -322,10 +344,19 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
               <span className={styles.slider} />
             </label>
             <div>
-              <div className={styles.label}>Auto-open quantity keypad</div>
+              <div className={styles.label}>
+                {t("users.settings.autoOpenQtyKeypad", "Auto-open quantity keypad")}
+              </div>
               <p className={styles.hint}>
-                Opens the quantity keypad when a product is added to the cart.
-                Company default: {companyAutoOpenQtyKeypad ? "on" : "off"}.
+                {t(
+                  "users.settings.autoOpenQtyKeypadDesc",
+                  "Opens the quantity keypad when a product is added to the cart.",
+                )}{" "}
+                {t("common.companyDefault", "Company default: {{value}}", {
+                  value: companyAutoOpenQtyKeypad
+                    ? t("common.on", "on")
+                    : t("common.off", "off"),
+                })}
               </p>
             </div>
           </div>
@@ -343,9 +374,15 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
               <span className={styles.slider} />
             </label>
             <div>
-              <div className={styles.label}>Allow out-of-stock sales</div>
+              <div className={styles.label}>
+                {t("users.settings.allowOutOfStock", "Allow out-of-stock sales")}
+              </div>
               <p className={styles.hint}>
-                Company default: {companyAllowOutOfStock ? "on" : "off"}.
+                {t("common.companyDefault", "Company default: {{value}}", {
+                  value: companyAllowOutOfStock
+                    ? t("common.on", "on")
+                    : t("common.off", "off"),
+                })}
               </p>
             </div>
           </div>
@@ -353,9 +390,13 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
 
         <div className={styles.field}>
           <label className={styles.label} htmlFor="user-tendered-amounts">
-            Amount tendered shortcuts
+            {t("users.settings.tenderedShortcuts", "Amount tendered shortcuts")}
           </label>
-          <p className={styles.hint}>Company default: {companyTenderedAmounts}.</p>
+          <p className={styles.hint}>
+            {t("common.companyDefault", "Company default: {{value}}", {
+              value: companyTenderedAmounts,
+            })}
+          </p>
           <input
             id="user-tendered-amounts"
             className={styles.input}
@@ -363,7 +404,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
             inputMode="decimal"
             value={tenderedAmountsInput}
             disabled={busy}
-            placeholder="20, 50, 100"
+            placeholder={t("settings.pos.tenderedPlaceholder", "20, 50, 100")}
             onChange={(e) => setTenderedAmountsInput(e.target.value)}
           />
         </div>
@@ -375,25 +416,33 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
             disabled={busy}
             onClick={() => void handleResetPos()}
           >
-            {resettingPos ? "Resetting…" : "Reset POS to company"}
+            {resettingPos
+              ? t("common.resetting", "Resetting…")
+              : t("users.settings.resetPos", "Reset POS to company")}
           </Button>
         </div>
 
-        <div className={styles.sectionTitle}>Regos defaults</div>
+        <div className={styles.sectionTitle}>
+          {t("users.settings.regosDefaults", "Regos defaults")}
+        </div>
         <p className={styles.hint}>
-          Warehouse, price type, partner, and payment defaults for catalog and checkout.
-          Currency and firm are resolved from price type and warehouse.
+          {t(
+            "users.settings.regosDesc",
+            "Warehouse, price type, partner, and payment defaults for catalog and checkout. Currency and firm are resolved from price type and warehouse.",
+          )}
         </p>
 
         <label className={styles.field}>
-          <span className={styles.label}>Default warehouse</span>
+          <span className={styles.label}>
+            {t("settings.defaults.warehouse", "Default warehouse")}
+          </span>
           <select
             className={styles.select}
             value={warehouseId}
             disabled={busy}
             onChange={(e) => setWarehouseId(e.target.value)}
           >
-            <option value="">Use company default</option>
+            <option value="">{t("common.useCompanyDefault", "Use company default")}</option>
             {options.warehouses.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
@@ -403,14 +452,16 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         </label>
 
         <label className={styles.field}>
-          <span className={styles.label}>Default price type</span>
+          <span className={styles.label}>
+            {t("settings.defaults.priceType", "Default price type")}
+          </span>
           <select
             className={styles.select}
             value={priceTypeId}
             disabled={busy}
             onChange={(e) => setPriceTypeId(e.target.value)}
           >
-            <option value="">Use company default</option>
+            <option value="">{t("common.useCompanyDefault", "Use company default")}</option>
             {options.price_types.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
@@ -420,14 +471,16 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         </label>
 
         <label className={styles.field}>
-          <span className={styles.label}>Default partner</span>
+          <span className={styles.label}>
+            {t("settings.defaults.partner", "Default partner")}
+          </span>
           <select
             className={styles.select}
             value={partnerId}
             disabled={busy}
             onChange={(e) => setPartnerId(e.target.value)}
           >
-            <option value="">Use company default</option>
+            <option value="">{t("common.useCompanyDefault", "Use company default")}</option>
             {options.partners.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
@@ -437,26 +490,38 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         </label>
 
         <div className={styles.field}>
-          <span className={styles.label}>Currency (from price type)</span>
+          <span className={styles.label}>
+            {t("settings.defaults.currency", "Currency (from price type)")}
+          </span>
           <p className={styles.hint}>
-            {derivedCurrency ? derivedCurrency.name : "Select a price type"}
+            {derivedCurrency
+              ? derivedCurrency.name
+              : t("settings.defaults.selectPriceType", "Select a price type")}
           </p>
         </div>
 
         <div className={styles.field}>
-          <span className={styles.label}>Firm (from warehouse)</span>
-          <p className={styles.hint}>{derivedFirm ? derivedFirm.name : "Select a warehouse"}</p>
+          <span className={styles.label}>
+            {t("settings.defaults.firm", "Firm (from warehouse)")}
+          </span>
+          <p className={styles.hint}>
+            {derivedFirm
+              ? derivedFirm.name
+              : t("settings.defaults.selectWarehouse", "Select a warehouse")}
+          </p>
         </div>
 
         <label className={styles.field}>
-          <span className={styles.label}>Default payment category (income)</span>
+          <span className={styles.label}>
+            {t("settings.defaults.paymentCategoryIncome", "Default payment category (income)")}
+          </span>
           <select
             className={styles.select}
             value={paymentCategoryId}
             disabled={busy}
             onChange={(e) => setPaymentCategoryId(e.target.value)}
           >
-            <option value="">Use company default</option>
+            <option value="">{t("common.useCompanyDefault", "Use company default")}</option>
             {options.payment_categories.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
@@ -466,14 +531,16 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         </label>
 
         <label className={styles.field}>
-          <span className={styles.label}>Default payment category (refund)</span>
+          <span className={styles.label}>
+            {t("settings.defaults.paymentCategoryRefund", "Default payment category (refund)")}
+          </span>
           <select
             className={styles.select}
             value={refundPaymentCategoryId}
             disabled={busy}
             onChange={(e) => setRefundPaymentCategoryId(e.target.value)}
           >
-            <option value="">Use company default</option>
+            <option value="">{t("common.useCompanyDefault", "Use company default")}</option>
             {options.refund_payment_categories.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
@@ -483,14 +550,16 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         </label>
 
         <label className={styles.field}>
-          <span className={styles.label}>Attached user</span>
+          <span className={styles.label}>
+            {t("users.settings.attachedUser", "Attached user")}
+          </span>
           <select
             className={styles.select}
             value={attachedUserId}
             disabled={busy}
             onChange={(e) => setAttachedUserId(e.target.value)}
           >
-            <option value="">Use company default</option>
+            <option value="">{t("common.useCompanyDefault", "Use company default")}</option>
             {options.attached_users.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
@@ -500,14 +569,16 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         </label>
 
         <label className={styles.field}>
-          <span className={styles.label}>VAT calculation type</span>
+          <span className={styles.label}>
+            {t("settings.defaults.vatType", "VAT calculation type")}
+          </span>
           <select
             className={styles.select}
             value={vatCalculationType}
             disabled={busy}
             onChange={(e) => setVatCalculationType(e.target.value as VatCalculationType)}
           >
-            {VAT_CALCULATION_TYPE_OPTIONS.map((item) => (
+            {vatOptions.map((item) => (
               <option key={item.value} value={item.value}>
                 {item.label}
               </option>
@@ -517,9 +588,14 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
 
         <label className={styles.row}>
           <div>
-            <div className={styles.rowTitle}>Include zero quantity products</div>
+            <div className={styles.rowTitle}>
+              {t("settings.defaults.zeroQuantity", "Include zero quantity products")}
+            </div>
             <div className={styles.rowDesc}>
-              Show products even when allowed stock is 0. Default is off.
+              {t(
+                "settings.defaults.zeroQuantityDesc",
+                "Show products with zero stock in the catalog.",
+              )}
             </div>
           </div>
           <span className={styles.switch}>
@@ -535,9 +611,14 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
 
         <label className={styles.row}>
           <div>
-            <div className={styles.rowTitle}>Include zero price products</div>
+            <div className={styles.rowTitle}>
+              {t("settings.defaults.zeroPrice", "Include zero price products")}
+            </div>
             <div className={styles.rowDesc}>
-              Show products even when Regos returns price 0. Default is off.
+              {t(
+                "settings.defaults.zeroPriceDesc",
+                "Show products with zero price in the catalog.",
+              )}
             </div>
           </div>
           <span className={styles.switch}>
@@ -558,13 +639,17 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
             disabled={busy}
             onClick={() => void handleResetRegos()}
           >
-            {resettingRegos ? "Resetting…" : "Reset Regos to company"}
+            {resettingRegos
+              ? t("common.resetting", "Resetting…")
+              : t("users.settings.resetRegos", "Reset Regos to company")}
           </Button>
           <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
-            Cancel
+            {t("common.cancel", "Cancel")}
           </Button>
           <Button type="submit" disabled={busy}>
-            {saving ? "Saving…" : "Save settings"}
+            {saving
+              ? t("common.saving", "Saving…")
+              : t("users.settings.save", "Save settings")}
           </Button>
         </div>
       </form>

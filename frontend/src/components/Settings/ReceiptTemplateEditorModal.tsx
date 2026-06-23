@@ -2,10 +2,11 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { TemplatedReceiptView } from "@/components/Receipt/TemplatedReceiptView";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { SAMPLE_RECEIPT_CONTEXT } from "@/lib/receipt-print-context";
 import { cloneReceiptTemplate } from "@/lib/receipt-template-utils";
 import type { ReceiptFormat, ReceiptTemplate } from "@/types/receipt-templates";
-import { RECEIPT_SECTION_LABELS } from "@/types/receipt-templates";
+import { getReceiptSectionLabels } from "@/types/receipt-templates";
 import styles from "./ReceiptTemplates.module.css";
 
 type Props = {
@@ -23,6 +24,7 @@ export function ReceiptTemplateEditorModal({
   onClose,
   onSave,
 }: Props) {
+  const { t } = useLanguage();
   const [draft, setDraft] = useState<ReceiptTemplate | null>(null);
 
   useEffect(() => {
@@ -35,9 +37,8 @@ export function ReceiptTemplateEditorModal({
 
   if (!open || !draft) return null;
 
-  const sectionKeys = Object.keys(RECEIPT_SECTION_LABELS) as Array<
-    keyof typeof RECEIPT_SECTION_LABELS
-  >;
+  const sectionLabels = getReceiptSectionLabels(t);
+  const sectionKeys = Object.keys(sectionLabels) as Array<keyof typeof sectionLabels>;
 
   const updateHeader = (field: keyof ReceiptTemplate["header"], value: string) => {
     setDraft((current) =>
@@ -81,13 +82,19 @@ export function ReceiptTemplateEditorModal({
     <Modal
       open={open}
       onClose={onClose}
-      title={isNew ? "Create receipt template" : "Edit receipt template"}
+      title={
+        isNew
+          ? t("settings.receiptTemplates.createTitle", "Create receipt template")
+          : t("settings.receiptTemplates.editTitle", "Edit receipt template")
+      }
       size="lg"
     >
       <div className={styles.editorLayout}>
         <div className={styles.editorForm}>
           <label className={styles.field}>
-            <span className={styles.label}>Template name</span>
+            <span className={styles.label}>
+              {t("settings.receiptTemplates.templateName", "Template name")}
+            </span>
             <input
               className={styles.input}
               value={draft.name}
@@ -96,20 +103,26 @@ export function ReceiptTemplateEditorModal({
           </label>
 
           <label className={styles.field}>
-            <span className={styles.label}>Format</span>
+            <span className={styles.label}>{t("common.format", "Format")}</span>
             <select
               className={styles.select}
               value={draft.format}
               disabled={!isNew}
               onChange={(e) => handleFormatChange(e.target.value as ReceiptFormat)}
             >
-              <option value="80mm">80mm receipt</option>
-              <option value="a4">A4 invoice</option>
+              <option value="80mm">
+                {t("settings.receiptTemplates.format80mm", "80mm receipt")}
+              </option>
+              <option value="a4">
+                {t("settings.receiptTemplates.formatA4", "A4 invoice")}
+              </option>
             </select>
           </label>
 
           <label className={styles.field}>
-            <span className={styles.label}>Company name</span>
+            <span className={styles.label}>
+              {t("settings.receiptTemplates.companyName", "Company name")}
+            </span>
             <input
               className={styles.input}
               value={draft.header.company_name}
@@ -118,7 +131,9 @@ export function ReceiptTemplateEditorModal({
           </label>
 
           <label className={styles.field}>
-            <span className={styles.label}>Address</span>
+            <span className={styles.label}>
+              {t("settings.receiptTemplates.address", "Address")}
+            </span>
             <input
               className={styles.input}
               value={draft.header.address}
@@ -127,7 +142,9 @@ export function ReceiptTemplateEditorModal({
           </label>
 
           <label className={styles.field}>
-            <span className={styles.label}>Phone</span>
+            <span className={styles.label}>
+              {t("settings.receiptTemplates.phone", "Phone")}
+            </span>
             <input
               className={styles.input}
               value={draft.header.phone}
@@ -138,7 +155,9 @@ export function ReceiptTemplateEditorModal({
           {draft.format === "a4" && (
             <>
               <label className={styles.field}>
-                <span className={styles.label}>Tax ID</span>
+                <span className={styles.label}>
+                  {t("settings.receiptTemplates.taxId", "Tax ID")}
+                </span>
                 <input
                   className={styles.input}
                   value={draft.header.tax_id}
@@ -147,7 +166,9 @@ export function ReceiptTemplateEditorModal({
               </label>
 
               <label className={styles.field}>
-                <span className={styles.label}>Invoice title</span>
+                <span className={styles.label}>
+                  {t("settings.receiptTemplates.invoiceTitle", "Invoice title")}
+                </span>
                 <input
                   className={styles.input}
                   value={draft.invoice_title}
@@ -158,7 +179,9 @@ export function ReceiptTemplateEditorModal({
           )}
 
           <label className={styles.field}>
-            <span className={styles.label}>Footer message</span>
+            <span className={styles.label}>
+              {t("settings.receiptTemplates.footerMessage", "Footer message")}
+            </span>
             <textarea
               className={styles.textarea}
               value={draft.footer_text}
@@ -167,7 +190,9 @@ export function ReceiptTemplateEditorModal({
           </label>
 
           <div className={styles.sectionToggles}>
-            <div className={styles.label}>Visible sections</div>
+            <div className={styles.label}>
+              {t("settings.receiptTemplates.visibleSections", "Visible sections")}
+            </div>
             {sectionKeys.map((key) => {
               const disabled = draft.format === "80mm" && key === "partner";
               return (
@@ -175,7 +200,7 @@ export function ReceiptTemplateEditorModal({
                   key={key}
                   className={`${styles.toggleRow} ${disabled ? styles.toggleRowDisabled : ""}`}
                 >
-                  <span>{RECEIPT_SECTION_LABELS[key]}</span>
+                  <span>{sectionLabels[key]}</span>
                   <input
                     type="checkbox"
                     checked={draft.sections[key]}
@@ -189,20 +214,17 @@ export function ReceiptTemplateEditorModal({
         </div>
 
         <div className={styles.previewPane}>
-          <div className={styles.previewTitle}>Preview</div>
+          <div className={styles.previewTitle}>{t("common.preview", "Preview")}</div>
           <TemplatedReceiptView template={draft} context={SAMPLE_RECEIPT_CONTEXT} />
         </div>
       </div>
 
       <div className={styles.modalActions}>
         <Button variant="secondary" onClick={onClose}>
-          Cancel
+          {t("common.cancel", "Cancel")}
         </Button>
-        <Button
-          onClick={() => onSave(draft)}
-          disabled={!draft.name.trim()}
-        >
-          Save template
+        <Button onClick={() => onSave(draft)} disabled={!draft.name.trim()}>
+          {t("settings.receiptTemplates.save", "Save template")}
         </Button>
       </div>
     </Modal>

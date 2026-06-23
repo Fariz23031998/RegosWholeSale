@@ -1,5 +1,6 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { RegisterScreen } from "@/components/Auth/RegisterScreen";
+import { languageService } from "@/services/language";
 import { isAuthenticated } from "@/store/auth";
 
 export const Route = createFileRoute("/register")({
@@ -10,8 +11,11 @@ export const Route = createFileRoute("/register")({
   },
   head: () => ({
     meta: [
-      { title: "Register · Regos Optom" },
-      { name: "description", content: "Create a company account." },
+      { title: languageService.t("meta.registerTitle", "Register · Regos Optom") },
+      {
+        name: "description",
+        content: languageService.t("meta.registerDescription", "Create a company account."),
+      },
     ],
   }),
   component: RegisterScreen,

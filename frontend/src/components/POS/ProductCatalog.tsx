@@ -1,6 +1,7 @@
 import { ImageOff, Search, Star, Undo2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
 import { canAddProductToCart } from "@/lib/cart-stock";
 import {
@@ -86,6 +87,7 @@ function productCodeLine(product: Product): string {
 }
 
 export function ProductCatalog() {
+  const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
   const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
@@ -128,8 +130,8 @@ export function ProductCatalog() {
   const isPreparing = Boolean(token && (!categoryReady || !sellContextHydrated));
 
   useEffect(() => {
-    const t = window.setTimeout(() => setSearch(q.trim()), 250);
-    return () => window.clearTimeout(t);
+    const timer = window.setTimeout(() => setSearch(q.trim()), 250);
+    return () => window.clearTimeout(timer);
   }, [q]);
 
   useEffect(() => {
@@ -589,7 +591,7 @@ export function ProductCatalog() {
             <Search size={16} className={styles.searchIcon} />
             <input
               className={styles.searchInput}
-              placeholder="Search by name or SKU..."
+              placeholder={t("pos.searchPlaceholder", "Search by name or SKU...")}
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
@@ -600,23 +602,23 @@ export function ProductCatalog() {
               styles.catalogFilterBtn,
               hideCardImages && styles.catalogFilterBtnActive,
             )}
-            aria-label="Hide product images"
+            aria-label={t("pos.hideImagesAria", "Hide product images")}
             aria-pressed={hideCardImages}
-            title="Hide images"
+            title={t("pos.hideImages", "Hide images")}
             onClick={() => setHideCardImages((value) => !value)}
           >
             <ImageOff size={16} />
-            <span className={styles.catalogFilterBtnLabel}>Hide images</span>
+            <span className={styles.catalogFilterBtnLabel}>{t("pos.hideImages", "Hide images")}</span>
           </button>
           <button
             type="button"
             className={styles.catalogFilterBtn}
-            aria-label="Return products"
-            title="Return"
+            aria-label={t("pos.returnAria", "Return products")}
+            title={t("pos.return", "Return")}
             onClick={() => setReturnOpen(true)}
           >
             <Undo2 size={16} />
-            <span className={styles.catalogFilterBtnLabel}>Return</span>
+            <span className={styles.catalogFilterBtnLabel}>{t("pos.return", "Return")}</span>
           </button>
         </form>
 
@@ -649,27 +651,27 @@ export function ProductCatalog() {
             <div>{error}</div>
             <div className={styles.statusActions}>
               <button type="button" className={styles.retryBtn} onClick={() => void retry()}>
-                Retry
+                {t("pos.retry", "Retry")}
               </button>
               {isPreparing ? (
                 <button type="button" className={styles.retryBtn} onClick={retryStartup}>
-                  Restart setup
+                  {t("pos.restartSetup", "Restart setup")}
                 </button>
               ) : null}
             </div>
           </div>
         ) : isPreparing ? (
-          <div className={styles.empty}>Preparing catalog...</div>
+          <div className={styles.empty}>{t("pos.preparing", "Preparing catalog...")}</div>
         ) : loading ? (
-          <div className={styles.empty}>Loading products from Regos...</div>
+          <div className={styles.empty}>{t("pos.loading", "Loading products from Regos...")}</div>
         ) : products.length === 0 ? (
           <div className={styles.empty}>
             {featuredOnly
-              ? "No featured products yet. Star items to add them here."
-              : "No products match your search."}
+              ? t("pos.emptyFeatured", "No featured products yet. Star items to add them here.")
+              : t("pos.emptySearch", "No products match your search.")}
             <div className={styles.statusActions}>
               <button type="button" className={styles.retryBtn} onClick={() => void retry()}>
-                Refresh
+                {t("pos.refresh", "Refresh")}
               </button>
             </div>
           </div>
@@ -691,8 +693,10 @@ export function ProductCatalog() {
               const productId = productIdNumber(p);
               const isFeatured = featuredIds.has(productId);
               const stockText = Number.isInteger(p.stock)
-                ? `${p.stock} left`
-                : `${p.stock.toFixed(2).replace(/\.?0+$/, "")} left`;
+                ? t("pos.stockLeft", "{{n}} left", { n: p.stock })
+                : t("pos.stockLeft", "{{n}} left", {
+                    n: p.stock.toFixed(2).replace(/\.?0+$/, ""),
+                  });
               return (
                 <div
                   key={p.id}
@@ -724,7 +728,11 @@ export function ProductCatalog() {
                       <button
                         type="button"
                         className={clsx(styles.featureBtn, isFeatured && styles.featureBtnActive)}
-                        aria-label={isFeatured ? "Remove from featured" : "Add to featured"}
+                        aria-label={
+                          isFeatured
+                            ? t("pos.featuredRemove", "Remove from featured")
+                            : t("pos.featuredAdd", "Add to featured")
+                        }
                         aria-pressed={isFeatured}
                         onClick={(event) => {
                           event.stopPropagation();
@@ -746,7 +754,11 @@ export function ProductCatalog() {
                             styles.featureBtnInline,
                             isFeatured && styles.featureBtnActive,
                           )}
-                          aria-label={isFeatured ? "Remove from featured" : "Add to featured"}
+                          aria-label={
+                          isFeatured
+                            ? t("pos.featuredRemove", "Remove from featured")
+                            : t("pos.featuredAdd", "Add to featured")
+                        }
                           aria-pressed={isFeatured}
                           onClick={(event) => {
                             event.stopPropagation();
@@ -770,7 +782,7 @@ export function ProductCatalog() {
                           low && styles.stockLow,
                         )}
                       >
-                        {out ? "Out" : stockText}
+                        {out ? t("pos.outOfStock", "Out") : stockText}
                       </span>
                     </div>
                   </div>
@@ -783,21 +795,27 @@ export function ProductCatalog() {
               <div className={styles.statusBox}>
                 <div>{loadMoreError}</div>
                 <button type="button" className={styles.retryBtn} onClick={() => void loadMore()}>
-                  Retry loading more
+                  {t("pos.retryLoadMore", "Retry loading more")}
                 </button>
               </div>
             ) : null}
 
-            {loadingMore ? <div className={styles.loadingMore}>Loading more products...</div> : null}
+            {loadingMore ? (
+              <div className={styles.loadingMore}>{t("pos.loadingMore", "Loading more products...")}</div>
+            ) : null}
 
             {canLoadMore && !loadingMore ? (
               <div className={styles.loadMoreWrap}>
                 <p className={styles.loadMoreHint}>
-                  Showing {products.length}
-                  {total > products.length ? ` · more available` : ""}
+                  {total > products.length
+                    ? t("pos.showingCount", "Showing {{n}} · more available", { n: products.length })
+                    : t("pos.showingCount", "Showing {{n}} · more available", { n: products.length }).replace(
+                        " · more available",
+                        "",
+                      )}
                 </p>
                 <button type="button" className={styles.loadMoreBtn} onClick={() => void loadMore()}>
-                  Load more
+                  {t("pos.loadMore", "Load more")}
                 </button>
               </div>
             ) : null}

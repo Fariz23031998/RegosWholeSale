@@ -1,6 +1,7 @@
 import { Search, Star } from "lucide-react";
 import clsx from "clsx";
 import { useEffect, useMemo, useState } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Modal } from "@/components/posui/Modal";
 import type { ProductGroup } from "@/types/catalog";
 import styles from "./POS.module.css";
@@ -37,6 +38,7 @@ export function CategoryPickerModal({
   onSelectAll,
   onSelectGroup,
 }: Props) {
+  const { t } = useLanguage();
   const [search, setSearch] = useState("");
 
   useEffect(() => {
@@ -72,7 +74,7 @@ export function CategoryPickerModal({
     <Modal
       open={open}
       onClose={onClose}
-      title="Categories"
+      title={t("pos.categories.title", "Categories")}
       size="lg"
       bodyClassName={styles.categoryModalBody}
     >
@@ -81,8 +83,8 @@ export function CategoryPickerModal({
           type="button"
           className={clsx(styles.chip, styles.chipIcon, featuredOnly && styles.chipActive)}
           onClick={selectFeatured}
-          aria-label="Featured products"
-          title="Featured"
+          aria-label={t("pos.categories.featuredAria", "Featured products")}
+          title={t("pos.categories.featured", "Featured")}
         >
           <Star size={14} fill={featuredOnly ? "currentColor" : "none"} />
         </button>
@@ -94,7 +96,7 @@ export function CategoryPickerModal({
           )}
           onClick={selectAll}
         >
-          All
+          {t("pos.categories.all", "All")}
         </button>
       </div>
 
@@ -103,16 +105,22 @@ export function CategoryPickerModal({
         <input
           className={styles.searchInput}
           type="search"
-          placeholder="Search categories..."
+          placeholder={t("pos.categories.searchPlaceholder", "Search categories...")}
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          aria-label="Search categories"
+          aria-label={t("pos.categories.searchPlaceholder", "Search categories...")}
         />
       </div>
 
-      <div className={styles.categoryModalList} role="listbox" aria-label="Product categories">
+      <div
+        className={styles.categoryModalList}
+        role="listbox"
+        aria-label={t("pos.categories.listAria", "Product categories")}
+      >
         {filteredGroups.length === 0 ? (
-          <div className={styles.categoryModalEmpty}>No categories match your search.</div>
+          <div className={styles.categoryModalEmpty}>
+            {t("pos.categories.empty", "No categories match your search.")}
+          </div>
         ) : (
           filteredGroups.map((group) => {
           const depth = categoryPathDepth(group.path);

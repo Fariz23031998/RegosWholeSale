@@ -1,13 +1,9 @@
+import { useEffect, useRef, useState } from "react";
 import { Globe } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import type { SupportedLanguage } from "@/services/language";
+import styles from "./LanguageSelector.module.css";
 
 const languageNameKeys: Record<SupportedLanguage, string> = {
   uz: "language.uz",
@@ -25,36 +21,96 @@ const languageFlags: Record<SupportedLanguage, string> = {
 
 type LanguageSelectorProps = {
   className?: string;
+  variant?: "icon" | "menu";
 };
 
-export function LanguageSelector({ className }: LanguageSelectorProps) {
+export function LanguageSelector({ className, variant = "icon" }: LanguageSelectorProps) {
   const { currentLanguage, changeLanguage, supportedLanguages, t } = useLanguage();
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (rootRef.current?.contains(event.target as Node)) return;
+      setOpen(false);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
+
+  const handleSelect = (lang: SupportedLanguage) => {
+    void changeLanguage(lang);
+    setOpen(false);
+  };
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          className={className}
-          variant="ghost"
-          size="icon"
-          aria-label={t("nav.settings", "Settings")}
+    <div ref={rootRef} className={styles.root}>
+      <button
+        type="button"
+        className={clsx(
+          variant === "menu" ? styles.menuTrigger : styles.iconTrigger,
+          className,
+        )}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={t("language.selectorLabel", "Language")}
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((value) => !value);
+        }}
+      >
+        {variant === "menu" ? (
+          <>
+            <Globe size={18} />
+            <span>{t(languageNameKeys[currentLanguage])}</span>
+          </>
+        ) : (
+          <>
+            <span>{currentLanguage.toUpperCase()}</span>
+            <Globe size={16} />
+          </>
+        )}
+      </button>
+
+      {open && (
+        <div
+          className={clsx(
+            styles.menu,
+            variant === "menu" ? styles.menuAbove : styles.menuBelow,
+          )}
+          role="menu"
         >
-          <span>{currentLanguage.toUpperCase()}</span>
-          <Globe className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        {supportedLanguages.map((lang) => (
-          <DropdownMenuItem
-            key={lang}
-            onClick={() => void changeLanguage(lang)}
-            className={currentLanguage === lang ? "bg-accent" : ""}
-          >
-            <span className="mr-2">{languageFlags[lang]}</span>
-            {t(languageNameKeys[lang])}
-          </DropdownMenuItem>
-        ))}
-      </DropdownMenuContent>
-    </DropdownMenu>
+          {supportedLanguages.map((lang) => (
+            <button
+              key={lang}
+              type="button"
+              role="menuitem"
+              className={clsx(
+                styles.menuItem,
+                currentLanguage === lang && styles.menuItemActive,
+              )}
+              onClick={(event) => {
+                event.stopPropagation();
+                handleSelect(lang);
+              }}
+            >
+              <span className={styles.menuFlag}>{languageFlags[lang]}</span>
+              {t(languageNameKeys[lang])}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }

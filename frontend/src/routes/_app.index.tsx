@@ -2,6 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { ProductCatalog } from "@/components/POS/ProductCatalog";
 import { CartPanel } from "@/components/Cart/CartPanel";
+import { languageService } from "@/services/language";
 import { useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
@@ -11,8 +12,11 @@ import styles from "@/components/POS/POS.module.css";
 export const Route = createFileRoute("/_app/")({
   head: () => ({
     meta: [
-      { title: "Sell · Regos Optom" },
-      { name: "description", content: "Process sales and take payments." },
+      { title: languageService.t("meta.sellTitle", "Sell · Regos Optom") },
+      {
+        name: "description",
+        content: languageService.t("meta.sellDescription", "Process sales and take payments."),
+      },
     ],
   }),
   component: PosPage,

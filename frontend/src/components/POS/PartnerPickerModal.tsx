@@ -1,6 +1,7 @@
 import clsx from "clsx";
 import { ArrowLeft, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { formatAuthError } from "@/store/auth";
@@ -39,6 +40,7 @@ export function PartnerPickerModal({
   onSelect,
   onPartnersChanged,
 }: Props) {
+  const { t } = useLanguage();
   const [view, setView] = useState<View>("list");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -83,7 +85,7 @@ export function PartnerPickerModal({
       });
       setPartners(response.partners);
     } catch (err) {
-      setError(formatAuthError(err, "Failed to load partners."));
+      setError(formatAuthError(err, t("partners.errors.loadPartners", "Failed to load partners.")));
       setPartners([]);
     } finally {
       setLoading(false);
@@ -101,7 +103,7 @@ export function PartnerPickerModal({
       setGroups(response.groups);
       return response.groups;
     } catch (err) {
-      setError(formatAuthError(err, "Failed to load partner groups."));
+      setError(formatAuthError(err, t("partners.errors.loadGroups", "Failed to load partner groups.")));
       setGroups([]);
       return [];
     }
@@ -145,11 +147,11 @@ export function PartnerPickerModal({
     setError("");
 
     if (!form.name.trim()) {
-      setError("Partner name is required.");
+      setError(t("partners.validation.nameRequired", "Partner name is required."));
       return;
     }
     if (!form.group_id) {
-      setError("Partner group is required.");
+      setError(t("partners.validation.groupRequired", "Partner group is required."));
       return;
     }
 
@@ -189,7 +191,7 @@ export function PartnerPickerModal({
         onClose();
       }
     } catch (err) {
-      setError(formatAuthError(err, "Failed to save partner."));
+      setError(formatAuthError(err, t("partners.errors.save", "Failed to save partner.")));
     } finally {
       setSaving(false);
     }
@@ -198,7 +200,7 @@ export function PartnerPickerModal({
   const handleDelete = async () => {
     if (!editingPartner) return;
     const confirmed = window.confirm(
-      `Mark "${editingPartner.name}" for deletion?`,
+      t("partners.confirmDelete", 'Mark "{{name}}" for deletion?', { name: editingPartner.name }),
     );
     if (!confirmed) return;
 
@@ -212,7 +214,7 @@ export function PartnerPickerModal({
       setEditingPartner(null);
       setForm(EMPTY_PARTNER_FORM);
     } catch (err) {
-      setError(formatAuthError(err, "Failed to delete partner."));
+      setError(formatAuthError(err, t("partners.errors.delete", "Failed to delete partner.")));
     } finally {
       setSaving(false);
     }
@@ -220,10 +222,12 @@ export function PartnerPickerModal({
 
   const title = useMemo(() => {
     if (view === "form") {
-      return editingPartner ? "Edit partner" : "New partner";
+      return editingPartner
+        ? t("partners.editTitle", "Edit partner")
+        : t("partners.newTitle", "New partner");
     }
-    return "Select partner";
-  }, [editingPartner, view]);
+    return t("partners.selectTitle", "Select partner");
+  }, [editingPartner, t, view]);
 
   return (
     <Modal
@@ -241,25 +245,27 @@ export function PartnerPickerModal({
               <input
                 className={styles.searchInput}
                 type="search"
-                placeholder="Search partners..."
+                placeholder={t("partners.searchPlaceholder", "Search partners...")}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                aria-label="Search partners"
+                aria-label={t("partners.searchAria", "Search partners")}
               />
             </div>
             <Button type="button" size="sm" onClick={() => void openCreateForm()}>
               <Plus size={14} />
-              Add
+              {t("common.add", "Add")}
             </Button>
           </div>
 
           {error ? <div className={styles.partnerModalError}>{error}</div> : null}
 
-          <div className={styles.partnerModalList} role="listbox" aria-label="Partners">
+          <div className={styles.partnerModalList} role="listbox" aria-label={t("partners.listAria", "Partners")}>
             {loading ? (
-              <div className={styles.categoryModalEmpty}>Loading partners...</div>
+              <div className={styles.categoryModalEmpty}>{t("partners.loading", "Loading partners...")}</div>
             ) : partners.length === 0 ? (
-              <div className={styles.categoryModalEmpty}>No partners match your search.</div>
+              <div className={styles.categoryModalEmpty}>
+                {t("partners.empty", "No partners match your search.")}
+              </div>
             ) : (
               partners.map((partner) => {
                 const isActive = selectedPartnerId === partner.id;
@@ -288,7 +294,7 @@ export function PartnerPickerModal({
                     <button
                       type="button"
                       className={styles.partnerModalItemAction}
-                      aria-label={`Edit ${partner.name}`}
+                      aria-label={`${t("common.edit", "Edit")} ${partner.name}`}
                       onClick={() => void openEditForm(partner)}
                     >
                       <Pencil size={14} />
@@ -312,14 +318,14 @@ export function PartnerPickerModal({
             }}
           >
             <ArrowLeft size={14} />
-            Back to list
+            {t("partners.backToList", "Back to list")}
           </button>
 
           {error ? <div className={styles.partnerModalError}>{error}</div> : null}
 
           <div className={styles.partnerFormGrid}>
             <label className={styles.partnerFormField}>
-              <span>Name *</span>
+              <span>{t("partners.form.name", "Name *")}</span>
               <input
                 value={form.name}
                 onChange={(event) => handleFormChange("name", event.target.value)}
@@ -328,14 +334,14 @@ export function PartnerPickerModal({
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>Group *</span>
+              <span>{t("partners.form.group", "Group *")}</span>
               <select
                 value={form.group_id}
                 onChange={(event) => handleFormChange("group_id", event.target.value)}
                 required
               >
                 <option value="" disabled>
-                  Select group
+                  {t("partners.form.selectGroup", "Select group")}
                 </option>
                 {groups.map((group) => (
                   <option key={group.id} value={group.id}>
@@ -346,20 +352,20 @@ export function PartnerPickerModal({
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>Legal status *</span>
+              <span>{t("partners.form.legalStatus", "Legal status *")}</span>
               <select
                 value={form.legal_status}
                 onChange={(event) =>
                   handleFormChange("legal_status", event.target.value as PartnerFormValues["legal_status"])
                 }
               >
-                <option value="Natural">Individual</option>
-                <option value="Legal">Legal entity</option>
+                <option value="Natural">{t("partners.form.individual", "Individual")}</option>
+                <option value="Legal">{t("partners.form.legalEntity", "Legal entity")}</option>
               </select>
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>Full name</span>
+              <span>{t("common.name", "Name")}</span>
               <input
                 value={form.fullname}
                 onChange={(event) => handleFormChange("fullname", event.target.value)}
@@ -367,7 +373,7 @@ export function PartnerPickerModal({
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>Phones</span>
+              <span>{t("partners.form.phones", "Phones")}</span>
               <input
                 value={form.phones}
                 onChange={(event) => handleFormChange("phones", event.target.value)}
@@ -375,7 +381,7 @@ export function PartnerPickerModal({
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>Email</span>
+              <span>{t("partners.form.email", "Email")}</span>
               <input
                 type="email"
                 value={form.email}
@@ -384,7 +390,7 @@ export function PartnerPickerModal({
             </label>
 
             <label className={clsx(styles.partnerFormField, styles.partnerFormFieldWide)}>
-              <span>Address</span>
+              <span>{t("partners.form.address", "Address")}</span>
               <input
                 value={form.address}
                 onChange={(event) => handleFormChange("address", event.target.value)}
@@ -392,7 +398,7 @@ export function PartnerPickerModal({
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>INN</span>
+              <span>{t("partners.form.inn", "INN")}</span>
               <input
                 value={form.inn}
                 onChange={(event) => handleFormChange("inn", event.target.value)}
@@ -400,7 +406,7 @@ export function PartnerPickerModal({
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>Boss name</span>
+              <span>{t("partners.form.bossName", "Boss name")}</span>
               <input
                 value={form.boss_name}
                 onChange={(event) => handleFormChange("boss_name", event.target.value)}
@@ -408,7 +414,7 @@ export function PartnerPickerModal({
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>Bank</span>
+              <span>{t("partners.form.bank", "Bank")}</span>
               <input
                 value={form.bank_name}
                 onChange={(event) => handleFormChange("bank_name", event.target.value)}
@@ -416,7 +422,7 @@ export function PartnerPickerModal({
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>MFO</span>
+              <span>{t("partners.form.mfo", "MFO")}</span>
               <input
                 value={form.mfo}
                 onChange={(event) => handleFormChange("mfo", event.target.value)}
@@ -424,7 +430,7 @@ export function PartnerPickerModal({
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>Account</span>
+              <span>{t("partners.form.account", "Account")}</span>
               <input
                 value={form.rs}
                 onChange={(event) => handleFormChange("rs", event.target.value)}
@@ -432,7 +438,7 @@ export function PartnerPickerModal({
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>OKED</span>
+              <span>{t("partners.form.oked", "OKED")}</span>
               <input
                 value={form.oked}
                 onChange={(event) => handleFormChange("oked", event.target.value)}
@@ -440,7 +446,7 @@ export function PartnerPickerModal({
             </label>
 
             <label className={styles.partnerFormField}>
-              <span>VAT index</span>
+              <span>{t("partners.form.vatIndex", "VAT index")}</span>
               <input
                 value={form.vat_index}
                 onChange={(event) => handleFormChange("vat_index", event.target.value)}
@@ -448,7 +454,7 @@ export function PartnerPickerModal({
             </label>
 
             <label className={clsx(styles.partnerFormField, styles.partnerFormFieldWide)}>
-              <span>Description</span>
+              <span>{t("partners.form.description", "Description")}</span>
               <textarea
                 rows={3}
                 value={form.description}
@@ -467,17 +473,21 @@ export function PartnerPickerModal({
                 onClick={() => void handleDelete()}
               >
                 <Trash2 size={14} />
-                Delete
+                {t("common.delete", "Delete")}
               </Button>
             ) : (
               <span />
             )}
             <div className={styles.partnerFormActionsRight}>
               <Button type="button" variant="ghost" size="sm" onClick={onClose} disabled={saving}>
-                Cancel
+                {t("common.cancel", "Cancel")}
               </Button>
               <Button type="submit" size="sm" disabled={saving}>
-                {saving ? "Saving..." : editingPartner ? "Save changes" : "Create partner"}
+                {saving
+                  ? t("common.saving", "Saving…")
+                  : editingPartner
+                    ? t("partners.saveChanges", "Save changes")
+                    : t("partners.createPartner", "Create partner")}
               </Button>
             </div>
           </div>
