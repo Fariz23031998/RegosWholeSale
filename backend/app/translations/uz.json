@@ -1,0 +1,52 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2026-06-23",
+  "translations": {
+    "common.loading": "Yuklanmoqda...",
+    "common.save": "Saqlash",
+    "common.cancel": "Bekor qilish",
+    "common.delete": "O'chirish",
+    "common.edit": "Tahrirlash",
+    "common.close": "Yopish",
+    "common.confirm": "Tasdiqlash",
+    "common.search": "Qidirish",
+    "common.add": "Qo'shish",
+    "common.create": "Yaratish",
+    "common.error": "Xato",
+    "common.success": "Muvaffaqiyatli",
+    "common.tryAgain": "Qayta urinish",
+    "common.goHome": "Bosh sahifaga",
+
+    "nav.sell": "Sotish",
+    "nav.sales": "Sotuvlar",
+    "nav.returns": "Qaytarishlar",
+    "nav.dashboard": "Boshqaruv paneli",
+    "nav.users": "Foydalanuvchilar",
+    "nav.telegramUsers": "Telegram foydalanuvchilari",
+    "nav.settings": "Sozlamalar",
+    "nav.signOut": "Chiqish",
+    "nav.openMenu": "Menyuni ochish",
+    "nav.closeMenu": "Menyuni yopish",
+
+    "auth.title": "Regos Optom",
+    "auth.signIn": "Kirish",
+    "auth.signingIn": "Kirilmoqda…",
+    "auth.signInSubtitle": "Hisobingizga kiring",
+    "auth.emailOrUsername": "Email yoki foydalanuvchi nomi",
+    "auth.password": "Parol",
+    "auth.forgotPassword": "Parolni unutdingizmi?",
+    "auth.newCompany": "Yangi kompaniya?",
+    "auth.createAccount": "Hisob yaratish",
+    "auth.passwordUpdated": "Parol yangilandi. Endi kirishingiz mumkin.",
+
+    "errors.pageNotFound": "Sahifa topilmadi",
+    "errors.pageNotFoundDesc": "Qidirayotgan sahifangiz mavjud emas yoki ko'chirilgan.",
+    "errors.pageLoadFailed": "Sahifa yuklanmadi",
+    "errors.pageLoadFailedDesc": "Nimadir xato ketdi. Sahifani yangilang yoki bosh sahifaga qayting.",
+
+    "language.uz": "O'zbekcha",
+    "language.ru": "Русский",
+    "language.en": "English",
+    "language.tj": "Тоҷикӣ"
+  }
+}

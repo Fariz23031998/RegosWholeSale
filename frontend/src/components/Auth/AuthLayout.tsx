@@ -6,11 +6,13 @@ type Props = {
   subtitle: string;
   children: ReactNode;
   footer?: ReactNode;
+  headerAction?: ReactNode;
 };
 
-export function AuthLayout({ title, subtitle, children, footer }: Props) {
+export function AuthLayout({ title, subtitle, children, footer, headerAction }: Props) {
   return (
     <div className={styles.wrap}>
+      {headerAction ? <div className={styles.headerAction}>{headerAction}</div> : null}
       <div className={`${styles.card} ${styles.cardCenter}`}>
         <div className={styles.brand}>R</div>
         <h1 className={styles.title}>{title}</h1>

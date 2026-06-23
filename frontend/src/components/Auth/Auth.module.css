@@ -3,10 +3,17 @@
   display: grid;
   place-items: center;
   padding: var(--space-5);
+  position: relative;
   background:
     radial-gradient(1000px 600px at 80% -10%, rgba(124, 58, 237, 0.12), transparent 60%),
     radial-gradient(800px 500px at -10% 110%, rgba(79, 70, 229, 0.14), transparent 60%),
     var(--color-bg);
+}
+
+.headerAction {
+  position: absolute;
+  top: var(--space-5);
+  right: var(--space-5);
 }
 
 .card {

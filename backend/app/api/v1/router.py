@@ -1,8 +1,9 @@
 from fastapi import APIRouter
 
-from app.api.v1 import auth, dashboard, permissions, regos, regos_webhook, sales, settings, telegram, users
+from app.api.v1 import auth, dashboard, lang, permissions, regos, regos_webhook, sales, settings, telegram, users
 
 api_router = APIRouter()
+api_router.include_router(lang.router)
 api_router.include_router(auth.router)
 api_router.include_router(permissions.router)
 api_router.include_router(users.router)

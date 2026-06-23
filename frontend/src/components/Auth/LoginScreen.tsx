@@ -1,10 +1,14 @@
 import { useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { AuthLayout } from "@/components/Auth/AuthLayout";
+import { LanguageSelector } from "@/components/LanguageSelector";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { formatAuthError, useAuth } from "@/store/auth";
 import styles from "./Auth.module.css";
 
 export function LoginScreen() {
+  const { t } = useLanguage();
+
   const navigate = useNavigate();
   const search = useSearch({ from: "/login" });
   const login = useAuth((s) => s.login);
@@ -30,20 +34,21 @@ export function LoginScreen() {
 
   return (
     <AuthLayout
-      title="Regos Optom"
-      subtitle="Sign in to your account"
+      title={t("auth.title", "Regos Optom")}
+      subtitle={t("auth.signInSubtitle", "Sign in to your account")}
+      headerAction={<LanguageSelector />}
       footer={
         <p className={styles.footer}>
-          New company?{" "}
+          {t("auth.newCompany", "New company?")}{" "}
           <Link to="/register" className={styles.link}>
-            Create account
+            {t("auth.createAccount", "Create account")}
           </Link>
         </p>
       }
     >
       <form className={styles.form} onSubmit={submit}>
         <div className={styles.field}>
-          <label htmlFor="identifier">Email or username</label>
+          <label htmlFor="identifier">{t("auth.emailOrUsername", "Email or username")}</label>
           <input
             id="identifier"
             type="text"
@@ -55,7 +60,7 @@ export function LoginScreen() {
           />
         </div>
         <div className={styles.field}>
-          <label htmlFor="password">Password</label>
+          <label htmlFor="password">{t("auth.password", "Password")}</label>
           <input
             id="password"
             type="password"
@@ -68,18 +73,20 @@ export function LoginScreen() {
         </div>
 
         {search.reset === "success" && (
-          <p className={styles.success}>Password updated. You can sign in now.</p>
+          <p className={styles.success}>
+            {t("auth.passwordUpdated", "Password updated. You can sign in now.")}
+          </p>
         )}
         {error && <p className={styles.error}>{error}</p>}
 
         <button type="submit" className={styles.btn} disabled={loading}>
-          {loading ? "Signing in…" : "Sign in"}
+          {loading ? t("auth.signingIn", "Signing in…") : t("auth.signIn", "Sign in")}
         </button>
       </form>
 
       <p className={styles.footer} style={{ marginTop: 16 }}>
         <Link to="/reset-password" className={styles.link}>
-          Forgot password?
+          {t("auth.forgotPassword", "Forgot password?")}
         </Link>
       </p>
     </AuthLayout>

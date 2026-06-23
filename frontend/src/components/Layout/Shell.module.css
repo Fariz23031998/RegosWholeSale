@@ -45,6 +45,13 @@
   margin-bottom: var(--space-5);
 }
 
+.sidebarActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
 .brand {
   display: flex;
   align-items: center;
@@ -128,6 +135,15 @@
 .topBarViewToggle {
   margin-left: auto;
   flex-shrink: 0;
+}
+
+.langBtn {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.topBar:has(.topBarViewToggle) .langBtn {
+  margin-left: 0;
 }
 
 .main {

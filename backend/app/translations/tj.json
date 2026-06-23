@@ -1,0 +1,52 @@
+{
+  "version": "1.0.0",
+  "last_updated": "2026-06-23",
+  "translations": {
+    "common.loading": "Бор карда истодааст...",
+    "common.save": "Нигоҳ доштан",
+    "common.cancel": "Бекор кардан",
+    "common.delete": "Нест кардан",
+    "common.edit": "Таҳрир кардан",
+    "common.close": "Пӯшидан",
+    "common.confirm": "Тасдиқ кардан",
+    "common.search": "Ҷустуҷӯ",
+    "common.add": "Илова кардан",
+    "common.create": "Эҷод кардан",
+    "common.error": "Хато",
+    "common.success": "Муваффақ",
+    "common.tryAgain": "Аз нав кӯшиш кунед",
+    "common.goHome": "Ба саҳифаи асосӣ",
+
+    "nav.sell": "Фурӯш",
+    "nav.sales": "Фурӯшҳо",
+    "nav.returns": "Бозгаштҳо",
+    "nav.dashboard": "Панел",
+    "nav.users": "Корбарон",
+    "nav.telegramUsers": "Корбарони Telegram",
+    "nav.settings": "Танзимот",
+    "nav.signOut": "Баромадан",
+    "nav.openMenu": "Менюро кушодан",
+    "nav.closeMenu": "Менюро пӯшидан",
+
+    "auth.title": "Regos Optom",
+    "auth.signIn": "Ворид шудан",
+    "auth.signingIn": "Ворид мешавад…",
+    "auth.signInSubtitle": "Ба ҳисоби худ ворид шавед",
+    "auth.emailOrUsername": "Email ё номи корбар",
+    "auth.password": "Рамз",
+    "auth.forgotPassword": "Рамзро фаромӯш кардед?",
+    "auth.newCompany": "Ширкати нав?",
+    "auth.createAccount": "Ҳисоб эҷод кардан",
+    "auth.passwordUpdated": "Рамз навсозӣ шуд. Ҳоло метавонед ворид шавед.",
+
+    "errors.pageNotFound": "Саҳифа ёфт нашуд",
+    "errors.pageNotFoundDesc": "Саҳифае, ки меҷӯед, вуҷуд надорад ё кӯчонида шудааст.",
+    "errors.pageLoadFailed": "Саҳифа бор нашуд",
+    "errors.pageLoadFailedDesc": "Чизе хато шуд. Саҳифаро навсозӣ кунед ё ба саҳифаи асосӣ баргардед.",
+
+    "language.uz": "O'zbekcha",
+    "language.ru": "Русский",
+    "language.en": "English",
+    "language.tj": "Тоҷикӣ"
+  }
+}

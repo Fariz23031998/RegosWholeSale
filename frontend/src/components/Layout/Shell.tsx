@@ -15,21 +15,25 @@ import {
 import clsx from "clsx";
 import { CatalogViewToggle } from "@/components/POS/CatalogViewToggle";
 import { SellContextBar } from "@/components/POS/SellContextBar";
+import { LanguageSelector } from "@/components/LanguageSelector";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
 import styles from "./Shell.module.css";
 
 const NAV = [
-  { to: "/", label: "Sell", icon: ShoppingCart },
-  { to: "/sales", label: "Sales", icon: Receipt },
-  { to: "/returns", label: "Returns", icon: Undo2 },
-  { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { to: "/users", label: "Users", icon: Users, permission: "users.manage" },
-  { to: "/telegram-users", label: "Telegram users", icon: MessageCircle },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/", labelKey: "nav.sell", icon: ShoppingCart },
+  { to: "/sales", labelKey: "nav.sales", icon: Receipt },
+  { to: "/returns", labelKey: "nav.returns", icon: Undo2 },
+  { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
+  { to: "/users", labelKey: "nav.users", icon: Users, permission: "users.manage" },
+  { to: "/telegram-users", labelKey: "nav.telegramUsers", icon: MessageCircle },
+  { to: "/settings", labelKey: "nav.settings", icon: Settings },
 ] as const;
 
 export function Shell() {
+  const { t } = useLanguage();
+
   const session = useAuth((s) => s.session);
   const user = useAuth((s) => s.user);
   const logout = useAuth((s) => s.logout);
@@ -77,7 +81,7 @@ export function Shell() {
         <button
           type="button"
           className={styles.backdrop}
-          aria-label="Close menu"
+          aria-label={t("nav.closeMenu", "Close menu")}
           onClick={() => setSidebarOpen(false)}
         />
       )}
@@ -90,19 +94,22 @@ export function Shell() {
               <div className={styles.brandSub}>{user?.company?.name ?? "POS"}</div>
             </div>
           </div>
-          <button
+          <div className={styles.sidebarActions}>
+            <LanguageSelector />
+            <button
             type="button"
             className={styles.closeBtn}
             onClick={() => setSidebarOpen(false)}
-            aria-label="Close menu"
+            aria-label={t("nav.closeMenu", "Close menu")}
           >
             <X size={20} />
           </button>
+          </div>
         </div>
 
         {NAV.filter(
           (item) => !("permission" in item) || user?.permissions.includes(item.permission),
-        ).map(({ to, label, icon: Icon }) => {
+        ).map(({ to, labelKey, icon: Icon }) => {
           const active =
             to === "/"
               ? location.pathname === "/"
@@ -114,7 +121,7 @@ export function Shell() {
               className={clsx(styles.navLink, active && styles.navLinkActive)}
             >
               <Icon size={18} />
-              <span>{label}</span>
+              <span>{t(labelKey)}</span>
             </Link>
           );
         })}
@@ -133,8 +140,8 @@ export function Shell() {
             <button
               className={styles.logoutBtn}
               onClick={handleLogout}
-              aria-label="Sign out"
-              title="Sign out"
+              aria-label={t("nav.signOut", "Sign out")}
+              title={t("nav.signOut", "Sign out")}
             >
               <LogOut size={16} />
             </button>
@@ -149,10 +156,11 @@ export function Shell() {
               type="button"
               className={styles.menuBtn}
               onClick={() => setSidebarOpen(true)}
-              aria-label="Open menu"
+              aria-label={t("nav.openMenu", "Open menu")}
             >
               <Menu size={20} />
             </button>
+            <LanguageSelector className={styles.langBtn} />
             {showSellContext ? <SellContextBar className={styles.topBarContext} /> : null}
             {showCatalogViewToggle ? (
               <CatalogViewToggle className={styles.topBarViewToggle} />
