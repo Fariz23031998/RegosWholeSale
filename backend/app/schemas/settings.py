@@ -32,6 +32,7 @@ class RegosDefaults(BaseModel):
     currency: RegosCurrencyOption | None = None
     firm: RegosDefaultOption | None = None
     payment_category: RegosDefaultOption | None = None
+    refund_payment_category: RegosDefaultOption | None = None
     attached_user: RegosDefaultOption | None = None
     vat_calculation_type: VatCalculationType = "Exclude"
     zero_quantity: bool = False
@@ -47,6 +48,7 @@ class RegosDefaultsPatchRequest(BaseModel):
     price_type_id: int | None = Field(default=None, ge=1)
     partner_id: int | None = Field(default=None, ge=1)
     payment_category_id: int | None = Field(default=None, ge=1)
+    refund_payment_category_id: int | None = Field(default=None, ge=1)
     attached_user_id: int | None = Field(default=None, ge=1)
     vat_calculation_type: VatCalculationType | None = None
     zero_quantity: bool | None = None
@@ -58,4 +60,5 @@ class RegosReferenceOptionsResponse(BaseModel):
     price_types: list[RegosDefaultOption] = Field(default_factory=list)
     partners: list[RegosDefaultOption] = Field(default_factory=list)
     payment_categories: list[RegosDefaultOption] = Field(default_factory=list)
+    refund_payment_categories: list[RegosDefaultOption] = Field(default_factory=list)
     attached_users: list[RegosDefaultOption] = Field(default_factory=list)

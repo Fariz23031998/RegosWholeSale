@@ -87,7 +87,6 @@ export function Shell() {
           <div className={styles.brand}>
             <div className={styles.brandMark}>R</div>
             <div>
-              <div className={styles.brandText}>Regos Wholesale</div>
               <div className={styles.brandSub}>{user?.company?.name ?? "POS"}</div>
             </div>
           </div>

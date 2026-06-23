@@ -21,3 +21,17 @@ class RegosTokenStatus(BaseModel):
 class RegosTokenMessage(BaseModel):
     message: str
     is_replicable: bool | None = None
+
+
+class RegosCustomField(BaseModel):
+    id: int = Field(ge=1)
+    key: str
+    name: str
+    entity_type: str
+    data_type: str
+
+
+class RegosDocPaymentSaleIdFieldResponse(BaseModel):
+    configured: bool
+    field: RegosCustomField | None = None
+    created: bool = False

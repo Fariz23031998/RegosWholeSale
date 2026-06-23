@@ -6,8 +6,11 @@ from app.database import get_db
 from app.schemas.sales import (
     CheckoutRequest,
     CheckoutResponse,
+    PostponeRequest,
+    PostponeResponse,
     WholesaleDocumentsResponse,
     WholesaleOperationsResponse,
+    WholesalePaymentsResponse,
     WholesaleReturnDocumentsResponse,
     WholesaleReturnRequest,
     WholesaleReturnResponse,
@@ -34,12 +37,30 @@ async def checkout_sale(
     return CheckoutResponse(**result)
 
 
+@router.post("/postpone", response_model=PostponeResponse)
+async def postpone_sale(
+    body: PostponeRequest,
+    current: CurrentUser = Depends(require_permission("sales.write")),
+    session: AsyncSession = Depends(get_db),
+) -> PostponeResponse:
+    result = await regos_sales_service.postpone_sale(
+        session,
+        current.company_id,
+        current.id,
+        body.model_dump(),
+        allow_regos_overrides="pos.override_regos" in current.permissions,
+    )
+    return PostponeResponse(**result)
+
+
 @router.get("/wholesale-documents", response_model=WholesaleDocumentsResponse)
 async def get_wholesale_documents(
     start_date: int | None = Query(default=None),
     end_date: int | None = Query(default=None),
     partner_ids: list[int] | None = Query(default=None),
     stock_ids: list[int] | None = Query(default=None),
+    all_stocks: bool = Query(default=True),
+    performed: bool | None = Query(default=None),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
     current: CurrentUser = Depends(require_permission("sales.read")),
@@ -53,10 +74,26 @@ async def get_wholesale_documents(
         end_date=end_date,
         partner_ids=partner_ids,
         stock_ids=stock_ids,
+        all_stocks=all_stocks,
+        performed=performed,
         offset=offset,
         limit=limit,
     )
     return WholesaleDocumentsResponse(**data)
+
+
+@router.get("/wholesale-operations", response_model=WholesaleOperationsResponse)
+async def get_wholesale_operations_batch(
+    document_ids: list[int] = Query(..., min_length=1),
+    current: CurrentUser = Depends(require_permission("sales.read")),
+    session: AsyncSession = Depends(get_db),
+) -> WholesaleOperationsResponse:
+    data = await regos_sales_service.list_wholesale_operations_batch(
+        session,
+        current.company_id,
+        document_ids,
+    )
+    return WholesaleOperationsResponse(**data)
 
 
 @router.get(
@@ -76,12 +113,30 @@ async def get_wholesale_operations(
     return WholesaleOperationsResponse(**data)
 
 
+@router.get(
+    "/wholesale-documents/{document_id}/payments",
+    response_model=WholesalePaymentsResponse,
+)
+async def get_wholesale_document_payments(
+    document_id: int,
+    current: CurrentUser = Depends(require_permission("sales.read")),
+    session: AsyncSession = Depends(get_db),
+) -> WholesalePaymentsResponse:
+    data = await regos_sales_service.list_wholesale_document_payments(
+        session,
+        current.company_id,
+        document_id,
+    )
+    return WholesalePaymentsResponse(**data)
+
+
 @router.get("/wholesale-return-documents", response_model=WholesaleReturnDocumentsResponse)
 async def get_wholesale_return_documents(
     start_date: int | None = Query(default=None),
     end_date: int | None = Query(default=None),
     partner_ids: list[int] | None = Query(default=None),
     stock_ids: list[int] | None = Query(default=None),
+    all_stocks: bool = Query(default=True),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
     current: CurrentUser = Depends(require_permission("sales.read")),
@@ -95,6 +150,7 @@ async def get_wholesale_return_documents(
         end_date=end_date,
         partner_ids=partner_ids,
         stock_ids=stock_ids,
+        all_stocks=all_stocks,
         offset=offset,
         limit=limit,
     )
@@ -116,6 +172,23 @@ async def get_wholesale_return_operations(
         document_id,
     )
     return WholesaleOperationsResponse(**data)
+
+
+@router.get(
+    "/wholesale-return-documents/{document_id}/payments",
+    response_model=WholesalePaymentsResponse,
+)
+async def get_wholesale_return_document_payments(
+    document_id: int,
+    current: CurrentUser = Depends(require_permission("sales.read")),
+    session: AsyncSession = Depends(get_db),
+) -> WholesalePaymentsResponse:
+    data = await regos_sales_service.list_wholesale_return_document_payments(
+        session,
+        current.company_id,
+        document_id,
+    )
+    return WholesalePaymentsResponse(**data)
 
 
 @router.get(

@@ -43,6 +43,7 @@ const EMPTY_OPTIONS: RegosReferenceOptionsResponse = {
   price_types: [],
   partners: [],
   payment_categories: [],
+  refund_payment_categories: [],
   attached_users: [],
 };
 
@@ -53,6 +54,7 @@ function applyRegosDefaults(defaults: {
   currency: RegosDefaultOption | null;
   firm: RegosDefaultOption | null;
   payment_category: RegosDefaultOption | null;
+  refund_payment_category: RegosDefaultOption | null;
   attached_user: RegosDefaultOption | null;
   vat_calculation_type: VatCalculationType;
   zero_quantity: boolean;
@@ -63,6 +65,9 @@ function applyRegosDefaults(defaults: {
     priceTypeId: defaults.price_type ? String(defaults.price_type.id) : "",
     partnerId: defaults.partner ? String(defaults.partner.id) : "",
     paymentCategoryId: defaults.payment_category ? String(defaults.payment_category.id) : "",
+    refundPaymentCategoryId: defaults.refund_payment_category
+      ? String(defaults.refund_payment_category.id)
+      : "",
     attachedUserId: defaults.attached_user ? String(defaults.attached_user.id) : "",
     vatCalculationType: defaults.vat_calculation_type,
     derivedCurrency: defaults.currency,
@@ -91,6 +96,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [priceTypeId, setPriceTypeId] = useState("");
   const [partnerId, setPartnerId] = useState("");
   const [paymentCategoryId, setPaymentCategoryId] = useState("");
+  const [refundPaymentCategoryId, setRefundPaymentCategoryId] = useState("");
   const [attachedUserId, setAttachedUserId] = useState("");
   const [vatCalculationType, setVatCalculationType] = useState<VatCalculationType>("Exclude");
   const [derivedCurrency, setDerivedCurrency] = useState<RegosDefaultOption | null>(null);
@@ -134,6 +140,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         setPriceTypeId(regos.priceTypeId);
         setPartnerId(regos.partnerId);
         setPaymentCategoryId(regos.paymentCategoryId);
+        setRefundPaymentCategoryId(regos.refundPaymentCategoryId);
         setAttachedUserId(regos.attachedUserId);
         setVatCalculationType(regos.vatCalculationType);
         setDerivedCurrency(regos.derivedCurrency);
@@ -179,6 +186,9 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           price_type_id: priceTypeId ? Number(priceTypeId) : null,
           partner_id: partnerId ? Number(partnerId) : null,
           payment_category_id: paymentCategoryId ? Number(paymentCategoryId) : null,
+          refund_payment_category_id: refundPaymentCategoryId
+            ? Number(refundPaymentCategoryId)
+            : null,
           attached_user_id: attachedUserId ? Number(attachedUserId) : null,
           vat_calculation_type: vatCalculationType,
           zero_quantity: zeroQuantity,
@@ -198,6 +208,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
       setPriceTypeId(regos.priceTypeId);
       setPartnerId(regos.partnerId);
       setPaymentCategoryId(regos.paymentCategoryId);
+      setRefundPaymentCategoryId(regos.refundPaymentCategoryId);
       setAttachedUserId(regos.attachedUserId);
       setVatCalculationType(regos.vatCalculationType);
       setDerivedCurrency(regos.derivedCurrency);
@@ -246,6 +257,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
       setPriceTypeId(regos.priceTypeId);
       setPartnerId(regos.partnerId);
       setPaymentCategoryId(regos.paymentCategoryId);
+      setRefundPaymentCategoryId(regos.refundPaymentCategoryId);
       setAttachedUserId(regos.attachedUserId);
       setVatCalculationType(regos.vatCalculationType);
       setDerivedCurrency(regos.derivedCurrency);
@@ -437,7 +449,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         </div>
 
         <label className={styles.field}>
-          <span className={styles.label}>Payment category</span>
+          <span className={styles.label}>Default payment category (income)</span>
           <select
             className={styles.select}
             value={paymentCategoryId}
@@ -446,6 +458,23 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           >
             <option value="">Use company default</option>
             {options.payment_categories.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className={styles.field}>
+          <span className={styles.label}>Default payment category (refund)</span>
+          <select
+            className={styles.select}
+            value={refundPaymentCategoryId}
+            disabled={busy}
+            onChange={(e) => setRefundPaymentCategoryId(e.target.value)}
+          >
+            <option value="">Use company default</option>
+            {options.refund_payment_categories.map((item) => (
               <option key={item.id} value={item.id}>
                 {item.name}
               </option>

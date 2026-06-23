@@ -60,6 +60,34 @@ def _client_next_offset(
     return 0
 
 
+async def list_all_products(
+    session: AsyncSession,
+    company_id: int,
+    *,
+    user_id: int,
+    page_size: int = 200,
+) -> list[dict[str, Any]]:
+    """Fetch every catalog product (including zero stock/price) for reporting."""
+    all_products: list[dict[str, Any]] = []
+    offset = 0
+    while True:
+        page = await list_products(
+            session,
+            company_id,
+            offset=offset,
+            limit=page_size,
+            user_id=user_id,
+            include_zero_quantity=True,
+            include_zero_price=True,
+        )
+        all_products.extend(page["products"])
+        next_offset = int(page.get("next_offset") or 0)
+        if next_offset <= offset:
+            break
+        offset = next_offset
+    return all_products
+
+
 async def list_products(
     session: AsyncSession,
     company_id: int,
@@ -72,6 +100,8 @@ async def list_products(
     user_id: int | None = None,
     warehouse_id: int | None = None,
     price_type_id: int | None = None,
+    include_zero_quantity: bool | None = None,
+    include_zero_price: bool | None = None,
 ) -> dict[str, Any]:
     search_term = search.strip() if search and search.strip() else None
     global_search = search_term is not None
@@ -102,8 +132,16 @@ async def list_products(
         )
     warehouse = defaults.get("warehouse")
     price_type = defaults.get("price_type")
-    include_zero_quantity = bool(defaults.get("zero_quantity", False))
-    include_zero_price = bool(defaults.get("zero_price", False))
+    include_zero_quantity = (
+        include_zero_quantity
+        if include_zero_quantity is not None
+        else bool(defaults.get("zero_quantity", False))
+    )
+    include_zero_price = (
+        include_zero_price
+        if include_zero_price is not None
+        else bool(defaults.get("zero_price", False))
+    )
 
     if not warehouse:
         raise bad_request(
@@ -244,6 +282,72 @@ async def list_products(
         ),
         "total": total,
     }
+
+
+async def get_products_by_ids(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    product_ids: list[int],
+    *,
+    warehouse_id: int | None = None,
+    price_type_id: int | None = None,
+) -> list[dict[str, Any]]:
+    unique_ids = [product_id for product_id in dict.fromkeys(product_ids) if product_id > 0]
+    if not unique_ids:
+        return []
+
+    defaults = await regos_defaults_service.apply_regos_session_overrides(
+        session,
+        company_id,
+        user_id,
+        warehouse_id=warehouse_id,
+        price_type_id=price_type_id,
+    )
+    warehouse = defaults.get("warehouse")
+    price_type = defaults.get("price_type")
+    if not warehouse:
+        raise bad_request(
+            "Default warehouse is not configured. Save it in Settings first.",
+            "REGOS_DEFAULT_WAREHOUSE_NOT_CONFIGURED",
+        )
+    if not price_type:
+        raise bad_request(
+            "Default price type is not configured. Save it in Settings first.",
+            "REGOS_DEFAULT_PRICE_TYPE_NOT_CONFIGURED",
+        )
+
+    response = await regos_async_api_request_for_company(
+        session,
+        company_id,
+        "item/getext",
+        {
+            "stock_id": warehouse["id"],
+            "price_type_id": price_type["id"],
+            "ids": unique_ids,
+            "sort_orders": [{"column": "Name", "direction": "ASC"}],
+            "zero_quantity": True,
+            "zero_price": True,
+            "image_size": "Medium",
+            "type": "Item",
+            "deleted_mark": False,
+            "limit": len(unique_ids),
+            "offset": 0,
+        },
+    )
+    result = response.get("result") or []
+
+    by_id: dict[int, dict[str, Any]] = {}
+    for row in result:
+        if not isinstance(row, dict):
+            continue
+        try:
+            product = _map_product(row)
+        except AppError:
+            continue
+        by_id[int(product["regos_item_id"])] = product
+
+    return [by_id[product_id] for product_id in unique_ids if product_id in by_id]
 
 
 async def list_featured_products(

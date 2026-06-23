@@ -23,6 +23,7 @@ export type CheckoutRequest = {
   tendered?: number;
   change?: number;
   description?: string;
+  wholesale_doc_id?: number;
   warehouse_id?: number;
   price_type_id?: number;
   partner_id?: number;
@@ -48,6 +49,26 @@ export type CheckoutPaymentResponse = {
   payment_currency?: RegosCurrencyOption | null;
   payment_amount?: number | null;
 };
+export type PostponeRequest = {
+  items: CheckoutItemRequest[];
+  discount: number;
+  total: number;
+  description?: string;
+  wholesale_doc_id?: number;
+  warehouse_id?: number;
+  price_type_id?: number;
+  partner_id?: number;
+};
+
+export type PostponeResponse = {
+  wholesale_doc_id: number;
+  wholesale_code: string;
+  lines: CheckoutLineResponse[];
+  subtotal: number;
+  discount: number;
+  total: number;
+};
+
 export type CheckoutResponse = {
   wholesale_doc_id: number;
   wholesale_code: string;
@@ -72,6 +93,8 @@ export type WholesaleDocument = {
   partner_name: string | null;
   stock_id: number | null;
   stock_name: string | null;
+  attached_user_id: number | null;
+  attached_user_name: string | null;
   amount: number | null;
   performed: boolean;
 };
@@ -86,6 +109,7 @@ export type WholesaleOperationLine = {
   id: number;
   document_id: number;
   item_id: number;
+  item_code: string | null;
   item_name: string | null;
   quantity: number;
   price: number;
@@ -95,6 +119,21 @@ export type WholesaleOperationLine = {
 
 export type WholesaleOperationsResponse = {
   operations: WholesaleOperationLine[];
+};
+
+export type WholesalePaymentLine = {
+  id: number;
+  code: string;
+  date: number;
+  amount: number | null;
+  category_id: number | null;
+  category_name: string | null;
+  payment_type_name: string | null;
+  partner_name: string | null;
+};
+
+export type WholesalePaymentsResponse = {
+  payments: WholesalePaymentLine[];
 };
 
 export type WholesaleReturnDocument = WholesaleDocument & {
@@ -174,11 +213,25 @@ export async function checkoutSale(
   });
 }
 
+export async function postponeSale(
+  token: string,
+  body: PostponeRequest,
+): Promise<PostponeResponse> {
+  return apiRequest("/api/v1/sales/postpone", {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
 export async function fetchWholesaleDocuments(
   token: string,
   params: {
     start_date?: number;
     end_date?: number;
+    all_stocks?: boolean;
+    stock_ids?: number[];
+    performed?: boolean;
     offset?: number;
     limit?: number;
   } = {},
@@ -186,6 +239,13 @@ export async function fetchWholesaleDocuments(
   const search = new URLSearchParams();
   if (params.start_date !== undefined) search.set("start_date", String(params.start_date));
   if (params.end_date !== undefined) search.set("end_date", String(params.end_date));
+  if (params.all_stocks !== undefined) search.set("all_stocks", params.all_stocks ? "true" : "false");
+  if (params.performed !== undefined) search.set("performed", params.performed ? "true" : "false");
+  if (params.stock_ids?.length) {
+    for (const stockId of params.stock_ids) {
+      search.append("stock_ids", String(stockId));
+    }
+  }
   if (params.offset !== undefined) search.set("offset", String(params.offset));
   if (params.limit !== undefined) search.set("limit", String(params.limit));
   const qs = search.toString();
@@ -201,11 +261,36 @@ export async function fetchWholesaleOperations(
   });
 }
 
+export async function fetchWholesaleDocumentPayments(
+  token: string,
+  documentId: number,
+): Promise<WholesalePaymentsResponse> {
+  return apiRequest(`/api/v1/sales/wholesale-documents/${documentId}/payments`, {
+    token,
+  });
+}
+
+export async function fetchWholesaleOperationsBatch(
+  token: string,
+  documentIds: number[],
+): Promise<WholesaleOperationsResponse> {
+  if (documentIds.length === 0) {
+    return { operations: [] };
+  }
+  const search = new URLSearchParams();
+  for (const id of documentIds) {
+    search.append("document_ids", String(id));
+  }
+  return apiRequest(`/api/v1/sales/wholesale-operations?${search.toString()}`, { token });
+}
+
 export async function fetchWholesaleReturnDocuments(
   token: string,
   params: {
     start_date?: number;
     end_date?: number;
+    all_stocks?: boolean;
+    stock_ids?: number[];
     offset?: number;
     limit?: number;
   } = {},
@@ -213,10 +298,34 @@ export async function fetchWholesaleReturnDocuments(
   const search = new URLSearchParams();
   if (params.start_date !== undefined) search.set("start_date", String(params.start_date));
   if (params.end_date !== undefined) search.set("end_date", String(params.end_date));
+  if (params.all_stocks !== undefined) search.set("all_stocks", params.all_stocks ? "true" : "false");
+  if (params.stock_ids?.length) {
+    for (const stockId of params.stock_ids) {
+      search.append("stock_ids", String(stockId));
+    }
+  }
   if (params.offset !== undefined) search.set("offset", String(params.offset));
   if (params.limit !== undefined) search.set("limit", String(params.limit));
   const qs = search.toString();
   return apiRequest(`/api/v1/sales/wholesale-return-documents${qs ? `?${qs}` : ""}`, { token });
+}
+
+export async function fetchWholesaleReturnOperations(
+  token: string,
+  documentId: number,
+): Promise<WholesaleOperationsResponse> {
+  return apiRequest(`/api/v1/sales/wholesale-return-documents/${documentId}/operations`, {
+    token,
+  });
+}
+
+export async function fetchWholesaleReturnDocumentPayments(
+  token: string,
+  documentId: number,
+): Promise<WholesalePaymentsResponse> {
+  return apiRequest(`/api/v1/sales/wholesale-return-documents/${documentId}/payments`, {
+    token,
+  });
 }
 
 export async function fetchWholesaleReturnSummary(

@@ -11,6 +11,8 @@ from app.schemas.catalog import (
     PaymentTypesResponse,
 )
 from app.schemas.regos import (
+    RegosCustomField,
+    RegosDocPaymentSaleIdFieldResponse,
     RegosTokenConfig,
     RegosTokenMessage,
     RegosTokenStatus,
@@ -27,6 +29,7 @@ from app.schemas.partners import (
 )
 from app.schemas.settings import RegosReferenceOptionsResponse
 from app.services import regos_defaults as regos_defaults_service
+from app.services import regos_fields as regos_fields_service
 from app.services import regos_groups as regos_groups_service
 from app.services import regos_partners as regos_partners_service
 from app.services import regos_payment_types as regos_payment_types_service
@@ -92,6 +95,44 @@ async def get_regos_reference_options(
 ) -> RegosReferenceOptionsResponse:
     data = await regos_defaults_service.list_reference_options(session, current.company_id)
     return RegosReferenceOptionsResponse(**data)
+
+
+@router.get(
+    "/fields/doc-payment-sale-id",
+    response_model=RegosDocPaymentSaleIdFieldResponse,
+)
+async def get_doc_payment_sale_id_field(
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> RegosDocPaymentSaleIdFieldResponse:
+    data = await regos_fields_service.get_doc_payment_sale_id_field_status(
+        session, current.company_id
+    )
+    field = data.get("field")
+    return RegosDocPaymentSaleIdFieldResponse(
+        configured=bool(data.get("configured")),
+        field=RegosCustomField(**field) if isinstance(field, dict) else None,
+        created=bool(data.get("created")),
+    )
+
+
+@router.post(
+    "/fields/doc-payment-sale-id",
+    response_model=RegosDocPaymentSaleIdFieldResponse,
+)
+async def create_doc_payment_sale_id_field(
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> RegosDocPaymentSaleIdFieldResponse:
+    data = await regos_fields_service.ensure_doc_payment_sale_id_field(
+        session, current.company_id
+    )
+    field = data.get("field")
+    return RegosDocPaymentSaleIdFieldResponse(
+        configured=bool(data.get("configured")),
+        field=RegosCustomField(**field) if isinstance(field, dict) else None,
+        created=bool(data.get("created")),
+    )
 
 
 @router.get("/products", response_model=CatalogProductsResponse)

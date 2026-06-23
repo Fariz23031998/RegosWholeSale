@@ -4,6 +4,7 @@ import type {
   PosSettingsResponse,
   RegosDefaultsPatchRequest,
   RegosDefaultsResponse,
+  RegosDocPaymentSaleIdFieldResponse,
   RegosReferenceOptionsResponse,
   RegosTokenConfig,
   RegosTokenMessage,
@@ -68,6 +69,21 @@ export async function fetchRegosReferenceOptions(
   token: string,
 ): Promise<RegosReferenceOptionsResponse> {
   return apiRequest("/api/v1/regos/reference-options", { token });
+}
+
+export async function fetchDocPaymentSaleIdField(
+  token: string,
+): Promise<RegosDocPaymentSaleIdFieldResponse> {
+  return apiRequest("/api/v1/regos/fields/doc-payment-sale-id", { token });
+}
+
+export async function createDocPaymentSaleIdField(
+  token: string,
+): Promise<RegosDocPaymentSaleIdFieldResponse> {
+  return apiRequest("/api/v1/regos/fields/doc-payment-sale-id", {
+    method: "POST",
+    token,
+  });
 }
 
 export async function fetchMyRegosDefaults(token: string): Promise<RegosDefaultsResponse> {

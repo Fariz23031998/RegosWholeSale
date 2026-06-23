@@ -4,7 +4,7 @@ import { UsersPage } from "@/components/Users/UsersPage";
 export const Route = createFileRoute("/_app/users")({
   head: () => ({
     meta: [
-      { title: "Users · Pulse POS" },
+      { title: "Users · Regos Optom" },
       { name: "description", content: "Manage company users and permissions." },
     ],
   }),

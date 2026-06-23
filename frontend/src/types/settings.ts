@@ -19,6 +19,7 @@ export type RegosDefaults = {
   currency: RegosCurrencyOption | null;
   firm: RegosDefaultOption | null;
   payment_category: RegosDefaultOption | null;
+  refund_payment_category: RegosDefaultOption | null;
   attached_user: RegosDefaultOption | null;
   vat_calculation_type: VatCalculationType;
   zero_quantity: boolean;
@@ -34,6 +35,7 @@ export type RegosDefaultsPatchRequest = {
   price_type_id?: number | null;
   partner_id?: number | null;
   payment_category_id?: number | null;
+  refund_payment_category_id?: number | null;
   attached_user_id?: number | null;
   vat_calculation_type?: VatCalculationType | null;
   zero_quantity?: boolean;
@@ -45,6 +47,7 @@ export type RegosReferenceOptionsResponse = {
   price_types: RegosDefaultOption[];
   partners: RegosDefaultOption[];
   payment_categories: RegosDefaultOption[];
+  refund_payment_categories: RegosDefaultOption[];
   attached_users: RegosDefaultOption[];
 };
 
@@ -63,6 +66,20 @@ export type RegosTokenUpsertRequest = {
 export type RegosTokenMessage = {
   message: string;
   is_replicable?: boolean | null;
+};
+
+export type RegosCustomField = {
+  id: number;
+  key: string;
+  name: string;
+  entity_type: string;
+  data_type: string;
+};
+
+export type RegosDocPaymentSaleIdFieldResponse = {
+  configured: boolean;
+  field: RegosCustomField | null;
+  created?: boolean;
 };
 
 export type PosSettings = {

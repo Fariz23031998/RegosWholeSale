@@ -18,6 +18,7 @@ type CartState = {
   items: CartItem[];
   discountMode: DiscountMode;
   discountValue: number;
+  postponedWholesaleDocId: number | null;
   lastAddedId: string | null;
   lastAddedAt: number;
   add: (p: Product) => void;
@@ -26,7 +27,20 @@ type CartState = {
   setPrice: (productId: string, price: number) => void;
   setDiscountValue: (value: number) => void;
   toggleDiscountMode: () => void;
+  setPostponedWholesaleDocId: (docId: number | null) => void;
   clear: () => void;
+  restore: (snapshot: {
+    items: CartItem[];
+    discountMode: DiscountMode;
+    discountValue: number;
+    postponedWholesaleDocId?: number | null;
+  }) => void;
+  snapshot: () => {
+    items: CartItem[];
+    discountMode: DiscountMode;
+    discountValue: number;
+    postponedWholesaleDocId: number | null;
+  };
 };
 
 function cartSubtotal(items: CartItem[]): number {
@@ -42,6 +56,7 @@ export const useCart = create<CartState>((set, get) => ({
   items: [],
   discountMode: "percent",
   discountValue: 0,
+  postponedWholesaleDocId: null,
   lastAddedId: null,
   lastAddedAt: 0,
   add: (p) =>
@@ -128,8 +143,32 @@ export const useCart = create<CartState>((set, get) => ({
       discountValue: clampDiscountValue(nextMode, nextValue),
     });
   },
+  setPostponedWholesaleDocId: (docId) => set({ postponedWholesaleDocId: docId }),
   clear: () =>
-    set({ items: [], discountMode: "percent", discountValue: 0 }),
+    set({
+      items: [],
+      discountMode: "percent",
+      discountValue: 0,
+      postponedWholesaleDocId: null,
+    }),
+  restore: (snapshot) =>
+    set({
+      items: snapshot.items.map((item) => ({ ...item })),
+      discountMode: snapshot.discountMode,
+      discountValue: snapshot.discountValue,
+      postponedWholesaleDocId: snapshot.postponedWholesaleDocId ?? null,
+      lastAddedId: null,
+      lastAddedAt: 0,
+    }),
+  snapshot: () => {
+    const { items, discountMode, discountValue, postponedWholesaleDocId } = get();
+    return {
+      items: items.map((item) => ({ ...item })),
+      discountMode,
+      discountValue,
+      postponedWholesaleDocId,
+    };
+  },
 }));
 
 export const cartTotals = (

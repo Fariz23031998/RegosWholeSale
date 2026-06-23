@@ -1,11 +1,14 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
+import { z } from "zod";
 import { LoginScreen } from "@/components/Auth/LoginScreen";
 import { isAuthenticated } from "@/store/auth";
 
+const loginSearchSchema = z.object({
+  reset: z.string().optional(),
+});
+
 export const Route = createFileRoute("/login")({
-  validateSearch: (search: Record<string, unknown>) => ({
-    reset: typeof search.reset === "string" ? search.reset : undefined,
-  }),
+  validateSearch: loginSearchSchema,
   beforeLoad: () => {
     if (typeof window !== "undefined" && isAuthenticated()) {
       throw redirect({ to: "/" });
@@ -13,8 +16,8 @@ export const Route = createFileRoute("/login")({
   },
   head: () => ({
     meta: [
-      { title: "Sign in · Regos Wholesale" },
-      { name: "description", content: "Sign in to Regos Wholesale." },
+      { title: "Sign in · Regos Optom" },
+      { name: "description", content: "Sign in to Regos Optom." },
     ],
   }),
   component: LoginScreen,

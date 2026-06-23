@@ -72,10 +72,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Pulse POS — Modern Point of Sale" },
+      { title: "Regos Optom — Modern Point of Sale" },
       { name: "description", content: "Fast, beautiful point-of-sale for retail. Sell, take payments, track sales." },
-      { name: "author", content: "Pulse POS" },
-      { property: "og:title", content: "Pulse POS — Modern Point of Sale" },
+      { name: "author", content: "Regos Optom" },
+      { property: "og:title", content: "Regos Optom — Modern Point of Sale" },
       { property: "og:description", content: "Fast, beautiful point-of-sale for retail." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary" },

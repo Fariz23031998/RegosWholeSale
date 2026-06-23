@@ -18,6 +18,17 @@ class CheckoutPaymentLineRequest(BaseModel):
     change: float | None = Field(default=None, ge=0)
 
 
+class PostponeRequest(BaseModel):
+    items: list[CheckoutItemRequest] = Field(min_length=1)
+    discount: float = Field(default=0, ge=0)
+    total: float = Field(ge=0)
+    description: str | None = None
+    wholesale_doc_id: int | None = Field(default=None, ge=1)
+    warehouse_id: int | None = Field(default=None, ge=1)
+    price_type_id: int | None = Field(default=None, ge=1)
+    partner_id: int | None = Field(default=None, ge=1)
+
+
 class CheckoutRequest(BaseModel):
     items: list[CheckoutItemRequest] = Field(min_length=1)
     discount: float = Field(default=0, ge=0)
@@ -28,6 +39,7 @@ class CheckoutRequest(BaseModel):
     tendered: float | None = Field(default=None, ge=0)
     change: float | None = Field(default=None, ge=0)
     description: str | None = None
+    wholesale_doc_id: int | None = Field(default=None, ge=1)
     warehouse_id: int | None = Field(default=None, ge=1)
     price_type_id: int | None = Field(default=None, ge=1)
     partner_id: int | None = Field(default=None, ge=1)
@@ -48,6 +60,15 @@ class CheckoutLineResponse(BaseModel):
     qty: float
     price: float
     price2: float
+
+
+class PostponeResponse(BaseModel):
+    wholesale_doc_id: int
+    wholesale_code: str
+    lines: list[CheckoutLineResponse]
+    subtotal: float
+    discount: float
+    total: float
 
 
 class CheckoutPaymentResponse(BaseModel):
@@ -88,8 +109,25 @@ class WholesaleDocument(BaseModel):
     partner_name: str | None = None
     stock_id: int | None = None
     stock_name: str | None = None
+    attached_user_id: int | None = None
+    attached_user_name: str | None = None
     amount: float | None = None
     performed: bool = False
+
+
+class WholesalePaymentLine(BaseModel):
+    id: int
+    code: str
+    date: int
+    amount: float | None = None
+    category_id: int | None = None
+    category_name: str | None = None
+    payment_type_name: str | None = None
+    partner_name: str | None = None
+
+
+class WholesalePaymentsResponse(BaseModel):
+    payments: list[WholesalePaymentLine]
 
 
 class WholesaleDocumentsResponse(BaseModel):
@@ -102,11 +140,13 @@ class WholesaleOperationLine(BaseModel):
     id: int
     document_id: int
     item_id: int
+    item_code: str | None = None
     item_name: str | None = None
     quantity: float
     price: float
     price2: float | None = None
     amount: float | None = None
+    last_purchase_cost: float | None = None
 
 
 class WholesaleOperationsResponse(BaseModel):

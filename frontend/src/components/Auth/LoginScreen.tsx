@@ -6,7 +6,7 @@ import styles from "./Auth.module.css";
 
 export function LoginScreen() {
   const navigate = useNavigate();
-  const search = useSearch({ from: "/login" }) as { reset?: string };
+  const search = useSearch({ from: "/login" });
   const login = useAuth((s) => s.login);
 
   const [identifier, setIdentifier] = useState("");
@@ -30,7 +30,7 @@ export function LoginScreen() {
 
   return (
     <AuthLayout
-      title="Regos Wholesale"
+      title="Regos Optom"
       subtitle="Sign in to your account"
       footer={
         <p className={styles.footer}>

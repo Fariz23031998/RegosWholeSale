@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import {
+  createDocPaymentSaleIdField,
   deleteRegosToken,
+  fetchDocPaymentSaleIdField,
   fetchPosSettings,
   fetchRegosDefaults,
   fetchRegosReferenceOptions,
@@ -21,11 +23,13 @@ import {
   parseTenderedQuickAmounts,
 } from "@/lib/tendered-amounts";
 import type {
+  RegosCustomField,
   RegosDefaultOption,
   RegosReferenceOptionsResponse,
   VatCalculationType,
 } from "@/types/settings";
 import { VAT_CALCULATION_TYPE_OPTIONS } from "@/types/settings";
+import { ReceiptTemplatesSection } from "@/components/Settings/ReceiptTemplatesSection";
 import styles from "./settings.module.css";
 
 export const Route = createFileRoute("/_app/settings")({
@@ -37,6 +41,7 @@ const EMPTY_OPTIONS: RegosReferenceOptionsResponse = {
   price_types: [],
   partners: [],
   payment_categories: [],
+  refund_payment_categories: [],
   attached_users: [],
 };
 
@@ -55,6 +60,7 @@ function SettingsPage() {
   const [priceTypeId, setPriceTypeId] = useState("");
   const [partnerId, setPartnerId] = useState("");
   const [paymentCategoryId, setPaymentCategoryId] = useState("");
+  const [refundPaymentCategoryId, setRefundPaymentCategoryId] = useState("");
   const [attachedUserId, setAttachedUserId] = useState("");
   const [vatCalculationType, setVatCalculationType] = useState<VatCalculationType>("Exclude");
   const [derivedCurrency, setDerivedCurrency] = useState<RegosDefaultOption | null>(null);
@@ -74,6 +80,11 @@ function SettingsPage() {
   const [tokenInfo, setTokenInfo] = useState("");
   const [regosError, setRegosError] = useState("");
   const [regosInfo, setRegosInfo] = useState("");
+  const [saleIdFieldConfigured, setSaleIdFieldConfigured] = useState(false);
+  const [saleIdField, setSaleIdField] = useState<RegosCustomField | null>(null);
+  const [creatingSaleIdField, setCreatingSaleIdField] = useState(false);
+  const [saleIdFieldError, setSaleIdFieldError] = useState("");
+  const [saleIdFieldInfo, setSaleIdFieldInfo] = useState("");
   const [loadingToken, setLoadingToken] = useState(false);
   const [telegramBotToken, setTelegramBotToken] = useState("");
   const [telegramBotConfigured, setTelegramBotConfigured] = useState(false);
@@ -91,6 +102,7 @@ function SettingsPage() {
     currency: RegosDefaultOption | null;
     firm: RegosDefaultOption | null;
     payment_category: RegosDefaultOption | null;
+    refund_payment_category: RegosDefaultOption | null;
     attached_user: RegosDefaultOption | null;
     vat_calculation_type: VatCalculationType;
     zero_quantity: boolean;
@@ -103,6 +115,9 @@ function SettingsPage() {
     setDerivedFirm(defaults.firm);
     setPaymentCategoryId(
       defaults.payment_category ? String(defaults.payment_category.id) : "",
+    );
+    setRefundPaymentCategoryId(
+      defaults.refund_payment_category ? String(defaults.refund_payment_category.id) : "",
     );
     setAttachedUserId(defaults.attached_user ? String(defaults.attached_user.id) : "");
     setVatCalculationType(defaults.vat_calculation_type);
@@ -118,19 +133,27 @@ function SettingsPage() {
     setDerivedCurrency(null);
     setDerivedFirm(null);
     setPaymentCategoryId("");
+    setRefundPaymentCategoryId("");
     setAttachedUserId("");
     setVatCalculationType("Exclude");
     setZeroQuantity(false);
     setZeroPrice(false);
+    setSaleIdFieldConfigured(false);
+    setSaleIdField(null);
+    setSaleIdFieldError("");
+    setSaleIdFieldInfo("");
   };
 
   const loadRegosOptions = async (authToken: string) => {
-    const [defaults, nextOptions] = await Promise.all([
+    const [defaults, nextOptions, saleIdFieldStatus] = await Promise.all([
       fetchRegosDefaults(authToken),
       fetchRegosReferenceOptions(authToken),
+      fetchDocPaymentSaleIdField(authToken),
     ]);
     applyDefaults(defaults.defaults);
     setOptions(nextOptions);
+    setSaleIdFieldConfigured(saleIdFieldStatus.configured);
+    setSaleIdField(saleIdFieldStatus.field);
   };
 
   useEffect(() => {
@@ -354,6 +377,28 @@ function SettingsPage() {
     }
   };
 
+  const handleCreateSaleIdField = async () => {
+    if (!token || !tokenConfigured) return;
+
+    setCreatingSaleIdField(true);
+    setSaleIdFieldError("");
+    setSaleIdFieldInfo("");
+    try {
+      const res = await createDocPaymentSaleIdField(token);
+      setSaleIdFieldConfigured(res.configured);
+      setSaleIdField(res.field);
+      setSaleIdFieldInfo(
+        res.created
+          ? "Sale ID field created in Regos."
+          : "Sale ID field is already configured.",
+      );
+    } catch (err) {
+      setSaleIdFieldError(formatAuthError(err));
+    } finally {
+      setCreatingSaleIdField(false);
+    }
+  };
+
   const handleSaveRegosDefaults = async () => {
     if (!token || !tokenConfigured) return;
 
@@ -367,6 +412,9 @@ function SettingsPage() {
         price_type_id: priceTypeId ? Number(priceTypeId) : null,
         partner_id: partnerId ? Number(partnerId) : null,
         payment_category_id: paymentCategoryId ? Number(paymentCategoryId) : null,
+        refund_payment_category_id: refundPaymentCategoryId
+          ? Number(refundPaymentCategoryId)
+          : null,
         attached_user_id: attachedUserId ? Number(attachedUserId) : null,
         vat_calculation_type: vatCalculationType,
         zero_quantity: zeroQuantity,
@@ -518,6 +566,14 @@ function SettingsPage() {
 
             {posSettingsError ? <p className={styles.error}>{posSettingsError}</p> : null}
           </section>
+
+          {token ? (
+            <ReceiptTemplatesSection
+              token={token}
+              companyName={user?.company?.name ?? "Company"}
+            />
+          ) : null}
+
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
               <div>
@@ -594,6 +650,44 @@ function SettingsPage() {
                       : "Token saved. Set TELEGRAM_WEBHOOK_BASE_URL on the server to show the REGOS webhook URL."
                     : "No integration token saved yet."}
               </p>
+            </div>
+
+            <div className={styles.subsection}>
+              <div className={styles.rowTitle}>Payment sale ID field</div>
+              <p className={styles.rowDesc}>
+                Creates a custom Regos field on DocPayment documents (`sale_id`, stored as
+                `field_sale_id`). Checkout and return payments store the wholesale or wholesale
+                return document id in this field.
+              </p>
+              {saleIdFieldError ? <p className={styles.error}>{saleIdFieldError}</p> : null}
+              {saleIdFieldInfo ? <p className={styles.success}>{saleIdFieldInfo}</p> : null}
+              <div className={styles.buttonRow}>
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  disabled={
+                    !tokenConfigured ||
+                    loadingToken ||
+                    loadingRegos ||
+                    creatingSaleIdField ||
+                    saleIdFieldConfigured
+                  }
+                  onClick={() => void handleCreateSaleIdField()}
+                >
+                  {creatingSaleIdField
+                    ? "Creating..."
+                    : saleIdFieldConfigured
+                      ? "Sale ID field ready"
+                      : "Create sale_id field"}
+                </button>
+              </div>
+              {saleIdField ? (
+                <p className={styles.note}>
+                  Field `{saleIdField.key}` · {saleIdField.name} · {saleIdField.entity_type}
+                </p>
+              ) : tokenConfigured ? (
+                <p className={styles.note}>Sale ID field is not configured yet.</p>
+              ) : null}
             </div>
           </section>
 
@@ -756,7 +850,7 @@ function SettingsPage() {
               </div>
 
               <label className={styles.field}>
-                <span className={styles.label}>Payment category</span>
+                <span className={styles.label}>Default payment category (income)</span>
                 <select
                   className={styles.select}
                   value={paymentCategoryId}
@@ -767,6 +861,25 @@ function SettingsPage() {
                 >
                   <option value="">Not selected</option>
                   {options.payment_categories.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className={styles.field}>
+                <span className={styles.label}>Default payment category (refund)</span>
+                <select
+                  className={styles.select}
+                  value={refundPaymentCategoryId}
+                  disabled={
+                    !tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults
+                  }
+                  onChange={(e) => setRefundPaymentCategoryId(e.target.value)}
+                >
+                  <option value="">Not selected</option>
+                  {options.refund_payment_categories.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
                     </option>

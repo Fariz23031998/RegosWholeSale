@@ -22,7 +22,7 @@ export function ReceiptView({ sale }: { sale: Sale }) {
   return (
     <div className={styles.receipt}>
       <div className={styles.brand}>
-        <div className={styles.brandName}>PULSE POS</div>
+        <div className={styles.brandName}>Regos Optom</div>
         <div className={styles.brandSub}>123 Market Street · (555) 010-2030</div>
       </div>
       <div className={styles.meta}>

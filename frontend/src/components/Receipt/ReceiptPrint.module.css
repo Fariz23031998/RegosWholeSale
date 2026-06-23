@@ -1,0 +1,35 @@
+.printArea80mm {
+  width: 80mm;
+  max-width: 80mm;
+}
+
+.printAreaA4 {
+  width: 210mm;
+  max-width: 210mm;
+  padding: 15mm;
+}
+
+@media print {
+  .printArea80mm {
+    width: 80mm;
+    max-width: 80mm;
+    page: receipt80mm;
+  }
+
+  .printAreaA4 {
+    width: 210mm;
+    max-width: 210mm;
+    padding: 0;
+    page: receiptA4;
+  }
+}
+
+@page receipt80mm {
+  size: 80mm auto;
+  margin: 4mm;
+}
+
+@page receiptA4 {
+  size: A4;
+  margin: 15mm;
+}

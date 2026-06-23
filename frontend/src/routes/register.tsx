@@ -10,7 +10,7 @@ export const Route = createFileRoute("/register")({
   },
   head: () => ({
     meta: [
-      { title: "Register · Regos Wholesale" },
+      { title: "Register · Regos Optom" },
       { name: "description", content: "Create a company account." },
     ],
   }),

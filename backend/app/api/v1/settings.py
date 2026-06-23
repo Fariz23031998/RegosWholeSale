@@ -10,6 +10,10 @@ from app.schemas.pos import (
     UserPosSettingsPatchRequest,
     UserPosSettingsResponse,
 )
+from app.schemas.receipt_templates import (
+    ReceiptTemplatesPatchRequest,
+    ReceiptTemplatesResponse,
+)
 from app.schemas.settings import (
     RegosDefaultsPatchRequest,
     RegosDefaultsResponse,
@@ -18,6 +22,7 @@ from app.schemas.settings import (
 )
 from app.services import featured_products as featured_products_service
 from app.services import pos_settings as pos_settings_service
+from app.services import receipt_templates as receipt_templates_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services import settings as settings_service
 from app.services.permissions import get_user_with_permissions
@@ -174,6 +179,31 @@ async def patch_company_pos_settings(
         body.model_dump(exclude_unset=True),
     )
     return PosSettingsResponse(settings=settings)
+
+
+@router.get("/company/settings/receipt-templates", response_model=ReceiptTemplatesResponse)
+async def get_company_receipt_templates(
+    current: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> ReceiptTemplatesResponse:
+    settings = await receipt_templates_service.get_receipt_templates(
+        session, current.company_id
+    )
+    return ReceiptTemplatesResponse(settings=settings)
+
+
+@router.patch("/company/settings/receipt-templates", response_model=ReceiptTemplatesResponse)
+async def patch_company_receipt_templates(
+    body: ReceiptTemplatesPatchRequest,
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> ReceiptTemplatesResponse:
+    settings = await receipt_templates_service.patch_receipt_templates(
+        session,
+        current.company_id,
+        body.model_dump(exclude_unset=True),
+    )
+    return ReceiptTemplatesResponse(settings=settings)
 
 
 @router.get("/me/featured-products", response_model=FeaturedProductsResponse)

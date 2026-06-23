@@ -4,7 +4,7 @@ import { SalesPage } from "@/components/Sales/SalesPage";
 export const Route = createFileRoute("/_app/sales")({
   head: () => ({
     meta: [
-      { title: "Sales · Pulse POS" },
+      { title: "Sales · Regos Optom" },
       { name: "description", content: "View sales history and reprint receipts." },
     ],
   }),

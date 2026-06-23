@@ -10,7 +10,7 @@ export const Route = createFileRoute("/reset-password")({
   },
   head: () => ({
     meta: [
-      { title: "Reset password · Regos Wholesale" },
+      { title: "Reset password · Regos Optom" },
       { name: "description", content: "Reset your account password." },
     ],
   }),

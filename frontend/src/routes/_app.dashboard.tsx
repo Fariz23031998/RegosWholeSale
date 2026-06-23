@@ -4,7 +4,7 @@ import { DashboardPage } from "@/components/Dashboard/DashboardPage";
 export const Route = createFileRoute("/_app/dashboard")({
   head: () => ({
     meta: [
-      { title: "Dashboard · Pulse POS" },
+      { title: "Dashboard · Regos Optom" },
       { name: "description", content: "Sales analytics and KPIs." },
     ],
   }),

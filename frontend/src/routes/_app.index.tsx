@@ -5,12 +5,13 @@ import { CartPanel } from "@/components/Cart/CartPanel";
 import { useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
+import { useCheckoutTabs } from "@/store/checkout-tabs";
 import styles from "@/components/POS/POS.module.css";
 
 export const Route = createFileRoute("/_app/")({
   head: () => ({
     meta: [
-      { title: "Sell · Pulse POS" },
+      { title: "Sell · Regos Optom" },
       { name: "description", content: "Process sales and take payments." },
     ],
   }),
@@ -22,12 +23,22 @@ function PosPage() {
   const user = useAuth((s) => s.user);
   const hydrate = usePosConfig((s) => s.hydrate);
   const hydrateSellContext = useSellContext((s) => s.hydrate);
+  const hydrateCheckoutTabs = useCheckoutTabs((s) => s.hydrate);
+  const resetCheckoutTabs = useCheckoutTabs((s) => s.reset);
   const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
 
   useEffect(() => {
     void hydrate(token);
     void hydrateSellContext(token, canOverrideRegos);
   }, [canOverrideRegos, hydrate, hydrateSellContext, token]);
+
+  useEffect(() => {
+    if (!token || !user) {
+      resetCheckoutTabs();
+      return;
+    }
+    void hydrateCheckoutTabs(user.id, user.company_id);
+  }, [hydrateCheckoutTabs, resetCheckoutTabs, token, user]);
 
   return (
     <div className={styles.page}>

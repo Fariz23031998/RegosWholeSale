@@ -829,18 +829,21 @@ async def test_payment_category_reference_request_includes_positive(
         {"ok": True, "result": []},
         {"ok": True, "result": []},
         {"ok": True, "result": [{"id": 1, "name": "Sales income", "positive": True}]},
+        {"ok": True, "result": [{"id": 2, "name": "Sales refund", "positive": False}]},
         {"ok": True, "result": []},
     ]
 
     options = await regos_defaults_service.list_reference_options(None, 1)
 
     assert options["payment_categories"][0]["name"] == "Sales income"
-    payment_call = next(
+    assert options["refund_payment_categories"][0]["name"] == "Sales refund"
+    payment_calls = [
         call
         for call in mock_regos.call_args_list
         if call[0][2] == "accountoperationcategory/get"
-    )
-    assert payment_call[0][3]["positive"] is True
+    ]
+    assert payment_calls[0][0][3]["positive"] is True
+    assert payment_calls[1][0][3]["positive"] is False
 
 
 @patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
@@ -872,6 +875,7 @@ async def test_attached_user_reference_request_uses_valid_user_get_fields(
         {"ok": True, "result": []},
         {"ok": True, "result": []},
         {"ok": True, "result": []},
+        {"ok": True, "result": []},
         {"ok": True, "result": [{"id": 1, "full_name": "Cashier One"}]},
     ]
 
@@ -897,6 +901,7 @@ async def test_get_regos_reference_options_requires_settings_manage(
         "price_types": [{"id": 2, "name": "Retail"}],
         "partners": [{"id": 3, "name": "Walk-in"}],
         "payment_categories": [{"id": 4, "name": "Sales"}],
+        "refund_payment_categories": [{"id": 6, "name": "Refund"}],
         "attached_users": [{"id": 5, "name": "Cashier"}],
     }
 
@@ -1058,3 +1063,66 @@ async def test_employee_can_read_but_not_update_regos_defaults(
         json={"partner_id": None},
     )
     assert denied.status_code == 403
+
+
+@patch("app.services.regos_fields.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_get_doc_payment_sale_id_field_not_configured(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    mock_regos.return_value = {"ok": True, "result": []}
+
+    reg = await register_owner(client, email="field-get@test.com", company_name="Field Get Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    response = await client.get("/api/v1/regos/fields/doc-payment-sale-id", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is False
+    assert data["field"] is None
+
+    payload = mock_regos.call_args[0][3]
+    assert payload["entity_type"] == "DocPayment"
+    assert payload["keys"] == ["sale_id"]
+
+
+@patch("app.services.regos_fields.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_create_doc_payment_sale_id_field(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    mock_regos.side_effect = [
+        {"ok": True, "result": []},
+        {"ok": True, "result": {"new_id": 201}},
+        {
+            "ok": True,
+            "result": [
+                {
+                    "id": 201,
+                    "key": "field_sale_id",
+                    "name": "Sale ID",
+                    "entity_type": "DocPayment",
+                    "data_type": "string",
+                }
+            ],
+        },
+    ]
+
+    reg = await register_owner(client, email="field-create@test.com", company_name="Field Create Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    response = await client.post("/api/v1/regos/fields/doc-payment-sale-id", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is True
+    assert data["created"] is True
+    assert data["field"]["key"] == "field_sale_id"
+
+    add_payload = mock_regos.call_args_list[1][0][3]
+    assert add_payload == {
+        "key": "sale_id",
+        "name": "Sale ID",
+        "entity_type": "DocPayment",
+        "data_type": "string",
+        "required": False,
+    }

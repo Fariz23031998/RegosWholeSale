@@ -4,7 +4,7 @@ import { TelegramUsersPage } from "@/components/TelegramUsers/TelegramUsersPage"
 export const Route = createFileRoute("/_app/telegram-users")({
   head: () => ({
     meta: [
-      { title: "Telegram users · Pulse POS" },
+      { title: "Telegram users · Regos Optom" },
       { name: "description", content: "View Telegram bot subscribers." },
     ],
   }),

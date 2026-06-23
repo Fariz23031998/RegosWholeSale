@@ -17,6 +17,7 @@ REFERENCE_ENDPOINTS = {
     "price_type": "pricetype/get",
     "partner": "partner/get",
     "payment_category": "accountoperationcategory/get",
+    "refund_payment_category": "accountoperationcategory/get",
     "attached_user": "user/get",
 }
 
@@ -25,6 +26,7 @@ REFERENCE_ERRORS = {
     "price_type": "REGOS_PRICE_TYPE_NOT_FOUND",
     "partner": "REGOS_PARTNER_NOT_FOUND",
     "payment_category": "REGOS_PAYMENT_CATEGORY_NOT_FOUND",
+    "refund_payment_category": "REGOS_REFUND_PAYMENT_CATEGORY_NOT_FOUND",
     "attached_user": "REGOS_ATTACHED_USER_NOT_FOUND",
 }
 
@@ -33,6 +35,7 @@ REFERENCE_NAMES = {
     "price_type": "price type",
     "partner": "partner",
     "payment_category": "payment category",
+    "refund_payment_category": "refund payment category",
     "attached_user": "attached user",
     "currency": "currency",
     "firm": "firm",
@@ -65,6 +68,12 @@ REFERENCE_REQUESTS = {
         "offset": 0,
         "sort_orders": [{"column": "Name", "direction": "asc"}],
     },
+    "refund_payment_category": {
+        "positive": False,
+        "limit": 1000,
+        "offset": 0,
+        "sort_orders": [{"column": "Name", "direction": "asc"}],
+    },
     "attached_user": {
         "active": True,
         "limit": 1000,
@@ -89,6 +98,7 @@ MERGEABLE_OPTION_KEYS = (
     "currency",
     "firm",
     "payment_category",
+    "refund_payment_category",
     "attached_user",
 )
 MERGEABLE_BOOL_KEYS = ("zero_quantity", "zero_price")
@@ -253,12 +263,16 @@ async def list_reference_options(session: AsyncSession, company_id: int) -> dict
     price_types = await _fetch_reference_options(session, company_id, "price_type")
     partners = await _fetch_reference_options(session, company_id, "partner")
     payment_categories = await _fetch_reference_options(session, company_id, "payment_category")
+    refund_payment_categories = await _fetch_reference_options(
+        session, company_id, "refund_payment_category"
+    )
     attached_users = await _fetch_reference_options(session, company_id, "attached_user")
     return {
         "warehouses": warehouses,
         "price_types": price_types,
         "partners": partners,
         "payment_categories": payment_categories,
+        "refund_payment_categories": refund_payment_categories,
         "attached_users": attached_users,
     }
 
@@ -335,6 +349,10 @@ async def _resolve_patch(
         elif field == "payment_category_id":
             updates["payment_category"] = await _resolve_reference_value(
                 session, company_id, "payment_category", value
+            )
+        elif field == "refund_payment_category_id":
+            updates["refund_payment_category"] = await _resolve_reference_value(
+                session, company_id, "refund_payment_category", value
             )
         elif field == "attached_user_id":
             updates["attached_user"] = await _resolve_reference_value(
@@ -450,6 +468,7 @@ def _normalize_defaults(raw: Any) -> dict[str, Any]:
         "currency": _normalize_option(data.get("currency")),
         "firm": _normalize_option(data.get("firm")),
         "payment_category": _normalize_option(data.get("payment_category")),
+        "refund_payment_category": _normalize_option(data.get("refund_payment_category")),
         "attached_user": _normalize_option(data.get("attached_user")),
         "vat_calculation_type": _normalize_vat_calculation_type(
             data.get("vat_calculation_type", DEFAULT_VAT_CALCULATION_TYPE)

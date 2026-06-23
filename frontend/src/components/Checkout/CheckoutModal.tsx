@@ -5,12 +5,14 @@ import { formatAuthError, useAuth } from "@/store/auth";
 import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
+import { useCheckoutTabs } from "@/store/checkout-tabs";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
 import { checkoutSale } from "@/lib/sales-api";
 import type { CheckoutResponse } from "@/lib/sales-api";
 import type { PaymentType } from "@/types/payment";
 import type { RegosCurrencyOption } from "@/types/settings";
 import type { Sale, SalePaymentLine } from "@/data/seed";
+import { saleToPrintContext, type ReceiptPrintContext } from "@/lib/receipt-print-context";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
 import {
   PaymentPanel,
@@ -29,18 +31,24 @@ type Props = {
 export function CheckoutModal({ open, onClose, totals }: Props) {
   const items = useCart((s) => s.items);
   const clearCart = useCart((s) => s.clear);
+  const clearActiveTabAfterCheckout = useCheckoutTabs(
+    (s) => s.clearActiveTabAfterCheckout,
+  );
   const cashier = useAuth((s) => s.cashier);
   const accessToken = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
   const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
   const checkoutOverrides = useSellContext((s) => s.checkoutOverrides);
   const saleCurrency = useSellContext((s) => s.saleCurrency);
+  const partnerId = useSellContext((s) => s.partnerId);
+  const partners = useSellContext((s) => s.options.partners);
+  const postponedWholesaleDocId = useCart((s) => s.postponedWholesaleDocId);
   const requestCatalogRefresh = useCatalog((s) => s.requestRefresh);
   const tenderedQuickAmounts = usePosConfig((s) => s.tenderedQuickAmounts);
 
   const [processing, setProcessing] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [completedSale, setCompletedSale] = useState<Sale | null>(null);
+  const [completedContext, setCompletedContext] = useState<ReceiptPrintContext | null>(null);
 
   const reset = () => {
     setProcessing(false);
@@ -122,6 +130,9 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
         discount: totals.discount,
         total: totals.total,
         description: `POS ${cashier.name}`,
+        ...(postponedWholesaleDocId
+          ? { wholesale_doc_id: postponedWholesaleDocId }
+          : {}),
         ...(payload.payments
           ? { payments: payload.payments }
           : {
@@ -172,9 +183,16 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
           }
         : buildSaleFromResponse(paymentType, result, payload);
 
+      const partnerName = partners.find((partner) => partner.id === partnerId)?.name ?? null;
       clearCart();
+      clearActiveTabAfterCheckout();
       requestCatalogRefresh();
-      setCompletedSale(sale);
+      setCompletedContext(
+        saleToPrintContext(sale, {
+          partner_name: partnerName,
+          document_code: result.wholesale_code,
+        }),
+      );
       reset();
       onClose();
     } catch (err: unknown) {
@@ -219,7 +237,10 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
         </div>
       </Modal>
 
-      <ReceiptModal sale={completedSale} onClose={() => setCompletedSale(null)} />
+      <ReceiptModal
+        context={completedContext}
+        onClose={() => setCompletedContext(null)}
+      />
     </>
   );
 }
