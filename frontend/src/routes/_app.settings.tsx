@@ -5,10 +5,12 @@ import {
   createDocPaymentSaleIdField,
   deleteRegosToken,
   fetchDocPaymentSaleIdField,
+  fetchPaymentLinking,
   fetchPosSettings,
   fetchRegosDefaults,
   fetchRegosReferenceOptions,
   fetchRegosTokenConfig,
+  patchPaymentLinking,
   patchPosSettings,
   patchRegosDefaults,
   saveRegosToken,
@@ -24,13 +26,15 @@ import {
   parseTenderedQuickAmounts,
 } from "@/lib/tendered-amounts";
 import type {
+  PaymentLinkingMode,
   RegosCustomField,
   RegosDefaultOption,
   RegosReferenceOptionsResponse,
   VatCalculationType,
 } from "@/types/settings";
 import { getVatCalculationTypeOptions } from "@/types/settings";
-import { ReceiptTemplatesSection } from "@/components/Settings/ReceiptTemplatesSection";
+import { Link } from "@tanstack/react-router";
+import { ChevronRight } from "lucide-react";
 import styles from "./settings.module.css";
 
 export const Route = createFileRoute("/_app/settings")({
@@ -87,6 +91,11 @@ function SettingsPage() {
   const [creatingSaleIdField, setCreatingSaleIdField] = useState(false);
   const [saleIdFieldError, setSaleIdFieldError] = useState("");
   const [saleIdFieldInfo, setSaleIdFieldInfo] = useState("");
+  const [paymentLinkingMode, setPaymentLinkingMode] =
+    useState<PaymentLinkingMode>("document_description");
+  const [savingPaymentLinking, setSavingPaymentLinking] = useState(false);
+  const [paymentLinkingError, setPaymentLinkingError] = useState("");
+  const [paymentLinkingInfo, setPaymentLinkingInfo] = useState("");
   const [loadingToken, setLoadingToken] = useState(false);
   const [telegramBotToken, setTelegramBotToken] = useState("");
   const [telegramBotConfigured, setTelegramBotConfigured] = useState(false);
@@ -144,18 +153,23 @@ function SettingsPage() {
     setSaleIdField(null);
     setSaleIdFieldError("");
     setSaleIdFieldInfo("");
+    setPaymentLinkingMode("document_description");
+    setPaymentLinkingError("");
+    setPaymentLinkingInfo("");
   };
 
   const loadRegosOptions = async (authToken: string) => {
-    const [defaults, nextOptions, saleIdFieldStatus] = await Promise.all([
+    const [defaults, nextOptions, saleIdFieldStatus, paymentLinking] = await Promise.all([
       fetchRegosDefaults(authToken),
       fetchRegosReferenceOptions(authToken),
       fetchDocPaymentSaleIdField(authToken),
+      fetchPaymentLinking(authToken),
     ]);
     applyDefaults(defaults.defaults);
     setOptions(nextOptions);
     setSaleIdFieldConfigured(saleIdFieldStatus.configured);
     setSaleIdField(saleIdFieldStatus.field);
+    setPaymentLinkingMode(paymentLinking.mode);
   };
 
   useEffect(() => {
@@ -408,6 +422,27 @@ function SettingsPage() {
     }
   };
 
+  const handlePaymentLinkingModeChange = async (nextMode: PaymentLinkingMode) => {
+    if (!token || !tokenConfigured || nextMode === paymentLinkingMode) return;
+
+    setSavingPaymentLinking(true);
+    setPaymentLinkingError("");
+    setPaymentLinkingInfo("");
+    try {
+      const res = await patchPaymentLinking(token, { mode: nextMode });
+      setPaymentLinkingMode(res.mode);
+      setSaleIdFieldConfigured(res.sale_id_field_configured);
+      setSaleIdField(res.sale_id_field);
+      setPaymentLinkingInfo(
+        t("settings.paymentLinking.saved", "Payment linking mode saved."),
+      );
+    } catch (err) {
+      setPaymentLinkingError(formatAuthError(err));
+    } finally {
+      setSavingPaymentLinking(false);
+    }
+  };
+
   const handleSaveRegosDefaults = async () => {
     if (!token || !tokenConfigured) return;
 
@@ -602,12 +637,22 @@ function SettingsPage() {
             {posSettingsError ? <p className={styles.error}>{posSettingsError}</p> : null}
           </section>
 
-          {token ? (
-            <ReceiptTemplatesSection
-              token={token}
-              companyName={user?.company?.name ?? t("settings.companyFallback", "Company")}
-            />
-          ) : null}
+          <section className={styles.section}>
+            <Link to="/receipt-templates" className={styles.settingsNavLink}>
+              <div>
+                <div className={styles.rowTitle}>
+                  {t("settings.receiptTemplates.title", "Receipt templates")}
+                </div>
+                <div className={styles.rowDesc}>
+                  {t(
+                    "settings.receiptTemplates.settingsLinkDesc",
+                    "Manage 80mm receipts, A4 invoices, and custom HTML templates.",
+                  )}
+                </div>
+              </div>
+              <ChevronRight size={18} aria-hidden />
+            </Link>
+          </section>
 
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
@@ -708,6 +753,67 @@ function SettingsPage() {
                         )
                     : t("settings.regos.noToken", "No integration token saved yet.")}
               </p>
+            </div>
+
+            <div className={styles.subsection}>
+              <div className={styles.rowTitle}>
+                {t("settings.paymentLinking.title", "Payment linking")}
+              </div>
+              <p className={styles.rowDesc}>
+                {t(
+                  "settings.paymentLinking.longDesc",
+                  "Choose how checkout and return payments are linked to their wholesale or return documents when listing payments later.",
+                )}
+              </p>
+              {paymentLinkingError ? <p className={styles.error}>{paymentLinkingError}</p> : null}
+              {paymentLinkingInfo ? <p className={styles.success}>{paymentLinkingInfo}</p> : null}
+              <label className={styles.field}>
+                <span className={styles.label}>
+                  {t("settings.paymentLinking.mode", "Linking mode")}
+                </span>
+                <select
+                  className={styles.input}
+                  value={paymentLinkingMode}
+                  disabled={
+                    !tokenConfigured ||
+                    loadingToken ||
+                    loadingRegos ||
+                    savingPaymentLinking
+                  }
+                  onChange={(e) =>
+                    void handlePaymentLinkingModeChange(e.target.value as PaymentLinkingMode)
+                  }
+                >
+                  <option value="document_description">
+                    {t(
+                      "settings.paymentLinking.documentDescription",
+                      "Document description (pulse:pay:)",
+                    )}
+                  </option>
+                  <option value="sale_id_field" disabled={!saleIdFieldConfigured}>
+                    {t("settings.paymentLinking.saleIdField", "Custom sale_id field")}
+                  </option>
+                </select>
+              </label>
+              <p className={styles.note}>
+                {paymentLinkingMode === "document_description"
+                  ? t(
+                      "settings.paymentLinking.documentDescriptionHelp",
+                      "Payment document ids are stored in the wholesale or return document description as pulse:pay:3001,3002. No custom Regos fields are required.",
+                    )
+                  : t(
+                      "settings.paymentLinking.saleIdFieldHelp",
+                      "Each payment stores the source document id in the custom sale_id field on DocPayment.",
+                    )}
+              </p>
+              {paymentLinkingMode === "sale_id_field" && !saleIdFieldConfigured ? (
+                <p className={styles.note}>
+                  {t(
+                    "settings.paymentLinking.saleIdFieldRequired",
+                    "Create the sale_id field below before selecting this mode.",
+                  )}
+                </p>
+              ) : null}
             </div>
 
             <div className={styles.subsection}>

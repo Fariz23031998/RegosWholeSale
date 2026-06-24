@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { CalendarRange, Search, Users, Warehouse } from "lucide-react";
+import { CalendarRange, Coins, Download, Search, Users, Warehouse } from "lucide-react";
 import {
   Bar,
   BarChart,
@@ -20,21 +20,32 @@ import { formatAuthError, useAuth } from "@/store/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
   DASHBOARD_PRODUCTS_PAGE_SIZE,
+  DASHBOARD_PAYMENTS_PAGE_SIZE,
+  buildDashboardCurrencyFilterOptions,
+  collectDashboardCurrencies,
+  currencyFilterKey,
+  fetchDashboardOverview,
   fetchDashboardProducts,
-  fetchDashboardStats,
+  fetchDashboardPayments,
+  fetchAllDashboardProducts,
+  fetchAllDashboardPayments,
   formatDashboardPeriodLabel,
   getPeriodLabel,
+  parseCurrencyFilterKey,
   presetToCustomRange,
+  resolveDashboardPeriodParams,
   resolveDashboardQueryParams,
   type DashboardCustomRange,
+  type DashboardCurrencyFilter,
   type DashboardPeriodPreset,
   type DashboardPaymentRow,
   type DashboardProductRow,
+  type DashboardProductTotals,
   type DashboardStats,
   type DashboardTopProduct,
   type TranslateFn,
 } from "@/lib/dashboard-api";
-import { fetchRegosReferenceOptions } from "@/lib/settings-api";
+import { fetchRegosDefaults, fetchRegosReferenceOptions } from "@/lib/settings-api";
 import type { RegosDefaultOption } from "@/types/settings";
 import { DashboardPeriodModal } from "@/components/Dashboard/DashboardPeriodModal";
 import {
@@ -46,6 +57,11 @@ import {
   formatWarehouseFilterLabel,
 } from "@/components/Dashboard/DashboardWarehousesModal";
 import { formatCurrency, formatDateTime } from "@/lib/format";
+import { exportDashboardProductsToExcel } from "@/lib/export-dashboard-products";
+import { exportDashboardPaymentsToExcel } from "@/lib/export-dashboard-payments";
+import { formatAmountWithCurrency } from "@/lib/checkout-payments";
+import { currencyLabel } from "@/lib/currency-conversion";
+import type { RegosCurrencyOption } from "@/types/settings";
 import styles from "./Dashboard.module.css";
 
 const COLORS = ["#4f46e5", "#0ea5e9", "#10b981", "#f59e0b", "#ef4444"];
@@ -54,6 +70,9 @@ const TOP_PRODUCT_LABEL_LINE_HEIGHT = 15;
 const TOP_PRODUCT_LABEL_MAX_CHARS = 38;
 
 type PresetPeriod = Exclude<DashboardPeriodPreset, "custom">;
+type DashboardTab = "totals" | "payments" | "products";
+
+const DASHBOARD_TABS: DashboardTab[] = ["totals", "payments", "products"];
 
 function formatPaymentDate(timestamp: number): string {
   if (timestamp <= 0) return "—";
@@ -68,6 +87,76 @@ function formatQty(value: number): string {
 function formatOptionalCurrency(value: number | null | undefined): string {
   if (value === null || value === undefined) return "—";
   return formatCurrency(value);
+}
+
+function AmountWithCurrency({
+  amount,
+  currency,
+  className,
+}: {
+  amount: number;
+  currency?: RegosCurrencyOption | null;
+  className?: string;
+}) {
+  const label = currencyLabel(currency);
+  return (
+    <span className={clsx(styles.amountWithCurrency, className)}>
+      <span className={styles.amountFigure}>{formatCurrency(amount)}</span>
+      {label ? <span className={styles.currencyUnit}>{label}</span> : null}
+    </span>
+  );
+}
+
+function DashboardAmount({
+  amount,
+  currency,
+  loading,
+  className,
+}: {
+  amount: number;
+  currency?: RegosCurrencyOption | null;
+  loading: boolean;
+  className?: string;
+}) {
+  if (loading) {
+    return <div className={className}>—</div>;
+  }
+  return (
+    <div className={className}>
+      <AmountWithCurrency amount={amount} currency={currency} />
+    </div>
+  );
+}
+
+function DashboardInlineAmount({
+  amount,
+  currency,
+  loading,
+  className,
+}: {
+  amount: number;
+  currency?: RegosCurrencyOption | null;
+  loading: boolean;
+  className?: string;
+}) {
+  if (loading) {
+    return <span className={className}>—</span>;
+  }
+  return (
+    <span className={className}>
+      <AmountWithCurrency amount={amount} currency={currency} />
+    </span>
+  );
+}
+
+function formatDashboardAmountText(
+  amount: number,
+  currency: RegosCurrencyOption | null | undefined,
+): string {
+  if (currency) {
+    return formatAmountWithCurrency(amount, currency);
+  }
+  return formatCurrency(amount);
 }
 
 function wrapProductLabel(text: string, maxChars = TOP_PRODUCT_LABEL_MAX_CHARS): string[] {
@@ -95,6 +184,22 @@ function productMatchesSearch(product: DashboardProductRow, query: string): bool
   if (!query) return true;
   const haystack = [product.code, product.name, product.category]
     .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  return haystack.some((value) => value.includes(query));
+}
+
+function paymentMatchesSearch(payment: DashboardPaymentRow, query: string): boolean {
+  if (!query) return true;
+  const haystack = [
+    payment.code,
+    String(payment.id),
+    payment.payment_type_name,
+    payment.partner_name,
+    payment.attached_user_name,
+    payment.category_name,
+    currencyLabel(payment.currency),
+  ]
+    .map((value) => (value ?? "").trim().toLowerCase())
     .filter(Boolean);
   return haystack.some((value) => value.includes(query));
 }
@@ -136,6 +241,11 @@ function topProductsChartHeight(products: { name: string }[]): number {
   return Math.max(260, count * rowHeight + 16);
 }
 
+function formatOptionalExchangeRate(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  return Number.isInteger(value) ? String(value) : value.toFixed(4).replace(/\.?0+$/, "");
+}
+
 function DashboardPaymentTable({
   payments,
   t,
@@ -151,6 +261,9 @@ function DashboardPaymentTable({
             <th>{t("dashboard.payments.receipt")}</th>
             <th>{t("common.date")}</th>
             <th>{t("common.type")}</th>
+            <th>{t("dashboard.payments.partner")}</th>
+            <th>{t("dashboard.payments.user")}</th>
+            <th className={styles.right}>{t("dashboard.payments.exchangeRate")}</th>
             <th className={styles.right}>{t("common.amount")}</th>
           </tr>
         </thead>
@@ -160,8 +273,15 @@ function DashboardPaymentTable({
               <td data-label={t("dashboard.payments.receipt")}>#{payment.code || payment.id}</td>
               <td data-label={t("common.date")}>{formatPaymentDate(payment.date)}</td>
               <td data-label={t("common.type")}>{payment.payment_type_name ?? "—"}</td>
+              <td data-label={t("dashboard.payments.partner")}>{payment.partner_name ?? "—"}</td>
+              <td data-label={t("dashboard.payments.user")}>
+                {payment.attached_user_name ?? "—"}
+              </td>
+              <td data-label={t("dashboard.payments.exchangeRate")} className={styles.right}>
+                {formatOptionalExchangeRate(payment.exchange_rate)}
+              </td>
               <td data-label={t("common.amount")} className={styles.right}>
-                {formatCurrency(payment.amount ?? 0)}
+                <AmountWithCurrency amount={payment.amount ?? 0} currency={payment.currency} />
               </td>
             </tr>
           ))}
@@ -171,10 +291,38 @@ function DashboardPaymentTable({
   );
 }
 
+function DashboardProductTotalsRow({
+  totals,
+  t,
+}: {
+  totals: DashboardProductTotals;
+  t: TranslateFn;
+}) {
+  return (
+    <tr className={styles.productsTotalRow}>
+      <td colSpan={3}>{t("dashboard.products.totalRow")}</td>
+      <td className={styles.num}>—</td>
+      <td className={styles.num}>—</td>
+      <td className={styles.num}>{formatQty(totals.sold_quantity)}</td>
+      <td className={styles.num}>{formatCurrency(totals.sold_purchase_cost)}</td>
+      <td className={styles.num}>{formatCurrency(totals.sold_total)}</td>
+      <td className={styles.num}>{formatQty(totals.refund_quantity)}</td>
+      <td className={styles.num}>{formatCurrency(totals.refund_purchase_cost)}</td>
+      <td className={styles.num}>{formatCurrency(totals.refund_total)}</td>
+      <td className={styles.num}>{formatQty(totals.net_sold_quantity)}</td>
+      <td className={styles.num}>{formatCurrency(totals.net_purchase_cost)}</td>
+      <td className={styles.num}>{formatCurrency(totals.net_total_sells)}</td>
+      <td className={styles.num}>{formatCurrency(totals.net_gross_profit)}</td>
+    </tr>
+  );
+}
+
 function TopProductsRevenueList({
   products,
+  displayCurrency,
 }: {
   products: { item_id: number; name: string; revenue: number }[];
+  displayCurrency: RegosCurrencyOption | null | undefined;
 }) {
   return (
     <div className={styles.topList}>
@@ -182,7 +330,9 @@ function TopProductsRevenueList({
         <div key={item.item_id} className={styles.topItem}>
           <div className={styles.topRank}>{index + 1}</div>
           <div className={styles.topName}>{item.name}</div>
-          <div className={styles.topVal}>{formatCurrency(item.revenue)}</div>
+          <div className={styles.topVal}>
+            <AmountWithCurrency amount={item.revenue} currency={displayCurrency} />
+          </div>
         </div>
       ))}
     </div>
@@ -238,6 +388,7 @@ export function DashboardPage() {
   const [selectedPartnerIds, setSelectedPartnerIds] = useState<number[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [products, setProducts] = useState<DashboardProductRow[]>([]);
+  const [productsTotals, setProductsTotals] = useState<DashboardProductTotals | null>(null);
   const [productsTotal, setProductsTotal] = useState(0);
   const [productsNextOffset, setProductsNextOffset] = useState(0);
   const [loading, setLoading] = useState(false);
@@ -246,17 +397,51 @@ export function DashboardPage() {
   const [error, setError] = useState("");
   const [productsError, setProductsError] = useState("");
   const [productsSearch, setProductsSearch] = useState("");
+  const [exportingProducts, setExportingProducts] = useState(false);
+  const [incomePayments, setIncomePayments] = useState<DashboardPaymentRow[]>([]);
+  const [outcomePayments, setOutcomePayments] = useState<DashboardPaymentRow[]>([]);
+  const [incomePaymentsCount, setIncomePaymentsCount] = useState(0);
+  const [outcomePaymentsCount, setOutcomePaymentsCount] = useState(0);
+  const [incomePaymentCategoryName, setIncomePaymentCategoryName] = useState<string | null>(null);
+  const [outcomePaymentCategoryName, setOutcomePaymentCategoryName] = useState<string | null>(null);
+  const [paymentsNextOffset, setPaymentsNextOffset] = useState(0);
+  const [paymentsLoading, setPaymentsLoading] = useState(false);
+  const [loadingMorePayments, setLoadingMorePayments] = useState(false);
+  const [paymentsError, setPaymentsError] = useState("");
+  const [paymentsSearch, setPaymentsSearch] = useState("");
+  const [exportingPayments, setExportingPayments] = useState(false);
+  const [activeTab, setActiveTab] = useState<DashboardTab>("totals");
   const [isNarrow, setIsNarrow] = useState(false);
+  const [availableCurrencies, setAvailableCurrencies] = useState<RegosCurrencyOption[]>([]);
+  const [currencyFilter, setCurrencyFilter] = useState<DashboardCurrencyFilter | null>(null);
+
+  const periodParams = useMemo(
+    () => resolveDashboardPeriodParams(periodPreset, customRange),
+    [customRange, periodPreset],
+  );
 
   const queryParams = useMemo(
     () =>
-      resolveDashboardQueryParams(periodPreset, customRange, {
+      resolveDashboardQueryParams(periodParams, {
         allStocks,
         stockIds: selectedStockIds,
         allPartners,
         partnerIds: selectedPartnerIds,
+        currencyFilter,
       }),
-    [allPartners, allStocks, customRange, periodPreset, selectedPartnerIds, selectedStockIds],
+    [
+      allPartners,
+      allStocks,
+      currencyFilter,
+      periodParams,
+      allPartners ? undefined : selectedPartnerIds,
+      allStocks ? undefined : selectedStockIds,
+    ],
+  );
+
+  const currencyFilterOptions = useMemo(
+    () => buildDashboardCurrencyFilterOptions(availableCurrencies, t),
+    [availableCurrencies, t],
   );
 
   const periodModalRange = useMemo(() => {
@@ -279,6 +464,19 @@ export function DashboardPage() {
     [products, productsSearchQuery],
   );
 
+  const paymentsSearchQuery = paymentsSearch.trim().toLowerCase();
+  const filteredIncomePayments = useMemo(
+    () => incomePayments.filter((payment) => paymentMatchesSearch(payment, paymentsSearchQuery)),
+    [incomePayments, paymentsSearchQuery],
+  );
+  const filteredOutcomePayments = useMemo(
+    () => outcomePayments.filter((payment) => paymentMatchesSearch(payment, paymentsSearchQuery)),
+    [outcomePayments, paymentsSearchQuery],
+  );
+  const loadedPaymentsCount = incomePayments.length + outcomePayments.length;
+  const filteredPaymentsCount = filteredIncomePayments.length + filteredOutcomePayments.length;
+  const totalPaymentsCount = incomePaymentsCount + outcomePaymentsCount;
+
   useEffect(() => {
     if (!token) {
       setWarehouses([]);
@@ -287,11 +485,22 @@ export function DashboardPage() {
     }
 
     let cancelled = false;
-    void fetchRegosReferenceOptions(token)
-      .then((options) => {
+    void Promise.all([fetchRegosReferenceOptions(token), fetchRegosDefaults(token)])
+      .then(([options, defaultsResponse]) => {
         if (cancelled) return;
         setWarehouses(options.warehouses);
         setPartners(options.partners);
+        const currencies = collectDashboardCurrencies(
+          options.price_types,
+          defaultsResponse.defaults.currency,
+        );
+        setAvailableCurrencies(currencies);
+        setCurrencyFilter((current) => {
+          if (current) return current;
+          const defaultCurrency = defaultsResponse.defaults.currency;
+          if (!defaultCurrency?.id) return null;
+          return { currencyId: defaultCurrency.id, mode: "all" };
+        });
         setSelectedStockIds((current) =>
           current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
         );
@@ -315,49 +524,84 @@ export function DashboardPage() {
     if (!token) {
       setStats(null);
       setProducts([]);
+      setProductsTotals(null);
       setProductsTotal(0);
       setProductsNextOffset(0);
+      setIncomePayments([]);
+      setOutcomePayments([]);
+      setIncomePaymentsCount(0);
+      setOutcomePaymentsCount(0);
+      setIncomePaymentCategoryName(null);
+      setOutcomePaymentCategoryName(null);
+      setPaymentsNextOffset(0);
       return;
     }
 
     let cancelled = false;
     setLoading(true);
     setProductsLoading(true);
+    setPaymentsLoading(true);
     setError("");
     setProductsError("");
+    setPaymentsError("");
     setProducts([]);
+    setProductsTotals(null);
     setProductsTotal(0);
     setProductsNextOffset(0);
+    setIncomePayments([]);
+    setOutcomePayments([]);
+    setIncomePaymentsCount(0);
+    setOutcomePaymentsCount(0);
+    setIncomePaymentCategoryName(null);
+    setOutcomePaymentCategoryName(null);
+    setPaymentsNextOffset(0);
 
-    void fetchDashboardStats(token, queryParams)
-      .then((res) => {
-        if (!cancelled) setStats(res);
+    void Promise.all([
+      fetchDashboardOverview(token, queryParams),
+      fetchDashboardPayments(token, queryParams),
+    ])
+      .then(([overview, payments]) => {
+        if (cancelled) return;
+        setStats(overview.stats);
+        setProducts(overview.products);
+        setProductsTotals(overview.totals);
+        setProductsTotal(overview.total);
+        setProductsNextOffset(overview.next_offset);
+        setIncomePayments(payments.income_payments);
+        setOutcomePayments(payments.outcome_payments);
+        setIncomePaymentsCount(payments.income_total);
+        setOutcomePaymentsCount(payments.outcome_total);
+        setIncomePaymentCategoryName(payments.income_payment_category_name);
+        setOutcomePaymentCategoryName(payments.outcome_payment_category_name);
+        setPaymentsNextOffset(payments.next_offset);
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         setStats(null);
-        setError(formatAuthError(err, t("dashboard.errors.load")));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    void fetchDashboardProducts(token, { ...queryParams, offset: 0 })
-      .then((res) => {
-        if (cancelled) return;
-        setProducts(res.products);
-        setProductsTotal(res.total);
-        setProductsNextOffset(res.next_offset);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
         setProducts([]);
+        setProductsTotals(null);
         setProductsTotal(0);
         setProductsNextOffset(0);
-        setProductsError(formatAuthError(err, t("dashboard.errors.loadProducts")));
+        setIncomePayments([]);
+        setOutcomePayments([]);
+        setIncomePaymentsTotal(0);
+        setOutcomePaymentsTotal(0);
+        setIncomePaymentsCount(0);
+        setOutcomePaymentsCount(0);
+        setIncomePaymentCategoryName(null);
+        setOutcomePaymentCategoryName(null);
+        setPaymentsNextOffset(0);
+        const message = formatAuthError(err, t("dashboard.errors.load"));
+        setError(message);
+        setProductsError(message);
+        setPaymentsError(message);
       })
       .finally(() => {
-        if (!cancelled) setProductsLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+          setProductsLoading(false);
+          setPaymentsLoading(false);
+        }
       });
 
     return () => {
@@ -395,12 +639,113 @@ export function DashboardPage() {
       });
   };
 
+  const exportProducts = () => {
+    if (!token || exportingProducts) return;
+
+    setExportingProducts(true);
+    setProductsError("");
+
+    void fetchAllDashboardProducts(token, queryParams)
+      .then(({ products: allProducts, totals }) => {
+        exportDashboardProductsToExcel(
+          allProducts,
+          totals,
+          t,
+          formatDashboardPeriodLabel(periodPreset, customRange, t),
+        );
+      })
+      .catch((err: unknown) => {
+        setProductsError(formatAuthError(err, t("dashboard.products.exportError")));
+      })
+      .finally(() => {
+        setExportingProducts(false);
+      });
+  };
+
+  const loadMorePayments = () => {
+    if (!token || !paymentsNextOffset || loadingMorePayments) return;
+
+    setLoadingMorePayments(true);
+    setPaymentsError("");
+
+    void fetchDashboardPayments(token, { ...queryParams, offset: paymentsNextOffset })
+      .then((res) => {
+        setIncomePayments((current) => {
+          const seen = new Set(current.map((row) => row.id));
+          const merged = [...current];
+          for (const row of res.income_payments) {
+            if (!seen.has(row.id)) {
+              seen.add(row.id);
+              merged.push(row);
+            }
+          }
+          return merged;
+        });
+        setOutcomePayments((current) => {
+          const seen = new Set(current.map((row) => row.id));
+          const merged = [...current];
+          for (const row of res.outcome_payments) {
+            if (!seen.has(row.id)) {
+              seen.add(row.id);
+              merged.push(row);
+            }
+          }
+          return merged;
+        });
+        setIncomePaymentsCount(res.income_total);
+        setOutcomePaymentsCount(res.outcome_total);
+        setPaymentsNextOffset(res.next_offset);
+      })
+      .catch((err: unknown) => {
+        setPaymentsError(formatAuthError(err, t("dashboard.errors.loadMorePayments")));
+      })
+      .finally(() => {
+        setLoadingMorePayments(false);
+      });
+  };
+
+  const exportPayments = () => {
+    if (!token || exportingPayments) return;
+
+    setExportingPayments(true);
+    setPaymentsError("");
+
+    void fetchAllDashboardPayments(token, queryParams)
+      .then((payments) => {
+        exportDashboardPaymentsToExcel(
+          payments.income_payments,
+          payments.outcome_payments,
+          payments.income_payments_total,
+          payments.outcome_payments_total,
+          payments.income_payment_category_name,
+          payments.outcome_payment_category_name,
+          t,
+          formatDashboardPeriodLabel(periodPreset, customRange, t),
+        );
+      })
+      .catch((err: unknown) => {
+        setPaymentsError(formatAuthError(err, t("dashboard.payments.exportError")));
+      })
+      .finally(() => {
+        setExportingPayments(false);
+      });
+  };
+
   const topPartners = stats?.top_partners.map((entry) => ({
     name: entry.name,
     value: entry.count,
   })) ?? [];
   const topProducts = stats?.top_products ?? [];
   const topProductsChartHeightPx = topProductsChartHeight(topProducts);
+  const displayCurrency = stats?.summary_currency ?? null;
+  const formatChartCurrency = (value: number) => formatDashboardAmountText(value, displayCurrency);
+  const currencyFilterValue = currencyFilter ? currencyFilterKey(currencyFilter) : "";
+
+  const dashboardTabLabel = (tab: DashboardTab) => {
+    if (tab === "totals") return t("dashboard.tabs.totals");
+    if (tab === "payments") return t("dashboard.tabs.payments");
+    return t("dashboard.tabs.products");
+  };
 
   return (
     <div className={styles.page}>
@@ -455,7 +800,44 @@ export function DashboardPage() {
             <Warehouse size={14} />
             {formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}
           </button>
+          {currencyFilterOptions.length > 0 && (
+            <label className={clsx(styles.filter, styles.filterMenu, styles.currencyFilter)}>
+              <Coins size={14} />
+              <select
+                className={styles.currencyFilterSelect}
+                value={currencyFilterValue}
+                onChange={(event) => {
+                  const next = parseCurrencyFilterKey(event.target.value);
+                  if (next) setCurrencyFilter(next);
+                }}
+                aria-label={t("dashboard.currencyFilter.label", "Currency")}
+              >
+                {currencyFilterOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
+      </div>
+
+      <div className={styles.dashboardTabs} role="tablist" aria-label={t("dashboard.tabs.label")}>
+        {DASHBOARD_TABS.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            role="tab"
+            id={`dashboard-tab-${tab}`}
+            className={clsx(styles.dashboardTab, activeTab === tab && styles.dashboardTabActive)}
+            aria-selected={activeTab === tab}
+            aria-controls={`dashboard-panel-${tab}`}
+            onClick={() => setActiveTab(tab)}
+          >
+            {dashboardTabLabel(tab)}
+          </button>
+        ))}
       </div>
 
       <DashboardPeriodModal
@@ -492,6 +874,13 @@ export function DashboardPage() {
 
       {error && <div className={styles.empty}>{error}</div>}
 
+      {activeTab === "totals" ? (
+        <div
+          id="dashboard-panel-totals"
+          role="tabpanel"
+          aria-labelledby="dashboard-tab-totals"
+          className={styles.dashboardPanel}
+        >
       <div className={styles.totalsWidget}>
         <div className={styles.totalsHeader}>
           <div className={styles.totalsTitle}>{t("dashboard.totals.title")}</div>
@@ -500,21 +889,30 @@ export function DashboardPage() {
         <div className={styles.totalsGrid}>
           <div className={styles.totalItem}>
             <div className={styles.totalLabel}>{t("dashboard.totals.totalSales")}</div>
-            <div className={styles.totalValue}>
-              {loading ? "—" : formatCurrency(stats?.net_sales_total ?? 0)}
-            </div>
+            <DashboardAmount
+              amount={stats?.net_sales_total ?? 0}
+              currency={displayCurrency}
+              loading={loading}
+              className={styles.totalValue}
+            />
           </div>
           <div className={styles.totalItem}>
             <div className={styles.totalLabel}>{t("dashboard.totals.totalCost")}</div>
-            <div className={styles.totalValue}>
-              {loading ? "—" : formatCurrency(stats?.net_cost_total ?? 0)}
-            </div>
+            <DashboardInlineAmount
+              amount={stats?.net_cost_total ?? 0}
+              currency={displayCurrency}
+              loading={loading}
+              className={styles.totalValue}
+            />
           </div>
           <div className={styles.totalItem}>
             <div className={styles.totalLabel}>{t("dashboard.totals.grossProfit")}</div>
-            <div className={styles.totalValue}>
-              {loading ? "—" : formatCurrency(stats?.net_gross_profit ?? 0)}
-            </div>
+            <DashboardInlineAmount
+              amount={stats?.net_gross_profit ?? 0}
+              currency={displayCurrency}
+              loading={loading}
+              className={styles.totalValue}
+            />
           </div>
         </div>
       </div>
@@ -522,9 +920,12 @@ export function DashboardPage() {
       <div className={styles.kpis}>
         <div className={styles.kpi}>
           <div className={styles.kpiLabel}>{t("dashboard.kpi.grossSales")}</div>
-          <div className={styles.kpiValue}>
-            {loading ? "—" : formatCurrency(stats?.sales_total ?? 0)}
-          </div>
+          <DashboardAmount
+            amount={stats?.sales_total ?? 0}
+            currency={displayCurrency}
+            loading={loading}
+            className={styles.kpiValue}
+          />
           <div className={styles.kpiDelta}>
             {loading
               ? "…"
@@ -533,46 +934,61 @@ export function DashboardPage() {
         </div>
         <div className={styles.kpi}>
           <div className={styles.kpiLabel}>{t("dashboard.kpi.grossCost")}</div>
-          <div className={styles.kpiValue}>
-            {loading ? "—" : formatCurrency(stats?.cost_total ?? 0)}
-          </div>
+          <DashboardInlineAmount
+            amount={stats?.cost_total ?? 0}
+            currency={displayCurrency}
+            loading={loading}
+            className={styles.kpiValue}
+          />
           <div className={styles.kpiDelta}>{t("dashboard.kpi.beforeRefunds")}</div>
         </div>
         <div className={styles.kpi}>
           <div className={styles.kpiLabel}>{t("dashboard.kpi.grossProfit")}</div>
-          <div className={styles.kpiValue}>
-            {loading ? "—" : formatCurrency(stats?.gross_profit ?? 0)}
-          </div>
+          <DashboardInlineAmount
+            amount={stats?.gross_profit ?? 0}
+            currency={displayCurrency}
+            loading={loading}
+            className={styles.kpiValue}
+          />
           <div className={styles.kpiDelta}>{t("dashboard.kpi.beforeRefunds")}</div>
         </div>
         <div className={styles.kpi}>
           <div className={styles.kpiLabel}>{t("dashboard.kpi.refunds")}</div>
-          <div className={styles.kpiValue}>
-            {loading ? "—" : formatCurrency(stats?.refunds_total ?? 0)}
-          </div>
+          <DashboardAmount
+            amount={stats?.refunds_total ?? 0}
+            currency={displayCurrency}
+            loading={loading}
+            className={styles.kpiValue}
+          />
           <div className={styles.kpiDelta}>
             {loading
               ? "…"
               : t("dashboard.kpi.returnsCost", undefined, {
                   n: stats?.refund_count ?? 0,
-                  cost: formatCurrency(stats?.refunds_cost_total ?? 0),
+                  cost: formatDashboardAmountText(stats?.refunds_cost_total ?? 0, displayCurrency),
                 })}
           </div>
         </div>
         <div className={styles.kpi}>
           <div className={styles.kpiLabel}>{t("dashboard.kpi.incomePayments")}</div>
-          <div className={styles.kpiValue}>
-            {loading ? "—" : formatCurrency(stats?.income_payments_total ?? 0)}
-          </div>
+          <DashboardAmount
+            amount={stats?.income_payments_total ?? 0}
+            currency={displayCurrency}
+            loading={loading}
+            className={styles.kpiValue}
+          />
           <div className={styles.kpiDelta}>
             {stats?.income_payment_category_name ?? t("dashboard.kpi.noIncomeCategory")}
           </div>
         </div>
         <div className={styles.kpi}>
           <div className={styles.kpiLabel}>{t("dashboard.kpi.outcomePayments")}</div>
-          <div className={styles.kpiValue}>
-            {loading ? "—" : formatCurrency(stats?.outcome_payments_total ?? 0)}
-          </div>
+          <DashboardAmount
+            amount={stats?.outcome_payments_total ?? 0}
+            currency={displayCurrency}
+            loading={loading}
+            className={styles.kpiValue}
+          />
           <div className={styles.kpiDelta}>
             {stats?.outcome_payment_category_name ?? t("dashboard.kpi.noRefundCategory")}
           </div>
@@ -586,7 +1002,7 @@ export function DashboardPage() {
             {loading
               ? "…"
               : t("dashboard.kpi.avgBasket", undefined, {
-                  amount: formatCurrency(stats?.avg_basket ?? 0),
+                  amount: formatDashboardAmountText(stats?.avg_basket ?? 0, displayCurrency),
                 })}
           </div>
         </div>
@@ -609,7 +1025,7 @@ export function DashboardPage() {
               <XAxis dataKey="day" stroke="#8a93a6" fontSize={12} tickLine={false} axisLine={false} />
               <YAxis stroke="#8a93a6" fontSize={12} tickLine={false} axisLine={false} />
               <Tooltip
-                formatter={(v: number) => formatCurrency(v)}
+                formatter={(v: number) => formatChartCurrency(v)}
                 contentStyle={{
                   borderRadius: 10,
                   border: "1px solid #e3e6ee",
@@ -673,7 +1089,7 @@ export function DashboardPage() {
               {t("dashboard.charts.noSales")}
             </div>
           ) : isNarrow ? (
-            <TopProductsRevenueList products={topProducts} />
+            <TopProductsRevenueList products={topProducts} displayCurrency={displayCurrency} />
           ) : (
             <ResponsiveContainer width="100%" height={topProductsChartHeightPx}>
               <BarChart
@@ -697,7 +1113,7 @@ export function DashboardPage() {
                   tick={ProductRevenueYAxisTick}
                 />
                 <Tooltip
-                  formatter={(v: number) => formatCurrency(v)}
+                  formatter={(v: number) => formatChartCurrency(v)}
                   contentStyle={{ borderRadius: 10, border: "1px solid #e3e6ee", fontSize: 12 }}
                 />
                 <Bar dataKey="revenue" radius={[0, 6, 6, 0]}>
@@ -721,42 +1137,128 @@ export function DashboardPage() {
           </div>
         )}
       </div>
+        </div>
+      ) : null}
 
-      <div className={styles.row2} style={{ marginTop: "var(--space-4)" }}>
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>{t("dashboard.payments.income")}</div>
+      {activeTab === "payments" ? (
+        <div
+          id="dashboard-panel-payments"
+          role="tabpanel"
+          aria-labelledby="dashboard-tab-payments"
+          className={styles.dashboardPanel}
+        >
+          <div className={styles.cardTitle}>{t("dashboard.tabs.payments")}</div>
           <div className={styles.cardSub}>
-            {stats?.income_payment_category_name
-              ? t("dashboard.payments.category", undefined, { name: stats.income_payment_category_name })
-              : t("dashboard.kpi.noIncomeCategory")}
+            {formatDashboardPeriodLabel(periodPreset, customRange, t)}
+            {totalPaymentsCount > 0
+              ? paymentsSearchQuery
+                ? ` · ${t("dashboard.payments.shown", undefined, {
+                    n: filteredPaymentsCount,
+                    m: loadedPaymentsCount,
+                  })}`
+                : ` · ${loadedPaymentsCount} of ${totalPaymentsCount}`
+              : ""}
           </div>
-          {(stats?.income_payments.length ?? 0) === 0 && !loading ? (
-            <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
-              {t("dashboard.payments.empty")}
+          {loadedPaymentsCount > 0 && (
+            <div className={styles.productsToolbar}>
+              <div className={styles.productsSearch}>
+                <Search size={16} className={styles.productsSearchIcon} />
+                <input
+                  className={styles.productsSearchInput}
+                  type="search"
+                  placeholder={t("dashboard.payments.searchPlaceholder")}
+                  value={paymentsSearch}
+                  onChange={(event) => setPaymentsSearch(event.target.value)}
+                  aria-label={t("dashboard.payments.searchAria")}
+                />
+              </div>
+              <button
+                type="button"
+                className={styles.exportButton}
+                onClick={exportPayments}
+                disabled={exportingPayments || paymentsLoading}
+              >
+                <Download size={14} />
+                {exportingPayments
+                  ? t("dashboard.payments.exporting")
+                  : t("dashboard.payments.exportExcel")}
+              </button>
             </div>
-          ) : (
-            <DashboardPaymentTable payments={stats?.income_payments ?? []} t={t} />
+          )}
+          {paymentsError && <div className={styles.empty}>{paymentsError}</div>}
+          <div className={clsx(styles.row2, styles.paymentsSection)}>
+            <div className={styles.card}>
+              <div className={styles.cardTitle}>{t("dashboard.payments.income")}</div>
+              <div className={styles.cardSub}>
+                {incomePaymentCategoryName
+                  ? t("dashboard.payments.category", undefined, { name: incomePaymentCategoryName })
+                  : t("dashboard.kpi.noIncomeCategory")}
+              </div>
+              {incomePayments.length === 0 && !paymentsLoading && !paymentsError ? (
+                <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
+                  {t("dashboard.payments.empty")}
+                </div>
+              ) : filteredIncomePayments.length === 0 && !paymentsLoading ? (
+                <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
+                  {t("dashboard.payments.emptySearch")}
+                </div>
+              ) : paymentsLoading && incomePayments.length === 0 ? (
+                <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
+                  {t("dashboard.payments.loading")}
+                </div>
+              ) : (
+                <DashboardPaymentTable payments={filteredIncomePayments} t={t} />
+              )}
+            </div>
+
+            <div className={styles.card}>
+              <div className={styles.cardTitle}>{t("dashboard.payments.outcome")}</div>
+              <div className={styles.cardSub}>
+                {outcomePaymentCategoryName
+                  ? t("dashboard.payments.category", undefined, { name: outcomePaymentCategoryName })
+                  : t("dashboard.kpi.noRefundCategory")}
+              </div>
+              {outcomePayments.length === 0 && !paymentsLoading && !paymentsError ? (
+                <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
+                  {t("dashboard.payments.empty")}
+                </div>
+              ) : filteredOutcomePayments.length === 0 && !paymentsLoading ? (
+                <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
+                  {t("dashboard.payments.emptySearch")}
+                </div>
+              ) : paymentsLoading && outcomePayments.length === 0 ? (
+                <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
+                  {t("dashboard.payments.loading")}
+                </div>
+              ) : (
+                <DashboardPaymentTable payments={filteredOutcomePayments} t={t} />
+              )}
+            </div>
+          </div>
+          {paymentsNextOffset > 0 && (
+            <div className={styles.productsFooter}>
+              <button
+                type="button"
+                className={styles.loadMore}
+                onClick={loadMorePayments}
+                disabled={loadingMorePayments}
+              >
+                {loadingMorePayments
+                  ? t("common.loading")
+                  : t("dashboard.payments.loadMore", undefined, { n: DASHBOARD_PAYMENTS_PAGE_SIZE })}
+              </button>
+            </div>
           )}
         </div>
+      ) : null}
 
-        <div className={styles.card}>
-          <div className={styles.cardTitle}>{t("dashboard.payments.outcome")}</div>
-          <div className={styles.cardSub}>
-            {stats?.outcome_payment_category_name
-              ? t("dashboard.payments.category", undefined, { name: stats.outcome_payment_category_name })
-              : t("dashboard.kpi.noRefundCategory")}
-          </div>
-          {(stats?.outcome_payments.length ?? 0) === 0 && !loading ? (
-            <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
-              {t("dashboard.payments.empty")}
-            </div>
-          ) : (
-            <DashboardPaymentTable payments={stats?.outcome_payments ?? []} t={t} />
-          )}
-        </div>
-      </div>
-
-      <div className={clsx(styles.card, styles.productsCard)}>
+      {activeTab === "products" ? (
+      <div
+        id="dashboard-panel-products"
+        role="tabpanel"
+        aria-labelledby="dashboard-tab-products"
+        className={clsx(styles.dashboardPanel, styles.card, styles.productsCard)}
+      >
         <div className={styles.cardTitle}>{t("dashboard.products.title")}</div>
         <div className={styles.cardSub}>
           {formatDashboardPeriodLabel(periodPreset, customRange, t)} · {t("dashboard.products.subtitle")}
@@ -767,16 +1269,29 @@ export function DashboardPage() {
             : ""}
         </div>
         {products.length > 0 && (
-          <div className={styles.productsSearch}>
-            <Search size={16} className={styles.productsSearchIcon} />
-            <input
-              className={styles.productsSearchInput}
-              type="search"
-              placeholder={t("dashboard.products.searchPlaceholder")}
-              value={productsSearch}
-              onChange={(event) => setProductsSearch(event.target.value)}
-              aria-label={t("dashboard.products.searchAria")}
-            />
+          <div className={styles.productsToolbar}>
+            <div className={styles.productsSearch}>
+              <Search size={16} className={styles.productsSearchIcon} />
+              <input
+                className={styles.productsSearchInput}
+                type="search"
+                placeholder={t("dashboard.products.searchPlaceholder")}
+                value={productsSearch}
+                onChange={(event) => setProductsSearch(event.target.value)}
+                aria-label={t("dashboard.products.searchAria")}
+              />
+            </div>
+            <button
+              type="button"
+              className={styles.exportButton}
+              onClick={exportProducts}
+              disabled={exportingProducts || productsLoading}
+            >
+              <Download size={14} />
+              {exportingProducts
+                ? t("dashboard.products.exporting")
+                : t("dashboard.products.exportExcel")}
+            </button>
           </div>
         )}
         {productsError && <div className={styles.empty}>{productsError}</div>}
@@ -832,7 +1347,11 @@ export function DashboardPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredProducts.map((product) => (
+                  <>
+                    {productsTotals && !productsSearchQuery ? (
+                      <DashboardProductTotalsRow totals={productsTotals} t={t} />
+                    ) : null}
+                    {filteredProducts.map((product) => (
                     <tr key={product.item_id}>
                       <td>{product.code || "—"}</td>
                       <td className={styles.nameCell} title={product.name}>
@@ -852,7 +1371,8 @@ export function DashboardPage() {
                       <td className={styles.num}>{formatCurrency(product.net_total_sells)}</td>
                       <td className={styles.num}>{formatCurrency(product.net_gross_profit)}</td>
                     </tr>
-                  ))
+                    ))}
+                  </>
                 )}
               </tbody>
             </table>
@@ -873,6 +1393,7 @@ export function DashboardPage() {
           </div>
         )}
       </div>
+      ) : null}
     </div>
   );
 }

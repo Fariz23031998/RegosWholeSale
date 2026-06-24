@@ -1,3 +1,4 @@
+import re
 import uuid
 from typing import Any
 
@@ -8,6 +9,41 @@ from app.models import Company
 
 RECEIPT_TEMPLATES_KEY = "receipt_templates"
 VALID_FORMATS = {"80mm", "a4"}
+VALID_ENGINES = {"builtin", "html"}
+MAX_HTML_BYTES = 50_000
+MAX_CSS_BYTES = 20_000
+VALID_LINE_SORT_COLUMNS = {
+    "document_order",
+    "item_code",
+    "item_name",
+    "item_group_name",
+    "item_brand",
+    "item_unit_name",
+    "quantity",
+    "price",
+    "amount",
+}
+VALID_LINE_SORT_DIRECTIONS = {"asc", "desc"}
+VALID_AMOUNT_IN_WORDS_LANGUAGES = {"ru", "uz", "en", "tj"}
+DANGEROUS_MARKUP_PATTERNS = (
+    (re.compile(r"<\s*script\b", re.IGNORECASE), "Template markup cannot contain script tags."),
+    (re.compile(r"<\s*/\s*script\b", re.IGNORECASE), "Template markup cannot contain script tags."),
+    (re.compile(r"javascript\s*:", re.IGNORECASE), "Template markup cannot contain javascript: URLs."),
+    (re.compile(r"vbscript\s*:", re.IGNORECASE), "Template markup cannot contain vbscript: URLs."),
+    (re.compile(r"data\s*:\s*text/html", re.IGNORECASE), "Template markup cannot contain data:text/html URLs."),
+    (
+        re.compile(r"<\s*(iframe|object|embed|link|base|form|meta)\b", re.IGNORECASE),
+        "Template markup cannot contain embedded documents or metadata tags.",
+    ),
+    (re.compile(r"\bon[a-z]+\s*=", re.IGNORECASE), "Template markup cannot contain inline event handlers."),
+    (re.compile(r"expression\s*\(", re.IGNORECASE), "Template markup cannot contain CSS expression()."),
+)
+DANGEROUS_CSS_PATTERNS = (
+    (re.compile(r"@import\b", re.IGNORECASE), "Template CSS cannot use @import."),
+    (re.compile(r"javascript\s*:", re.IGNORECASE), "Template CSS cannot contain javascript: URLs."),
+    (re.compile(r"expression\s*\(", re.IGNORECASE), "Template CSS cannot contain expression()."),
+    (re.compile(r"behavior\s*:", re.IGNORECASE), "Template CSS cannot contain behavior."),
+)
 SECTION_KEYS = frozenset(
     {
         "header",
@@ -82,21 +118,31 @@ def _seed_defaults(company_name: str) -> dict[str, Any]:
                 "id": receipt_id,
                 "name": "80mm Receipt",
                 "format": "80mm",
+                "engine": "builtin",
                 "is_default": True,
                 "header": dict(header),
                 "invoice_title": "",
                 "footer_text": "Thank you for your purchase!",
+                "amount_in_words_language": None,
                 "sections": receipt_sections,
+                "line_sort": {"column": "document_order", "direction": "asc"},
+                "html": "",
+                "css": "",
             },
             {
                 "id": invoice_id,
                 "name": "A4 Invoice",
                 "format": "a4",
+                "engine": "builtin",
                 "is_default": False,
                 "header": dict(header),
                 "invoice_title": "INVOICE",
                 "footer_text": "Thank you for your business.",
+                "amount_in_words_language": None,
                 "sections": invoice_sections,
+                "line_sort": {"column": "document_order", "direction": "asc"},
+                "html": "",
+                "css": "",
             },
         ],
         "default_template_id": receipt_id,
@@ -176,16 +222,40 @@ def _normalize_templates(raw: Any) -> list[dict[str, Any]]:
         if fmt not in VALID_FORMATS:
             raise bad_request("Invalid template format.", "INVALID_RECEIPT_FORMAT")
 
+        engine = item.get("engine", "builtin")
+        if engine not in VALID_ENGINES:
+            raise bad_request("Invalid template engine.", "INVALID_RECEIPT_ENGINE")
+
+        html = _normalize_template_markup(item.get("html"))
+        css = _normalize_template_css(item.get("css"))
+
+        if engine == "html" and not html.strip():
+            raise bad_request(
+                "HTML templates require a non-empty html body.",
+                "INVALID_RECEIPT_HTML",
+            )
+        if len(html.encode("utf-8")) > MAX_HTML_BYTES:
+            raise bad_request("Template html exceeds size limit.", "RECEIPT_HTML_TOO_LARGE")
+        if len(css.encode("utf-8")) > MAX_CSS_BYTES:
+            raise bad_request("Template css exceeds size limit.", "RECEIPT_CSS_TOO_LARGE")
+
         normalized.append(
             {
                 "id": template_id,
                 "name": name.strip(),
                 "format": fmt,
+                "engine": engine,
                 "is_default": bool(item.get("is_default", False)),
                 "header": _normalize_header(item.get("header")),
                 "invoice_title": _normalize_str(item.get("invoice_title")),
                 "footer_text": _normalize_str(item.get("footer_text")),
+                "amount_in_words_language": _normalize_amount_in_words_language(
+                    item.get("amount_in_words_language")
+                ),
                 "sections": _normalize_sections(item.get("sections"), fmt),
+                "line_sort": _normalize_line_sort(item.get("line_sort")),
+                "html": html if engine == "html" else "",
+                "css": css if engine == "html" else "",
             }
         )
 
@@ -199,6 +269,20 @@ def _normalize_header(raw: Any) -> dict[str, str]:
         "address": _normalize_str(data.get("address")),
         "phone": _normalize_str(data.get("phone")),
         "tax_id": _normalize_str(data.get("tax_id")),
+    }
+
+
+def _normalize_line_sort(raw: Any) -> dict[str, str]:
+    data = raw if isinstance(raw, dict) else {}
+    column = data.get("column")
+    direction = data.get("direction")
+    normalized_column = column if isinstance(column, str) and column in VALID_LINE_SORT_COLUMNS else "document_order"
+    normalized_direction = (
+        direction if isinstance(direction, str) and direction in VALID_LINE_SORT_DIRECTIONS else "asc"
+    )
+    return {
+        "column": normalized_column,
+        "direction": normalized_direction,
     }
 
 
@@ -221,6 +305,35 @@ def _normalize_sections(raw: Any, fmt: str) -> dict[str, bool]:
 
 def _normalize_str(value: Any) -> str:
     return value.strip() if isinstance(value, str) else ""
+
+
+def _normalize_amount_in_words_language(value: Any) -> str | None:
+    if value is None or value == "":
+        return None
+    if isinstance(value, str) and value in VALID_AMOUNT_IN_WORDS_LANGUAGES:
+        return value
+    return None
+
+
+def _normalize_template_markup(value: Any) -> str:
+    return _validate_template_text(value, DANGEROUS_MARKUP_PATTERNS)
+
+
+def _normalize_template_css(value: Any) -> str:
+    return _validate_template_text(value, DANGEROUS_CSS_PATTERNS)
+
+
+def _validate_template_text(
+    value: Any,
+    patterns: tuple[tuple[re.Pattern[str], str], ...],
+) -> str:
+    text = _normalize_str(value)
+    if not text:
+        return ""
+    for pattern, message in patterns:
+        if pattern.search(text):
+            raise bad_request(message, "INVALID_RECEIPT_TEMPLATE_SCRIPT")
+    return text
 
 
 async def _get_company(session: AsyncSession, company_id: int) -> Company:

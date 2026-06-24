@@ -1,0 +1,73 @@
+<div class="nakladnaya">
+  <h1 class="doc-title">
+    {{#if (eq kind "return")}}
+    ВОЗВРАТНАЯ НАКЛАДНАЯ № {{document.code}} от {{formatRegosDate document.date}} г.
+    {{else}}
+    НАКЛАДНАЯ № {{document.code}} от {{formatRegosDate document.date}} г.
+    {{/if}}
+  </h1>
+
+  <div class="buyer-block">
+    <div class="buyer-line"><span class="label">Покупатель:</span> {{document.partner_name}}</div>
+    {{#if document.partner_phone}}
+    <div class="buyer-line"><span class="label">Телефоны:</span> {{document.partner_phone}}</div>
+    {{/if}}
+  </div>
+
+  <table class="items-table">
+    <thead>
+      <tr class="header-main">
+        <th rowspan="2" class="col-no">№</th>
+        <th rowspan="2" class="col-code">Код</th>
+        <th rowspan="2" class="col-name">Наименование</th>
+        <th rowspan="2" class="col-brand">Марка</th>
+        <th rowspan="2" class="col-unit">Ед</th>
+        <th rowspan="2" class="col-qty">Кол-во</th>
+        <th colspan="2" class="col-selling">Отпускная</th>
+      </tr>
+      <tr class="header-sub">
+        <th class="col-price">Цена</th>
+        <th class="col-amount">Сумма</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each operation_groups}}
+      <tr class="group-header">
+        <td colspan="8">{{name}}</td>
+      </tr>
+      {{#each lines}}
+      <tr class="item-row">
+        <td class="num">{{add @index 1}}</td>
+        <td class="num">{{item_code}}</td>
+        <td class="text">{{item_name}}</td>
+        <td class="text">{{item_brand}}</td>
+        <td class="text">{{item_unit_name}}</td>
+        <td class="num">{{quantity}}</td>
+        <td class="num">{{formatCurrency price}}</td>
+        <td class="num">{{formatCurrency amount}}</td>
+      </tr>
+      {{/each}}
+      <tr class="group-total">
+        <td colspan="5" class="text">Итого по складу: {{name}}</td>
+        <td class="num">{{total_quantity}}</td>
+        <td class="num"></td>
+        <td class="num">{{formatCurrency total_amount}}</td>
+      </tr>
+      {{/each}}
+      <tr class="grand-total">
+        <td colspan="5" class="text">Всего:</td>
+        <td class="num">{{totals.quantity}}</td>
+        <td class="num"></td>
+        <td class="num">{{formatCurrency totals.amount}}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="footer-total">
+    {{#if sale.total_with_words}}
+    Итого: {{sale.total_with_words}}
+    {{else}}
+    Итого: {{formatCurrency totals.amount}}{{#if document.currency.code_chr}} {{document.currency.code_chr}}{{/if}}
+    {{/if}}
+  </div>
+</div>

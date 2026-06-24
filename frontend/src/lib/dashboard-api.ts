@@ -1,5 +1,12 @@
 import { apiRequest } from "@/lib/api";
 import { formatDate } from "@/lib/format";
+import { currencyLabel } from "@/lib/currency-conversion";
+import type { RegosCurrencyOption, RegosPriceTypeOption } from "@/types/settings";
+
+export type DashboardCurrencyTotal = {
+  currency: RegosCurrencyOption | null;
+  amount: number;
+};
 
 export type DashboardDayPoint = {
   day: string;
@@ -25,10 +32,26 @@ export type DashboardPaymentRow = {
   code: string;
   date: number;
   amount: number | null;
+  currency: RegosCurrencyOption | null;
   category_id: number | null;
   category_name: string | null;
   payment_type_name: string | null;
   partner_name: string | null;
+  attached_user_name: string | null;
+  exchange_rate: number | null;
+};
+
+export type DashboardProductTotals = {
+  sold_quantity: number;
+  sold_purchase_cost: number;
+  sold_total: number;
+  refund_quantity: number;
+  refund_purchase_cost: number;
+  refund_total: number;
+  net_sold_quantity: number;
+  net_purchase_cost: number;
+  net_total_sells: number;
+  net_gross_profit: number;
 };
 
 export type DashboardProductRow = {
@@ -73,10 +96,38 @@ export type DashboardStats = {
   top_products: DashboardTopProduct[];
   top_partners: DashboardPartnerPoint[];
   sales_count_total: number;
+  summary_currency: RegosCurrencyOption | null;
+  has_multiple_currencies: boolean;
+  sales_by_currency: DashboardCurrencyTotal[];
+  refunds_by_currency: DashboardCurrencyTotal[];
+  net_sales_by_currency: DashboardCurrencyTotal[];
+  income_payments_by_currency: DashboardCurrencyTotal[];
+  outcome_payments_by_currency: DashboardCurrencyTotal[];
 };
 
 export type DashboardProductsPage = {
   products: DashboardProductRow[];
+  totals: DashboardProductTotals;
+  next_offset: number;
+  total: number;
+};
+
+export type DashboardPaymentsPage = {
+  income_payments: DashboardPaymentRow[];
+  outcome_payments: DashboardPaymentRow[];
+  income_payment_category_name: string | null;
+  outcome_payment_category_name: string | null;
+  income_payments_total: number;
+  outcome_payments_total: number;
+  income_total: number;
+  outcome_total: number;
+  next_offset: number;
+};
+
+export type DashboardOverview = {
+  stats: DashboardStats;
+  products: DashboardProductRow[];
+  totals: DashboardProductTotals;
   next_offset: number;
   total: number;
 };
@@ -88,6 +139,13 @@ export type DashboardCustomRange = {
   endDate: string;
 };
 
+export type DashboardCurrencyMode = "native" | "all";
+
+export type DashboardCurrencyFilter = {
+  currencyId: number;
+  mode: DashboardCurrencyMode;
+};
+
 export type DashboardQueryParams = {
   start_date?: number;
   end_date?: number;
@@ -95,12 +153,17 @@ export type DashboardQueryParams = {
   stock_ids?: number[];
   all_partners?: boolean;
   partner_ids?: number[];
+  currency_id?: number;
+  currency_mode?: DashboardCurrencyMode;
 };
 
 export const DASHBOARD_PRODUCTS_PAGE_SIZE = 50;
+export const DASHBOARD_PAYMENTS_PAGE_SIZE = 50;
 
 const DASHBOARD_STATS_TIMEOUT_MS = 60_000;
+const DASHBOARD_OVERVIEW_TIMEOUT_MS = 90_000;
 const DASHBOARD_PRODUCTS_TIMEOUT_MS = 90_000;
+const DASHBOARD_PAYMENTS_TIMEOUT_MS = 90_000;
 
 export type TranslateFn = (
   key: string,
@@ -202,21 +265,26 @@ export function formatDashboardPeriodLabel(
   return getPeriodLabel(preset, t);
 }
 
-export function resolveDashboardQueryParams(
+export function resolveDashboardPeriodParams(
   preset: DashboardPeriodPreset,
   customRange: DashboardCustomRange | null,
+): { start_date?: number; end_date?: number } {
+  if (preset === "custom" && customRange) {
+    return customRangeToTimestamps(customRange);
+  }
+  return periodToTimestamps(preset === "custom" ? "week" : preset);
+}
+
+export function resolveDashboardQueryParams(
+  period: { start_date?: number; end_date?: number },
   filters: {
     allStocks: boolean;
     stockIds: number[];
     allPartners: boolean;
     partnerIds: number[];
+    currencyFilter?: DashboardCurrencyFilter | null;
   },
 ): DashboardQueryParams {
-  const period =
-    preset === "custom" && customRange
-      ? customRangeToTimestamps(customRange)
-      : periodToTimestamps(preset === "custom" ? "week" : preset);
-
   const params: DashboardQueryParams = { ...period };
   if (filters.allStocks) {
     params.all_stocks = true;
@@ -234,7 +302,75 @@ export function resolveDashboardQueryParams(
       params.partner_ids = filters.partnerIds;
     }
   }
+  if (filters.currencyFilter) {
+    params.currency_id = filters.currencyFilter.currencyId;
+    params.currency_mode = filters.currencyFilter.mode;
+  }
   return params;
+}
+
+export function currencyFilterKey(filter: DashboardCurrencyFilter): string {
+  return `${filter.currencyId}:${filter.mode}`;
+}
+
+export function parseCurrencyFilterKey(value: string): DashboardCurrencyFilter | null {
+  const [currencyIdRaw, mode] = value.split(":");
+  const currencyId = Number(currencyIdRaw);
+  if (!Number.isInteger(currencyId) || currencyId <= 0) return null;
+  if (mode !== "native" && mode !== "all") return null;
+  return { currencyId, mode };
+}
+
+export function collectDashboardCurrencies(
+  priceTypes: RegosPriceTypeOption[],
+  defaultCurrency: RegosCurrencyOption | null,
+): RegosCurrencyOption[] {
+  const byId = new Map<number, RegosCurrencyOption>();
+  if (defaultCurrency?.id) {
+    byId.set(defaultCurrency.id, defaultCurrency);
+  }
+  for (const priceType of priceTypes) {
+    const currency = priceType.currency;
+    if (currency?.id) {
+      byId.set(currency.id, currency);
+    }
+  }
+  return Array.from(byId.values()).sort((left, right) =>
+    currencyLabel(left).localeCompare(currencyLabel(right)),
+  );
+}
+
+export function buildDashboardCurrencyFilterOptions(
+  currencies: RegosCurrencyOption[],
+  t: TranslateFn,
+): { value: string; label: string }[] {
+  const options: { value: string; label: string }[] = [];
+  for (const currency of currencies) {
+    const code = currencyLabel(currency);
+    options.push({
+      value: currencyFilterKey({ currencyId: currency.id, mode: "native" }),
+      label: t("dashboard.currencyFilter.nativeOnly", undefined, { currency: code }),
+    });
+    options.push({
+      value: currencyFilterKey({ currencyId: currency.id, mode: "all" }),
+      label: t("dashboard.currencyFilter.allOperations", undefined, { currency: code }),
+    });
+  }
+  return options;
+}
+
+export function formatDashboardCurrencyFilterLabel(
+  filter: DashboardCurrencyFilter | null,
+  currencies: RegosCurrencyOption[],
+  t: TranslateFn,
+): string {
+  if (!filter) return t("dashboard.currencyFilter.label", "Currency");
+  const currency = currencies.find((item) => item.id === filter.currencyId);
+  const code = currency ? currencyLabel(currency) : String(filter.currencyId);
+  if (filter.mode === "native") {
+    return t("dashboard.currencyFilter.nativeOnly", undefined, { currency: code });
+  }
+  return t("dashboard.currencyFilter.allOperations", undefined, { currency: code });
 }
 
 function buildDashboardSearch(
@@ -258,12 +394,32 @@ function buildDashboardSearch(
       search.append("partner_ids", String(partnerId));
     }
   }
+  if (params.currency_id !== undefined) {
+    search.set("currency_id", String(params.currency_id));
+  }
+  if (params.currency_mode) {
+    search.set("currency_mode", params.currency_mode);
+  }
   if (extra) {
     for (const [key, value] of Object.entries(extra)) {
       search.set(key, String(value));
     }
   }
   return search.toString();
+}
+
+export async function fetchDashboardOverview(
+  token: string,
+  params: DashboardQueryParams = {},
+): Promise<DashboardOverview> {
+  const qs = buildDashboardSearch(params, {
+    offset: 0,
+    limit: DASHBOARD_PRODUCTS_PAGE_SIZE,
+  });
+  return apiRequest(`/api/v1/dashboard/overview?${qs}`, {
+    token,
+    timeoutMs: DASHBOARD_OVERVIEW_TIMEOUT_MS,
+  });
 }
 
 export async function fetchDashboardStats(
@@ -293,4 +449,109 @@ export async function fetchDashboardProducts(
     token,
     timeoutMs: DASHBOARD_PRODUCTS_TIMEOUT_MS,
   });
+}
+
+export async function fetchAllDashboardProducts(
+  token: string,
+  params: DashboardQueryParams = {},
+): Promise<{ products: DashboardProductRow[]; totals: DashboardProductTotals }> {
+  const products: DashboardProductRow[] = [];
+  let offset = 0;
+  let totals: DashboardProductTotals | null = null;
+
+  while (true) {
+    const page = await fetchDashboardProducts(token, { ...params, offset });
+    if (!totals) {
+      totals = page.totals;
+    }
+    products.push(...page.products);
+    if (!page.next_offset) {
+      break;
+    }
+    offset = page.next_offset;
+  }
+
+  return {
+    products,
+    totals: totals ?? {
+      sold_quantity: 0,
+      sold_purchase_cost: 0,
+      sold_total: 0,
+      refund_quantity: 0,
+      refund_purchase_cost: 0,
+      refund_total: 0,
+      net_sold_quantity: 0,
+      net_purchase_cost: 0,
+      net_total_sells: 0,
+      net_gross_profit: 0,
+    },
+  };
+}
+
+export async function fetchDashboardPayments(
+  token: string,
+  params: DashboardQueryParams & {
+    offset?: number;
+    limit?: number;
+  } = {},
+): Promise<DashboardPaymentsPage> {
+  const { offset, limit, ...filters } = params;
+  const qs = buildDashboardSearch(filters, {
+    offset: offset ?? 0,
+    limit: limit ?? DASHBOARD_PAYMENTS_PAGE_SIZE,
+  });
+  return apiRequest(`/api/v1/dashboard/payments?${qs}`, {
+    token,
+    timeoutMs: DASHBOARD_PAYMENTS_TIMEOUT_MS,
+  });
+}
+
+export async function fetchAllDashboardPayments(
+  token: string,
+  params: DashboardQueryParams = {},
+): Promise<DashboardPaymentsPage> {
+  let incomePayments: DashboardPaymentRow[] = [];
+  let outcomePayments: DashboardPaymentRow[] = [];
+  let offset = 0;
+  let snapshot: DashboardPaymentsPage | null = null;
+
+  while (true) {
+    const page = await fetchDashboardPayments(token, { ...params, offset });
+    if (!snapshot) {
+      snapshot = page;
+    }
+    incomePayments = mergePaymentRows(incomePayments, page.income_payments);
+    outcomePayments = mergePaymentRows(outcomePayments, page.outcome_payments);
+    if (!page.next_offset) {
+      break;
+    }
+    offset = page.next_offset;
+  }
+
+  return {
+    income_payments: incomePayments,
+    outcome_payments: outcomePayments,
+    income_payment_category_name: snapshot?.income_payment_category_name ?? null,
+    outcome_payment_category_name: snapshot?.outcome_payment_category_name ?? null,
+    income_payments_total: snapshot?.income_payments_total ?? 0,
+    outcome_payments_total: snapshot?.outcome_payments_total ?? 0,
+    income_total: snapshot?.income_total ?? incomePayments.length,
+    outcome_total: snapshot?.outcome_total ?? outcomePayments.length,
+    next_offset: 0,
+  };
+}
+
+function mergePaymentRows(
+  current: DashboardPaymentRow[],
+  incoming: DashboardPaymentRow[],
+): DashboardPaymentRow[] {
+  const seen = new Set(current.map((row) => row.id));
+  const merged = [...current];
+  for (const row of incoming) {
+    if (!seen.has(row.id)) {
+      seen.add(row.id);
+      merged.push(row);
+    }
+  }
+  return merged;
 }

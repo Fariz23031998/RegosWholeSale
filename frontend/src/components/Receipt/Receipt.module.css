@@ -55,6 +55,13 @@
   font-weight: 700;
   margin-top: 6px;
 }
+.totalInWords {
+  font-size: 11px;
+  line-height: 1.4;
+  margin-top: 6px;
+  text-align: center;
+  color: var(--color-text-muted);
+}
 .debtRow {
   font-weight: 600;
   color: var(--color-warning, #b45309);

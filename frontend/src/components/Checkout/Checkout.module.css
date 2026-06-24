@@ -4,6 +4,30 @@
   padding: 0;
 }
 
+.headerPrintBtn {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.headerPrintBtn:hover:not(:disabled) {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.headerPrintBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .checkoutModal {
   display: flex;
   flex-direction: column;

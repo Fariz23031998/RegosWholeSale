@@ -107,12 +107,14 @@ class WholesaleDocument(BaseModel):
     date: int
     partner_id: int | None = None
     partner_name: str | None = None
+    partner_phone: str | None = None
     stock_id: int | None = None
     stock_name: str | None = None
     attached_user_id: int | None = None
     attached_user_name: str | None = None
     amount: float | None = None
     performed: bool = False
+    currency: RegosCurrencyOption | None = None
 
 
 class WholesalePaymentLine(BaseModel):
@@ -123,7 +125,12 @@ class WholesalePaymentLine(BaseModel):
     category_id: int | None = None
     category_name: str | None = None
     payment_type_name: str | None = None
+    partner_id: int | None = None
     partner_name: str | None = None
+    attached_user_id: int | None = None
+    attached_user_name: str | None = None
+    exchange_rate: float | None = None
+    currency: RegosCurrencyOption | None = None
 
 
 class WholesalePaymentsResponse(BaseModel):
@@ -142,6 +149,10 @@ class WholesaleOperationLine(BaseModel):
     item_id: int
     item_code: str | None = None
     item_name: str | None = None
+    item_group_id: int | None = None
+    item_group_name: str | None = None
+    item_unit_name: str | None = None
+    item_brand: str | None = None
     quantity: float
     price: float
     price2: float | None = None

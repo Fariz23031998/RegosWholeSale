@@ -13,6 +13,10 @@ import {
   type WholesaleDocument,
   type WholesaleOperationLine,
 } from "@/lib/sales-api";
+import {
+  listOperationPrice,
+  operativeOperationPrice,
+} from "@/lib/currency-conversion";
 import type { Product } from "@/types/catalog";
 import styles from "@/components/Returns/Returns.module.css";
 
@@ -24,6 +28,7 @@ type Props = {
 function operationsToCartItems(
   operations: WholesaleOperationLine[],
   catalogProducts: Product[],
+  currency: RegosCurrencyOption | null | undefined,
   t: (key: string, fallback?: string, params?: Record<string, string | number>) => string,
 ): CartItem[] {
   return operations.map((op) => {
@@ -39,7 +44,7 @@ function operationsToCartItems(
         op.item_name ??
         catalogProduct?.name ??
         t("sales.itemFallback", "Item #{{id}}", { id: op.item_id }),
-      price: op.price2 ?? op.price,
+      price: operativeOperationPrice(op.price, op.price2, currency),
       qty: op.quantity,
       image: catalogProduct?.image ?? PRODUCT_FALLBACK_IMAGE,
       unitType: catalogProduct?.unit_type ?? null,
@@ -47,15 +52,23 @@ function operationsToCartItems(
   });
 }
 
-function discountFromOperations(operations: WholesaleOperationLine[]): {
+function discountFromOperations(
+  operations: WholesaleOperationLine[],
+  currency: RegosCurrencyOption | null | undefined,
+): {
   discountMode: DiscountMode;
   discountValue: number;
 } {
   const subtotal = operations.reduce(
-    (sum, op) => sum + (op.price2 ?? op.price) * op.quantity,
+    (sum, op) =>
+      sum + listOperationPrice(op.price, op.price2, currency) * op.quantity,
     0,
   );
-  const total = operations.reduce((sum, op) => sum + op.price * op.quantity, 0);
+  const total = operations.reduce(
+    (sum, op) =>
+      sum + operativeOperationPrice(op.price, op.price2, currency) * op.quantity,
+    0,
+  );
   const discount = Math.max(0, +(subtotal - total).toFixed(2));
   if (discount <= 0) {
     return { discountMode: "percent", discountValue: 0 };
@@ -139,9 +152,12 @@ export function ContinueSaleModal({ open, onClose }: Props) {
         return;
       }
 
-      const { discountMode, discountValue } = discountFromOperations(operations);
+      const { discountMode, discountValue } = discountFromOperations(
+        operations,
+        doc.currency,
+      );
       restore({
-        items: operationsToCartItems(operations, catalogProducts, t),
+        items: operationsToCartItems(operations, catalogProducts, doc.currency, t),
         discountMode,
         discountValue,
         postponedWholesaleDocId: doc.id,

@@ -1,6 +1,9 @@
 import { apiRequest } from "@/lib/api";
 import type {
+  FirmsListResponse,
   Partner,
+  PartnerBalanceMode,
+  PartnerBalanceResponse,
   PartnerCreateRequest,
   PartnerGroupsResponse,
   PartnerUpdateRequest,
@@ -34,6 +37,10 @@ export async function fetchPartnerGroups(token: string): Promise<PartnerGroupsRe
   return apiRequest("/api/v1/regos/partner-groups", { token });
 }
 
+export async function fetchFirms(token: string): Promise<FirmsListResponse> {
+  return apiRequest("/api/v1/regos/firms", { token });
+}
+
 export async function createPartner(
   token: string,
   body: PartnerCreateRequest,
@@ -63,6 +70,36 @@ export async function deleteMarkPartner(
 ): Promise<{ row_affected: number }> {
   return apiRequest(`/api/v1/regos/partners/${partnerId}/delete-mark`, {
     method: "POST",
+    token,
+  });
+}
+
+type PartnerBalanceQuery = {
+  startDate: number;
+  endDate: number;
+  firmId?: number | null;
+  currencyId?: number | null;
+  mode?: PartnerBalanceMode;
+};
+
+export async function fetchPartnerBalance(
+  token: string,
+  partnerId: number,
+  query: PartnerBalanceQuery,
+): Promise<PartnerBalanceResponse> {
+  const params = new URLSearchParams();
+  params.set("start_date", String(query.startDate));
+  params.set("end_date", String(query.endDate));
+  if (query.firmId) {
+    params.set("firm_id", String(query.firmId));
+  }
+  if (query.currencyId) {
+    params.set("currency_id", String(query.currencyId));
+  }
+  if (query.mode === "base_currency") {
+    params.set("in_base_currency", "true");
+  }
+  return apiRequest(`/api/v1/regos/partners/${partnerId}/balance?${params.toString()}`, {
     token,
   });
 }

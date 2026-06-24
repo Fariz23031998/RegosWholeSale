@@ -1,13 +1,16 @@
 import clsx from "clsx";
-import type { ReceiptPrintContext } from "@/lib/receipt-print-context";
+import { useMemo } from "react";
+import type { DocumentPrintContext } from "@/lib/receipt-print-context";
+import { applyTemplateLineSort } from "@/lib/receipt-line-sort";
 import type { ReceiptFormat, ReceiptTemplate } from "@/types/receipt-templates";
+import { HtmlReceiptLayout } from "./HtmlReceiptLayout";
 import { InvoiceA4Layout } from "./InvoiceA4Layout";
 import { Receipt80mmLayout } from "./Receipt80mmLayout";
 import printStyles from "./ReceiptPrint.module.css";
 
 type Props = {
   template: ReceiptTemplate;
-  context: ReceiptPrintContext;
+  context: DocumentPrintContext;
   className?: string;
 };
 
@@ -16,11 +19,20 @@ export function printAreaClassName(format: ReceiptFormat): string {
 }
 
 export function TemplatedReceiptView({ template, context, className }: Props) {
-  const Layout = template.format === "a4" ? InvoiceA4Layout : Receipt80mmLayout;
+  const sortedContext = useMemo(
+    () => applyTemplateLineSort(context, template.line_sort),
+    [context, template.line_sort],
+  );
 
   return (
     <div className={clsx(printAreaClassName(template.format), className)}>
-      <Layout template={template} context={context} />
+      {template.engine === "html" ? (
+        <HtmlReceiptLayout template={template} context={sortedContext} />
+      ) : template.format === "a4" ? (
+        <InvoiceA4Layout template={template} context={sortedContext} />
+      ) : (
+        <Receipt80mmLayout template={template} context={sortedContext} />
+      )}
     </div>
   );
 }

@@ -25,6 +25,7 @@ async def test_get_seeds_default_receipt_templates(client: AsyncClient) -> None:
     assert receipt["header"]["company_name"] == "Receipt Co"
     assert receipt["is_default"] is True
     assert receipt["sections"]["partner"] is False
+    assert receipt["engine"] == "builtin"
 
     invoice = next(t for t in data["templates"] if t["format"] == "a4")
     assert invoice["invoice_title"] == "INVOICE"
@@ -59,6 +60,36 @@ async def test_patch_receipt_templates(client: AsyncClient) -> None:
     assert result["default_template_id"] == invoice["id"]
     default_tpl = next(t for t in result["templates"] if t["is_default"])
     assert default_tpl["id"] == invoice["id"]
+
+
+@pytest.mark.asyncio
+async def test_patch_receipt_template_amount_in_words_language(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client, email="receipt-words@test.com", company_name="Words Co"
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    initial = await client.get("/api/v1/company/settings/receipt-templates", headers=headers)
+    templates = initial.json()["settings"]["templates"]
+    templates[0]["amount_in_words_language"] = "ru"
+
+    patched = await client.patch(
+        "/api/v1/company/settings/receipt-templates",
+        headers=headers,
+        json={"templates": templates},
+    )
+    assert patched.status_code == 200
+    saved = patched.json()["settings"]["templates"][0]
+    assert saved["amount_in_words_language"] == "ru"
+
+    cleared = await client.patch(
+        "/api/v1/company/settings/receipt-templates",
+        headers=headers,
+        json={"templates": [{**templates[0], "amount_in_words_language": None}]},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["settings"]["templates"][0]["amount_in_words_language"] is None
 
 
 @pytest.mark.asyncio
@@ -123,3 +154,142 @@ async def test_employee_can_read_but_not_patch_receipt_templates(
         json={"default_template_id": "x"},
     )
     assert denied.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_patch_html_receipt_template_round_trip(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client, email="receipt-html@test.com", company_name="HTML Co"
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    initial = await client.get("/api/v1/company/settings/receipt-templates", headers=headers)
+    templates = initial.json()["settings"]["templates"]
+    templates.append(
+        {
+            "id": "html-template-1",
+            "name": "Custom HTML Invoice",
+            "format": "a4",
+            "engine": "html",
+            "is_default": False,
+            "header": {
+                "company_name": "HTML Co",
+                "address": "",
+                "phone": "",
+                "tax_id": "",
+            },
+            "invoice_title": "INVOICE",
+            "footer_text": "Thanks",
+            "sections": templates[0]["sections"],
+            "html": "<div>{{document.code}}</div>",
+            "css": ".invoice { color: #111; }",
+        }
+    )
+
+    patched = await client.patch(
+        "/api/v1/company/settings/receipt-templates",
+        headers=headers,
+        json={"templates": templates},
+    )
+    assert patched.status_code == 200
+    saved = next(
+        t for t in patched.json()["settings"]["templates"] if t["id"] == "html-template-1"
+    )
+    assert saved["engine"] == "html"
+    assert saved["html"] == "<div>{{document.code}}</div>"
+    assert saved["css"] == ".invoice { color: #111; }"
+
+
+@pytest.mark.asyncio
+async def test_patch_rejects_html_template_without_body(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client, email="receipt-html-empty@test.com", company_name="Empty HTML Co"
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    initial = await client.get("/api/v1/company/settings/receipt-templates", headers=headers)
+    templates = initial.json()["settings"]["templates"]
+    templates.append(
+        {
+            "id": "html-empty",
+            "name": "Broken HTML",
+            "format": "a4",
+            "engine": "html",
+            "is_default": False,
+            "header": templates[0]["header"],
+            "invoice_title": "",
+            "footer_text": "",
+            "sections": templates[0]["sections"],
+            "html": "   ",
+            "css": "",
+        }
+    )
+
+    response = await client.patch(
+        "/api/v1/company/settings/receipt-templates",
+        headers=headers,
+        json={"templates": templates},
+    )
+    assert response.status_code in (400, 422)
+
+
+@pytest.mark.asyncio
+async def test_patch_rejects_script_in_html_template(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client, email="receipt-html-script@test.com", company_name="Script Co"
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    initial = await client.get("/api/v1/company/settings/receipt-templates", headers=headers)
+    templates = initial.json()["settings"]["templates"]
+    templates[0]["engine"] = "html"
+    templates[0]["html"] = "<script>alert(1)</script><div>ok</div>"
+
+    response = await client.patch(
+        "/api/v1/company/settings/receipt-templates",
+        headers=headers,
+        json={"templates": templates},
+    )
+    assert response.status_code in (400, 422)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "markup",
+    [
+        '<img src="x" onerror="alert(1)">',
+        "<iframe src=\"https://evil.test\"></iframe>",
+        ".bad { @import url('https://evil.test/x.css'); }",
+    ],
+)
+async def test_patch_rejects_dangerous_template_markup(
+    client: AsyncClient,
+    markup: str,
+) -> None:
+    reg = await register_owner(
+        client,
+        email=f"receipt-danger-{abs(hash(markup))}@test.com",
+        company_name="Danger Co",
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    initial = await client.get("/api/v1/company/settings/receipt-templates", headers=headers)
+    templates = initial.json()["settings"]["templates"]
+    templates[0]["engine"] = "html"
+    if markup.startswith("."):
+        templates[0]["html"] = "<div>ok</div>"
+        templates[0]["css"] = markup
+    else:
+        templates[0]["html"] = markup
+        templates[0]["css"] = ""
+
+    response = await client.patch(
+        "/api/v1/company/settings/receipt-templates",
+        headers=headers,
+        json={"templates": templates},
+    )
+    assert response.status_code in (400, 422)

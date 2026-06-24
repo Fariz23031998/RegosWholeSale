@@ -5,6 +5,7 @@ import { formatCurrency, formatDateTime } from "@/lib/format";
 import {
   formatAmountWithCurrency,
   getSalePaymentState,
+  getSaleTotalWithWords,
 } from "./receipt-content";
 import styles from "./Receipt.module.css";
 
@@ -19,6 +20,7 @@ export function Receipt80mmLayout({ template, context }: Props) {
   const { sections, header, footer_text: footerText } = template;
   const { closedWithoutPayment, currenciesDiffer } = getSalePaymentState(sale);
   const docId = context.document_code ?? sale.id;
+  const totalWithWords = getSaleTotalWithWords(template, sale);
 
   return (
     <div className={styles.receipt}>
@@ -83,6 +85,9 @@ export function Receipt80mmLayout({ template, context }: Props) {
           <span>{formatAmountWithCurrency(sale.total, sale.saleCurrency)}</span>
         </div>
       )}
+      {sections.total && totalWithWords ? (
+        <div className={styles.totalInWords}>{totalWithWords}</div>
+      ) : null}
       {sections.closed_without_payment && closedWithoutPayment && (
         <div className={styles.closedWithoutPayment}>
           <div className={styles.closedWithoutPaymentTitle}>

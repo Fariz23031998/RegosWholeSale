@@ -35,3 +35,13 @@ class RegosDocPaymentSaleIdFieldResponse(BaseModel):
     configured: bool
     field: RegosCustomField | None = None
     created: bool = False
+
+
+class RegosPaymentLinkingResponse(BaseModel):
+    mode: str
+    sale_id_field_configured: bool
+    sale_id_field: RegosCustomField | None = None
+
+
+class RegosPaymentLinkingPatch(BaseModel):
+    mode: str = Field(..., pattern="^(sale_id_field|document_description)$")

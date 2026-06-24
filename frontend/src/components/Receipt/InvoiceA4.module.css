@@ -121,6 +121,13 @@
   padding-top: 8px;
 }
 
+.totalInWords {
+  font-size: 12px;
+  line-height: 1.45;
+  margin-top: 8px;
+  color: #444;
+}
+
 .debtRow {
   font-weight: 600;
   color: #b45309;

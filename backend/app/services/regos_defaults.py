@@ -260,7 +260,7 @@ async def patch_regos_defaults(
 
 async def list_reference_options(session: AsyncSession, company_id: int) -> dict[str, list[dict[str, Any]]]:
     warehouses = await _fetch_reference_options(session, company_id, "warehouse")
-    price_types = await _fetch_reference_options(session, company_id, "price_type")
+    price_types = await _enrich_price_type_options(session, company_id, "price_type")
     partners = await _fetch_reference_options(session, company_id, "partner")
     payment_categories = await _fetch_reference_options(session, company_id, "payment_category")
     refund_payment_categories = await _fetch_reference_options(
@@ -275,6 +275,21 @@ async def list_reference_options(session: AsyncSession, company_id: int) -> dict
         "refund_payment_categories": refund_payment_categories,
         "attached_users": attached_users,
     }
+
+
+async def find_price_type_for_currency(
+    session: AsyncSession,
+    company_id: int,
+    currency_id: int,
+) -> dict[str, Any] | None:
+    if currency_id <= 0:
+        return None
+    price_types = await _enrich_price_type_options(session, company_id, "price_type")
+    for price_type in price_types:
+        currency = price_type.get("currency")
+        if isinstance(currency, dict) and currency.get("id") == currency_id:
+            return price_type
+    return None
 
 
 async def enrich_checkout_defaults(
@@ -434,6 +449,25 @@ async def _resolve_reference_value(
     return _map_reference_item(items[0], kind)
 
 
+async def _enrich_price_type_options(
+    session: AsyncSession, company_id: int, kind: str
+) -> list[dict[str, Any]]:
+    price_types = await _fetch_reference_options(session, company_id, kind)
+    enriched: list[dict[str, Any]] = []
+    for price_type in price_types:
+        currency = price_type.get("currency")
+        if isinstance(currency, dict) and currency.get("exchange_rate") is not None:
+            enriched.append(price_type)
+            continue
+
+        item = await _fetch_regos_item_by_id(session, company_id, kind, price_type["id"])
+        resolved = _extract_currency_reference(item, "currency") if item else None
+        if resolved:
+            price_type = {**price_type, "currency": resolved}
+        enriched.append(price_type)
+    return enriched
+
+
 async def _fetch_reference_options(
     session: AsyncSession, company_id: int, kind: str
 ) -> list[dict[str, Any]]:
@@ -546,21 +580,18 @@ def _extract_nested_reference(item: dict[str, Any], key: str) -> dict[str, Any] 
     return {"id": option_id, "name": name.strip()}
 
 
-def _extract_currency_reference(item: dict[str, Any], key: str) -> dict[str, Any] | None:
-    nested = item.get(key)
-    if not isinstance(nested, dict):
-        return None
-    option_id = nested.get("id")
+def _map_currency_item(raw: dict[str, Any]) -> dict[str, Any] | None:
+    option_id = raw.get("id")
     if not isinstance(option_id, int) or option_id <= 0:
         return None
-    name = nested.get("name")
+    name = raw.get("name")
     if not isinstance(name, str) or not name.strip():
         name = f"#{option_id}"
     currency: dict[str, Any] = {"id": option_id, "name": name.strip()}
-    code_chr = nested.get("code_chr")
+    code_chr = raw.get("code_chr")
     if isinstance(code_chr, str) and code_chr.strip():
         currency["code_chr"] = code_chr.strip()
-    exchange_rate = nested.get("exchange_rate")
+    exchange_rate = raw.get("exchange_rate")
     if exchange_rate is not None:
         try:
             rate = float(exchange_rate)
@@ -571,13 +602,68 @@ def _extract_currency_reference(item: dict[str, Any], key: str) -> dict[str, Any
     return currency
 
 
+def _extract_currency_reference(item: dict[str, Any], key: str) -> dict[str, Any] | None:
+    nested = item.get(key)
+    if not isinstance(nested, dict):
+        return None
+    return _map_currency_item(nested)
+
+
+async def fetch_currency_items_by_ids(
+    session: AsyncSession,
+    company_id: int,
+    currency_ids: list[int],
+) -> dict[int, dict[str, Any]]:
+    unique_ids = sorted({currency_id for currency_id in currency_ids if currency_id > 0})
+    if not unique_ids:
+        return {}
+
+    response = await regos_async_api_request_for_company(
+        session,
+        company_id,
+        "currency/get",
+        {"ids": unique_ids},
+    )
+    result = response.get("result") or []
+    mapped: dict[int, dict[str, Any]] = {}
+    for row in result:
+        if not isinstance(row, dict):
+            continue
+        currency = _map_currency_item(row)
+        if currency:
+            mapped[currency["id"]] = currency
+    return mapped
+
+
+def enrich_currency_reference(
+    currency: dict[str, Any] | None,
+    rate_index: dict[int, dict[str, Any]],
+) -> dict[str, Any] | None:
+    if not isinstance(currency, dict):
+        return None
+    currency_id = currency.get("id")
+    if not isinstance(currency_id, int) or currency_id <= 0:
+        return currency
+    if currency.get("exchange_rate") is not None:
+        return currency
+    resolved = rate_index.get(currency_id)
+    if not resolved:
+        return currency
+    return {**currency, **resolved}
+
+
 def _map_reference_item(item: dict[str, Any], kind: str) -> dict[str, Any]:
     option_id = item.get("id")
     if not isinstance(option_id, int) or option_id <= 0:
         raise bad_request("Regos returned an invalid reference item.", "REGOS_REFERENCE_INVALID")
 
     name = _reference_display_name(item, kind)
-    return {"id": option_id, "name": name}
+    mapped: dict[str, Any] = {"id": option_id, "name": name}
+    if kind == "price_type":
+        currency = _extract_currency_reference(item, "currency")
+        if currency:
+            mapped["currency"] = currency
+    return mapped
 
 
 def _reference_display_name(item: dict[str, Any], kind: str) -> str:

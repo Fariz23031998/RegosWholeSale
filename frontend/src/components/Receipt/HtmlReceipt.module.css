@@ -1,0 +1,27 @@
+.htmlReceipt {
+  width: 100%;
+}
+
+.htmlFramePreview {
+  width: 100%;
+  min-height: 240px;
+  border: 0;
+  background: #fff;
+}
+
+.htmlBodyPrint {
+  display: none;
+  width: 100%;
+}
+
+@media print {
+  .htmlFramePreview {
+    display: none !important;
+  }
+
+  .htmlBodyPrint {
+    display: block !important;
+    width: 100%;
+    overflow: visible !important;
+  }
+}

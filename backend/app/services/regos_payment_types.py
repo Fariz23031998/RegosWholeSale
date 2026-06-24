@@ -5,7 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import bad_request, not_found
 from app.core.regos_api import regos_async_api_request_for_company
-from app.services.regos_defaults import _extract_currency_reference
+from app.services.regos_defaults import (
+    _extract_currency_reference,
+    enrich_currency_reference,
+    fetch_currency_items_by_ids,
+)
 
 # Regos enabled: true/1 (everywhere), backoffice/3 (backoffice); exclude frontoffice/2 and false/4.
 _APP_ALLOWED_ENABLED = {
@@ -43,6 +47,7 @@ async def list_payment_types(session: AsyncSession, company_id: int) -> dict[str
             continue
         payment_types.append(_map_payment_type(row))
     payment_types.sort(key=lambda item: (not item["is_cash"], item["name"].lower(), item["id"]))
+    await _enrich_payment_type_currencies(session, company_id, payment_types)
     return {"payment_types": payment_types}
 
 
@@ -60,8 +65,32 @@ async def get_payment_type_by_id(
     result = response.get("result") or []
     for row in result:
         if isinstance(row, dict) and row.get("id") == payment_type_id:
-            return _map_payment_type(row)
+            payment_type = _map_payment_type(row)
+            await _enrich_payment_type_currencies(session, company_id, [payment_type])
+            return payment_type
     raise not_found("Payment type not found.", "REGOS_PAYMENT_TYPE_NOT_FOUND")
+
+
+async def _enrich_payment_type_currencies(
+    session: AsyncSession,
+    company_id: int,
+    payment_types: list[dict[str, Any]],
+) -> None:
+    missing_ids: list[int] = []
+    for payment_type in payment_types:
+        currency = payment_type.get("currency")
+        if isinstance(currency, dict) and isinstance(currency.get("id"), int):
+            if currency.get("exchange_rate") is None:
+                missing_ids.append(currency["id"])
+
+    if not missing_ids:
+        return
+
+    rate_index = await fetch_currency_items_by_ids(session, company_id, missing_ids)
+    for payment_type in payment_types:
+        currency = payment_type.get("currency")
+        if isinstance(currency, dict):
+            payment_type["currency"] = enrich_currency_reference(currency, rate_index)
 
 
 def _map_payment_type(row: dict[str, Any]) -> dict[str, Any]:

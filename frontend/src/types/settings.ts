@@ -10,6 +10,10 @@ export type RegosDefaultOption = {
   name: string;
 };
 
+export type RegosPriceTypeOption = RegosDefaultOption & {
+  currency?: RegosCurrencyOption | null;
+};
+
 export type VatCalculationType = "No" | "Exclude" | "Include";
 
 export type RegosDefaults = {
@@ -44,7 +48,7 @@ export type RegosDefaultsPatchRequest = {
 
 export type RegosReferenceOptionsResponse = {
   warehouses: RegosDefaultOption[];
-  price_types: RegosDefaultOption[];
+  price_types: RegosPriceTypeOption[];
   partners: RegosDefaultOption[];
   payment_categories: RegosDefaultOption[];
   refund_payment_categories: RegosDefaultOption[];
@@ -80,6 +84,18 @@ export type RegosDocPaymentSaleIdFieldResponse = {
   configured: boolean;
   field: RegosCustomField | null;
   created?: boolean;
+};
+
+export type PaymentLinkingMode = "sale_id_field" | "document_description";
+
+export type RegosPaymentLinkingResponse = {
+  mode: PaymentLinkingMode;
+  sale_id_field_configured: boolean;
+  sale_id_field: RegosCustomField | null;
+};
+
+export type RegosPaymentLinkingPatchRequest = {
+  mode: PaymentLinkingMode;
 };
 
 export type PosSettings = {

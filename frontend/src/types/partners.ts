@@ -1,3 +1,32 @@
+import type { RegosCurrencyOption, RegosDefaultOption } from "@/types/settings";
+
+export type PartnerBalanceDocumentType = {
+  id: number;
+  name: string;
+};
+
+export type PartnerBalanceRow = {
+  id: number;
+  date: number;
+  document_code: string | null;
+  document_id: number | null;
+  document_type: PartnerBalanceDocumentType | null;
+  currency: RegosCurrencyOption | null;
+  firm: RegosDefaultOption | null;
+  exchange_rate: number | null;
+  currency_amount: number | null;
+  start_amount: number;
+  debit: number;
+  credit: number;
+  end_amount: number;
+};
+
+export type PartnerBalanceResponse = {
+  rows: PartnerBalanceRow[];
+};
+
+export type PartnerBalanceMode = "native" | "base_currency";
+
 export type PartnerLegalStatus = "Legal" | "Natural";
 
 export type Partner = {
@@ -34,6 +63,10 @@ export type PartnersListResponse = {
 
 export type PartnerGroupsResponse = {
   groups: PartnerGroup[];
+};
+
+export type FirmsListResponse = {
+  firms: Array<{ id: number; name: string }>;
 };
 
 export type PartnerCreateRequest = {

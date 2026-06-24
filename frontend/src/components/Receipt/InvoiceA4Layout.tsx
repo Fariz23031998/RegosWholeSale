@@ -5,6 +5,7 @@ import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import {
   formatAmountWithCurrency,
   getSalePaymentState,
+  getSaleTotalWithWords,
 } from "./receipt-content";
 import styles from "./InvoiceA4.module.css";
 
@@ -20,6 +21,7 @@ export function InvoiceA4Layout({ template, context }: Props) {
     template;
   const { closedWithoutPayment, currenciesDiffer } = getSalePaymentState(sale);
   const docId = context.document_code ?? sale.id;
+  const totalWithWords = getSaleTotalWithWords(template, sale);
 
   return (
     <div className={styles.invoice}>
@@ -122,6 +124,9 @@ export function InvoiceA4Layout({ template, context }: Props) {
             <span>{formatAmountWithCurrency(sale.total, sale.saleCurrency)}</span>
           </div>
         )}
+        {sections.total && totalWithWords ? (
+          <div className={styles.totalInWords}>{totalWithWords}</div>
+        ) : null}
       </div>
 
       {sections.closed_without_payment && closedWithoutPayment && (

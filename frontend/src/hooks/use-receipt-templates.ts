@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { fetchReceiptTemplates } from "@/lib/receipt-templates-api";
 import type { ReceiptTemplate } from "@/types/receipt-templates";
 import { resolveDefaultTemplate } from "@/components/Receipt/TemplatedReceiptView";
+import { normalizeReceiptTemplates } from "@/lib/receipt-template-utils";
 
 export function useReceiptTemplates(token: string | null) {
   const [templates, setTemplates] = useState<ReceiptTemplate[]>([]);
@@ -23,7 +24,7 @@ export function useReceiptTemplates(token: string | null) {
     void fetchReceiptTemplates(token)
       .then((response) => {
         if (cancelled) return;
-        setTemplates(response.settings.templates);
+        setTemplates(normalizeReceiptTemplates(response.settings.templates));
         setDefaultTemplateId(response.settings.default_template_id);
       })
       .catch(() => {

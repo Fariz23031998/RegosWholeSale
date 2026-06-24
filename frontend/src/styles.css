@@ -133,5 +133,10 @@ img { display: block; max-width: 100%; }
 
   .print-area {
     background: white;
+    overflow: visible !important;
+  }
+
+  .print-area iframe {
+    display: none !important;
   }
 }

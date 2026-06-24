@@ -7,6 +7,44 @@ function parseExchangeRate(value: number | null | undefined): number {
   return value;
 }
 
+export function currencyWithExchangeRate(
+  currency: RegosCurrencyOption | null | undefined,
+  knownCurrencies: Iterable<RegosCurrencyOption | null | undefined>,
+): RegosCurrencyOption | null {
+  if (!currency) return null;
+  if (currency.exchange_rate != null && currency.exchange_rate > 0) {
+    return currency;
+  }
+  for (const known of knownCurrencies) {
+    if (
+      known?.id === currency.id &&
+      known.exchange_rate != null &&
+      known.exchange_rate > 0
+    ) {
+      return { ...currency, exchange_rate: known.exchange_rate };
+    }
+  }
+  return currency;
+}
+
+export function collectKnownCurrencies(
+  ...groups: Array<Iterable<RegosCurrencyOption | null | undefined>>
+): RegosCurrencyOption[] {
+  const byId = new Map<number, RegosCurrencyOption>();
+  for (const group of groups) {
+    for (const currency of group) {
+      if (
+        currency?.id &&
+        currency.exchange_rate != null &&
+        currency.exchange_rate > 0
+      ) {
+        byId.set(currency.id, currency);
+      }
+    }
+  }
+  return [...byId.values()];
+}
+
 export function sameCurrency(
   a: RegosCurrencyOption | null | undefined,
   b: RegosCurrencyOption | null | undefined,
@@ -50,4 +88,20 @@ export function paymentAmountFromSaleAmount(
 export function currencyLabel(currency: RegosCurrencyOption | null | undefined): string {
   if (!currency) return "";
   return currency.code_chr?.trim() || currency.name;
+}
+
+export function operativeOperationPrice(
+  price: number,
+  price2: number | null | undefined,
+  _currency?: RegosCurrencyOption | null | undefined,
+): number {
+  return price;
+}
+
+export function listOperationPrice(
+  price: number,
+  price2: number | null | undefined,
+  _currency?: RegosCurrencyOption | null | undefined,
+): number {
+  return price2 ?? price;
 }

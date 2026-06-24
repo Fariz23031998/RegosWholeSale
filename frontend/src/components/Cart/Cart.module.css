@@ -33,6 +33,36 @@
 }
 .clear:hover { background: var(--color-danger-soft); color: var(--color-danger); }
 
+.headerActions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.printBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.printBtn:hover:not(:disabled) {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.printBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .items {
   flex: 1 1 0;
   overflow-y: auto;

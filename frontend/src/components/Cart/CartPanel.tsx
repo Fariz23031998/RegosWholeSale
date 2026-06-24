@@ -1,4 +1,4 @@
-import { Minus, Percent, Plus, ShoppingBag, ShoppingCart, Tag, X } from "lucide-react";
+import { Minus, Percent, Plus, Printer, ShoppingBag, ShoppingCart, Tag, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -19,9 +19,12 @@ import {
 } from "@/lib/cart-stock";
 import { formatCurrency } from "@/lib/format";
 import { postponeSale } from "@/lib/sales-api";
+import { buildPrintContextFromCartDraft } from "@/lib/receipt-context-builder";
+import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import { Button } from "@/components/posui/Button";
 import { CheckoutModal } from "@/components/Checkout/CheckoutModal";
 import { ContinueSaleModal } from "@/components/Cart/ContinueSaleModal";
+import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
 import { CheckoutTabs } from "./CheckoutTabs";
 import { CartLineImage } from "./CartLineImage";
 import { QtyKeypad } from "./QtyKeypad";
@@ -44,6 +47,11 @@ export function CartPanel() {
   const user = useAuth((s) => s.user);
   const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
   const checkoutOverrides = useSellContext((s) => s.checkoutOverrides);
+  const saleCurrency = useSellContext((s) => s.saleCurrency);
+  const partnerId = useSellContext((s) => s.partnerId);
+  const warehouseId = useSellContext((s) => s.warehouseId);
+  const partners = useSellContext((s) => s.options.partners);
+  const warehouses = useSellContext((s) => s.options.warehouses);
   const clearActiveTabAfterCheckout = useCheckoutTabs(
     (s) => s.clearActiveTabAfterCheckout,
   );
@@ -70,6 +78,8 @@ export function CartPanel() {
   const [continueOpen, setContinueOpen] = useState(false);
   const [postponing, setPostponing] = useState(false);
   const [postponeError, setPostponeError] = useState<string | null>(null);
+  const [printContext, setPrintContext] = useState<DocumentPrintContext | null>(null);
+  const [printError, setPrintError] = useState<string | null>(null);
   const lastAddedId = useCart((s) => s.lastAddedId);
   const lastAddedAt = useCart((s) => s.lastAddedAt);
   const seenAddRef = useRef(0);
@@ -78,6 +88,36 @@ export function CartPanel() {
     seenAddRef.current = lastAddedAt;
     if (autoOpenKeypad && lastAddedId) setKeypadFor(lastAddedId);
   }, [lastAddedAt, lastAddedId, autoOpenKeypad]);
+
+  const openDraftPrint = () => {
+    if (items.length === 0 || postponing) return;
+
+    const cartItems = items.filter((item) => item.regosItemId > 0);
+    if (cartItems.length !== items.length) {
+      setPrintError(t("cart.missingRegosIds", "Some cart items are missing Regos product ids."));
+      return;
+    }
+
+    setPrintError(null);
+    const partner = partners.find((entry) => entry.id === partnerId) ?? null;
+    const warehouse = warehouses.find((entry) => entry.id === warehouseId) ?? null;
+
+    setPrintContext(
+      buildPrintContextFromCartDraft({
+        items: cartItems,
+        totals,
+        catalogProducts,
+        saleCurrency,
+        partnerId,
+        partnerName: partner?.name ?? null,
+        stockId: warehouseId,
+        stockName: warehouse?.name ?? null,
+        cashierId: cashier?.id ?? null,
+        cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
+        wholesaleDocId: postponedWholesaleDocId,
+      }),
+    );
+  };
 
   const handlePostponeSale = async () => {
     if (!accessToken || !cashier || items.length === 0 || postponing) return;
@@ -142,11 +182,23 @@ export function CartPanel() {
             {t("cart.currentSale", "Current Sale")}{" "}
             <span className={styles.count}>{items.length}</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
+          <div className={styles.headerActions}>
             {items.length > 0 && (
-              <button className={styles.clear} onClick={clear}>
-                {t("cart.clear", "Clear")}
-              </button>
+              <>
+                <button
+                  type="button"
+                  className={styles.printBtn}
+                  onClick={openDraftPrint}
+                  disabled={postponing}
+                  aria-label={t("sales.printModalTitle", "Print sale")}
+                  title={t("sales.printModalTitle", "Print sale")}
+                >
+                  <Printer size={18} />
+                </button>
+                <button className={styles.clear} onClick={clear}>
+                  {t("cart.clear", "Clear")}
+                </button>
+              </>
             )}
             <button
               className={styles.closeBtn}
@@ -310,6 +362,7 @@ export function CartPanel() {
           <span>{formatCurrency(totals.total)}</span>
         </div>
         {postponeError && <div className={styles.postponeError}>{postponeError}</div>}
+        {printError && <div className={styles.postponeError}>{printError}</div>}
         <div className={styles.saleActions}>
           <Button
             full
@@ -347,6 +400,12 @@ export function CartPanel() {
       <ContinueSaleModal
         open={continueOpen}
         onClose={() => setContinueOpen(false)}
+      />
+      <ReceiptModal
+        context={printContext}
+        title={t("sales.printModalTitle", "Print sale")}
+        closeLabel={t("common.close", "Close")}
+        onClose={() => setPrintContext(null)}
       />
     </aside>
 

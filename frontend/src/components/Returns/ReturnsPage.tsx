@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { CalendarRange, Printer, Users, Warehouse } from "lucide-react";
+import { CalendarRange, Printer, Scale, Users, Warehouse } from "lucide-react";
+import { PartnerBalanceModal } from "@/components/POS/PartnerBalanceModal";
 import { Button } from "@/components/posui/Button";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
-import { wholesaleDocumentToPrintContext, type ReceiptPrintContext } from "@/lib/receipt-print-context";
+import { buildPrintContextFromReturn } from "@/lib/receipt-context-builder";
+import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import { DashboardPeriodModal } from "@/components/Dashboard/DashboardPeriodModal";
 import {
   DashboardPartnersModal,
@@ -15,15 +17,14 @@ import {
 } from "@/components/Dashboard/DashboardWarehousesModal";
 import { ReturnsDetailModal } from "@/components/Returns/ReturnsDetailModal";
 import { useLanguage } from "@/contexts/LanguageContext";
-import type { Sale } from "@/data/seed";
 import {
   formatDashboardPeriodLabel,
   getPeriodLabel,
   presetToCustomRange,
+  resolveDashboardPeriodParams,
   resolveDashboardQueryParams,
   type DashboardCustomRange,
   type DashboardPeriodPreset,
-  type TranslateFn,
 } from "@/lib/dashboard-api";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
@@ -48,50 +49,6 @@ type ReturnDetail = {
   payments: WholesalePaymentLine[];
 };
 
-function documentToSale(
-  doc: WholesaleReturnDocument,
-  operations: WholesaleOperationLine[],
-  payments: WholesalePaymentLine[] = [],
-  t: TranslateFn,
-): Sale {
-  const createdAt = doc.date > 0 ? new Date(doc.date * 1000).toISOString() : new Date().toISOString();
-  const items = operations.map((op) => ({
-    productId: String(op.item_id),
-    name: op.item_name ?? t("sales.itemFallback", undefined, { id: op.item_id }),
-    price: op.price,
-    qty: op.quantity,
-  }));
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const total = doc.amount ?? subtotal;
-  const amountPaid = payments.reduce((sum, payment) => sum + (payment.amount ?? 0), 0);
-  const paymentLines = payments.map((payment, index) => ({
-    paymentTypeId: payment.id || index + 1,
-    paymentTypeName: payment.payment_type_name ?? t("sales.paymentFallback"),
-    isCash: false,
-    amountPaid: payment.amount ?? 0,
-  }));
-  const primaryPayment = payments[0];
-
-  return {
-    id: doc.code || String(doc.id),
-    createdAt,
-    cashierId: doc.attached_user_id ? String(doc.attached_user_id) : "",
-    cashierName: doc.attached_user_name ?? doc.partner_name ?? "—",
-    items,
-    subtotal: +subtotal.toFixed(2),
-    discount: Math.max(0, +(subtotal - total).toFixed(2)),
-    tax: 0,
-    total: +total.toFixed(2),
-    paymentTypeId: 0,
-    paymentTypeName: primaryPayment?.payment_type_name ?? (payments.length === 0 ? "—" : t("sales.paymentFallback")),
-    isCash: false,
-    amountPaid: payments.length > 0 ? +amountPaid.toFixed(2) : undefined,
-    balanceDue: payments.length > 0 ? +Math.max(total - amountPaid, 0).toFixed(2) : undefined,
-    payments: paymentLines.length > 0 ? paymentLines : undefined,
-  };
-}
-
-
 export function ReturnsPage() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
@@ -111,18 +68,24 @@ export function ReturnsPage() {
   const [error, setError] = useState("");
   const [open, setOpen] = useState<ReturnDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
-  const [printContext, setPrintContext] = useState<ReceiptPrintContext | null>(null);
+  const [printContext, setPrintContext] = useState<DocumentPrintContext | null>(null);
   const [printingId, setPrintingId] = useState<number | null>(null);
+  const [balancePartner, setBalancePartner] = useState<{ id: number; name: string } | null>(null);
+
+  const periodParams = useMemo(
+    () => resolveDashboardPeriodParams(periodPreset, customRange),
+    [customRange, periodPreset],
+  );
 
   const queryParams = useMemo(
     () =>
-      resolveDashboardQueryParams(periodPreset, customRange, {
+      resolveDashboardQueryParams(periodParams, {
         allStocks,
         stockIds: selectedStockIds,
         allPartners,
         partnerIds: selectedPartnerIds,
       }),
-    [allPartners, allStocks, customRange, periodPreset, selectedPartnerIds, selectedStockIds],
+    [allPartners, allStocks, periodParams, allPartners ? undefined : selectedPartnerIds, allStocks ? undefined : selectedStockIds],
   );
 
   const periodModalRange = useMemo(() => {
@@ -230,8 +193,9 @@ export function ReturnsPage() {
     setError("");
     try {
       const detail = await loadReturnDetail(doc);
-      const sale = documentToSale(detail.document, detail.operations, detail.payments, t);
-      setPrintContext(wholesaleDocumentToPrintContext(detail.document, sale));
+      setPrintContext(
+        buildPrintContextFromReturn(detail.document, detail.operations, detail.payments, t),
+      );
     } catch (err: unknown) {
       setError(formatAuthError(err, t("returns.errors.loadPrint")));
     } finally {
@@ -381,19 +345,40 @@ export function ReturnsPage() {
                     {formatCurrency(doc.amount ?? 0)}
                   </td>
                   <td className={styles.printCol}>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`${t("returns.printModalTitle")} #${doc.code || doc.id}`}
-                      disabled={printingId === doc.id}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        void printDocument(doc);
-                      }}
-                    >
-                      <Printer size={16} />
-                    </Button>
+                    <div className={styles.rowActions}>
+                      {doc.partner_id ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          aria-label={t("partners.balance.view", "View balance for {{name}}", {
+                            name: doc.partner_name ?? String(doc.partner_id),
+                          })}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setBalancePartner({
+                              id: doc.partner_id!,
+                              name: doc.partner_name ?? String(doc.partner_id),
+                            });
+                          }}
+                        >
+                          <Scale size={16} />
+                        </Button>
+                      ) : null}
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`${t("returns.printModalTitle")} #${doc.code || doc.id}`}
+                        disabled={printingId === doc.id}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void printDocument(doc);
+                        }}
+                      >
+                        <Printer size={16} />
+                      </Button>
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -418,6 +403,16 @@ export function ReturnsPage() {
         closeLabel={t("common.close")}
         onClose={() => setPrintContext(null)}
       />
+
+      {balancePartner && token ? (
+        <PartnerBalanceModal
+          open
+          onClose={() => setBalancePartner(null)}
+          token={token}
+          partnerId={balancePartner.id}
+          partnerName={balancePartner.name}
+        />
+      ) : null}
     </div>
   );
 }

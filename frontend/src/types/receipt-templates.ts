@@ -1,4 +1,5 @@
 export type ReceiptFormat = "80mm" | "a4";
+export type ReceiptTemplateEngine = "builtin" | "html";
 
 export type ReceiptTemplateHeader = {
   company_name: string;
@@ -22,15 +23,48 @@ export type ReceiptTemplateSections = {
   footer: boolean;
 };
 
+export type ReceiptLineSortColumn =
+  | "document_order"
+  | "item_code"
+  | "item_name"
+  | "item_group_name"
+  | "item_brand"
+  | "item_unit_name"
+  | "quantity"
+  | "price"
+  | "amount";
+
+export type ReceiptLineSortDirection = "asc" | "desc";
+
+export type ReceiptTemplateLineSort = {
+  column: ReceiptLineSortColumn;
+  direction: ReceiptLineSortDirection;
+};
+
+export type ReceiptAmountInWordsLanguage = "ru" | "uz" | "en" | "tj";
+
 export type ReceiptTemplate = {
   id: string;
   name: string;
   format: ReceiptFormat;
+  engine: ReceiptTemplateEngine;
   is_default: boolean;
   header: ReceiptTemplateHeader;
   invoice_title: string;
   footer_text: string;
+  amount_in_words_language: ReceiptAmountInWordsLanguage | null;
   sections: ReceiptTemplateSections;
+  line_sort: ReceiptTemplateLineSort;
+  html: string;
+  css: string;
+};
+
+export type ReceiptTemplateImportPackage = {
+  version: 1;
+  template: Omit<ReceiptTemplate, "id" | "is_default"> & {
+    id?: string;
+    is_default?: boolean;
+  };
 };
 
 export type ReceiptTemplatesSettings = {
@@ -84,5 +118,21 @@ export function getReceiptSectionLabels(
     balance_due: t("receipt.sections.balance_due", "Paid & balance due"),
     closed_without_payment: t("receipt.sections.closed_without_payment", "Closed without payment"),
     footer: t("receipt.sections.footer", "Footer message"),
+  };
+}
+
+export function getReceiptLineSortColumnLabels(
+  t: TranslateFn,
+): Record<ReceiptLineSortColumn, string> {
+  return {
+    document_order: t("settings.receiptTemplates.sort.documentOrder", "Document order"),
+    item_code: t("settings.receiptTemplates.sort.itemCode", "Item code"),
+    item_name: t("settings.receiptTemplates.sort.itemName", "Item name"),
+    item_group_name: t("settings.receiptTemplates.sort.itemGroup", "Product group"),
+    item_brand: t("settings.receiptTemplates.sort.itemBrand", "Brand"),
+    item_unit_name: t("settings.receiptTemplates.sort.itemUnit", "Unit"),
+    quantity: t("settings.receiptTemplates.sort.quantity", "Quantity"),
+    price: t("settings.receiptTemplates.sort.price", "Price"),
+    amount: t("settings.receiptTemplates.sort.amount", "Amount"),
   };
 }

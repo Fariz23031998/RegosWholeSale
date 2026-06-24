@@ -4,7 +4,76 @@ import pytest
 from httpx import AsyncClient
 
 from app.services import regos_defaults as regos_defaults_service
+from app.schemas.settings import RegosReferenceOptionsResponse
+from app.services.regos_sales import (
+    operative_operation_price,
+    wholesale_operation_price_fields,
+)
 from helpers import register_owner
+
+
+def test_reference_options_response_preserves_price_type_currency() -> None:
+    response = RegosReferenceOptionsResponse(
+        price_types=[
+            {
+                "id": 23,
+                "name": "Wholesale USD",
+                "currency": {
+                    "id": 45,
+                    "name": "USD",
+                    "code_chr": "USD",
+                    "exchange_rate": 12500,
+                },
+            }
+        ]
+    )
+
+    assert response.price_types[0].currency is not None
+    assert response.price_types[0].currency.code_chr == "USD"
+    assert response.price_types[0].currency.exchange_rate == 12500
+
+
+def test_wholesale_operation_price_fields_follow_regos_api_semantics() -> None:
+    usd = {"id": 2, "name": "USD", "code_chr": "USD", "exchange_rate": 12600}
+    fields = wholesale_operation_price_fields(90.0, 100.0, currency=usd)
+    assert fields["price"] == 90.0
+    assert fields["price2"] == 100.0
+
+    uzs = {"id": 44, "name": "UZS", "code_chr": "UZS", "exchange_rate": 1}
+    fields = wholesale_operation_price_fields(90.0, 100.0, currency=uzs)
+    assert fields["price"] == 90.0
+    assert fields["price2"] == 100.0
+
+
+def test_operative_operation_price_uses_document_currency_price() -> None:
+    usd = {"id": 2, "name": "USD", "code_chr": "USD", "exchange_rate": 12600}
+    assert operative_operation_price(35.0, 35.0, usd) == 35.0
+
+
+@patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_find_price_type_for_currency(mock_regos: AsyncMock) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "id": 22,
+                "name": "Retail UZS",
+                "currency": {"id": 44, "name": "UZS", "code_chr": "UZS", "exchange_rate": 1},
+            },
+            {
+                "id": 77,
+                "name": "Wholesale USD",
+                "currency": {"id": 2, "name": "USD", "code_chr": "USD", "exchange_rate": 12600},
+            },
+        ],
+    }
+
+    matched = await regos_defaults_service.find_price_type_for_currency(None, 1, 2)
+
+    assert matched is not None
+    assert matched["id"] == 77
+    assert matched["currency"]["code_chr"] == "USD"
 
 
 @patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)

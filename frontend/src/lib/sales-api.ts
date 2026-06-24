@@ -91,12 +91,14 @@ export type WholesaleDocument = {
   date: number;
   partner_id: number | null;
   partner_name: string | null;
+  partner_phone?: string | null;
   stock_id: number | null;
   stock_name: string | null;
   attached_user_id: number | null;
   attached_user_name: string | null;
   amount: number | null;
   performed: boolean;
+  currency?: RegosCurrencyOption | null;
 };
 
 export type WholesaleDocumentsResponse = {
@@ -111,6 +113,10 @@ export type WholesaleOperationLine = {
   item_id: number;
   item_code: string | null;
   item_name: string | null;
+  item_group_id?: number | null;
+  item_group_name?: string | null;
+  item_unit_name?: string | null;
+  item_brand?: string | null;
   quantity: number;
   price: number;
   price2: number | null;
@@ -129,7 +135,12 @@ export type WholesalePaymentLine = {
   category_id: number | null;
   category_name: string | null;
   payment_type_name: string | null;
+  partner_id: number | null;
   partner_name: string | null;
+  attached_user_id: number | null;
+  attached_user_name: string | null;
+  exchange_rate: number | null;
+  currency?: RegosCurrencyOption | null;
 };
 
 export type WholesalePaymentsResponse = {

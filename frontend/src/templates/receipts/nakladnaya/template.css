@@ -1,0 +1,113 @@
+@page {
+  size: A4 portrait;
+  margin: 10mm 8mm;
+}
+
+.nakladnaya {
+  font-family: Arial, Helvetica, sans-serif;
+  font-size: 11px;
+  color: #000;
+  line-height: 1.25;
+}
+
+.doc-title {
+  text-align: center;
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0 0 10px;
+  text-transform: uppercase;
+}
+
+.buyer-block {
+  margin-bottom: 8px;
+}
+
+.buyer-line {
+  margin: 2px 0;
+}
+
+.buyer-line .label {
+  font-weight: 700;
+}
+
+.items-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.items-table th,
+.items-table td {
+  border: 1px solid #000;
+  padding: 3px 4px;
+  vertical-align: middle;
+}
+
+.items-table thead th {
+  text-align: center;
+  font-weight: 700;
+  background: #fff;
+}
+
+.col-no {
+  width: 4%;
+}
+
+.col-code {
+  width: 9%;
+}
+
+.col-name {
+  width: 34%;
+}
+
+.col-brand {
+  width: 12%;
+}
+
+.col-unit {
+  width: 6%;
+}
+
+.col-qty {
+  width: 8%;
+}
+
+.col-selling {
+  width: 18%;
+}
+
+.col-price,
+.col-amount {
+  width: 9%;
+}
+
+.group-header td {
+  font-weight: 700;
+  text-align: left;
+  background: #f5f5f5;
+}
+
+.group-total td,
+.grand-total td {
+  font-weight: 700;
+}
+
+.grand-total td {
+  border-top-width: 2px;
+}
+
+.num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.text {
+  text-align: left;
+  word-break: break-word;
+}
+
+.footer-total {
+  margin-top: 8px;
+  font-weight: 700;
+}

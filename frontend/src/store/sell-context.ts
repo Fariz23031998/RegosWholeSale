@@ -41,6 +41,15 @@ function optionId(option: RegosDefaultOption | null | undefined): number | null 
   return option?.id ?? null;
 }
 
+function saleCurrencyForPriceType(
+  priceTypeId: number | null,
+  options: RegosReferenceOptionsResponse,
+): RegosCurrencyOption | null {
+  if (!priceTypeId) return null;
+  const priceType = options.price_types.find((item) => item.id === priceTypeId);
+  return priceType?.currency ?? null;
+}
+
 export const useSellContext = create<SellContextState>((set, get) => ({
   warehouseId: null,
   priceTypeId: null,
@@ -76,7 +85,12 @@ export const useSellContext = create<SellContextState>((set, get) => ({
 
       if (canOverride) {
         const options = await fetchRegosReferenceOptions(token);
-        set({ ...next, options });
+        set({
+          ...next,
+          saleCurrency:
+            saleCurrencyForPriceType(next.priceTypeId, options) ?? defaults.currency,
+          options,
+        });
       } else {
         set({ ...next, options: EMPTY_OPTIONS });
       }
@@ -93,7 +107,14 @@ export const useSellContext = create<SellContextState>((set, get) => ({
     }
   },
   setWarehouseId: (id) => set({ warehouseId: id }),
-  setPriceTypeId: (id) => set({ priceTypeId: id }),
+  setPriceTypeId: (id) =>
+    set((state) => {
+      const resolved = saleCurrencyForPriceType(id, state.options);
+      return {
+        priceTypeId: id,
+        saleCurrency: resolved ?? (id ? state.saleCurrency : null),
+      };
+    }),
   setPartnerId: (id) => set({ partnerId: id }),
 
   refreshPartnerOptions: async (token) => {

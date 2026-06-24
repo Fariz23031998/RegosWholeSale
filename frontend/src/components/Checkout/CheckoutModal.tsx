@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Printer } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Modal } from "@/components/posui/Modal";
 import { useCart } from "@/store/cart";
@@ -13,7 +14,8 @@ import type { CheckoutResponse } from "@/lib/sales-api";
 import type { PaymentType } from "@/types/payment";
 import type { RegosCurrencyOption } from "@/types/settings";
 import type { Sale, SalePaymentLine } from "@/data/seed";
-import { saleToPrintContext, type ReceiptPrintContext } from "@/lib/receipt-print-context";
+import { buildCheckoutCartLines, buildPrintContextFromCartDraft, loadPrintContextFromCheckout } from "@/lib/receipt-context-builder";
+import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
 import {
   PaymentPanel,
@@ -43,14 +45,18 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
   const checkoutOverrides = useSellContext((s) => s.checkoutOverrides);
   const saleCurrency = useSellContext((s) => s.saleCurrency);
   const partnerId = useSellContext((s) => s.partnerId);
+  const warehouseId = useSellContext((s) => s.warehouseId);
   const partners = useSellContext((s) => s.options.partners);
+  const warehouses = useSellContext((s) => s.options.warehouses);
   const postponedWholesaleDocId = useCart((s) => s.postponedWholesaleDocId);
   const requestCatalogRefresh = useCatalog((s) => s.requestRefresh);
+  const catalogProducts = useCatalog((s) => s.products);
   const tenderedQuickAmounts = usePosConfig((s) => s.tenderedQuickAmounts);
 
   const [processing, setProcessing] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
-  const [completedContext, setCompletedContext] = useState<ReceiptPrintContext | null>(null);
+  const [draftPrintContext, setDraftPrintContext] = useState<DocumentPrintContext | null>(null);
+  const [completedContext, setCompletedContext] = useState<DocumentPrintContext | null>(null);
 
   const reset = () => {
     setProcessing(false);
@@ -61,6 +67,35 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
     if (processing) return;
     reset();
     onClose();
+  };
+
+  const openDraftPrint = () => {
+    if (processing || items.length === 0) return;
+
+    const cartItems = items.filter((item) => item.regosItemId > 0);
+    if (cartItems.length !== items.length) {
+      setCheckoutError(t("checkout.missingRegosIds", "Some cart items are missing Regos product ids."));
+      return;
+    }
+
+    const partner = partners.find((entry) => entry.id === partnerId) ?? null;
+    const warehouse = warehouses.find((entry) => entry.id === warehouseId) ?? null;
+
+    setDraftPrintContext(
+      buildPrintContextFromCartDraft({
+        items: cartItems,
+        totals,
+        catalogProducts,
+        saleCurrency,
+        partnerId,
+        partnerName: partner?.name ?? null,
+        stockId: warehouseId,
+        stockName: warehouse?.name ?? null,
+        cashierId: cashier?.id ?? null,
+        cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
+        wholesaleDocId: postponedWholesaleDocId,
+      }),
+    );
   };
 
   const buildSalePaymentLines = (
@@ -189,16 +224,34 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
           }
         : buildSaleFromResponse(paymentType, result, payload);
 
-      const partnerName = partners.find((partner) => partner.id === partnerId)?.name ?? null;
+      const partner = partners.find((entry) => entry.id === partnerId) ?? null;
+      const warehouse = warehouses.find((entry) => entry.id === warehouseId) ?? null;
+      const cartLines = buildCheckoutCartLines(cartItems, catalogProducts);
+      const documentExtras = {
+        partnerId,
+        partnerName: partner?.name ?? null,
+        stockId: warehouseId,
+        stockName: warehouse?.name ?? null,
+        saleCurrency: result.payment.sale_currency ?? saleCurrency,
+        cashierId: cashier?.id ?? null,
+        cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
+      };
       clearCart();
       clearActiveTabAfterCheckout();
       requestCatalogRefresh();
-      setCompletedContext(
-        saleToPrintContext(sale, {
-          partner_name: partnerName,
-          document_code: result.wholesale_code,
-        }),
+      const printContext = await loadPrintContextFromCheckout(
+        accessToken,
+        {
+          result,
+          sale,
+          cartLines,
+          documentExtras,
+        },
+        [],
+        t("checkout.paymentFallback", "Payment"),
+        t,
       );
+      setCompletedContext(printContext);
       reset();
       onClose();
     } catch (err: unknown) {
@@ -217,6 +270,18 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
         overlayClassName={styles.checkoutOverlay}
         modalClassName={styles.checkoutModal}
         bodyClassName={styles.checkoutBody}
+        headerActions={
+          <button
+            type="button"
+            className={styles.headerPrintBtn}
+            onClick={openDraftPrint}
+            disabled={processing || items.length === 0}
+            aria-label={t("sales.printModalTitle", "Print sale")}
+            title={t("sales.printModalTitle", "Print sale")}
+          >
+            <Printer size={18} />
+          </button>
+        }
       >
         <div className={styles.checkoutInner}>
           <div className={styles.checkoutScroll}>
@@ -244,8 +309,13 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
       </Modal>
 
       <ReceiptModal
-        context={completedContext}
-        onClose={() => setCompletedContext(null)}
+        context={draftPrintContext ?? completedContext}
+        title={draftPrintContext ? t("sales.printModalTitle", "Print sale") : undefined}
+        closeLabel={draftPrintContext ? t("common.close", "Close") : undefined}
+        onClose={() => {
+          setDraftPrintContext(null);
+          setCompletedContext(null);
+        }}
       />
     </>
   );

@@ -1,7 +1,8 @@
 import clsx from "clsx";
-import { ArrowLeft, Pencil, Plus, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, Scale, Search, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { PartnerBalanceModal } from "@/components/POS/PartnerBalanceModal";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { formatAuthError } from "@/store/auth";
@@ -51,6 +52,7 @@ export function PartnerPickerModal({
   const [error, setError] = useState("");
   const [editingPartner, setEditingPartner] = useState<Partner | null>(null);
   const [form, setForm] = useState<PartnerFormValues>(EMPTY_PARTNER_FORM);
+  const [balancePartner, setBalancePartner] = useState<Partner | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -294,6 +296,16 @@ export function PartnerPickerModal({
                     <button
                       type="button"
                       className={styles.partnerModalItemAction}
+                      aria-label={t("partners.balance.view", "View balance for {{name}}", {
+                        name: partner.name,
+                      })}
+                      onClick={() => setBalancePartner(partner)}
+                    >
+                      <Scale size={14} />
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.partnerModalItemAction}
                       aria-label={`${t("common.edit", "Edit")} ${partner.name}`}
                       onClick={() => void openEditForm(partner)}
                     >
@@ -493,6 +505,15 @@ export function PartnerPickerModal({
           </div>
         </form>
       )}
+      {balancePartner ? (
+        <PartnerBalanceModal
+          open={Boolean(balancePartner)}
+          onClose={() => setBalancePartner(null)}
+          token={token}
+          partnerId={balancePartner.id}
+          partnerName={balancePartner.name}
+        />
+      ) : null}
     </Modal>
   );
 }

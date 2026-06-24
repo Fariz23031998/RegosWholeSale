@@ -84,10 +84,17 @@
 }
 
 .printCol {
-  width: 52px;
+  width: 96px;
   text-align: center;
   padding-left: 8px;
   padding-right: 8px;
+}
+
+.rowActions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
 }
 
 .printHost {

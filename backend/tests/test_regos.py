@@ -292,6 +292,72 @@ async def test_payment_types_route_returns_regos_payment_types(
     assert call_args[0][3] == {}
 
 
+@patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
+@patch("app.services.regos_payment_types.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_payment_types_enrich_missing_currency_exchange_rates(
+    mock_payment_regos: AsyncMock,
+    mock_currency_regos: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_payment_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "id": 7,
+                "name": "Rubl",
+                "is_cash": True,
+                "enabled": True,
+                "image_url": "",
+                "account": {
+                    "id": 12,
+                    "name": "RUB account",
+                    "currency": {
+                        "id": 3,
+                        "name": "Rubl",
+                        "code_chr": "R",
+                    },
+                },
+            },
+        ],
+    }
+    mock_currency_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "id": 3,
+                "name": "Rubl",
+                "code_chr": "R",
+                "exchange_rate": 160.53,
+            },
+        ],
+    }
+
+    reg = await register_owner(client, email="payments-fx@test.com", company_name="Payments FX Co")
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await client.put(
+        "/api/v1/regos/tokens",
+        headers=headers,
+        json={"token": REGOS_TOKEN, "is_replicable": False},
+    )
+
+    response = await client.get("/api/v1/regos/payment-types", headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["payment_types"]) == 1
+    assert data["payment_types"][0]["currency"]["code_chr"] == "R"
+    assert data["payment_types"][0]["currency"]["exchange_rate"] == 160.53
+
+    mock_payment_regos.assert_called_once()
+    assert mock_payment_regos.call_args[0][2] == "paymenttype/get"
+    mock_currency_regos.assert_called_once()
+    assert mock_currency_regos.call_args[0][2] == "currency/get"
+    assert mock_currency_regos.call_args[0][3] == {"ids": [3]}
+
+
 @patch("app.services.regos_partners.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_partners_route_lists_and_searches(mock_regos: AsyncMock, client: AsyncClient) -> None:
@@ -392,6 +458,151 @@ async def test_partners_create_edit_delete_mark(mock_regos: AsyncMock, client: A
     assert mock_regos.call_args_list[0][0][2] == "partner/add"
     assert mock_regos.call_args_list[1][0][2] == "partner/edit"
     assert mock_regos.call_args_list[2][0][2] == "partner/deletemark"
+
+
+@patch(
+    "app.services.regos_partner_balance.regos_async_api_request_for_company",
+    new_callable=AsyncMock,
+)
+@pytest.mark.asyncio
+async def test_partner_balance_route(mock_regos: AsyncMock, client: AsyncClient) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "id": 41,
+                "date": 1581404315,
+                "document_code": "2020-0000021",
+                "document_id": 1,
+                "start_amount": 0.0,
+                "debit": 2558.0,
+                "credit": 0.0,
+                "currency": {
+                    "id": 2,
+                    "name": "Dollar",
+                    "code_chr": "USD",
+                    "exchange_rate": 12500.0,
+                },
+                "firm": {"id": 4, "name": "ROFEY TECHNOLOGIES"},
+                "document_type": {"id": 9, "name": "Payments"},
+            }
+        ],
+    }
+
+    reg = await register_owner(client, email="partner-balance@test.com", company_name="Balance Co")
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await client.put(
+        "/api/v1/regos/tokens",
+        headers=headers,
+        json={"token": REGOS_TOKEN, "is_replicable": False},
+    )
+
+    response = await client.get(
+        "/api/v1/regos/partners/7/balance",
+        headers=headers,
+        params={
+            "start_date": 1735689600,
+            "end_date": 1767225599,
+            "firm_id": 4,
+            "currency_id": 2,
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["rows"]) == 1
+    row = data["rows"][0]
+    assert row["document_code"] == "2020-0000021"
+    assert row["debit"] == 2558.0
+    assert row["end_amount"] == 2558.0
+    assert row["currency"]["id"] == 2
+    assert row["firm"]["name"] == "ROFEY TECHNOLOGIES"
+
+    mock_regos.assert_called_once()
+    assert mock_regos.call_args[0][2] == "partnerbalance/get"
+    payload = mock_regos.call_args[0][3]
+    assert payload["partner_id"] == 7
+    assert payload["firm_id"] == 4
+    assert payload["currency_id"] == 2
+
+    mock_regos.reset_mock()
+    mock_regos.return_value = {"ok": True, "result": []}
+
+    base_response = await client.get(
+        "/api/v1/regos/partners/7/balance",
+        headers=headers,
+        params={
+            "start_date": 1735689600,
+            "end_date": 1767225599,
+            "in_base_currency": True,
+        },
+    )
+    assert base_response.status_code == 200
+    assert mock_regos.call_args[0][2] == "partnerbalance/getinbasecurrency"
+    assert "currency_id" not in mock_regos.call_args[0][3]
+
+
+def test_partner_balance_end_amount_formula() -> None:
+    from app.services.regos_partner_balance import _map_balance_row
+
+    shipment = _map_balance_row(
+        {
+            "id": 1,
+            "date": 1,
+            "start_amount": -2_468_910.91,
+            "debit": 26_970.0,
+            "credit": 0.0,
+        }
+    )
+    assert shipment["end_amount"] == -2_441_940.91
+
+    payment = _map_balance_row(
+        {
+            "id": 2,
+            "date": 2,
+            "start_amount": -2_441_940.91,
+            "debit": 0.0,
+            "credit": 10_000.0,
+            "document_code": "2026-0000160",
+        }
+    )
+    assert payment["end_amount"] == -2_451_940.91
+
+
+@patch("app.services.regos_firms.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_firms_route_lists_enterprises(mock_regos: AsyncMock, client: AsyncClient) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {"id": 1, "name": "REGOS", "deleted_mark": False},
+            {"id": 4, "name": "ROFEY TECHNOLOGIES", "deleted_mark": False},
+        ],
+    }
+
+    reg = await register_owner(client, email="firms@test.com", company_name="Firms Co")
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await client.put(
+        "/api/v1/regos/tokens",
+        headers=headers,
+        json={"token": REGOS_TOKEN, "is_replicable": False},
+    )
+
+    response = await client.get("/api/v1/regos/firms", headers=headers)
+
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["firms"]) == 2
+    assert data["firms"][0]["name"] == "REGOS"
+    assert data["firms"][1]["id"] == 4
+
+    mock_regos.assert_called_once()
+    assert mock_regos.call_args[0][2] == "firm/get"
+    assert mock_regos.call_args[0][3]["deleted_mark"] is False
 
 
 @patch("app.services.regos_products.regos_async_api_request_for_company", new_callable=AsyncMock)
@@ -848,6 +1059,38 @@ async def test_payment_category_reference_request_includes_positive(
 
 @patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
+async def test_price_type_reference_options_include_currency(mock_regos: AsyncMock) -> None:
+    mock_regos.side_effect = [
+        {"ok": True, "result": []},
+        {
+            "ok": True,
+            "result": [
+                {
+                    "id": 22,
+                    "name": "Retail",
+                    "currency": {"id": 44, "name": "UZS", "code_chr": "UZS", "exchange_rate": 1},
+                },
+                {
+                    "id": 23,
+                    "name": "Wholesale USD",
+                    "currency": {"id": 45, "name": "USD", "code_chr": "USD", "exchange_rate": 12500},
+                },
+            ],
+        },
+        {"ok": True, "result": []},
+        {"ok": True, "result": []},
+        {"ok": True, "result": []},
+        {"ok": True, "result": []},
+    ]
+
+    options = await regos_defaults_service.list_reference_options(None, 1)
+
+    assert options["price_types"][0]["currency"]["code_chr"] == "UZS"
+    assert options["price_types"][1]["currency"]["exchange_rate"] == 12500
+
+
+@patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
 async def test_get_doc_wholesale_document_type_id(mock_regos: AsyncMock) -> None:
     mock_regos.return_value = {
         "ok": True,
@@ -1126,3 +1369,83 @@ async def test_create_doc_payment_sale_id_field(
         "data_type": "string",
         "required": False,
     }
+
+
+@patch(
+    "app.services.regos_payment_linking.regos_fields_service.get_doc_payment_sale_id_field_status",
+    new_callable=AsyncMock,
+)
+@pytest.mark.asyncio
+async def test_get_payment_linking_defaults_to_document_description(
+    mock_sale_id_status: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_sale_id_status.return_value = {"configured": False, "field": None, "created": False}
+
+    reg = await register_owner(client, email="plink-get@test.com", company_name="PLink Get Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    response = await client.get("/api/v1/regos/payment-linking", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "document_description"
+    assert data["sale_id_field_configured"] is False
+
+
+@patch(
+    "app.services.regos_payment_linking.regos_fields_service.get_doc_payment_sale_id_field_status",
+    new_callable=AsyncMock,
+)
+@pytest.mark.asyncio
+async def test_patch_payment_linking_rejects_sale_id_field_without_field(
+    mock_sale_id_status: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_sale_id_status.return_value = {"configured": False, "field": None, "created": False}
+
+    reg = await register_owner(client, email="plink-patch@test.com", company_name="PLink Patch Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    response = await client.patch(
+        "/api/v1/regos/payment-linking",
+        headers=headers,
+        json={"mode": "sale_id_field"},
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "PAYMENT_LINKING_SALE_ID_FIELD_REQUIRED"
+
+
+@patch(
+    "app.services.regos_payment_linking.regos_fields_service.get_doc_payment_sale_id_field_status",
+    new_callable=AsyncMock,
+)
+@pytest.mark.asyncio
+async def test_patch_payment_linking_sale_id_field_mode(
+    mock_sale_id_status: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_sale_id_status.return_value = {
+        "configured": True,
+        "field": {
+            "id": 901,
+            "key": "field_sale_id",
+            "name": "Sale ID",
+            "entity_type": "DocPayment",
+            "data_type": "string",
+        },
+        "created": False,
+    }
+
+    reg = await register_owner(client, email="plink-set@test.com", company_name="PLink Set Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    response = await client.patch(
+        "/api/v1/regos/payment-linking",
+        headers=headers,
+        json={"mode": "sale_id_field"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "sale_id_field"
+    assert data["sale_id_field_configured"] is True
+    assert data["sale_id_field"]["key"] == "field_sale_id"

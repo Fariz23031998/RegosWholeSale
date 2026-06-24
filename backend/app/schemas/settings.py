@@ -25,6 +25,10 @@ class RegosCurrencyOption(BaseModel):
     exchange_rate: float | None = Field(default=None, gt=0)
 
 
+class RegosPriceTypeOption(RegosDefaultOption):
+    currency: RegosCurrencyOption | None = None
+
+
 class RegosDefaults(BaseModel):
     warehouse: RegosDefaultOption | None = None
     price_type: RegosDefaultOption | None = None
@@ -57,7 +61,7 @@ class RegosDefaultsPatchRequest(BaseModel):
 
 class RegosReferenceOptionsResponse(BaseModel):
     warehouses: list[RegosDefaultOption] = Field(default_factory=list)
-    price_types: list[RegosDefaultOption] = Field(default_factory=list)
+    price_types: list[RegosPriceTypeOption] = Field(default_factory=list)
     partners: list[RegosDefaultOption] = Field(default_factory=list)
     payment_categories: list[RegosDefaultOption] = Field(default_factory=list)
     refund_payment_categories: list[RegosDefaultOption] = Field(default_factory=list)

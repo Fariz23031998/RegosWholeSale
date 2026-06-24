@@ -4,9 +4,12 @@ import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/posui/Button";
 import { formatAuthError } from "@/store/auth";
+import { useSellContext } from "@/store/sell-context";
 import { formatCurrency } from "@/lib/format";
 import {
+  collectKnownCurrencies,
   currencyLabel,
+  currencyWithExchangeRate,
   paymentAmountFromSaleAmount,
   sameCurrency,
 } from "@/lib/currency-conversion";
@@ -65,6 +68,7 @@ export function PaymentPanel({
   const { t } = useLanguage();
   const labels = paymentPanelLabels(mode, t);
   const totals = useMemo(() => ({ total }), [total]);
+  const priceTypes = useSellContext((s) => s.options.price_types);
 
   const [paymentTypes, setPaymentTypes] = useState<PaymentType[]>([]);
   const [typesLoading, setTypesLoading] = useState(false);
@@ -75,6 +79,7 @@ export function PaymentPanel({
   const [splitPayment, setSplitPayment] = useState(false);
   const [paymentLines, setPaymentLines] = useState<PaymentLineState[]>([]);
   const lineKeyRef = useRef(0);
+  const prevPaymentCurrencyIdRef = useRef<number | null>(null);
   const nextLineKey = () => {
     lineKeyRef.current += 1;
     return String(lineKeyRef.current);
@@ -86,8 +91,21 @@ export function PaymentPanel({
   );
 
   const paymentCurrency = selected?.currency ?? null;
-  const currenciesDiffer = Boolean(selected && !sameCurrency(saleCurrency, paymentCurrency));
-  const paymentCurrencyCode = currencyLabel(paymentCurrency);
+  const knownCurrencies = useMemo(
+    () =>
+      collectKnownCurrencies(
+        [saleCurrency],
+        priceTypes.map((priceType) => priceType.currency),
+        paymentTypes.map((type) => type.currency),
+      ),
+    [saleCurrency, priceTypes, paymentTypes],
+  );
+  const resolvedPaymentCurrency = useMemo(
+    () => currencyWithExchangeRate(paymentCurrency, knownCurrencies),
+    [paymentCurrency, knownCurrencies],
+  );
+  const currenciesDiffer = Boolean(selected && !sameCurrency(saleCurrency, resolvedPaymentCurrency));
+  const paymentCurrencyCode = currencyLabel(resolvedPaymentCurrency);
 
   const tenderedNum = parseFloat(tendered) || 0;
   const debtAmountNum = parseFloat(debtAmount) || 0;
@@ -98,21 +116,21 @@ export function PaymentPanel({
         tenderedNum,
         debtAmountNum,
         saleCurrency,
-        paymentCurrency,
+        resolvedPaymentCurrency,
       )
     : 0;
   const balanceDue = Math.max(0, total - amountPaid);
   const totalInPaymentCurrency = currenciesDiffer
-    ? paymentAmountFromSaleAmount(total, saleCurrency, paymentCurrency)
+    ? paymentAmountFromSaleAmount(total, saleCurrency, resolvedPaymentCurrency)
     : total;
   const amountPaidInPaymentCurrency = currenciesDiffer
-    ? paymentAmountFromSaleAmount(amountPaid, saleCurrency, paymentCurrency)
+    ? paymentAmountFromSaleAmount(amountPaid, saleCurrency, resolvedPaymentCurrency)
     : amountPaid;
   const changeInPaymentCurrency = currenciesDiffer
     ? Math.max(0, tenderedNum - totalInPaymentCurrency)
     : Math.max(0, tenderedNum - total);
   const changeInSaleCurrency = currenciesDiffer
-    ? paymentLineAmountInSaleCurrency(changeInPaymentCurrency, paymentCurrency, saleCurrency)
+    ? paymentLineAmountInSaleCurrency(changeInPaymentCurrency, resolvedPaymentCurrency, saleCurrency)
     : changeInPaymentCurrency;
   const closingWithoutPayment = isClosingWithoutPayment(amountPaid);
   const isPartialPayment = amountPaid > 0.009 && balanceDue > 0.009;
@@ -143,9 +161,10 @@ export function PaymentPanel({
       const type = paymentTypes.find((t) => t.id === line.paymentTypeId);
       if (!type) return sum;
       const amountNum = parseFloat(line.amount) || 0;
-      return sum + paymentLineAmountInSaleCurrency(amountNum, type.currency, saleCurrency);
+      const lineCurrency = currencyWithExchangeRate(type.currency, knownCurrencies);
+      return sum + paymentLineAmountInSaleCurrency(amountNum, lineCurrency, saleCurrency);
     }, 0);
-  }, [splitPayment, paymentLines, paymentTypes, saleCurrency]);
+  }, [splitPayment, paymentLines, paymentTypes, saleCurrency, knownCurrencies]);
 
   const splitBalanceDue = Math.max(0, total - splitPaidInSaleCurrency);
   const splitClosingWithoutPayment = splitPayment && isClosingWithoutPayment(splitPaidInSaleCurrency);
@@ -208,8 +227,23 @@ export function PaymentPanel({
       setDebtAmount("0");
       setSplitPayment(false);
       setPaymentLines([]);
+      prevPaymentCurrencyIdRef.current = null;
     }
   }, [active]);
+
+  useEffect(() => {
+    if (!selected) return;
+
+    const currencyId = paymentCurrency?.id ?? null;
+    if (
+      prevPaymentCurrencyIdRef.current !== null &&
+      prevPaymentCurrencyIdRef.current !== currencyId
+    ) {
+      setTendered("");
+      setDebtAmount("0");
+    }
+    prevPaymentCurrencyIdRef.current = currencyId;
+  }, [selectedId, paymentCurrency?.id, selected]);
 
   const enableSplitPayment = () => {
     const typeId = selectedId ?? paymentTypes[0]?.id ?? 0;
@@ -223,7 +257,7 @@ export function PaymentPanel({
       initialAmount = remainingBalanceInPaymentCurrency(
         total,
         saleCurrency,
-        type?.currency,
+        currencyWithExchangeRate(type?.currency, knownCurrencies),
       ).toFixed(2);
     }
     setPaymentLines([{ key: nextLineKey(), paymentTypeId: typeId, amount: initialAmount }]);
@@ -251,7 +285,7 @@ export function PaymentPanel({
     const amount = remainingBalanceInPaymentCurrency(
       splitBalanceDue,
       saleCurrency,
-      type?.currency,
+      currencyWithExchangeRate(type?.currency, knownCurrencies),
     ).toFixed(2);
     setPaymentLines((lines) => [
       ...lines,
@@ -284,7 +318,11 @@ export function PaymentPanel({
         return {
           payment_type_id: line.paymentTypeId,
           amount_paid: type
-            ? paymentLineAmountInSaleCurrency(amountNum, type.currency, saleCurrency)
+            ? paymentLineAmountInSaleCurrency(
+                amountNum,
+                currencyWithExchangeRate(type.currency, knownCurrencies),
+                saleCurrency,
+              )
             : 0,
         };
       });
@@ -303,7 +341,7 @@ export function PaymentPanel({
         tenderedNum,
         debtAmountNum,
         saleCurrency,
-        paymentCurrency,
+        resolvedPaymentCurrency,
       );
     return {
       payment_type_id: selected.id,
@@ -331,14 +369,14 @@ export function PaymentPanel({
     ? labels.closeWithout
     : displayIsPartialPayment
       ? splitPayment
-        ? `${labels.charge} ${formatCurrency(displayAmountPaid)} · Due ${formatCurrency(displayBalanceDue)}`
+        ? `${labels.charge} ${formatAmountWithCurrency(displayAmountPaid, saleCurrency)} · Due ${formatAmountWithCurrency(displayBalanceDue, saleCurrency)}`
         : currenciesDiffer
-          ? `${labels.charge} ${formatAmountWithCurrency(amountPaidInPaymentCurrency, paymentCurrency)} · Due ${formatCurrency(balanceDue)}`
+          ? `${labels.charge} ${formatAmountWithCurrency(amountPaidInPaymentCurrency, resolvedPaymentCurrency)} · Due ${formatAmountWithCurrency(balanceDue, saleCurrency)}`
           : `${labels.charge} ${formatCurrency(amountPaid)} · Due ${formatCurrency(balanceDue)}`
       : splitPayment
         ? `${labels.charge} ${formatCurrency(Math.min(displayAmountPaid, total))}`
         : currenciesDiffer
-          ? `${labels.charge} ${formatAmountWithCurrency(totalInPaymentCurrency, paymentCurrency)}`
+          ? `${labels.charge} ${formatAmountWithCurrency(totalInPaymentCurrency, resolvedPaymentCurrency)}`
           : `${labels.charge} ${formatCurrency(total)}`;
 
   const processingLabel = displayClosingWithoutPayment
@@ -350,7 +388,7 @@ export function PaymentPanel({
       {currenciesDiffer && selected && !splitPayment && (
         <div className={styles.balanceDue}>
           <span>{t("checkout.payInCurrency", "Pay in {{currency}}", { currency: paymentCurrencyCode })}</span>
-          <span>{formatAmountWithCurrency(totalInPaymentCurrency, paymentCurrency)}</span>
+          <span>{formatAmountWithCurrency(totalInPaymentCurrency, resolvedPaymentCurrency)}</span>
         </div>
       )}
 
@@ -358,7 +396,8 @@ export function PaymentPanel({
         <div className={styles.noPaymentNotice}>
           <div className={styles.noPaymentTitle}>{labels.noPaymentNotice}</div>
           <div className={styles.debtDescription}>
-            {labels.noPaymentDescription} <strong>{formatCurrency(total)}</strong>.
+            {labels.noPaymentDescription}{" "}
+            <strong>{formatAmountWithCurrency(total, saleCurrency)}</strong>.
           </div>
         </div>
       )}
@@ -366,7 +405,7 @@ export function PaymentPanel({
       {displayIsPartialPayment && (selected || splitPayment) && (
         <div className={styles.balanceDue}>
           <span>{t("checkout.balanceDue", "Balance due")}</span>
-          <span>{formatCurrency(displayBalanceDue)}</span>
+          <span>{formatAmountWithCurrency(displayBalanceDue, saleCurrency)}</span>
         </div>
       )}
 
@@ -432,7 +471,10 @@ export function PaymentPanel({
               {paymentLines.map((line) => {
                 const lineType =
                   paymentTypes.find((t) => t.id === line.paymentTypeId) ?? paymentTypes[0];
-                const lineCurrency = lineType?.currency ?? null;
+                const lineCurrency = currencyWithExchangeRate(
+                  lineType?.currency ?? null,
+                  knownCurrencies,
+                );
                 const lineCurrenciesDiffer = Boolean(
                   lineType && !sameCurrency(saleCurrency, lineCurrency),
                 );
@@ -451,6 +493,7 @@ export function PaymentPanel({
                         onChange={(e) =>
                           updatePaymentLine(line.key, {
                             paymentTypeId: Number(e.target.value),
+                            amount: "",
                           })
                         }
                         disabled={processing}
@@ -540,7 +583,7 @@ export function PaymentPanel({
                 {splitBalanceDue > 0.009 && (
                   <div className={styles.balanceDue}>
                     <span>{t("checkout.remaining", "Remaining")}</span>
-                    <span>{formatCurrency(splitBalanceDue)}</span>
+                    <span>{formatAmountWithCurrency(splitBalanceDue, saleCurrency)}</span>
                   </div>
                 )}
               </div>
@@ -640,7 +683,7 @@ export function PaymentPanel({
                       <span>{labels.payingNow}</span>
                       <span>
                         {currenciesDiffer
-                          ? formatAmountWithCurrency(amountPaidInPaymentCurrency, paymentCurrency)
+                          ? formatAmountWithCurrency(amountPaid, saleCurrency)
                           : formatCurrency(amountPaid)}
                       </span>
                     </div>
@@ -737,7 +780,8 @@ export function PaymentPanel({
         {showCloseSecondary && (
           <>
             <p className={styles.closeWithoutPaymentHint}>
-              {labels.noPaymentDescription} <strong>{formatCurrency(total)}</strong>.
+              {labels.noPaymentDescription}{" "}
+            <strong>{formatAmountWithCurrency(total, saleCurrency)}</strong>.
             </p>
             <Button
               full

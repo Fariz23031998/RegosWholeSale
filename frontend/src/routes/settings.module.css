@@ -161,6 +161,19 @@
   margin-bottom: var(--space-3);
 }
 
+.settingsNavLink {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  text-decoration: none;
+  color: inherit;
+}
+
+.settingsNavLink:hover .rowTitle {
+  color: var(--color-primary);
+}
+
 .switch {
   position: relative;
   display: inline-block;

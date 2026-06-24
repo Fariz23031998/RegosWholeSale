@@ -388,6 +388,317 @@
   color: var(--color-text);
 }
 
+.partnerBalanceOverlay {
+  z-index: 110;
+}
+
+.partnerBalanceBody {
+  padding: var(--space-4) var(--space-5);
+}
+
+.partnerBalanceSubtitle {
+  margin: 0 0 var(--space-4);
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.partnerBalanceToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.partnerBalanceFilter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.partnerBalanceFilter select {
+  min-width: 160px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+}
+
+.partnerBalanceRefresh {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.partnerBalanceRefresh:hover:not(:disabled) {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.partnerBalanceRefresh:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.partnerBalanceSpin {
+  animation: partnerBalanceSpin 0.8s linear infinite;
+}
+
+@keyframes partnerBalanceSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.partnerBalanceTabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.partnerBalanceTab {
+  padding: 10px 14px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.partnerBalanceTab:hover {
+  color: var(--color-text);
+}
+
+.partnerBalanceTabActive {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+  font-weight: 500;
+}
+
+.partnerBalanceTableWrap {
+  overflow: auto;
+  max-height: min(55vh, 520px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.partnerBalanceTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.partnerBalanceTable th,
+.partnerBalanceTable td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.partnerBalanceTable th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--color-surface-2);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.partnerBalanceNum {
+  text-align: right !important;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.partnerBalanceGroupRow {
+  background: var(--color-surface-2);
+  font-weight: 600;
+}
+
+.partnerBalanceGroupRow td {
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 80%, var(--color-text) 20%);
+}
+
+.partnerBalanceGroupLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.partnerBalanceGroupToggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.partnerBalanceGroupToggle:hover {
+  background: color-mix(in srgb, var(--color-surface) 70%, var(--color-text) 5%);
+  color: var(--color-text);
+}
+
+.partnerBalanceEmpty {
+  text-align: center;
+  padding: 24px 12px !important;
+  color: var(--color-text-muted);
+}
+
+.partnerBalanceModal {
+  max-height: min(92dvh, calc(100dvh - env(safe-area-inset-top, 0px) - 16px));
+}
+
+@media (max-width: 900px) {
+  .partnerBalanceOverlay {
+    align-items: flex-start;
+    padding: var(--space-2);
+    padding-top: max(var(--space-3), env(safe-area-inset-top, 0px));
+  }
+
+  .partnerBalanceModal {
+    max-height: min(94dvh, calc(100dvh - env(safe-area-inset-top, 0px) - 12px));
+  }
+
+  .partnerBalanceBody {
+    padding: var(--space-3) var(--space-4);
+  }
+
+  .partnerBalanceToolbar {
+    gap: var(--space-2);
+  }
+
+  .partnerBalanceFilter select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .partnerBalanceTabs {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .partnerBalanceTab {
+    flex-shrink: 0;
+    padding: 8px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .partnerBalanceTableWrap {
+    overflow: visible;
+    max-height: none;
+    border: none;
+    border-radius: 0;
+  }
+
+  .partnerBalanceTable {
+    min-width: 0;
+  }
+
+  .partnerBalanceTable thead {
+    display: none;
+  }
+
+  .partnerBalanceTable tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .partnerBalanceTable tr {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: color-mix(in srgb, var(--color-border) 12%, var(--color-surface));
+  }
+
+  .partnerBalanceGroupRow {
+    background: var(--color-surface-2);
+    border-color: color-mix(in srgb, var(--color-border) 80%, var(--color-text) 20%);
+  }
+
+  .partnerBalanceGroupRow td {
+    border-bottom: none;
+  }
+
+  .partnerBalanceTable td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 0;
+    border-bottom: none;
+    text-align: left !important;
+  }
+
+  .partnerBalanceTable td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-subtle);
+    flex-shrink: 0;
+    max-width: 48%;
+  }
+
+  .partnerBalanceGroupHeading,
+  .partnerBalanceGroupHeading::before {
+    display: block;
+    content: none;
+  }
+
+  .partnerBalanceGroupHeading {
+    padding-bottom: 4px;
+    margin-bottom: 2px;
+    border-bottom: 1px solid color-mix(in srgb, var(--color-border) 80%, var(--color-text) 20%);
+  }
+
+  .partnerBalanceGroupRow td:empty {
+    display: none;
+  }
+
+  .partnerBalanceNum {
+    justify-content: space-between;
+  }
+
+  .partnerBalanceNum > * {
+    text-align: right;
+    margin-left: auto;
+  }
+
+  .partnerBalanceEmpty {
+    display: block !important;
+    border: 1px dashed var(--color-border);
+  }
+
+  .partnerBalanceEmpty::before {
+    content: none !important;
+  }
+}
+
 .partnerForm {
   display: grid;
   gap: var(--space-4);

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import asyncio
+import time
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
@@ -9,9 +10,262 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services import regos_defaults as regos_defaults_service
 from app.services import regos_products as regos_products_service
 from app.services import regos_sales as regos_sales_service
+from app.utils.currency_conversion import convert_between_rates
 
 DAY_SECONDS = 24 * 60 * 60
 DASHBOARD_PRODUCTS_PAGE_SIZE = 50
+DASHBOARD_PAYMENTS_PAGE_SIZE = 50
+DASHBOARD_STATS_PAYMENTS_PREVIEW_SIZE = 20
+PERIOD_CACHE_TTL_SECONDS = 120
+UNKNOWN_CURRENCY_KEY = 0
+CURRENCY_MODE_ALL = "all"
+CURRENCY_MODE_NATIVE = "native"
+BASE_COST_EXCHANGE_RATE = 1.0
+
+
+@dataclass
+class _CachedPeriod:
+    data: dict[str, Any]
+    expires_at: float
+
+
+_period_cache: dict[str, _CachedPeriod] = {}
+
+
+def clear_dashboard_period_cache() -> None:
+    _period_cache.clear()
+
+
+def _period_cache_key(
+    company_id: int,
+    user_id: int,
+    *,
+    start_date: int | None,
+    end_date: int,
+    partner_ids: list[int] | None,
+    all_partners: bool,
+    stock_ids: list[int] | None,
+    all_stocks: bool,
+) -> str:
+    partners = tuple(sorted(partner_ids or []))
+    stocks = tuple(sorted(stock_ids or []))
+    return (
+        f"{company_id}:{user_id}:{start_date}:{end_date}:"
+        f"{int(all_partners)}:{partners}:{int(all_stocks)}:{stocks}"
+    )
+
+
+def _currency_key(doc: dict[str, Any]) -> int:
+    currency = doc.get("currency")
+    if isinstance(currency, dict):
+        currency_id = currency.get("id")
+        if isinstance(currency_id, int) and currency_id > 0:
+            return currency_id
+    return UNKNOWN_CURRENCY_KEY
+
+
+def _sum_by_currency(documents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    totals: dict[int, dict[str, Any]] = {}
+    for doc in documents:
+        amount = float(doc.get("amount") or 0)
+        if amount == 0:
+            continue
+        key = _currency_key(doc)
+        current = totals.get(key)
+        if current is None:
+            currency = doc.get("currency") if isinstance(doc.get("currency"), dict) else None
+            current = {"currency": currency, "amount": 0.0}
+            totals[key] = current
+        current["amount"] = round(current["amount"] + amount, 2)
+
+    return sorted(totals.values(), key=lambda item: item["amount"], reverse=True)
+
+
+def _subtract_currency_totals(
+    positive: list[dict[str, Any]],
+    negative: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    merged: dict[int, dict[str, Any]] = {}
+
+    for item in positive:
+        currency = item.get("currency")
+        key = currency.get("id") if isinstance(currency, dict) and currency.get("id") else UNKNOWN_CURRENCY_KEY
+        merged[key] = {
+            "currency": currency if isinstance(currency, dict) else None,
+            "amount": float(item.get("amount") or 0),
+        }
+
+    for item in negative:
+        currency = item.get("currency")
+        key = currency.get("id") if isinstance(currency, dict) and currency.get("id") else UNKNOWN_CURRENCY_KEY
+        current = merged.get(key)
+        if current is None:
+            merged[key] = {
+                "currency": currency if isinstance(currency, dict) else None,
+                "amount": -float(item.get("amount") or 0),
+            }
+        else:
+            current["amount"] = round(current["amount"] - float(item.get("amount") or 0), 2)
+
+    return sorted(
+        [
+            {"currency": item["currency"], "amount": round(item["amount"], 2)}
+            for item in merged.values()
+            if round(item["amount"], 2) != 0
+        ],
+        key=lambda item: item["amount"],
+        reverse=True,
+    )
+
+
+def _convert_to_default(
+    amount: float,
+    currency: dict[str, Any] | None,
+    default_currency: dict[str, Any] | None,
+) -> float:
+    if not default_currency:
+        return round(amount, 2)
+    from_rate = currency.get("exchange_rate") if isinstance(currency, dict) else None
+    to_rate = default_currency.get("exchange_rate")
+    return convert_between_rates(amount, from_rate or 1, to_rate or 1)
+
+
+def _should_convert_costs(display_currency: dict[str, Any] | None) -> bool:
+    if not display_currency:
+        return False
+    rate = display_currency.get("exchange_rate")
+    if rate is None:
+        return False
+    try:
+        return float(rate) != BASE_COST_EXCHANGE_RATE
+    except (TypeError, ValueError):
+        return False
+
+
+def _convert_base_cost_for_display(
+    amount: float,
+    display_currency: dict[str, Any] | None,
+) -> float:
+    """Convert purchase cost from UZS (base) to the dashboard display currency."""
+    if not _should_convert_costs(display_currency):
+        return round(amount, 2)
+    to_rate = display_currency.get("exchange_rate")  # type: ignore[union-attr]
+    return convert_between_rates(amount, BASE_COST_EXCHANGE_RATE, to_rate)
+
+
+def _converted_total(
+    by_currency: list[dict[str, Any]],
+    default_currency: dict[str, Any] | None,
+) -> float:
+    return round(
+        sum(
+            _convert_to_default(float(item.get("amount") or 0), item.get("currency"), default_currency)
+            for item in by_currency
+        ),
+        2,
+    )
+
+
+def _collect_currency_ids(*document_groups: list[dict[str, Any]]) -> set[int]:
+    currency_ids: set[int] = set()
+    for documents in document_groups:
+        for doc in documents:
+            key = _currency_key(doc)
+            if key != UNKNOWN_CURRENCY_KEY:
+                currency_ids.add(key)
+    return currency_ids
+
+
+def _document_currency_map(documents: list[dict[str, Any]]) -> dict[int, dict[str, Any] | None]:
+    return {
+        int(doc["id"]): doc.get("currency") if isinstance(doc.get("currency"), dict) else None
+        for doc in documents
+        if doc.get("id")
+    }
+
+
+def _filter_documents_by_currency(
+    documents: list[dict[str, Any]],
+    currency_id: int,
+) -> list[dict[str, Any]]:
+    return [doc for doc in documents if _currency_key(doc) == currency_id]
+
+
+def _filter_operations_by_document_ids(
+    operations: list[dict[str, Any]],
+    document_ids: set[int],
+) -> list[dict[str, Any]]:
+    return [
+        operation
+        for operation in operations
+        if int(operation.get("document_id") or 0) in document_ids
+    ]
+
+
+def _collect_currencies_from_documents(
+    *document_groups: list[dict[str, Any]],
+) -> dict[int, dict[str, Any]]:
+    currencies: dict[int, dict[str, Any]] = {}
+    for documents in document_groups:
+        for doc in documents:
+            currency = doc.get("currency")
+            if isinstance(currency, dict):
+                currency_id = currency.get("id")
+                if isinstance(currency_id, int) and currency_id > 0:
+                    currencies[currency_id] = currency
+    return currencies
+
+
+def _resolve_currency_by_id(
+    currency_id: int,
+    defaults: dict[str, Any],
+    *document_groups: list[dict[str, Any]],
+) -> dict[str, Any] | None:
+    default_currency = defaults.get("currency")
+    if isinstance(default_currency, dict) and default_currency.get("id") == currency_id:
+        return default_currency
+
+    from_documents = _collect_currencies_from_documents(*document_groups)
+    return from_documents.get(currency_id)
+
+
+def _apply_currency_scope(
+    *,
+    documents: list[dict[str, Any]],
+    return_documents: list[dict[str, Any]],
+    payment_documents: list[dict[str, Any]],
+    operations: list[dict[str, Any]],
+    return_operations: list[dict[str, Any]],
+    currency_id: int,
+    currency_mode: str,
+) -> tuple[
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+    list[dict[str, Any]],
+]:
+    if currency_mode != CURRENCY_MODE_NATIVE:
+        return documents, return_documents, payment_documents, operations, return_operations
+
+    documents = _filter_documents_by_currency(documents, currency_id)
+    return_documents = _filter_documents_by_currency(return_documents, currency_id)
+    payment_documents = _filter_documents_by_currency(payment_documents, currency_id)
+
+    sales_doc_ids = {int(doc["id"]) for doc in documents if doc.get("id")}
+    return_doc_ids = {int(doc["id"]) for doc in return_documents if doc.get("id")}
+    operations = _filter_operations_by_document_ids(operations, sales_doc_ids)
+    return_operations = _filter_operations_by_document_ids(return_operations, return_doc_ids)
+    return documents, return_documents, payment_documents, operations, return_operations
+
+
+def _single_currency_total(
+    amount: float,
+    currency: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    if round(amount, 2) == 0:
+        return []
+    return [{"currency": currency, "amount": round(amount, 2)}]
 
 
 async def get_dashboard_stats(
@@ -25,38 +279,15 @@ async def get_dashboard_stats(
     all_partners: bool = True,
     stock_ids: list[int] | None = None,
     all_stocks: bool = True,
+    currency_id: int | None = None,
+    currency_mode: str = CURRENCY_MODE_ALL,
 ) -> dict[str, Any]:
     defaults = await regos_defaults_service.get_regos_defaults(
         session, company_id, user_id=user_id
     )
-    income_category = defaults.get("payment_category")
-    outcome_category = defaults.get("refund_payment_category")
-    income_category_id = (
-        int(income_category["id"])
-        if isinstance(income_category, dict) and income_category.get("id")
-        else None
-    )
-    outcome_category_id = (
-        int(outcome_category["id"])
-        if isinstance(outcome_category, dict) and outcome_category.get("id")
-        else None
-    )
-
-    income_category_name = (
-        income_category.get("name")
-        if isinstance(income_category, dict) and isinstance(income_category.get("name"), str)
-        else None
-    )
-    outcome_category_name = (
-        outcome_category.get("name")
-        if isinstance(outcome_category, dict) and isinstance(outcome_category.get("name"), str)
-        else None
-    )
-
     now = int(datetime.now(timezone.utc).timestamp())
     end = end_date if end_date is not None else now
-
-    period = await _load_period_data(
+    period = await _load_period_data_cached(
         session,
         company_id,
         user_id=user_id,
@@ -67,65 +298,14 @@ async def get_dashboard_stats(
         stock_ids=stock_ids,
         all_stocks=all_stocks,
     )
-    documents = period["documents"]
-    return_documents = period["return_documents"]
-    payment_documents = period["payment_documents"]
-    operations = period["operations"]
-    return_operations = period["return_operations"]
-    sales_data = period["sales_data"]
-
-    sales_total = sum(float(doc.get("amount") or 0) for doc in documents)
-    refunds_total = sum(float(doc.get("amount") or 0) for doc in return_documents)
-    cost_total = _sum_operation_cost(operations)
-    refunds_cost_total = _sum_operation_cost(return_operations)
-    gross_profit = round(sales_total - cost_total, 2)
-    net_sales_total = round(sales_total - refunds_total, 2)
-    net_cost_total = round(cost_total - refunds_cost_total, 2)
-    net_gross_profit = round(net_sales_total - net_cost_total, 2)
-    transaction_count = len(documents)
-    items_sold = sum(float(op.get("quantity") or 0) for op in operations)
-
-    income_payments = [
-        payment
-        for payment in payment_documents
-        if income_category_id is not None and payment.get("category_id") == income_category_id
-    ]
-    outcome_payments = [
-        payment
-        for payment in payment_documents
-        if outcome_category_id is not None and payment.get("category_id") == outcome_category_id
-    ]
-
-    return {
-        "sales_total": round(sales_total, 2),
-        "cost_total": round(cost_total, 2),
-        "gross_profit": gross_profit,
-        "refunds_cost_total": refunds_cost_total,
-        "net_sales_total": net_sales_total,
-        "net_cost_total": net_cost_total,
-        "net_gross_profit": net_gross_profit,
-        "transaction_count": transaction_count,
-        "items_sold": round(items_sold, 2),
-        "avg_basket": round(sales_total / transaction_count, 2) if transaction_count else 0.0,
-        "refunds_total": round(refunds_total, 2),
-        "refund_count": len(return_documents),
-        "income_payments_total": round(
-            sum(float(payment.get("amount") or 0) for payment in income_payments),
-            2,
-        ),
-        "outcome_payments_total": round(
-            sum(float(payment.get("amount") or 0) for payment in outcome_payments),
-            2,
-        ),
-        "income_payment_category_name": income_category_name,
-        "outcome_payment_category_name": outcome_category_name,
-        "income_payments": income_payments[:20],
-        "outcome_payments": outcome_payments[:20],
-        "days": _build_daily_series(documents, operations, start_date, end),
-        "top_products": _top_products(operations),
-        "top_partners": _top_partners(documents),
-        "sales_count_total": int(sales_data.get("total") or transaction_count),
-    }
+    return _build_dashboard_stats(
+        period,
+        defaults,
+        start_date=start_date,
+        end_date=end,
+        currency_id=currency_id,
+        currency_mode=currency_mode,
+    )
 
 
 async def get_dashboard_products(
@@ -141,13 +321,15 @@ async def get_dashboard_products(
     all_stocks: bool = True,
     offset: int = 0,
     limit: int = DASHBOARD_PRODUCTS_PAGE_SIZE,
+    currency_id: int | None = None,
+    currency_mode: str = CURRENCY_MODE_ALL,
 ) -> dict[str, Any]:
+    defaults = await regos_defaults_service.get_regos_defaults(
+        session, company_id, user_id=user_id
+    )
     now = int(datetime.now(timezone.utc).timestamp())
     end = end_date if end_date is not None else now
-    safe_offset = max(0, offset)
-    safe_limit = max(1, min(limit, 200))
-
-    period = await _load_period_data(
+    period = await _load_period_data_cached(
         session,
         company_id,
         user_id=user_id,
@@ -158,9 +340,496 @@ async def get_dashboard_products(
         stock_ids=stock_ids,
         all_stocks=all_stocks,
     )
+    return await _build_dashboard_products(
+        session,
+        company_id,
+        user_id,
+        period,
+        defaults,
+        offset=offset,
+        limit=limit,
+        currency_id=currency_id,
+        currency_mode=currency_mode,
+    )
+
+
+async def get_dashboard_payments(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    *,
+    start_date: int | None = None,
+    end_date: int | None = None,
+    partner_ids: list[int] | None = None,
+    all_partners: bool = True,
+    stock_ids: list[int] | None = None,
+    all_stocks: bool = True,
+    offset: int = 0,
+    limit: int = DASHBOARD_PAYMENTS_PAGE_SIZE,
+    currency_id: int | None = None,
+    currency_mode: str = CURRENCY_MODE_ALL,
+) -> dict[str, Any]:
+    defaults = await regos_defaults_service.get_regos_defaults(
+        session, company_id, user_id=user_id
+    )
+    now = int(datetime.now(timezone.utc).timestamp())
+    end = end_date if end_date is not None else now
+    period = await _load_period_data_cached(
+        session,
+        company_id,
+        user_id=user_id,
+        start_date=start_date,
+        end_date=end,
+        partner_ids=partner_ids,
+        all_partners=all_partners,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
+    return _build_dashboard_payments(
+        period,
+        defaults,
+        offset=offset,
+        limit=limit,
+        currency_id=currency_id,
+        currency_mode=currency_mode,
+    )
+
+
+async def get_dashboard_overview(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    *,
+    start_date: int | None = None,
+    end_date: int | None = None,
+    partner_ids: list[int] | None = None,
+    all_partners: bool = True,
+    stock_ids: list[int] | None = None,
+    all_stocks: bool = True,
+    offset: int = 0,
+    limit: int = DASHBOARD_PRODUCTS_PAGE_SIZE,
+    currency_id: int | None = None,
+    currency_mode: str = CURRENCY_MODE_ALL,
+) -> dict[str, Any]:
+    defaults = await regos_defaults_service.get_regos_defaults(
+        session, company_id, user_id=user_id
+    )
+    now = int(datetime.now(timezone.utc).timestamp())
+    end = end_date if end_date is not None else now
+    period = await _load_period_data_cached(
+        session,
+        company_id,
+        user_id=user_id,
+        start_date=start_date,
+        end_date=end,
+        partner_ids=partner_ids,
+        all_partners=all_partners,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
+    stats = _build_dashboard_stats(
+        period,
+        defaults,
+        start_date=start_date,
+        end_date=end,
+        currency_id=currency_id,
+        currency_mode=currency_mode,
+    )
+    products = await _build_dashboard_products(
+        session,
+        company_id,
+        user_id,
+        period,
+        defaults,
+        offset=offset,
+        limit=limit,
+        currency_id=currency_id,
+        currency_mode=currency_mode,
+    )
+    return {
+        "stats": stats,
+        "products": products["products"],
+        "totals": products["totals"],
+        "next_offset": products["next_offset"],
+        "total": products["total"],
+    }
+
+
+def _payment_category_context(defaults: dict[str, Any]) -> dict[str, Any]:
+    income_category = defaults.get("payment_category")
+    outcome_category = defaults.get("refund_payment_category")
+    income_category_id = (
+        int(income_category["id"])
+        if isinstance(income_category, dict) and income_category.get("id")
+        else None
+    )
+    outcome_category_id = (
+        int(outcome_category["id"])
+        if isinstance(outcome_category, dict) and outcome_category.get("id")
+        else None
+    )
+    income_category_name = (
+        income_category.get("name")
+        if isinstance(income_category, dict) and isinstance(income_category.get("name"), str)
+        else None
+    )
+    outcome_category_name = (
+        outcome_category.get("name")
+        if isinstance(outcome_category, dict) and isinstance(outcome_category.get("name"), str)
+        else None
+    )
+    return {
+        "income_category_id": income_category_id,
+        "outcome_category_id": outcome_category_id,
+        "income_category_name": income_category_name,
+        "outcome_category_name": outcome_category_name,
+    }
+
+
+def _resolve_scoped_payment_lists(
+    period: dict[str, Any],
+    defaults: dict[str, Any],
+    *,
+    currency_id: int | None,
+    currency_mode: str,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any] | None]:
+    category_context = _payment_category_context(defaults)
+    income_category_id = category_context["income_category_id"]
+    outcome_category_id = category_context["outcome_category_id"]
+
+    documents = period["documents"]
+    return_documents = period["return_documents"]
+    payment_documents = period["payment_documents"]
     operations = period["operations"]
     return_operations = period["return_operations"]
-    stats_by_id = _build_product_stats_map(operations, return_operations)
+
+    default_currency = defaults.get("currency")
+    if not isinstance(default_currency, dict):
+        default_currency = None
+
+    target_currency_id = currency_id
+    if target_currency_id is None and default_currency:
+        target_currency_id = default_currency.get("id")
+    if not isinstance(target_currency_id, int) or target_currency_id <= 0:
+        target_currency_id = None
+
+    normalized_mode = currency_mode if currency_mode in {CURRENCY_MODE_ALL, CURRENCY_MODE_NATIVE} else CURRENCY_MODE_ALL
+    if target_currency_id is not None:
+        documents, return_documents, payment_documents, operations, return_operations = _apply_currency_scope(
+            documents=documents,
+            return_documents=return_documents,
+            payment_documents=payment_documents,
+            operations=operations,
+            return_operations=return_operations,
+            currency_id=target_currency_id,
+            currency_mode=normalized_mode,
+        )
+
+    summary_currency = (
+        _resolve_currency_by_id(
+            target_currency_id,
+            defaults,
+            documents,
+            return_documents,
+            payment_documents,
+        )
+        if target_currency_id is not None
+        else default_currency
+    )
+    if summary_currency is None:
+        summary_currency = default_currency
+
+    conversion_currency = summary_currency if normalized_mode == CURRENCY_MODE_ALL else None
+
+    income_payments = [
+        payment
+        for payment in payment_documents
+        if income_category_id is not None and payment.get("category_id") == income_category_id
+    ]
+    outcome_payments = [
+        payment
+        for payment in payment_documents
+        if outcome_category_id is not None and payment.get("category_id") == outcome_category_id
+    ]
+    income_payments.sort(key=lambda payment: (payment.get("date") or 0, payment.get("id") or 0), reverse=True)
+    outcome_payments.sort(key=lambda payment: (payment.get("date") or 0, payment.get("id") or 0), reverse=True)
+
+    return income_payments, outcome_payments, conversion_currency
+
+
+def _build_dashboard_payments(
+    period: dict[str, Any],
+    defaults: dict[str, Any],
+    *,
+    offset: int,
+    limit: int,
+    currency_id: int | None,
+    currency_mode: str,
+) -> dict[str, Any]:
+    safe_offset = max(0, offset)
+    safe_limit = max(1, min(limit, 200))
+    category_context = _payment_category_context(defaults)
+    income_payments, outcome_payments, conversion_currency = _resolve_scoped_payment_lists(
+        period,
+        defaults,
+        currency_id=currency_id,
+        currency_mode=currency_mode,
+    )
+
+    income_total = len(income_payments)
+    outcome_total = len(outcome_payments)
+    income_page = income_payments[safe_offset : safe_offset + safe_limit]
+    outcome_page = outcome_payments[safe_offset : safe_offset + safe_limit]
+    has_more = (safe_offset + safe_limit < income_total) or (safe_offset + safe_limit < outcome_total)
+    next_offset = safe_offset + safe_limit if has_more else 0
+
+    income_payments_by_currency = _sum_by_currency(income_payments)
+    outcome_payments_by_currency = _sum_by_currency(outcome_payments)
+    income_payments_total = (
+        _converted_total(income_payments_by_currency, conversion_currency)
+        if conversion_currency
+        else round(sum(float(item.get("amount") or 0) for item in income_payments_by_currency), 2)
+    )
+    outcome_payments_total = (
+        _converted_total(outcome_payments_by_currency, conversion_currency)
+        if conversion_currency
+        else round(sum(float(item.get("amount") or 0) for item in outcome_payments_by_currency), 2)
+    )
+
+    return {
+        "income_payments": income_page,
+        "outcome_payments": outcome_page,
+        "income_payment_category_name": category_context["income_category_name"],
+        "outcome_payment_category_name": category_context["outcome_category_name"],
+        "income_payments_total": income_payments_total,
+        "outcome_payments_total": outcome_payments_total,
+        "income_total": income_total,
+        "outcome_total": outcome_total,
+        "next_offset": next_offset,
+    }
+
+
+def _build_dashboard_stats(
+    period: dict[str, Any],
+    defaults: dict[str, Any],
+    *,
+    start_date: int | None,
+    end_date: int,
+    currency_id: int | None,
+    currency_mode: str,
+) -> dict[str, Any]:
+    category_context = _payment_category_context(defaults)
+    income_category_id = category_context["income_category_id"]
+    outcome_category_id = category_context["outcome_category_id"]
+    income_category_name = category_context["income_category_name"]
+    outcome_category_name = category_context["outcome_category_name"]
+
+    documents = period["documents"]
+    return_documents = period["return_documents"]
+    payment_documents = period["payment_documents"]
+    operations = period["operations"]
+    return_operations = period["return_operations"]
+    sales_data = period["sales_data"]
+
+    default_currency = defaults.get("currency")
+    if not isinstance(default_currency, dict):
+        default_currency = None
+
+    target_currency_id = currency_id
+    if target_currency_id is None and default_currency:
+        target_currency_id = default_currency.get("id")
+    if not isinstance(target_currency_id, int) or target_currency_id <= 0:
+        target_currency_id = None
+
+    normalized_mode = currency_mode if currency_mode in {CURRENCY_MODE_ALL, CURRENCY_MODE_NATIVE} else CURRENCY_MODE_ALL
+    if target_currency_id is not None:
+        documents, return_documents, payment_documents, operations, return_operations = _apply_currency_scope(
+            documents=documents,
+            return_documents=return_documents,
+            payment_documents=payment_documents,
+            operations=operations,
+            return_operations=return_operations,
+            currency_id=target_currency_id,
+            currency_mode=normalized_mode,
+        )
+
+    summary_currency = (
+        _resolve_currency_by_id(
+            target_currency_id,
+            defaults,
+            documents,
+            return_documents,
+            payment_documents,
+        )
+        if target_currency_id is not None
+        else default_currency
+    )
+    if summary_currency is None:
+        summary_currency = default_currency
+
+    conversion_currency = summary_currency if normalized_mode == CURRENCY_MODE_ALL else None
+
+    sales_by_currency = _sum_by_currency(documents)
+    refunds_by_currency = _sum_by_currency(return_documents)
+    net_sales_by_currency = _subtract_currency_totals(sales_by_currency, refunds_by_currency)
+
+    sales_total = (
+        _converted_total(sales_by_currency, conversion_currency)
+        if conversion_currency
+        else round(sum(float(item.get("amount") or 0) for item in sales_by_currency), 2)
+    )
+    refunds_total = (
+        _converted_total(refunds_by_currency, conversion_currency)
+        if conversion_currency
+        else round(sum(float(item.get("amount") or 0) for item in refunds_by_currency), 2)
+    )
+    cost_total = _sum_operation_cost(operations, display_currency=summary_currency)
+    refunds_cost_total = _sum_operation_cost(return_operations, display_currency=summary_currency)
+    gross_profit = round(sales_total - cost_total, 2)
+    net_sales_total = (
+        _converted_total(net_sales_by_currency, conversion_currency)
+        if conversion_currency
+        else round(sum(float(item.get("amount") or 0) for item in net_sales_by_currency), 2)
+    )
+    net_cost_total = round(cost_total - refunds_cost_total, 2)
+    net_gross_profit = round(net_sales_total - net_cost_total, 2)
+    transaction_count = len(documents)
+    items_sold = sum(float(op.get("quantity") or 0) for op in operations)
+
+    income_payments = [
+        payment
+        for payment in payment_documents
+        if income_category_id is not None and payment.get("category_id") == income_category_id
+    ]
+    outcome_payments = [
+        payment
+        for payment in payment_documents
+        if outcome_category_id is not None and payment.get("category_id") == outcome_category_id
+    ]
+    income_payments.sort(key=lambda payment: (payment.get("date") or 0, payment.get("id") or 0), reverse=True)
+    outcome_payments.sort(key=lambda payment: (payment.get("date") or 0, payment.get("id") or 0), reverse=True)
+
+    income_payments_by_currency = _sum_by_currency(income_payments)
+    outcome_payments_by_currency = _sum_by_currency(outcome_payments)
+    income_payments_total = (
+        _converted_total(income_payments_by_currency, conversion_currency)
+        if conversion_currency
+        else round(sum(float(item.get("amount") or 0) for item in income_payments_by_currency), 2)
+    )
+    outcome_payments_total = (
+        _converted_total(outcome_payments_by_currency, conversion_currency)
+        if conversion_currency
+        else round(sum(float(item.get("amount") or 0) for item in outcome_payments_by_currency), 2)
+    )
+
+    doc_currency_by_id = _document_currency_map(documents)
+
+    return {
+        "sales_total": sales_total,
+        "cost_total": round(cost_total, 2),
+        "gross_profit": gross_profit,
+        "refunds_cost_total": refunds_cost_total,
+        "net_sales_total": net_sales_total,
+        "net_cost_total": net_cost_total,
+        "net_gross_profit": net_gross_profit,
+        "transaction_count": transaction_count,
+        "items_sold": round(items_sold, 2),
+        "avg_basket": round(sales_total / transaction_count, 2) if transaction_count else 0.0,
+        "refunds_total": refunds_total,
+        "refund_count": len(return_documents),
+        "income_payments_total": income_payments_total,
+        "outcome_payments_total": outcome_payments_total,
+        "income_payment_category_name": income_category_name,
+        "outcome_payment_category_name": outcome_category_name,
+        "income_payments": income_payments[:DASHBOARD_STATS_PAYMENTS_PREVIEW_SIZE],
+        "outcome_payments": outcome_payments[:DASHBOARD_STATS_PAYMENTS_PREVIEW_SIZE],
+        "days": _build_daily_series(
+            documents,
+            operations,
+            start_date,
+            end_date,
+            sales_currency=conversion_currency,
+            cost_display_currency=summary_currency,
+        ),
+        "top_products": _top_products(operations, doc_currency_by_id, conversion_currency),
+        "top_partners": _top_partners(documents),
+        "sales_count_total": int(sales_data.get("total") or transaction_count),
+        "summary_currency": summary_currency,
+        "has_multiple_currencies": False,
+        "sales_by_currency": _single_currency_total(sales_total, summary_currency),
+        "refunds_by_currency": _single_currency_total(refunds_total, summary_currency),
+        "net_sales_by_currency": _single_currency_total(net_sales_total, summary_currency),
+        "income_payments_by_currency": _single_currency_total(income_payments_total, summary_currency),
+        "outcome_payments_by_currency": _single_currency_total(outcome_payments_total, summary_currency),
+    }
+
+
+async def _build_dashboard_products(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    period: dict[str, Any],
+    defaults: dict[str, Any],
+    *,
+    offset: int,
+    limit: int,
+    currency_id: int | None,
+    currency_mode: str,
+) -> dict[str, Any]:
+    safe_offset = max(0, offset)
+    safe_limit = max(1, min(limit, 200))
+
+    documents = period["documents"]
+    return_documents = period["return_documents"]
+    operations = period["operations"]
+    return_operations = period["return_operations"]
+
+    default_currency = defaults.get("currency")
+    if not isinstance(default_currency, dict):
+        default_currency = None
+
+    target_currency_id = currency_id
+    if target_currency_id is None and default_currency:
+        target_currency_id = default_currency.get("id")
+    normalized_mode = currency_mode if currency_mode in {CURRENCY_MODE_ALL, CURRENCY_MODE_NATIVE} else CURRENCY_MODE_ALL
+    if isinstance(target_currency_id, int) and target_currency_id > 0:
+        documents, return_documents, _, operations, return_operations = _apply_currency_scope(
+            documents=documents,
+            return_documents=return_documents,
+            payment_documents=period["payment_documents"],
+            operations=operations,
+            return_operations=return_operations,
+            currency_id=target_currency_id,
+            currency_mode=normalized_mode,
+        )
+
+    conversion_currency = None
+    summary_currency = default_currency
+    if isinstance(target_currency_id, int) and target_currency_id > 0:
+        summary_currency = (
+            _resolve_currency_by_id(
+                target_currency_id,
+                defaults,
+                documents,
+                return_documents,
+                period["payment_documents"],
+            )
+            or default_currency
+        )
+        if normalized_mode == CURRENCY_MODE_ALL:
+            conversion_currency = summary_currency
+
+    doc_currency_by_id = {
+        **_document_currency_map(documents),
+        **_document_currency_map(return_documents),
+    }
+    stats_by_id = _build_product_stats_map(
+        operations,
+        return_operations,
+        doc_currency_by_id=doc_currency_by_id,
+        conversion_currency=conversion_currency,
+        cost_display_currency=summary_currency,
+    )
     active_ids = sorted(
         [
             item_id
@@ -187,13 +856,60 @@ async def get_dashboard_products(
         operations,
         return_operations,
         item_ids=page_ids,
+        stats_by_id=stats_by_id,
     )
 
     return {
         "products": rows,
+        "totals": _compute_product_totals(stats_by_id),
         "next_offset": next_offset,
         "total": total,
     }
+
+
+async def _load_period_data_cached(
+    session: AsyncSession,
+    company_id: int,
+    *,
+    user_id: int,
+    start_date: int | None,
+    end_date: int,
+    partner_ids: list[int] | None = None,
+    all_partners: bool = True,
+    stock_ids: list[int] | None = None,
+    all_stocks: bool = True,
+) -> dict[str, Any]:
+    cache_key = _period_cache_key(
+        company_id,
+        user_id,
+        start_date=start_date,
+        end_date=end_date,
+        partner_ids=partner_ids,
+        all_partners=all_partners,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
+    now = time.monotonic()
+    cached = _period_cache.get(cache_key)
+    if cached is not None and cached.expires_at > now:
+        return cached.data
+
+    data = await _load_period_data(
+        session,
+        company_id,
+        user_id=user_id,
+        start_date=start_date,
+        end_date=end_date,
+        partner_ids=partner_ids,
+        all_partners=all_partners,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
+    _period_cache[cache_key] = _CachedPeriod(
+        data=data,
+        expires_at=now + PERIOD_CACHE_TTL_SECONDS,
+    )
+    return data
 
 
 async def _load_period_data(
@@ -208,43 +924,17 @@ async def _load_period_data(
     stock_ids: list[int] | None = None,
     all_stocks: bool = True,
 ) -> dict[str, Any]:
-    sales_data, returns_data, payments_data = await asyncio.gather(
-        regos_sales_service.list_wholesale_documents(
-            session,
-            company_id,
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            partner_ids=partner_ids,
-            all_partners=all_partners,
-            stock_ids=stock_ids,
-            all_stocks=all_stocks,
-            limit=200,
-        ),
-        regos_sales_service.list_wholesale_return_documents(
-            session,
-            company_id,
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            partner_ids=partner_ids,
-            all_partners=all_partners,
-            stock_ids=stock_ids,
-            all_stocks=all_stocks,
-            limit=200,
-        ),
-        regos_sales_service.list_payment_documents(
-            session,
-            company_id,
-            user_id=user_id,
-            start_date=start_date,
-            end_date=end_date,
-            partner_ids=partner_ids,
-            all_partners=all_partners,
-            stock_ids=stock_ids,
-            all_stocks=all_stocks,
-            limit=200,
-        ),
+    sales_data, returns_data, payments_data = await regos_sales_service.fetch_period_document_lists_batch(
+        session,
+        company_id,
+        user_id=user_id,
+        start_date=start_date,
+        end_date=end_date,
+        partner_ids=partner_ids,
+        all_partners=all_partners,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+        limit=200,
     )
 
     documents = sales_data["documents"]
@@ -252,28 +942,12 @@ async def _load_period_data(
     doc_ids = [doc["id"] for doc in documents if doc["id"] > 0]
     return_doc_ids = [doc["id"] for doc in return_documents if doc["id"] > 0]
 
-    operations: list[dict[str, Any]] = []
-    return_operations: list[dict[str, Any]] = []
-    ops_tasks: list[Any] = []
-    if doc_ids:
-        ops_tasks.append(
-            regos_sales_service.list_wholesale_operations_batch(session, company_id, doc_ids)
-        )
-    if return_doc_ids:
-        ops_tasks.append(
-            regos_sales_service.list_wholesale_return_operations_batch(
-                session, company_id, return_doc_ids
-            )
-        )
-
-    if ops_tasks:
-        results = await asyncio.gather(*ops_tasks)
-        result_index = 0
-        if doc_ids:
-            operations = results[result_index]["operations"]
-            result_index += 1
-        if return_doc_ids:
-            return_operations = results[result_index]["operations"]
+    operations, return_operations = await regos_sales_service.fetch_period_operations_batch(
+        session,
+        company_id,
+        doc_ids,
+        return_doc_ids,
+    )
 
     return {
         "sales_data": sales_data,
@@ -285,14 +959,18 @@ async def _load_period_data(
     }
 
 
-def _sum_operation_cost(operations: list[dict[str, Any]]) -> float:
+def _sum_operation_cost(
+    operations: list[dict[str, Any]],
+    *,
+    display_currency: dict[str, Any] | None = None,
+) -> float:
     total = 0.0
     for operation in operations:
         unit_cost = operation.get("last_purchase_cost")
         if unit_cost is None:
             continue
         total += float(unit_cost) * float(operation.get("quantity") or 0)
-    return round(total, 2)
+    return _convert_base_cost_for_display(round(total, 2), display_currency)
 
 
 def _build_daily_series(
@@ -300,6 +978,9 @@ def _build_daily_series(
     operations: list[dict[str, Any]],
     start_date: int | None,
     end_date: int,
+    *,
+    sales_currency: dict[str, Any] | None = None,
+    cost_display_currency: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if start_date is None:
         if documents:
@@ -339,21 +1020,30 @@ def _build_daily_series(
         for doc in documents:
             doc_date = int(doc.get("date") or 0)
             if start_ts <= doc_date < end_ts:
-                day_sales += float(doc.get("amount") or 0)
+                doc_amount = float(doc.get("amount") or 0)
+                currency = doc.get("currency") if isinstance(doc.get("currency"), dict) else None
+                day_sales += _convert_to_default(doc_amount, currency, sales_currency)
                 day_cost += cost_by_doc_id.get(doc["id"], 0.0)
+
+        day_cost = _convert_base_cost_for_display(day_cost, cost_display_currency)
+        day_sales = round(day_sales, 2)
 
         buckets.append(
             {
                 "day": day_start.strftime("%a"),
-                "sales": round(day_sales, 2),
-                "cost": round(day_cost, 2),
+                "sales": day_sales,
+                "cost": day_cost,
                 "profit": round(day_sales - day_cost, 2),
             }
         )
     return buckets
 
 
-def _top_products(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _top_products(
+    operations: list[dict[str, Any]],
+    doc_currency_by_id: dict[int, dict[str, Any] | None],
+    default_currency: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
     product_map: dict[int, dict[str, Any]] = {}
     for operation in operations:
         item_id = int(operation.get("item_id") or 0)
@@ -368,6 +1058,9 @@ def _top_products(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
         qty = float(operation.get("quantity") or 0)
         amount = operation.get("amount")
         revenue = float(amount) if amount is not None else qty * float(operation.get("price") or 0)
+        doc_id = int(operation.get("document_id") or 0)
+        currency = doc_currency_by_id.get(doc_id)
+        revenue = _convert_to_default(revenue, currency, default_currency)
         current["qty"] = round(current["qty"] + qty, 2)
         current["revenue"] = round(current["revenue"] + revenue, 2)
         product_map[item_id] = current
@@ -399,17 +1092,40 @@ def _empty_product_stats() -> dict[str, Any]:
     }
 
 
+def _operation_revenue(
+    operation: dict[str, Any],
+    *,
+    doc_currency_by_id: dict[int, dict[str, Any] | None] | None = None,
+    conversion_currency: dict[str, Any] | None = None,
+) -> float:
+    qty = float(operation.get("quantity") or 0)
+    amount = operation.get("amount")
+    revenue = float(amount) if amount is not None else qty * float(operation.get("price") or 0)
+    if conversion_currency:
+        doc_id = int(operation.get("document_id") or 0)
+        currency = doc_currency_by_id.get(doc_id) if doc_currency_by_id else None
+        revenue = _convert_to_default(revenue, currency, conversion_currency)
+    return revenue
+
+
 def _accumulate_product_stats(
     stats: dict[str, Any],
     operation: dict[str, Any],
     *,
     is_refund: bool,
+    doc_currency_by_id: dict[int, dict[str, Any] | None] | None = None,
+    conversion_currency: dict[str, Any] | None = None,
+    cost_display_currency: dict[str, Any] | None = None,
 ) -> None:
     qty = float(operation.get("quantity") or 0)
-    amount = operation.get("amount")
-    revenue = float(amount) if amount is not None else qty * float(operation.get("price") or 0)
+    revenue = _operation_revenue(
+        operation,
+        doc_currency_by_id=doc_currency_by_id,
+        conversion_currency=conversion_currency,
+    )
     unit_cost = operation.get("last_purchase_cost")
     line_cost = float(unit_cost) * qty if unit_cost is not None else 0.0
+    line_cost = _convert_base_cost_for_display(line_cost, cost_display_currency)
 
     if is_refund:
         stats["refund_quantity"] = round(stats["refund_quantity"] + qty, 2)
@@ -421,7 +1137,7 @@ def _accumulate_product_stats(
         stats["sold_total"] = round(stats["sold_total"] + revenue, 2)
 
     if unit_cost is not None:
-        stats["purchase_cost"] = float(unit_cost)
+        stats["purchase_cost"] = _convert_base_cost_for_display(float(unit_cost), cost_display_currency)
     item_name = operation.get("item_name")
     if isinstance(item_name, str) and item_name.strip():
         stats["item_name"] = item_name.strip()
@@ -430,6 +1146,10 @@ def _accumulate_product_stats(
 def _build_product_stats_map(
     sales_operations: list[dict[str, Any]],
     return_operations: list[dict[str, Any]],
+    *,
+    doc_currency_by_id: dict[int, dict[str, Any] | None] | None = None,
+    conversion_currency: dict[str, Any] | None = None,
+    cost_display_currency: dict[str, Any] | None = None,
 ) -> dict[int, dict[str, Any]]:
     stats_by_id: dict[int, dict[str, Any]] = {}
 
@@ -438,7 +1158,14 @@ def _build_product_stats_map(
         if item_id <= 0:
             continue
         current = stats_by_id.get(item_id) or _empty_product_stats()
-        _accumulate_product_stats(current, operation, is_refund=False)
+        _accumulate_product_stats(
+            current,
+            operation,
+            is_refund=False,
+            doc_currency_by_id=doc_currency_by_id,
+            conversion_currency=conversion_currency,
+            cost_display_currency=cost_display_currency,
+        )
         stats_by_id[item_id] = current
 
     for operation in return_operations:
@@ -446,7 +1173,14 @@ def _build_product_stats_map(
         if item_id <= 0:
             continue
         current = stats_by_id.get(item_id) or _empty_product_stats()
-        _accumulate_product_stats(current, operation, is_refund=True)
+        _accumulate_product_stats(
+            current,
+            operation,
+            is_refund=True,
+            doc_currency_by_id=doc_currency_by_id,
+            conversion_currency=conversion_currency,
+            cost_display_currency=cost_display_currency,
+        )
         stats_by_id[item_id] = current
 
     return stats_by_id
@@ -454,6 +1188,49 @@ def _build_product_stats_map(
 
 def _has_period_activity(stats: dict[str, Any]) -> bool:
     return float(stats.get("sold_quantity") or 0) > 0 or float(stats.get("refund_quantity") or 0) > 0
+
+
+def _compute_product_totals(stats_by_id: dict[int, dict[str, Any]]) -> dict[str, float]:
+    totals = {
+        "sold_quantity": 0.0,
+        "sold_purchase_cost": 0.0,
+        "sold_total": 0.0,
+        "refund_quantity": 0.0,
+        "refund_purchase_cost": 0.0,
+        "refund_total": 0.0,
+        "net_sold_quantity": 0.0,
+        "net_purchase_cost": 0.0,
+        "net_total_sells": 0.0,
+        "net_gross_profit": 0.0,
+    }
+    for stats in stats_by_id.values():
+        if not _has_period_activity(stats):
+            continue
+        sold_qty = float(stats.get("sold_quantity") or 0)
+        sold_total = float(stats.get("sold_total") or 0)
+        refund_qty = float(stats.get("refund_quantity") or 0)
+        sold_purchase_cost = float(stats.get("sold_purchase_cost") or 0)
+        refund_purchase_cost = float(stats.get("refund_purchase_cost") or 0)
+        refund_total = float(stats.get("refund_total") or 0)
+        totals["sold_quantity"] = round(totals["sold_quantity"] + sold_qty, 2)
+        totals["sold_purchase_cost"] = round(totals["sold_purchase_cost"] + sold_purchase_cost, 2)
+        totals["sold_total"] = round(totals["sold_total"] + sold_total, 2)
+        totals["refund_quantity"] = round(totals["refund_quantity"] + refund_qty, 2)
+        totals["refund_purchase_cost"] = round(
+            totals["refund_purchase_cost"] + refund_purchase_cost, 2
+        )
+        totals["refund_total"] = round(totals["refund_total"] + refund_total, 2)
+        totals["net_sold_quantity"] = round(totals["net_sold_quantity"] + sold_qty - refund_qty, 2)
+        totals["net_purchase_cost"] = round(
+            totals["net_purchase_cost"] + sold_purchase_cost - refund_purchase_cost, 2
+        )
+        totals["net_total_sells"] = round(totals["net_total_sells"] + sold_total - refund_total, 2)
+        totals["net_gross_profit"] = round(
+            totals["net_gross_profit"]
+            + round(sold_total - refund_total - (sold_purchase_cost - refund_purchase_cost), 2),
+            2,
+        )
+    return totals
 
 
 def _average_sell_price(
@@ -477,13 +1254,15 @@ def _build_product_rows(
     return_operations: list[dict[str, Any]],
     *,
     item_ids: list[int] | None = None,
+    stats_by_id: dict[int, dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
     product_by_id = {
         int(product["regos_item_id"]): product
         for product in catalog_products
         if isinstance(product.get("regos_item_id"), int)
     }
-    stats_by_id = _build_product_stats_map(sales_operations, return_operations)
+    if stats_by_id is None:
+        stats_by_id = _build_product_stats_map(sales_operations, return_operations)
 
     if item_ids is not None:
         all_item_ids = item_ids

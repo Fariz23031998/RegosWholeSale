@@ -13,13 +13,17 @@ from app.schemas.catalog import (
 from app.schemas.regos import (
     RegosCustomField,
     RegosDocPaymentSaleIdFieldResponse,
+    RegosPaymentLinkingPatch,
+    RegosPaymentLinkingResponse,
     RegosTokenConfig,
     RegosTokenMessage,
     RegosTokenStatus,
     RegosTokenUpsert,
 )
 from app.schemas.partners import (
+    FirmsListResponse,
     Partner,
+    PartnerBalanceResponse,
     PartnerCreateRequest,
     PartnerCreateResponse,
     PartnerGroupsResponse,
@@ -31,7 +35,10 @@ from app.schemas.settings import RegosReferenceOptionsResponse
 from app.services import regos_defaults as regos_defaults_service
 from app.services import regos_fields as regos_fields_service
 from app.services import regos_groups as regos_groups_service
+from app.services import regos_firms as regos_firms_service
+from app.services import regos_partner_balance as regos_partner_balance_service
 from app.services import regos_partners as regos_partners_service
+from app.services import regos_payment_linking as regos_payment_linking_service
 from app.services import regos_payment_types as regos_payment_types_service
 from app.services import regos_products as regos_products_service
 from app.services import regos_tokens as regos_tokens_service
@@ -132,6 +139,43 @@ async def create_doc_payment_sale_id_field(
         configured=bool(data.get("configured")),
         field=RegosCustomField(**field) if isinstance(field, dict) else None,
         created=bool(data.get("created")),
+    )
+
+
+@router.get("/payment-linking", response_model=RegosPaymentLinkingResponse)
+async def get_payment_linking_settings(
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> RegosPaymentLinkingResponse:
+    data = await regos_payment_linking_service.get_payment_linking_settings(
+        session, current.company_id
+    )
+    sale_id_field = data.get("sale_id_field")
+    return RegosPaymentLinkingResponse(
+        mode=str(data["mode"]),
+        sale_id_field_configured=bool(data.get("sale_id_field_configured")),
+        sale_id_field=RegosCustomField(**sale_id_field)
+        if isinstance(sale_id_field, dict)
+        else None,
+    )
+
+
+@router.patch("/payment-linking", response_model=RegosPaymentLinkingResponse)
+async def patch_payment_linking_settings(
+    body: RegosPaymentLinkingPatch,
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> RegosPaymentLinkingResponse:
+    data = await regos_payment_linking_service.set_payment_linking_mode(
+        session, current.company_id, body.mode
+    )
+    sale_id_field = data.get("sale_id_field")
+    return RegosPaymentLinkingResponse(
+        mode=str(data["mode"]),
+        sale_id_field_configured=bool(data.get("sale_id_field_configured")),
+        sale_id_field=RegosCustomField(**sale_id_field)
+        if isinstance(sale_id_field, dict)
+        else None,
     )
 
 
@@ -267,6 +311,43 @@ async def update_regos_partner(
         body.model_dump(exclude_unset=True),
     )
     return PartnerMutationResponse(**data)
+
+
+@router.get("/firms", response_model=FirmsListResponse)
+async def get_regos_firms(
+    current: CurrentUser = Depends(
+        require_any_permission("settings.manage", "pos.override_regos")
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> FirmsListResponse:
+    data = await regos_firms_service.list_firms(session, current.company_id)
+    return FirmsListResponse(**data)
+
+
+@router.get("/partners/{partner_id}/balance", response_model=PartnerBalanceResponse)
+async def get_regos_partner_balance(
+    partner_id: int,
+    start_date: int = Query(..., ge=0),
+    end_date: int = Query(..., ge=0),
+    firm_id: int | None = Query(default=None, ge=1),
+    currency_id: int | None = Query(default=None, ge=1),
+    in_base_currency: bool = Query(default=False),
+    current: CurrentUser = Depends(
+        require_any_permission("settings.manage", "pos.override_regos")
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerBalanceResponse:
+    data = await regos_partner_balance_service.get_partner_balance(
+        session,
+        current.company_id,
+        partner_id=partner_id,
+        start_date=start_date,
+        end_date=end_date,
+        firm_id=firm_id,
+        currency_id=currency_id,
+        in_base_currency=in_base_currency,
+    )
+    return PartnerBalanceResponse(**data)
 
 
 @router.post("/partners/{partner_id}/delete-mark", response_model=PartnerMutationResponse)

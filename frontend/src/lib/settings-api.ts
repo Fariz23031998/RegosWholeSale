@@ -5,6 +5,8 @@ import type {
   RegosDefaultsPatchRequest,
   RegosDefaultsResponse,
   RegosDocPaymentSaleIdFieldResponse,
+  RegosPaymentLinkingPatchRequest,
+  RegosPaymentLinkingResponse,
   RegosReferenceOptionsResponse,
   RegosTokenConfig,
   RegosTokenMessage,
@@ -83,6 +85,23 @@ export async function createDocPaymentSaleIdField(
   return apiRequest("/api/v1/regos/fields/doc-payment-sale-id", {
     method: "POST",
     token,
+  });
+}
+
+export async function fetchPaymentLinking(
+  token: string,
+): Promise<RegosPaymentLinkingResponse> {
+  return apiRequest("/api/v1/regos/payment-linking", { token });
+}
+
+export async function patchPaymentLinking(
+  token: string,
+  body: RegosPaymentLinkingPatchRequest,
+): Promise<RegosPaymentLinkingResponse> {
+  return apiRequest("/api/v1/regos/payment-linking", {
+    method: "PATCH",
+    token,
+    body,
   });
 }
 
