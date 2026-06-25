@@ -32,7 +32,8 @@ async def test_upsert_and_status_regos_token(client: AsyncClient) -> None:
 
     token_config = await client.get("/api/v1/regos/tokens", headers=headers)
     assert token_config.status_code == 200
-    assert token_config.json()["token"] == REGOS_TOKEN
+    assert "token" not in token_config.json()
+    assert token_config.json()["token_masked"].endswith(REGOS_TOKEN[-4:])
     assert token_config.json()["configured"] is True
 
 

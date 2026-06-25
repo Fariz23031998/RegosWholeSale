@@ -2,13 +2,13 @@ from pydantic import BaseModel, Field
 
 
 class RegosTokenUpsert(BaseModel):
-    token: str = Field(..., min_length=32, max_length=32)
+    token: str | None = Field(default=None, min_length=32, max_length=32)
     is_replicable: bool = False
 
 
 class RegosTokenConfig(BaseModel):
     configured: bool = False
-    token: str = ""
+    token_masked: str = ""
     is_replicable: bool = False
     webhook_url: str | None = None
 

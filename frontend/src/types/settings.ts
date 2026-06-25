@@ -57,13 +57,13 @@ export type RegosReferenceOptionsResponse = {
 
 export type RegosTokenConfig = {
   configured: boolean;
-  token: string;
+  token_masked: string;
   is_replicable: boolean;
   webhook_url: string | null;
 };
 
 export type RegosTokenUpsertRequest = {
-  token: string;
+  token?: string | null;
   is_replicable: boolean;
 };
 

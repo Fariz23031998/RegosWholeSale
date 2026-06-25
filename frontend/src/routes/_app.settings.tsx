@@ -63,6 +63,7 @@ function SettingsPage() {
   const [integrationToken, setIntegrationToken] = useState("");
   const [isReplicable, setIsReplicable] = useState(false);
   const [tokenConfigured, setTokenConfigured] = useState(false);
+  const [regosTokenMasked, setRegosTokenMasked] = useState("");
   const [regosWebhookUrl, setRegosWebhookUrl] = useState<string | null>(null);
   const [warehouseId, setWarehouseId] = useState("");
   const [priceTypeId, setPriceTypeId] = useState("");
@@ -234,10 +235,13 @@ function SettingsPage() {
     const data = regosBootstrapQuery.data;
     if (!data) return;
 
-    setIntegrationToken(data.config.token);
     setIsReplicable(data.config.is_replicable);
     setTokenConfigured(data.config.configured);
+    setRegosTokenMasked(data.config.token_masked);
     setRegosWebhookUrl(data.config.webhook_url);
+    if (!data.config.configured) {
+      setIntegrationToken("");
+    }
 
     if (!data.config.configured || !data.regos) {
       clearRegosOptions();
@@ -332,7 +336,13 @@ function SettingsPage() {
     setTokenInfo("");
 
     try {
-      if (nextToken.length !== 32) {
+      if (!tokenConfigured && !nextToken) {
+        setTokenError(
+          t("settings.regos.tokenRequired", "Integration token is required."),
+        );
+        return;
+      }
+      if (nextToken && nextToken.length !== 32) {
         setTokenError(
           t("settings.regos.tokenLength", "Integration token must be exactly 32 characters."),
         );
@@ -340,9 +350,10 @@ function SettingsPage() {
       }
 
       await saveRegosToken(token, {
-        token: nextToken,
+        token: nextToken || null,
         is_replicable: isReplicable,
       });
+      setIntegrationToken("");
       setTokenInfo(t("settings.regos.tokenSaved", "Regos integration token saved."));
       setRegosError("");
       await queryClient.invalidateQueries({ queryKey: ["settings", "regos-bootstrap", token] });
@@ -790,16 +801,23 @@ function SettingsPage() {
                 </span>
                 <input
                   className={styles.input}
-                  type="text"
+                  type="password"
                   value={integrationToken}
                   disabled={loadingToken || savingToken}
                   autoComplete="off"
                   spellCheck={false}
                   onChange={(e) => setIntegrationToken(e.target.value)}
-                  placeholder={t(
-                    "settings.regos.tokenPlaceholder",
-                    "32-character Regos integration token",
-                  )}
+                  placeholder={
+                    tokenConfigured
+                      ? t(
+                          "settings.regos.replaceTokenPlaceholder",
+                          "Enter a new token to replace the saved one",
+                        )
+                      : t(
+                          "settings.regos.tokenPlaceholder",
+                          "32-character Regos integration token",
+                        )
+                  }
                 />
               </label>
 
@@ -855,12 +873,13 @@ function SettingsPage() {
                     ? regosWebhookUrl
                       ? t(
                           "settings.regos.tokenSavedWebhook",
-                          "Token saved. REGOS HandleWebhook URL: {{url}}",
-                          { url: regosWebhookUrl },
+                          "Token {{masked}} saved. REGOS HandleWebhook URL: {{url}}",
+                          { masked: regosTokenMasked, url: regosWebhookUrl },
                         )
                       : t(
                           "settings.regos.tokenSavedNoWebhookUrl",
-                          "Token saved. Set TELEGRAM_WEBHOOK_BASE_URL on the server to show the REGOS webhook URL.",
+                          "Token {{masked}} saved. Set TELEGRAM_WEBHOOK_BASE_URL on the server to show the REGOS webhook URL.",
+                          { masked: regosTokenMasked },
                         )
                     : t("settings.regos.noToken", "No integration token saved yet.")}
               </p>
