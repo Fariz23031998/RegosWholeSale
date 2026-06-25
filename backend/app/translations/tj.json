@@ -671,6 +671,7 @@
     "settings.regos.desc": "Токени интегратсияро аз regos_tokens нигоҳ доред, то барнома анборҳо, навъҳои нарх, шарикон ва дигар маълумоти Regos-ро гирад.",
     "settings.regos.integrationToken": "Токени интегратсия",
     "settings.regos.tokenPlaceholder": "Токени 32 аломатии интегратсияи Regos",
+    "settings.regos.replaceTokenPlaceholder": "Токени интегратсияро иваз кунед",
     "settings.regos.replicable": "Токени такроршаванда",
     "settings.regos.replicableDesc": "Иҷозати нусхабардории ин токен ба насбҳои дигар.",
     "settings.regos.replicableOAuthDesc": "Фаъол кардани истифодаи OAuth bearer-token барои интегратсияҳои такроршавандаи Regos.",

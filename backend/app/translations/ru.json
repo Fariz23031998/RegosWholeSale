@@ -671,6 +671,7 @@
     "settings.regos.desc": "Сохраните токен интеграции из regos_tokens, чтобы приложение могло получать склады, типы цен, контрагентов и другие данные Regos.",
     "settings.regos.integrationToken": "Токен интеграции",
     "settings.regos.tokenPlaceholder": "32-символьный токен интеграции Regos",
+    "settings.regos.replaceTokenPlaceholder": "Введите новый токен для замены сохранённого",
     "settings.regos.replicable": "Реплицируемый токен",
     "settings.regos.replicableDesc": "Разрешить копирование этого токена в другие установки.",
     "settings.regos.replicableOAuthDesc": "Включить использование OAuth bearer-токена для реплицируемых интеграций Regos.",

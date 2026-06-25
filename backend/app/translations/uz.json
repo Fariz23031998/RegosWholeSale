@@ -671,6 +671,7 @@
     "settings.regos.desc": "Ilova omborlar, narx turlari, hamkorlar va boshqa Regos ma'lumotlarini olishi uchun regos_tokens dan integratsiya tokenini saqlang.",
     "settings.regos.integrationToken": "Integratsiya tokeni",
     "settings.regos.tokenPlaceholder": "32 belgili Regos integratsiya tokeni",
+    "settings.regos.replaceTokenPlaceholder": "Saqlangan tokenni almashtirish uchun yangi token kiriting",
     "settings.regos.replicable": "Replikatsiya qilinadigan token",
     "settings.regos.replicableDesc": "Ushbu tokenni boshqa o'rnatmalarga nusxalashga ruxsat berish.",
     "settings.regos.replicableOAuthDesc": "Replikatsiya qilinadigan Regos integratsiyalari uchun OAuth bearer-tokendan foydalanishni yoqish.",
