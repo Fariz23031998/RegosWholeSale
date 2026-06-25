@@ -323,7 +323,7 @@ function TopProductsRevenueList({
   products,
   displayCurrency,
 }: {
-  products: { item_id: number; name: string; revenue: number }[];
+  products: DashboardTopProduct[];
   displayCurrency: RegosCurrencyOption | null | undefined;
 }) {
   return (
@@ -331,9 +331,11 @@ function TopProductsRevenueList({
       {products.map((item, index) => (
         <div key={item.item_id} className={styles.topItem}>
           <div className={styles.topRank}>{index + 1}</div>
-          <div className={styles.topName}>{item.name}</div>
-          <div className={styles.topVal}>
-            <AmountWithCurrency amount={item.revenue} currency={displayCurrency} />
+          <div className={styles.topContent}>
+            <div className={styles.topName}>{item.name}</div>
+            <div className={styles.topVal}>
+              <AmountWithCurrency amount={item.revenue} currency={displayCurrency} />
+            </div>
           </div>
         </div>
       ))}
@@ -345,14 +347,18 @@ function BestSellersSection({
   products,
   loading,
   t,
+  showTitle = true,
 }: {
   products: DashboardTopProduct[];
   loading: boolean;
   t: TranslateFn;
+  showTitle?: boolean;
 }) {
   return (
     <>
-      <div className={styles.cardTitle}>{t("dashboard.charts.bestSellers")}</div>
+      {showTitle ? (
+        <div className={styles.cardTitle}>{t("dashboard.charts.bestSellers")}</div>
+      ) : null}
       <div className={styles.cardSub}>{t("dashboard.charts.unitsSold")}</div>
       <div className={styles.topList}>
         {products.length === 0 && !loading && (
@@ -363,9 +369,11 @@ function BestSellersSection({
         {products.map((item, index) => (
           <div key={item.item_id} className={styles.topItem}>
             <div className={styles.topRank}>{index + 1}</div>
-            <div className={styles.topName}>{item.name}</div>
-            <div className={styles.topVal}>
-              {t("dashboard.charts.sold", undefined, { qty: item.qty })}
+            <div className={styles.topContent}>
+              <div className={styles.topName}>{item.name}</div>
+              <div className={styles.topVal}>
+                {t("dashboard.charts.sold", undefined, { qty: item.qty })}
+              </div>
             </div>
           </div>
         ))}
@@ -410,7 +418,9 @@ export function DashboardPage() {
   const [paymentsSearch, setPaymentsSearch] = useState("");
   const [exportingPayments, setExportingPayments] = useState(false);
   const [activeTab, setActiveTab] = useState<DashboardTab>("totals");
-  const [isNarrow, setIsNarrow] = useState(false);
+  const [isNarrow, setIsNarrow] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches,
+  );
   const [availableCurrencies, setAvailableCurrencies] = useState<RegosCurrencyOption[]>([]);
   const [currencyFilter, setCurrencyFilter] = useState<DashboardCurrencyFilter | null>(null);
   const [defaultsReady, setDefaultsReady] = useState(false);
@@ -1098,7 +1108,20 @@ export function DashboardPage() {
               {t("dashboard.charts.noSales")}
             </div>
           ) : isNarrow ? (
-            <TopProductsRevenueList products={topProducts} displayCurrency={displayCurrency} />
+            <>
+              <TopProductsRevenueList
+                products={topProducts}
+                displayCurrency={displayCurrency}
+              />
+              <div className={styles.cardSection}>
+                <BestSellersSection
+                  products={stats?.top_products ?? []}
+                  loading={loading}
+                  t={t}
+                  showTitle={false}
+                />
+              </div>
+            </>
           ) : (
             <ResponsiveContainer width="100%" height={topProductsChartHeightPx}>
               <BarChart
@@ -1132,11 +1155,6 @@ export function DashboardPage() {
                 </Bar>
               </BarChart>
             </ResponsiveContainer>
-          )}
-          {isNarrow && (
-            <div className={styles.cardSection}>
-              <BestSellersSection products={stats?.top_products ?? []} loading={loading} t={t} />
-            </div>
           )}
         </div>
 

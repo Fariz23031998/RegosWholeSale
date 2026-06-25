@@ -364,19 +364,27 @@ export function SalesPage() {
                   onClick={() => void openDocument(doc)}
                   style={{ cursor: detailLoading ? "wait" : "pointer" }}
                 >
-                  <td className={styles.id}>#{doc.code || doc.id}</td>
-                  <td>
+                  <td className={styles.id} data-label={t("sales.table.receipt")}>
+                    #{doc.code || doc.id}
+                  </td>
+                  <td data-label={t("common.time")}>
                     {doc.date > 0
                       ? formatDateTime(new Date(doc.date * 1000).toISOString())
                       : "—"}
                   </td>
-                  <td>{doc.partner_name ?? "—"}</td>
-                  <td>{doc.attached_user_name ?? "—"}</td>
-                  <td>{doc.stock_name ?? "—"}</td>
-                  <td className={styles.right} style={{ fontWeight: 600 }}>
+                  <td data-label={t("sales.table.partner")}>{doc.partner_name ?? "—"}</td>
+                  <td data-label={t("sales.table.attachedUser")}>
+                    {doc.attached_user_name ?? "—"}
+                  </td>
+                  <td data-label={t("sales.table.warehouse")}>{doc.stock_name ?? "—"}</td>
+                  <td
+                    className={styles.right}
+                    data-label={t("common.total")}
+                    style={{ fontWeight: 600 }}
+                  >
                     {formatCurrency(doc.amount ?? 0)}
                   </td>
-                  <td className={styles.printCol}>
+                  <td className={styles.printCol} data-label={t("common.actions")}>
                     <div className={styles.rowActions}>
                       {doc.partner_id ? (
                         <Button

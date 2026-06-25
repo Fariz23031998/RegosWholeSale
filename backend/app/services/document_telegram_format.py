@@ -147,12 +147,12 @@ def format_partner_receipt(
 
     if is_return:
         receipt_key = (
-            "telegram.receipt.wholesaleReturn" if use_cost else "telegram.receipt.purchaseReturn"
+            "telegram.receipt.purchaseReturn" if use_cost else "telegram.receipt.wholesaleReturn"
         )
     elif use_cost:
-        receipt_key = "telegram.receipt.wholesale"
-    else:
         receipt_key = "telegram.receipt.purchase"
+    else:
+        receipt_key = "telegram.receipt.wholesale"
 
     message_parts.extend(
         [

@@ -212,11 +212,17 @@ export function TelegramUsersPage() {
             <tbody>
               {users.map((item) => (
                 <tr key={item.id}>
-                  <td>{displayName(item, t)}</td>
-                  <td className={styles.muted}>{item.username ? `@${item.username}` : "—"}</td>
-                  <td className={styles.id}>{item.telegram_user_id}</td>
-                  <td className={styles.muted}>{item.language_code ?? "—"}</td>
-                  <td className={styles.muted}>
+                  <td data-label={t("common.name", "Name")}>{displayName(item, t)}</td>
+                  <td className={styles.muted} data-label={t("telegramUsers.table.username", "Username")}>
+                    {item.username ? `@${item.username}` : "—"}
+                  </td>
+                  <td className={styles.id} data-label={t("telegramUsers.table.telegramId", "Telegram ID")}>
+                    {item.telegram_user_id}
+                  </td>
+                  <td className={styles.muted} data-label={t("telegramUsers.table.language", "Language")}>
+                    {item.language_code ?? "—"}
+                  </td>
+                  <td className={styles.muted} data-label={t("telegramUsers.table.notifications", "Notifications")}>
                     <div className={styles.notificationSummary}>
                       <span>{notificationsSummary(item, t)}</span>
                       {item.is_active && item.notification_types.length > 0 && (
@@ -230,14 +236,16 @@ export function TelegramUsersPage() {
                       )}
                     </div>
                   </td>
-                  <td className={styles.muted}>
+                  <td className={styles.muted} data-label={t("telegramUsers.receiptLanguage", "Receipt language")}>
                     {t(
                       receiptLanguageLabelKey(item.receipt_language as TelegramReceiptLanguage),
                       item.receipt_language.toUpperCase(),
                     )}
                   </td>
-                  <td className={styles.muted}>{formatDateTime(item.created_at)}</td>
-                  <td>
+                  <td className={styles.muted} data-label={t("telegramUsers.table.registered", "Registered")}>
+                    {formatDateTime(item.created_at)}
+                  </td>
+                  <td data-label={t("common.status", "Status")}>
                     <span
                       className={clsx(
                         styles.badge,
@@ -249,7 +257,7 @@ export function TelegramUsersPage() {
                         : t("common.inactive", "Inactive")}
                     </span>
                   </td>
-                  <td>
+                  <td className={styles.actionsCell} data-label={t("common.actions", "Actions")}>
                     <div className={styles.actions}>
                       <Button
                         variant="secondary"

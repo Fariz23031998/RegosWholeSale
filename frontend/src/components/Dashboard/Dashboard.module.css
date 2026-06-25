@@ -575,8 +575,37 @@
 }
 
 @media (max-width: 900px) {
+  .page {
+    padding: var(--space-4) var(--space-4) var(--space-8);
+  }
+
+  .filters {
+    width: 100%;
+  }
+
+  .filter,
+  .filterMenu {
+    font-size: 12px;
+    padding: 8px 10px;
+  }
+
+  .productsToolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .productsSearch {
+    max-width: none;
+    width: 100%;
+  }
+
   .charts { grid-template-columns: 1fr; }
   .row2 { grid-template-columns: 1fr; }
+
+  .charts > .card,
+  .row2 > .card {
+    min-width: 0;
+  }
 
   .productsTable {
     min-width: 1040px;
@@ -588,7 +617,10 @@
 
   .topItem {
     align-items: flex-start;
-    gap: 8px 10px;
+  }
+
+  .topContent {
+    width: 100%;
   }
 
   .topName {
@@ -597,14 +629,27 @@
     text-overflow: unset;
     word-break: break-word;
     line-height: 1.35;
+    flex: none;
   }
 
   .topVal {
-    margin-left: auto;
+    margin-left: 0;
     flex-shrink: 0;
-    text-align: right;
-    max-width: 45%;
+    max-width: none;
+    text-align: left;
     word-break: break-word;
+  }
+
+  .topVal .amountWithCurrency {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .cardSection {
+    margin-top: var(--space-4);
+    padding-top: var(--space-4);
   }
 
   .paymentTable {
@@ -691,6 +736,9 @@
 }
 .cardSection .cardSub {
   margin-bottom: var(--space-4);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
 }
 
 .topList {
@@ -703,6 +751,13 @@
   align-items: center;
   gap: 10px;
   font-size: 13px;
+}
+.topContent {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 .topRank {
   width: 22px;

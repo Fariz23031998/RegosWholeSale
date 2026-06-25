@@ -194,20 +194,24 @@ export function UsersPage() {
                 const busy = actionUserId === item.id;
                 return (
                   <tr key={item.id}>
-                    <td>{item.display_name}</td>
-                    <td className={styles.mono}>{loginOrEmail(item)}</td>
-                    <td>
+                    <td data-label={t("common.name", "Name")}>{item.display_name}</td>
+                    <td className={styles.mono} data-label={`${t("users.table.login", "Login")} / ${t("users.table.email", "Email")}`}>
+                      {loginOrEmail(item)}
+                    </td>
+                    <td data-label={t("users.table.role", "Role")}>
                       <span className={clsx(styles.badge, roleBadgeClass(item.role))}>
                         {roleLabel(item.role, t)}
                       </span>
                     </td>
-                    <td className={styles.muted}>{permissionsSummary(item, t)}</td>
-                    <td className={styles.muted}>
+                    <td className={styles.muted} data-label={t("users.table.permissions", "Permissions")}>
+                      {permissionsSummary(item, t)}
+                    </td>
+                    <td className={styles.muted} data-label={t("users.table.schedules", "Schedules")}>
                       {item.role === "owner"
                         ? "—"
                         : formatScheduleSummary(item.schedules, t)}
                     </td>
-                    <td>
+                    <td data-label={t("common.status", "Status")}>
                       <span
                         className={clsx(
                           styles.badge,
@@ -219,7 +223,7 @@ export function UsersPage() {
                           : t("common.inactive", "Inactive")}
                       </span>
                     </td>
-                    <td>
+                    <td className={styles.actionsCell} data-label={t("common.actions", "Actions")}>
                       <div className={styles.actions}>
                         <Button
                           variant="secondary"

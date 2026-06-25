@@ -111,6 +111,52 @@ def test_format_partner_receipt_omits_phone_and_exchange_rate_when_not_applicabl
     assert "Валюта: UZS" in message
 
 
+def test_format_partner_receipt_title_for_wholesale():
+    message = format_partner_receipt(
+        {"code": "WS-001", "date": 1700000000, "partner": {"name": "Acme"}},
+        SAMPLE_PARTNER_OPS,
+        lang="en",
+        use_cost=False,
+    )
+    assert "*Wholesale receipt*" in message
+    assert "*Purchase receipt*" not in message
+
+
+def test_format_partner_receipt_title_for_purchase():
+    message = format_partner_receipt(
+        {"code": "P-001", "date": 1700000000, "partner": {"name": "Supplier"}},
+        SAMPLE_PARTNER_OPS,
+        lang="en",
+        use_cost=True,
+    )
+    assert "*Purchase receipt*" in message
+    assert "*Wholesale receipt*" not in message
+
+
+def test_format_partner_receipt_title_for_wholesale_return():
+    message = format_partner_receipt(
+        {"code": "WR-001", "date": 1700000000, "partner": {"name": "Acme"}},
+        SAMPLE_PARTNER_OPS,
+        lang="en",
+        is_return=True,
+        use_cost=False,
+    )
+    assert "*Wholesale return receipt*" in message
+    assert "*Purchase return receipt*" not in message
+
+
+def test_format_partner_receipt_title_for_purchase_return():
+    message = format_partner_receipt(
+        {"code": "RP-001", "date": 1700000000, "partner": {"name": "Supplier"}},
+        SAMPLE_PARTNER_OPS,
+        lang="en",
+        is_return=True,
+        use_cost=True,
+    )
+    assert "*Purchase return receipt*" in message
+    assert "*Wholesale return receipt*" not in message
+
+
 ATTACHED_USER_DOC = {"attached_user": {"id": 7, "full_name": "Cashier One"}}
 
 

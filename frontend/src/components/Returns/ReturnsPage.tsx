@@ -348,28 +348,33 @@ export function ReturnsPage() {
                   onClick={() => void openDocument(doc)}
                   style={{ cursor: detailLoading ? "wait" : "pointer" }}
                 >
-                  <td className={styles.id}>#{doc.code || doc.id}</td>
-                  <td className={styles.id}>
+                  <td className={styles.id} data-label={t("returns.table.return")}>
+                    #{doc.code || doc.id}
+                  </td>
+                  <td className={styles.id} data-label={t("returns.table.original")}>
                     {doc.wholesale_doc_id ? `#${doc.wholesale_doc_id}` : "—"}
                   </td>
-                  <td>
+                  <td data-label={t("common.time")}>
                     {doc.date > 0
                       ? formatDateTime(new Date(doc.date * 1000).toISOString())
                       : "—"}
                   </td>
-                  <td>{doc.partner_name ?? "—"}</td>
-                  <td>{doc.attached_user_name ?? "—"}</td>
-                  <td>{doc.stock_name ?? "—"}</td>
-                  <td style={{ color: "var(--color-text-muted)" }}>
+                  <td data-label={t("sales.table.partner")}>{doc.partner_name ?? "—"}</td>
+                  <td data-label={t("sales.table.attachedUser")}>
+                    {doc.attached_user_name ?? "—"}
+                  </td>
+                  <td data-label={t("sales.table.warehouse")}>{doc.stock_name ?? "—"}</td>
+                  <td data-label={t("returns.table.reason")} style={{ color: "var(--color-text-muted)" }}>
                     {doc.reason || "—"}
                   </td>
                   <td
                     className={styles.right}
+                    data-label={t("common.total")}
                     style={{ fontWeight: 600, color: "var(--color-danger, #dc2626)" }}
                   >
                     {formatCurrency(doc.amount ?? 0)}
                   </td>
-                  <td className={styles.printCol}>
+                  <td className={styles.printCol} data-label={t("common.actions")}>
                     <div className={styles.rowActions}>
                       {doc.partner_id ? (
                         <Button
