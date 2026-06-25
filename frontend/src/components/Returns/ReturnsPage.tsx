@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { CalendarRange, Printer, Scale, Search, Users, Warehouse } from "lucide-react";
@@ -23,6 +24,7 @@ import {
   presetToCustomRange,
   resolveDashboardPeriodParams,
   resolveDashboardQueryParams,
+  serializeDashboardQueryParams,
   type DashboardCustomRange,
   type DashboardPeriodPreset,
 } from "@/lib/dashboard-api";
@@ -64,8 +66,6 @@ export function ReturnsPage() {
   const [selectedStockIds, setSelectedStockIds] = useState<number[]>([]);
   const [allPartners, setAllPartners] = useState(true);
   const [selectedPartnerIds, setSelectedPartnerIds] = useState<number[]>([]);
-  const [returnDocuments, setReturnDocuments] = useState<WholesaleReturnDocument[]>([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [open, setOpen] = useState<ReturnDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -88,6 +88,18 @@ export function ReturnsPage() {
         partnerIds: selectedPartnerIds,
       }),
     [allPartners, allStocks, periodParams, allPartners ? undefined : selectedPartnerIds, allStocks ? undefined : selectedStockIds],
+  );
+
+  const returnDocumentsQueryKey = useMemo(
+    () => serializeDashboardQueryParams({ ...queryParams, limit: 100 }),
+    [
+      allPartners,
+      allStocks,
+      periodParams.start_date,
+      periodParams.end_date,
+      allPartners ? "" : selectedPartnerIds.join(","),
+      allStocks ? "" : selectedStockIds.join(","),
+    ],
   );
 
   const periodModalRange = useMemo(() => {
@@ -128,34 +140,18 @@ export function ReturnsPage() {
     };
   }, [token]);
 
-  useEffect(() => {
-    if (!token) {
-      setReturnDocuments([]);
-      return;
-    }
+  const returnDocumentsQuery = useQuery({
+    queryKey: ["sales", "wholesale-return-documents", token, returnDocumentsQueryKey],
+    queryFn: () => fetchWholesaleReturnDocuments(token!, { ...queryParams, limit: 100 }),
+    enabled: Boolean(token),
+    staleTime: 30_000,
+  });
 
-    let cancelled = false;
-    setLoading(true);
-    setError("");
-
-    void fetchWholesaleReturnDocuments(token, { ...queryParams, limit: 100 })
-      .then((res) => {
-        if (cancelled) return;
-        setReturnDocuments(res.documents);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setReturnDocuments([]);
-        setError(formatAuthError(err, t("returns.errors.load")));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token, queryParams]);
+  const returnDocuments = returnDocumentsQuery.data?.documents ?? [];
+  const loading = returnDocumentsQuery.isPending;
+  const loadError = returnDocumentsQuery.error
+    ? formatAuthError(returnDocumentsQuery.error, t("returns.errors.load"))
+    : "";
 
   const filteredDocuments = useMemo(
     () =>
@@ -305,7 +301,7 @@ export function ReturnsPage() {
         }}
       />
 
-      {error && <div className={styles.empty}>{error}</div>}
+      {(loadError || error) && <div className={styles.empty}>{loadError || error}</div>}
 
       {!loading && returnDocuments.length > 0 ? (
         <div className={dashboardStyles.productsToolbar}>

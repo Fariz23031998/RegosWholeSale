@@ -4,7 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import not_found
 from app.models import Company, User
-from app.schemas.pos import DEFAULT_CROSS_CURRENCY_PAYMENT_MODE
+from app.schemas.pos import (
+    DEFAULT_CROSS_CURRENCY_PAYMENT_MODE,
+    DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX,
+    DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX,
+)
 from app.services import settings as settings_service
 
 POS_SETTINGS_KEY = "pos"
@@ -109,6 +113,18 @@ def _apply_company_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> 
             patch["cross_currency_payment_mode"]
         )
 
+    if patch.get("internal_barcode_weight_prefix") is not None:
+        updated["internal_barcode_weight_prefix"] = _normalize_internal_barcode_prefix(
+            patch["internal_barcode_weight_prefix"],
+            DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX,
+        )
+
+    if patch.get("internal_barcode_piece_prefix") is not None:
+        updated["internal_barcode_piece_prefix"] = _normalize_internal_barcode_prefix(
+            patch["internal_barcode_piece_prefix"],
+            DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX,
+        )
+
     return updated
 
 
@@ -142,6 +158,14 @@ def _normalize_company_pos_settings(raw: Any) -> dict[str, Any]:
         "auto_open_qty_keypad": bool(data.get("auto_open_qty_keypad", False)),
         "cross_currency_payment_mode": _normalize_cross_currency_payment_mode(
             data.get("cross_currency_payment_mode")
+        ),
+        "internal_barcode_weight_prefix": _normalize_internal_barcode_prefix(
+            data.get("internal_barcode_weight_prefix"),
+            DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX,
+        ),
+        "internal_barcode_piece_prefix": _normalize_internal_barcode_prefix(
+            data.get("internal_barcode_piece_prefix"),
+            DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX,
         ),
     }
 
@@ -195,6 +219,15 @@ def _normalize_cross_currency_payment_mode(raw: Any) -> str:
     if isinstance(raw, str) and raw in VALID_CROSS_CURRENCY_PAYMENT_MODES:
         return raw
     return DEFAULT_CROSS_CURRENCY_PAYMENT_MODE
+
+
+def _normalize_internal_barcode_prefix(raw: Any, default: str) -> str:
+    if raw is None:
+        return default
+    if not isinstance(raw, str):
+        return default
+    digits = "".join(ch for ch in raw if ch.isdigit())
+    return digits[:2]
 
 
 async def _get_company(session: AsyncSession, company_id: int) -> Company:

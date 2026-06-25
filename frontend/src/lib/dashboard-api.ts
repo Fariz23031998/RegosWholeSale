@@ -309,6 +309,32 @@ export function resolveDashboardQueryParams(
   return params;
 }
 
+export function serializeDashboardQueryParams(
+  params: DashboardQueryParams & {
+    performed?: boolean;
+    offset?: number;
+    limit?: number;
+  },
+): string {
+  const parts: string[] = [];
+  if (params.start_date !== undefined) parts.push(`sd:${params.start_date}`);
+  if (params.end_date !== undefined) parts.push(`ed:${params.end_date}`);
+  if (params.all_stocks !== undefined) parts.push(`as:${params.all_stocks}`);
+  if (params.all_partners !== undefined) parts.push(`ap:${params.all_partners}`);
+  if (params.performed !== undefined) parts.push(`pf:${params.performed}`);
+  if (params.currency_id !== undefined) parts.push(`ci:${params.currency_id}`);
+  if (params.currency_mode !== undefined) parts.push(`cm:${params.currency_mode}`);
+  if (params.offset !== undefined) parts.push(`off:${params.offset}`);
+  if (params.limit !== undefined) parts.push(`lim:${params.limit}`);
+  if (params.stock_ids?.length) {
+    parts.push(`st:${[...params.stock_ids].sort((a, b) => a - b).join(",")}`);
+  }
+  if (params.partner_ids?.length) {
+    parts.push(`pa:${[...params.partner_ids].sort((a, b) => a - b).join(",")}`);
+  }
+  return parts.join("|");
+}
+
 export function currencyFilterKey(filter: DashboardCurrencyFilter): string {
   return `${filter.currencyId}:${filter.mode}`;
 }

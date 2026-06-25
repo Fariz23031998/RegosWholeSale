@@ -151,6 +151,11 @@ export function PartnerBalanceModal({
     setCollapsedGroups(new Set());
   }, []);
 
+  const handleClose = useCallback(() => {
+    resetFilters();
+    onClose();
+  }, [onClose, resetFilters]);
+
   const toggleGroup = useCallback((key: string) => {
     setCollapsedGroups((current) => {
       const next = new Set(current);
@@ -164,13 +169,9 @@ export function PartnerBalanceModal({
   }, []);
 
   useEffect(() => {
-    if (!open) {
-      resetFilters();
-      return;
-    }
+    if (!open) return;
 
     let cancelled = false;
-    setDefaultsReady(false);
 
     const loadDefaults = async () => {
       const [defaultsResult, firmsResult] = await Promise.allSettled([
@@ -194,7 +195,7 @@ export function PartnerBalanceModal({
     return () => {
       cancelled = true;
     };
-  }, [open, resetFilters, token]);
+  }, [open, token]);
 
   const fetchBalanceRows = useCallback(async () => {
     const { start_date, end_date } = customRangeToTimestamps(periodRange);
@@ -276,7 +277,7 @@ export function PartnerBalanceModal({
     <>
       <Modal
         open={open}
-        onClose={onClose}
+        onClose={handleClose}
         title={title}
         size="xl"
         overlayClassName={styles.partnerBalanceOverlay}

@@ -1,5 +1,6 @@
 import { Banknote, CreditCard, Plus, Trash2, Wallet } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Button } from "@/components/posui/Button";
@@ -22,7 +23,7 @@ import {
   resolveAmountPaid,
   type PaymentPanelMode,
 } from "@/lib/checkout-payments";
-import { fetchPaymentTypes } from "@/lib/payment-api";
+import { fetchPaymentTypes, invalidatePaymentTypesCache } from "@/lib/payment-api";
 import { usePosConfig } from "@/store/pos-config";
 import type { CheckoutPaymentLineRequest } from "@/lib/sales-api";
 import type { PaymentType } from "@/types/payment";
@@ -72,9 +73,22 @@ export function PaymentPanel({
   const priceTypes = useSellContext((s) => s.options.price_types);
   const crossCurrencyPaymentMode = usePosConfig((s) => s.crossCurrencyPaymentMode);
 
-  const [paymentTypes, setPaymentTypes] = useState<PaymentType[]>([]);
-  const [typesLoading, setTypesLoading] = useState(false);
-  const [typesError, setTypesError] = useState<string | null>(null);
+  const paymentTypesQuery = useQuery({
+    queryKey: ["regos", "payment-types", accessToken],
+    queryFn: () => fetchPaymentTypes(accessToken!),
+    enabled: active && Boolean(accessToken),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const paymentTypes = paymentTypesQuery.data?.payment_types ?? [];
+  const typesLoading = paymentTypesQuery.isPending;
+  const typesError = paymentTypesQuery.error
+    ? formatAuthError(
+        paymentTypesQuery.error,
+        t("checkout.errors.loadPaymentTypes", "Failed to load payment types"),
+      )
+    : null;
+
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [tendered, setTendered] = useState("");
   const [debtAmount, setDebtAmount] = useState("0");
@@ -203,34 +217,16 @@ export function PaymentPanel({
   };
 
   useEffect(() => {
-    if (!active || !accessToken) return;
+    if (!active || paymentTypes.length === 0) return;
 
-    let cancelled = false;
-    setTypesLoading(true);
-    setTypesError(null);
-
-    void fetchPaymentTypes(accessToken)
-      .then((data) => {
-        if (cancelled) return;
-        const types = data.payment_types ?? [];
-        setPaymentTypes(types);
-        const defaultType = types.find((t) => t.is_cash) ?? types[0] ?? null;
-        setSelectedId(defaultType?.id ?? null);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setPaymentTypes([]);
-        setSelectedId(null);
-        setTypesError(formatAuthError(err, t("checkout.errors.loadPaymentTypes", "Failed to load payment types")));
-      })
-      .finally(() => {
-        if (!cancelled) setTypesLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [active, accessToken]);
+    setSelectedId((current) => {
+      if (current !== null && paymentTypes.some((type) => type.id === current)) {
+        return current;
+      }
+      const defaultType = paymentTypes.find((type) => type.is_cash) ?? paymentTypes[0] ?? null;
+      return defaultType?.id ?? null;
+    });
+  }, [active, paymentTypes]);
 
   useEffect(() => {
     if (!active) {
@@ -430,19 +426,8 @@ export function PaymentPanel({
             variant="secondary"
             onClick={() => {
               if (!accessToken) return;
-              setTypesLoading(true);
-              setTypesError(null);
-              void fetchPaymentTypes(accessToken)
-                .then((data) => {
-                  const types = data.payment_types ?? [];
-                  setPaymentTypes(types);
-                  const defaultType = types.find((t) => t.is_cash) ?? types[0] ?? null;
-                  setSelectedId(defaultType?.id ?? null);
-                })
-                .catch((err: unknown) => {
-                  setTypesError(formatAuthError(err, t("checkout.errors.loadPaymentTypes", "Failed to load payment types")));
-                })
-                .finally(() => setTypesLoading(false));
+              invalidatePaymentTypesCache(accessToken);
+              void paymentTypesQuery.refetch();
             }}
           >
             {t("common.retry", "Retry")}

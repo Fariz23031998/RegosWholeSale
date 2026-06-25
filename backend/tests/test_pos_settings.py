@@ -16,6 +16,8 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     assert initial.json()["settings"]["auto_open_qty_keypad"] is False
     assert initial.json()["settings"]["cross_currency_payment_mode"] == "payment_currency"
     assert initial.json()["settings"]["tendered_quick_amounts"] == [20.0, 50.0, 100.0]
+    assert initial.json()["settings"]["internal_barcode_weight_prefix"] == "22"
+    assert initial.json()["settings"]["internal_barcode_piece_prefix"] == "23"
 
     patched = await client.patch(
         "/api/v1/company/settings/pos",
@@ -42,6 +44,42 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
         50000.0,
         200000.0,
     ]
+
+
+@pytest.mark.asyncio
+async def test_internal_barcode_prefix_settings(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client,
+        email="pos-barcode@test.com",
+        company_name="POS Barcode Co",
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    patched = await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={
+            "internal_barcode_weight_prefix": "55",
+            "internal_barcode_piece_prefix": "66",
+        },
+    )
+    assert patched.status_code == 200
+    assert patched.json()["settings"]["internal_barcode_weight_prefix"] == "55"
+    assert patched.json()["settings"]["internal_barcode_piece_prefix"] == "66"
+
+    effective = await client.get("/api/v1/me/settings/pos", headers=headers)
+    assert effective.status_code == 200
+    assert effective.json()["settings"]["internal_barcode_weight_prefix"] == "55"
+    assert effective.json()["settings"]["internal_barcode_piece_prefix"] == "66"
+
+    sanitized = await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={"internal_barcode_weight_prefix": "abc99"},
+    )
+    assert sanitized.status_code == 200
+    assert sanitized.json()["settings"]["internal_barcode_weight_prefix"] == "99"
 
 
 @pytest.mark.asyncio

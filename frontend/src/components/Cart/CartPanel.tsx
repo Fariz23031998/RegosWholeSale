@@ -82,12 +82,23 @@ export function CartPanel() {
   const [printError, setPrintError] = useState<string | null>(null);
   const lastAddedId = useCart((s) => s.lastAddedId);
   const lastAddedAt = useCart((s) => s.lastAddedAt);
+  const skipKeypadOnLastAdd = useCart((s) => s.skipKeypadOnLastAdd);
+  const clearSkipKeypadOnLastAdd = useCart((s) => s.clearSkipKeypadOnLastAdd);
   const seenAddRef = useRef(0);
   useEffect(() => {
     if (!lastAddedAt || lastAddedAt === seenAddRef.current) return;
     seenAddRef.current = lastAddedAt;
-    if (autoOpenKeypad && lastAddedId) setKeypadFor(lastAddedId);
-  }, [lastAddedAt, lastAddedId, autoOpenKeypad]);
+    if (autoOpenKeypad && lastAddedId && !skipKeypadOnLastAdd) {
+      setKeypadFor(lastAddedId);
+    }
+    if (skipKeypadOnLastAdd) clearSkipKeypadOnLastAdd();
+  }, [
+    autoOpenKeypad,
+    clearSkipKeypadOnLastAdd,
+    lastAddedAt,
+    lastAddedId,
+    skipKeypadOnLastAdd,
+  ]);
 
   const openDraftPrint = () => {
     if (items.length === 0 || postponing) return;
@@ -401,12 +412,14 @@ export function CartPanel() {
         open={continueOpen}
         onClose={() => setContinueOpen(false)}
       />
-      <ReceiptModal
-        context={printContext}
-        title={t("sales.printModalTitle", "Print sale")}
-        closeLabel={t("common.close", "Close")}
-        onClose={() => setPrintContext(null)}
-      />
+      {printContext ? (
+        <ReceiptModal
+          context={printContext}
+          title={t("sales.printModalTitle", "Print sale")}
+          closeLabel={t("common.close", "Close")}
+          onClose={() => setPrintContext(null)}
+        />
+      ) : null}
     </aside>
 
       <QtyKeypad

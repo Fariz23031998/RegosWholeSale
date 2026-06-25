@@ -3,7 +3,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
-import { canAddProductToCart } from "@/lib/cart-stock";
+import { canAddProductToCart, clampCartQty } from "@/lib/cart-stock";
+import {
+  findProductByBarcode,
+  findProductByCode,
+  internalBarcodeToQty,
+  isBarcodeInput,
+  parseInternalBarcode,
+} from "@/lib/barcode";
 import {
   addFeaturedProduct,
   fetchFeaturedProductIds,
@@ -16,7 +23,13 @@ import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { formatCurrency } from "@/lib/format";
 import { applyDefaultCategory } from "@/lib/default-category";
-import { fetchUserPosSettings } from "@/lib/settings-api";
+import {
+  catalogCanLoadMore,
+  catalogEffectiveNextOffset,
+  catalogHasMore,
+  CATALOG_PAGE_SIZE,
+  nextCatalogCursor,
+} from "@/lib/catalog-pagination";
 import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
 import type { Product } from "@/types/catalog";
 import type { ProductGroup } from "@/types/catalog";
@@ -24,30 +37,9 @@ import { CategoryBar } from "./CategoryBar";
 import { ReturnModal } from "@/components/Returns/ReturnModal";
 import styles from "./POS.module.css";
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = CATALOG_PAGE_SIZE;
 const PREPARE_TIMEOUT_MS = 15_000;
 const MAX_GRID_FILL_ROUNDS = 50;
-
-function nextCatalogCursor(
-  cursor: number,
-  productsReturned: number,
-  nextOffset: number,
-): number {
-  if (nextOffset > cursor) return nextOffset;
-  if (productsReturned > 0) return cursor + productsReturned;
-  return 0;
-}
-
-function catalogHasMore(
-  res: { products: unknown[]; next_offset: number; total: number },
-  cursor: number,
-  loadedCount: number,
-): boolean {
-  if (res.next_offset > cursor) return true;
-  if (res.total > 0 && loadedCount < res.total) return true;
-  if (loadedCount < PAGE_SIZE && res.products.length > 0) return true;
-  return res.products.length > 0 && res.products.length < PAGE_SIZE;
-}
 
 function applyCatalogPage(
   res: { products: Product[] },
@@ -96,8 +88,13 @@ export function ProductCatalog() {
   const appendProducts = useCatalog((s) => s.appendProducts);
   const refreshNonce = useCatalog((s) => s.refreshNonce);
   const add = useCart((s) => s.add);
+  const addWithQty = useCart((s) => s.addWithQty);
   const cartItems = useCart((s) => s.items);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
+  const internalBarcodeWeightPrefix = usePosConfig((s) => s.internalBarcodeWeightPrefix);
+  const internalBarcodePiecePrefix = usePosConfig((s) => s.internalBarcodePiecePrefix);
+  const posConfigHydrated = usePosConfig((s) => s.hydrated);
+  const defaultCategory = usePosConfig((s) => s.defaultCategory);
   const hydratePosConfig = usePosConfig((s) => s.hydrate);
   const sellContextHydrated = useSellContext((s) => s.hydrated);
   const hydrateSellContext = useSellContext((s) => s.hydrate);
@@ -107,6 +104,8 @@ export function ProductCatalog() {
   const gridRef = useRef<HTMLDivElement | null>(null);
   const isLoadingMoreRef = useRef(false);
   const isEnsuringGridRef = useRef(false);
+  const isCatalogReloadingRef = useRef(false);
+  const catalogLoadTokenRef = useRef("");
   const lastRequestedOffsetRef = useRef<number | null>(null);
   const [q, setQ] = useState("");
   const [groups, setGroups] = useState<ProductGroup[]>([]);
@@ -124,16 +123,18 @@ export function ProductCatalog() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [loadMoreError, setLoadMoreError] = useState("");
-  const [settingsNonce, setSettingsNonce] = useState(0);
   const [nextOffset, setNextOffset] = useState(0);
   const [total, setTotal] = useState(0);
+  const [lastPageProductCount, setLastPageProductCount] = useState(0);
 
-  const isPreparing = Boolean(token && (!categoryReady || !sellContextHydrated));
+  const isPreparing = Boolean(token && (!categoryReady || !sellContextHydrated || !posConfigHydrated));
+  const isBarcodeMode = isBarcodeInput(q);
 
   useEffect(() => {
+    if (isBarcodeMode) return;
     const timer = window.setTimeout(() => setSearch(q.trim()), 250);
     return () => window.clearTimeout(timer);
-  }, [q]);
+  }, [isBarcodeMode, q]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
@@ -165,42 +166,24 @@ export function ProductCatalog() {
   }, [token]);
 
   useEffect(() => {
-    if (!token) {
-      setCategoryReady(false);
+    if (!token || !posConfigHydrated) {
+      if (!token) setCategoryReady(false);
       return;
     }
 
-    let cancelled = false;
-
-    void fetchUserPosSettings(token)
-      .then((res) => {
-        if (cancelled) return;
-        const next = applyDefaultCategory(res.settings.default_category);
-        setFeaturedOnly(next.featuredOnly);
-        setSelectedGroupId(next.selectedGroupId);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setFeaturedOnly(false);
-        setSelectedGroupId(null);
-      })
-      .finally(() => {
-        if (!cancelled) setCategoryReady(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [token, settingsNonce]);
+    const next = applyDefaultCategory(defaultCategory);
+    setFeaturedOnly(next.featuredOnly);
+    setSelectedGroupId(next.selectedGroupId);
+    setCategoryReady(true);
+  }, [defaultCategory, posConfigHydrated, token]);
 
   useEffect(() => {
     if (!isPreparing) return;
 
     const timer = window.setTimeout(() => {
       setCategoryReady(true);
-      void hydrateSellContext(token, canOverrideRegos);
-      void hydratePosConfig(token);
-      setSettingsNonce((value) => value + 1);
+      void hydrateSellContext(token, canOverrideRegos, { force: true });
+      void hydratePosConfig(token, { force: true });
     }, PREPARE_TIMEOUT_MS);
 
     return () => window.clearTimeout(timer);
@@ -257,7 +240,32 @@ export function ProductCatalog() {
     [canOverrideRegos, catalogOverrides, featuredOnly, isGlobalSearch, search, selectedGroupId],
   );
 
+  const catalogQueryKey = useMemo(
+    () =>
+      [
+        search,
+        selectedGroupId ?? "",
+        featuredOnly ? "1" : "0",
+        warehouseId ?? "",
+        priceTypeId ?? "",
+        refreshNonce,
+      ].join("|"),
+    [featuredOnly, priceTypeId, refreshNonce, search, selectedGroupId, warehouseId],
+  );
+
   const catalogCursorRef = useRef(0);
+
+  const applyCatalogResponse = useCallback(
+    (res: { products: Product[]; next_offset: number; total: number }, loadedCount: number) => {
+      const effectiveNextOffset = catalogEffectiveNextOffset(res, loadedCount, isGlobalSearch);
+      setNextOffset(effectiveNextOffset);
+      setTotal(res.total);
+      setLastPageProductCount(res.products.length);
+      catalogCursorRef.current = effectiveNextOffset;
+      lastRequestedOffsetRef.current = null;
+    },
+    [isGlobalSearch],
+  );
 
   const ensureMinimumGridProducts = useCallback(
     async (startOffset: number, mode: "replace" | "append") => {
@@ -267,12 +275,13 @@ export function ProductCatalog() {
       let cursor = startOffset;
       let loadedCount = mode === "replace" ? 0 : useCatalog.getState().products.length;
       let pageMode: "replace" | "append" = mode;
+      const maxGridFillRounds = isGlobalSearch ? 1 : MAX_GRID_FILL_ROUNDS;
       if (mode === "replace") {
         catalogCursorRef.current = 0;
       }
 
       try {
-        for (let round = 0; round < MAX_GRID_FILL_ROUNDS && loadedCount < PAGE_SIZE; round++) {
+        for (let round = 0; round < maxGridFillRounds && loadedCount < PAGE_SIZE; round++) {
           const res = await fetchCatalogProducts(token, catalogFetchParams(cursor));
           const countBefore = loadedCount;
 
@@ -285,17 +294,20 @@ export function ProductCatalog() {
           );
           pageMode = "append";
 
-          setNextOffset(res.next_offset);
-          setTotal(res.total);
-          catalogCursorRef.current = res.next_offset;
-          lastRequestedOffsetRef.current = null;
+          applyCatalogResponse(res, loadedCount);
 
-          if (loadedCount >= PAGE_SIZE) break;
+          if (isGlobalSearch || loadedCount >= PAGE_SIZE) break;
 
           const hasMore = catalogHasMore(res, cursor, loadedCount);
           if (!hasMore) break;
 
-          const nextCursor = nextCatalogCursor(cursor, res.products.length, res.next_offset);
+          const nextCursor = nextCatalogCursor(
+            cursor,
+            res.products.length,
+            res.next_offset,
+            res.total,
+            loadedCount,
+          );
           if (nextCursor <= cursor) break;
 
           const uniqueAdded = loadedCount - countBefore;
@@ -313,7 +325,7 @@ export function ProductCatalog() {
         isEnsuringGridRef.current = false;
       }
     },
-    [appendProducts, catalogFetchParams, setProducts, token],
+    [appendProducts, applyCatalogResponse, catalogFetchParams, isGlobalSearch, setProducts, token],
   );
 
   const prevCatalogContextRef = useRef({ warehouseId, priceTypeId });
@@ -333,14 +345,44 @@ export function ProductCatalog() {
 
   useEffect(() => {
     if (!token || !categoryReady || !sellContextHydrated) {
+      if (!token) setGroups([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    void fetchProductGroups(token)
+      .then((groupsRes) => {
+        if (!cancelled) setGroups(groupsRes.groups);
+      })
+      .catch(() => {
+        if (!cancelled) setGroups([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [categoryReady, sellContextHydrated, token]);
+
+  useEffect(() => {
+    if (!token || !categoryReady || !sellContextHydrated) {
       if (!token) {
         setProducts([]);
-        setGroups([]);
         setNextOffset(0);
         setTotal(0);
+        setLastPageProductCount(0);
       }
       return;
     }
+
+    const loadToken = catalogQueryKey;
+    catalogLoadTokenRef.current = loadToken;
+    isCatalogReloadingRef.current = true;
+    lastRequestedOffsetRef.current = null;
+    catalogCursorRef.current = 0;
+    setNextOffset(0);
+    setTotal(0);
+    setLastPageProductCount(0);
 
     let cancelled = false;
 
@@ -349,53 +391,68 @@ export function ProductCatalog() {
       setError("");
       setLoadMoreError("");
       try {
-        const groupsRes = await fetchProductGroups(token);
-        if (cancelled) return;
-        setGroups(groupsRes.groups);
         await ensureMinimumGridProducts(0, "replace");
       } catch (err) {
-        if (cancelled) return;
+        if (cancelled || catalogLoadTokenRef.current !== loadToken) return;
         lastRequestedOffsetRef.current = null;
         setProducts([]);
-        setGroups([]);
         setNextOffset(0);
         setTotal(0);
+        setLastPageProductCount(0);
         setError(formatAuthError(err));
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && catalogLoadTokenRef.current === loadToken) {
+          setLoading(false);
+          isCatalogReloadingRef.current = false;
+        }
       }
     };
 
     void load();
     return () => {
       cancelled = true;
+      if (catalogLoadTokenRef.current === loadToken) {
+        isCatalogReloadingRef.current = false;
+      }
     };
   }, [
-    canOverrideRegos,
+    catalogQueryKey,
     categoryReady,
-    featuredOnly,
-    isGlobalSearch,
-    refreshNonce,
-    search,
-    selectedGroupId,
+    ensureMinimumGridProducts,
     sellContextHydrated,
     setProducts,
     token,
-    warehouseId,
-    priceTypeId,
-    ensureMinimumGridProducts,
   ]);
 
-  const canLoadMore =
-    nextOffset > 0 || (total > 0 && products.length < total);
+  const canLoadMore = catalogCanLoadMore(
+    nextOffset,
+    total,
+    products.length,
+    isGlobalSearch,
+    lastPageProductCount,
+  );
 
   const loadMore = useCallback(
     async (forcedOffset?: number) => {
+      if (isCatalogReloadingRef.current || loading) return;
+
       const requestOffset =
         forcedOffset ?? (nextOffset > 0 ? nextOffset : catalogCursorRef.current);
       if (!token || isLoadingMoreRef.current) return;
       if (requestOffset <= 0) return;
       if (lastRequestedOffsetRef.current === requestOffset) return;
+      if (
+        isGlobalSearch &&
+        !catalogCanLoadMore(
+          requestOffset,
+          total,
+          products.length,
+          true,
+          lastPageProductCount,
+        )
+      ) {
+        return;
+      }
 
       isLoadingMoreRef.current = true;
       lastRequestedOffsetRef.current = requestOffset;
@@ -404,7 +461,7 @@ export function ProductCatalog() {
       try {
         const countBefore = useCatalog.getState().products.length;
 
-        if (countBefore < PAGE_SIZE) {
+        if (!isGlobalSearch && countBefore < PAGE_SIZE) {
           await ensureMinimumGridProducts(requestOffset, "append");
           return;
         }
@@ -413,9 +470,7 @@ export function ProductCatalog() {
         if (res.products.length > 0) {
           appendProducts(res.products);
         }
-        setNextOffset(res.next_offset);
-        setTotal(res.total);
-        catalogCursorRef.current = res.next_offset;
+        applyCatalogResponse(res, useCatalog.getState().products.length);
       } catch (err) {
         lastRequestedOffsetRef.current = null;
         setLoadMoreError(formatAuthError(err));
@@ -424,16 +479,29 @@ export function ProductCatalog() {
         setLoadingMore(false);
       }
     },
-    [appendProducts, catalogFetchParams, ensureMinimumGridProducts, nextOffset, token],
+    [
+      appendProducts,
+      applyCatalogResponse,
+      catalogFetchParams,
+      ensureMinimumGridProducts,
+      isGlobalSearch,
+      lastPageProductCount,
+      loading,
+      nextOffset,
+      products.length,
+      token,
+      total,
+    ],
   );
 
   const fillViewportIfNeeded = useCallback(() => {
+    if (isCatalogReloadingRef.current || loading || loadingMore) return;
+
     const el = gridRef.current;
-    const needsMoreProducts = products.length < PAGE_SIZE && nextOffset > 0;
+    const needsMoreProducts =
+      !isGlobalSearch && products.length < PAGE_SIZE && nextOffset > 0;
 
     if (
-      !loading &&
-      !loadingMore &&
       !isLoadingMoreRef.current &&
       !isEnsuringGridRef.current &&
       !error &&
@@ -444,19 +512,21 @@ export function ProductCatalog() {
       return;
     }
 
-    if (!el || loading || loadingMore || isLoadingMoreRef.current || error || isPreparing) {
+    if (!el || isLoadingMoreRef.current || error || isPreparing || isGlobalSearch) {
       return;
     }
 
-    if (nextOffset <= 0 || products.length === 0) return;
+    if (!canLoadMore || products.length === 0) return;
 
     const remaining = el.scrollHeight - el.clientHeight;
     if (remaining <= 240) {
       void loadMore();
     }
   }, [
+    canLoadMore,
     ensureMinimumGridProducts,
     error,
+    isGlobalSearch,
     isPreparing,
     loadMore,
     loading,
@@ -467,7 +537,7 @@ export function ProductCatalog() {
 
   useEffect(() => {
     fillViewportIfNeeded();
-  }, [fillViewportIfNeeded, products.length, nextOffset, loading, loadingMore]);
+  }, [fillViewportIfNeeded, products.length, nextOffset, loading, loadingMore, canLoadMore]);
 
   useEffect(() => {
     const el = gridRef.current;
@@ -494,8 +564,8 @@ export function ProductCatalog() {
   const fetchCatalogPage = async () => {
     if (!token) return;
 
-    const groupsRes = await fetchProductGroups(token);
     lastRequestedOffsetRef.current = null;
+    const groupsRes = await fetchProductGroups(token);
     setGroups(groupsRes.groups);
     await ensureMinimumGridProducts(0, "replace");
   };
@@ -524,9 +594,8 @@ export function ProductCatalog() {
     setError("");
     setLoadMoreError("");
     setCategoryReady(false);
-    setSettingsNonce((value) => value + 1);
-    void hydrateSellContext(token, canOverrideRegos);
-    void hydratePosConfig(token);
+    void hydrateSellContext(token, canOverrideRegos, { force: true });
+    void hydratePosConfig(token, { force: true });
   };
 
   const toggleFeatured = async (product: Product) => {
@@ -578,6 +647,99 @@ export function ProductCatalog() {
     setSearch("");
   };
 
+  const submitBarcodeScan = async (term: string) => {
+    if (!term || !token) return;
+
+    const prefixes = {
+      weightPrefix: internalBarcodeWeightPrefix,
+      piecePrefix: internalBarcodePiecePrefix,
+    };
+    const parsedInternal = parseInternalBarcode(term, prefixes);
+
+    try {
+      if (parsedInternal) {
+        const res = await fetchCatalogProducts(token, {
+          offset: 0,
+          limit: PAGE_SIZE,
+          search: parsedInternal.productCode,
+          groupId: null,
+          featuredOnly: false,
+          ...(canOverrideRegos ? catalogOverrides : {}),
+        });
+        const product = findProductByCode(res.products, parsedInternal.productCode);
+        if (!product) {
+          setError(
+            t("pos.barcode.productNotFound", "No product found for this barcode."),
+          );
+          return;
+        }
+
+        const barcodeQty = internalBarcodeToQty(parsedInternal, product);
+        if (barcodeQty == null || barcodeQty <= 0) {
+          setError(
+            t(
+              "pos.barcode.invalidQty",
+              "This barcode quantity is not valid for the product unit.",
+            ),
+          );
+          return;
+        }
+
+        const inCart = cartQtyByProductId.get(product.id) ?? 0;
+        const clampedTotal = clampCartQty(
+          inCart + barcodeQty,
+          product.stock,
+          allowOutOfStock,
+          product.unit_type,
+        );
+        const qtyToAdd = clampedTotal - inCart;
+        if (qtyToAdd <= 0) {
+          setError(
+            t("pos.barcode.outOfStock", "Cannot add more of this product to the cart."),
+          );
+          return;
+        }
+
+        addWithQty(product, qtyToAdd, { skipKeypad: true });
+        setError("");
+        setQ("");
+        setSearch("");
+        return;
+      }
+
+      const res = await fetchCatalogProducts(token, {
+        offset: 0,
+        limit: PAGE_SIZE,
+        search: term,
+        groupId: null,
+        featuredOnly: false,
+        ...(canOverrideRegos ? catalogOverrides : {}),
+      });
+      const product = findProductByBarcode(res.products, term);
+      if (!product || !canAddToCart(product)) {
+        setError(
+          t("pos.barcode.productNotFound", "No product found for this barcode."),
+        );
+        return;
+      }
+
+      handleAddToCart(product);
+      setError("");
+      setQ("");
+      setSearch("");
+    } catch (err) {
+      setError(formatAuthError(err));
+    }
+  };
+
+  const submitSearch = async (term: string) => {
+    if (isBarcodeInput(term)) {
+      await submitBarcodeScan(term);
+      return;
+    }
+    await submitSearchAddFirst(term);
+  };
+
   return (
     <div className={styles.catalog}>
       <div className={styles.catalogToolbar}>
@@ -585,7 +747,7 @@ export function ProductCatalog() {
           className={styles.searchRow}
           onSubmit={(event) => {
             event.preventDefault();
-            void submitSearchAddFirst(q.trim());
+            void submitSearch(q.trim());
           }}
         >
           <div className={styles.search}>

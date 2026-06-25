@@ -25,6 +25,24 @@ def _map_field(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _match_sale_id_field(raw_items: list[Any]) -> dict[str, Any] | None:
+    for item in raw_items:
+        if not isinstance(item, dict):
+            continue
+        mapped = _map_field(item)
+        if mapped["key"] in (DOC_PAYMENT_SALE_ID_KEY, DOC_PAYMENT_SALE_ID_STORED_KEY):
+            return mapped
+    return None
+
+
+def _is_sale_id_field_already_exists_error(exc: AppError) -> bool:
+    if exc.code != "REGOS_API_ERROR":
+        return False
+    detail = exc.detail
+    message = str(detail.get("detail") if isinstance(detail, dict) else detail).lower()
+    return "key exists" in message and "docpayment" in message
+
+
 def _stored_sale_id_field(company_settings: dict[str, Any]) -> dict[str, Any] | None:
     integration = company_settings.get(REGOS_INTEGRATION_KEY)
     if not isinstance(integration, dict):
@@ -52,21 +70,23 @@ async def fetch_doc_payment_sale_id_field(
     session: AsyncSession,
     company_id: int,
 ) -> dict[str, Any] | None:
-    response = await regos_async_api_request_for_company(
-        session,
-        company_id,
-        "field/get",
+    lookup_payloads = [
         {
             "entity_type": DOC_PAYMENT_ENTITY_TYPE,
-            "keys": [DOC_PAYMENT_SALE_ID_KEY],
+            "keys": [DOC_PAYMENT_SALE_ID_KEY, DOC_PAYMENT_SALE_ID_STORED_KEY],
         },
-    )
-    raw_items = response.get("result") or []
-    for item in raw_items:
-        if isinstance(item, dict):
-            mapped = _map_field(item)
-            if mapped["key"]:
-                return mapped
+        {"entity_type": DOC_PAYMENT_ENTITY_TYPE},
+    ]
+    for payload in lookup_payloads:
+        response = await regos_async_api_request_for_company(
+            session,
+            company_id,
+            "field/get",
+            payload,
+        )
+        field = _match_sale_id_field(response.get("result") or [])
+        if field:
+            return field
     return None
 
 
@@ -95,18 +115,31 @@ async def ensure_doc_payment_sale_id_field(
     if status["configured"] and status["field"]:
         return status
 
-    response = await regos_async_api_request_for_company(
-        session,
-        company_id,
-        "field/add",
-        {
-            "key": DOC_PAYMENT_SALE_ID_KEY,
-            "name": DOC_PAYMENT_SALE_ID_NAME,
-            "entity_type": DOC_PAYMENT_ENTITY_TYPE,
-            "data_type": "string",
-            "required": False,
-        },
-    )
+    try:
+        response = await regos_async_api_request_for_company(
+            session,
+            company_id,
+            "field/add",
+            {
+                "key": DOC_PAYMENT_SALE_ID_KEY,
+                "name": DOC_PAYMENT_SALE_ID_NAME,
+                "entity_type": DOC_PAYMENT_ENTITY_TYPE,
+                "data_type": "string",
+                "required": False,
+            },
+        )
+    except AppError as exc:
+        if not _is_sale_id_field_already_exists_error(exc):
+            raise
+        field = await fetch_doc_payment_sale_id_field(session, company_id)
+        if not field:
+            raise bad_request(
+                "Sale ID field already exists in Regos but could not be loaded.",
+                "REGOS_FIELD_ALREADY_EXISTS",
+            )
+        await _save_sale_id_field(session, company_id, field)
+        return {"configured": True, "field": field, "created": False}
+
     result = response.get("result")
     new_id = None
     if isinstance(result, dict):

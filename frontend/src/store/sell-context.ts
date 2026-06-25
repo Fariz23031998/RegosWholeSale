@@ -11,7 +11,12 @@ const EMPTY_OPTIONS: RegosReferenceOptionsResponse = {
   price_types: [],
   partners: [],
   payment_categories: [],
+  refund_payment_categories: [],
   attached_users: [],
+};
+
+type HydrateOptions = {
+  force?: boolean;
 };
 
 type SellContextState = {
@@ -21,7 +26,7 @@ type SellContextState = {
   saleCurrency: RegosCurrencyOption | null;
   options: RegosReferenceOptionsResponse;
   hydrated: boolean;
-  hydrate: (token: string | null, canOverride: boolean) => Promise<void>;
+  hydrate: (token: string | null, canOverride: boolean, options?: HydrateOptions) => Promise<void>;
   setWarehouseId: (id: number | null) => void;
   setPriceTypeId: (id: number | null) => void;
   setPartnerId: (id: number | null) => void;
@@ -50,6 +55,10 @@ function saleCurrencyForPriceType(
   return priceType?.currency ?? null;
 }
 
+let hydrateInflight: Promise<void> | null = null;
+let hydrateInflightKey: string | null = null;
+let lastHydratedKey: string | null = null;
+
 export const useSellContext = create<SellContextState>((set, get) => ({
   warehouseId: null,
   priceTypeId: null,
@@ -58,8 +67,14 @@ export const useSellContext = create<SellContextState>((set, get) => ({
   options: EMPTY_OPTIONS,
   hydrated: false,
 
-  hydrate: async (token, canOverride) => {
+  hydrate: async (token, canOverride, options) => {
+    const key = `${token ?? ""}:${canOverride}`;
+    const force = options?.force ?? false;
+
     if (!token) {
+      hydrateInflight = null;
+      hydrateInflightKey = null;
+      lastHydratedKey = null;
       set({
         warehouseId: null,
         priceTypeId: null,
@@ -71,40 +86,57 @@ export const useSellContext = create<SellContextState>((set, get) => ({
       return;
     }
 
-    set({ hydrated: false });
-
-    try {
-      const defaultsRes = await fetchMyRegosDefaults(token);
-      const defaults = defaultsRes.defaults;
-      const next = {
-        warehouseId: optionId(defaults.warehouse),
-        priceTypeId: optionId(defaults.price_type),
-        partnerId: optionId(defaults.partner),
-        saleCurrency: defaults.currency,
-      };
-
-      if (canOverride) {
-        const options = await fetchRegosReferenceOptions(token);
-        set({
-          ...next,
-          saleCurrency:
-            saleCurrencyForPriceType(next.priceTypeId, options) ?? defaults.currency,
-          options,
-        });
-      } else {
-        set({ ...next, options: EMPTY_OPTIONS });
-      }
-    } catch {
-      set({
-        warehouseId: null,
-        priceTypeId: null,
-        partnerId: null,
-        saleCurrency: null,
-        options: EMPTY_OPTIONS,
-      });
-    } finally {
-      set({ hydrated: true });
+    if (!force && get().hydrated && lastHydratedKey === key) {
+      return;
     }
+
+    if (!force && hydrateInflight && hydrateInflightKey === key) {
+      return hydrateInflight;
+    }
+
+    const run = (async () => {
+      set({ hydrated: false });
+
+      try {
+        const defaultsRes = await fetchMyRegosDefaults(token, { force });
+        const defaults = defaultsRes.defaults;
+        const next = {
+          warehouseId: optionId(defaults.warehouse),
+          priceTypeId: optionId(defaults.price_type),
+          partnerId: optionId(defaults.partner),
+          saleCurrency: defaults.currency,
+        };
+
+        if (canOverride) {
+          const referenceOptions = await fetchRegosReferenceOptions(token, { force });
+          set({
+            ...next,
+            saleCurrency:
+              saleCurrencyForPriceType(next.priceTypeId, referenceOptions) ?? defaults.currency,
+            options: referenceOptions,
+          });
+        } else {
+          set({ ...next, options: EMPTY_OPTIONS });
+        }
+      } catch {
+        set({
+          warehouseId: null,
+          priceTypeId: null,
+          partnerId: null,
+          saleCurrency: null,
+          options: EMPTY_OPTIONS,
+        });
+      } finally {
+        lastHydratedKey = key;
+        set({ hydrated: true });
+        hydrateInflight = null;
+        hydrateInflightKey = null;
+      }
+    })();
+
+    hydrateInflight = run;
+    hydrateInflightKey = key;
+    return run;
   },
   setWarehouseId: (id) => set({ warehouseId: id }),
   setPriceTypeId: (id) =>
@@ -119,7 +151,7 @@ export const useSellContext = create<SellContextState>((set, get) => ({
 
   refreshPartnerOptions: async (token) => {
     try {
-      const options = await fetchRegosReferenceOptions(token);
+      const options = await fetchRegosReferenceOptions(token, { force: true });
       set((state) => ({
         options: {
           ...state.options,

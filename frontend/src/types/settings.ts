@@ -105,6 +105,8 @@ export type PosSettings = {
   tendered_quick_amounts: number[];
   auto_open_qty_keypad: boolean;
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
+  internal_barcode_weight_prefix: string;
+  internal_barcode_piece_prefix: string;
 };
 
 export type PosSettingsResponse = {
@@ -116,6 +118,8 @@ export type PosSettingsPatchRequest = {
   tendered_quick_amounts?: number[];
   auto_open_qty_keypad?: boolean;
   cross_currency_payment_mode?: CrossCurrencyPaymentMode;
+  internal_barcode_weight_prefix?: string;
+  internal_barcode_piece_prefix?: string;
 };
 
 export type DefaultCategorySetting = {
@@ -129,6 +133,8 @@ export type UserPosSettings = {
   default_category: DefaultCategorySetting;
   auto_open_qty_keypad: boolean;
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
+  internal_barcode_weight_prefix: string;
+  internal_barcode_piece_prefix: string;
 };
 
 export type UserPosSettingsResponse = {

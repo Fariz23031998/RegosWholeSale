@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import clsx from "clsx";
 import { Button } from "@/components/posui/Button";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -46,53 +47,55 @@ function notificationsSummary(
   });
 }
 
+type TelegramUsersPageData = {
+  users: TelegramUser[];
+  botConfigured: boolean;
+  botUsername: string | null;
+};
+
 export function TelegramUsersPage() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
   const canManageUsers = Boolean(user?.permissions.includes("users.manage"));
+  const queryClient = useQueryClient();
 
-  const [users, setUsers] = useState<TelegramUser[]>([]);
-  const [botConfigured, setBotConfigured] = useState(false);
-  const [botUsername, setBotUsername] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
+  const [actionError, setActionError] = useState("");
   const [editingUser, setEditingUser] = useState<TelegramUser | null>(null);
   const [notificationsModalOpen, setNotificationsModalOpen] = useState(false);
   const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
 
-  useEffect(() => {
-    if (!token || !canManageUsers) {
-      setUsers([]);
-      return;
-    }
+  const telegramUsersQuery = useQuery({
+    queryKey: ["telegram", "users-page", token],
+    queryFn: async () => {
+      const [botConfig, telegramUsers] = await Promise.all([
+        fetchTelegramBotConfig(token!),
+        fetchTelegramUsers(token!),
+      ]);
+      return {
+        users: telegramUsers,
+        botConfigured: botConfig.configured,
+        botUsername: botConfig.bot_username,
+      } satisfies TelegramUsersPageData;
+    },
+    enabled: Boolean(token) && canManageUsers,
+    staleTime: 30_000,
+  });
 
-    let cancelled = false;
-    setLoading(true);
-    setError("");
+  const users = telegramUsersQuery.data?.users ?? [];
+  const botConfigured = telegramUsersQuery.data?.botConfigured ?? false;
+  const botUsername = telegramUsersQuery.data?.botUsername ?? null;
+  const loading = telegramUsersQuery.isPending;
+  const error = telegramUsersQuery.error
+    ? formatAuthError(telegramUsersQuery.error)
+    : actionError;
 
-    const load = async () => {
-      try {
-        const [botConfig, telegramUsers] = await Promise.all([
-          fetchTelegramBotConfig(token),
-          fetchTelegramUsers(token),
-        ]);
-        if (cancelled) return;
-        setBotConfigured(botConfig.configured);
-        setBotUsername(botConfig.bot_username);
-        setUsers(telegramUsers);
-      } catch (err) {
-        if (!cancelled) setError(formatAuthError(err));
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [canManageUsers, token]);
+  const updateUsersList = (updater: (current: TelegramUser[]) => TelegramUser[]) => {
+    queryClient.setQueryData<TelegramUsersPageData>(["telegram", "users-page", token], (current) => {
+      if (!current) return current;
+      return { ...current, users: updater(current.users) };
+    });
+  };
 
   const openNotifications = (item: TelegramUser) => {
     setEditingUser(item);
@@ -100,7 +103,7 @@ export function TelegramUsersPage() {
   };
 
   const handleUserSaved = (updated: TelegramUser) => {
-    setUsers((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    updateUsersList((current) => current.map((item) => (item.id === updated.id ? updated : item)));
   };
 
   const handleDelete = async (item: TelegramUser) => {
@@ -115,12 +118,12 @@ export function TelegramUsersPage() {
     if (!confirmed) return;
 
     setDeletingUserId(item.id);
-    setError("");
+    setActionError("");
     try {
       await deleteTelegramUser(token, item.id);
-      setUsers((current) => current.filter((user) => user.id !== item.id));
+      updateUsersList((current) => current.filter((user) => user.id !== item.id));
     } catch (err) {
-      setError(formatAuthError(err));
+      setActionError(formatAuthError(err));
     } finally {
       setDeletingUserId(null);
     }

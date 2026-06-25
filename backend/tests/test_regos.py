@@ -679,6 +679,59 @@ async def test_products_search_ignores_group_and_featured_filters(
 
 @patch("app.services.regos_products.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
+async def test_products_search_single_hit_does_not_paginate(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "item": {
+                    "id": 99,
+                    "name": "Barcode item",
+                    "articul": "SKU-99",
+                    "group": {"id": 10, "name": "A"},
+                },
+                "quantity": {"allowed": 5},
+                "price": 12000,
+            }
+        ],
+        "next_offset": 0,
+        "total": 500,
+    }
+
+    reg = await register_owner(client, email="products-search-hit@test.com", company_name="Search Hit Co")
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await client.patch(
+        "/api/v1/company/settings",
+        headers=headers,
+        json={
+            "settings": {
+                "regos_defaults": {
+                    "warehouse": {"id": 11, "name": "Main warehouse"},
+                    "price_type": {"id": 22, "name": "Retail"},
+                }
+            }
+        },
+    )
+
+    response = await client.get(
+        "/api/v1/regos/products",
+        headers=headers,
+        params={"search": "4870249813251", "limit": 20, "offset": 0},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data["products"]) == 1
+    assert data["next_offset"] == 0
+    assert data["total"] == 1
+    assert mock_regos.await_count == 1
+
+
+@patch("app.services.regos_products.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
 async def test_products_route_filters_zero_quantity_when_disabled(
     mock_regos: AsyncMock, client: AsyncClient
 ) -> None:
@@ -1326,9 +1379,10 @@ async def test_get_doc_payment_sale_id_field_not_configured(
     assert data["configured"] is False
     assert data["field"] is None
 
-    payload = mock_regos.call_args[0][3]
-    assert payload["entity_type"] == "DocPayment"
-    assert payload["keys"] == ["sale_id"]
+    first_payload = mock_regos.call_args_list[0][0][3]
+    assert first_payload["entity_type"] == "DocPayment"
+    assert first_payload["keys"] == ["sale_id", "field_sale_id"]
+    assert mock_regos.call_count == 2
 
 
 @patch("app.services.regos_fields.regos_async_api_request_for_company", new_callable=AsyncMock)
@@ -1337,6 +1391,7 @@ async def test_create_doc_payment_sale_id_field(
     mock_regos: AsyncMock, client: AsyncClient
 ) -> None:
     mock_regos.side_effect = [
+        {"ok": True, "result": []},
         {"ok": True, "result": []},
         {"ok": True, "result": {"new_id": 201}},
         {
@@ -1363,7 +1418,7 @@ async def test_create_doc_payment_sale_id_field(
     assert data["created"] is True
     assert data["field"]["key"] == "field_sale_id"
 
-    add_payload = mock_regos.call_args_list[1][0][3]
+    add_payload = mock_regos.call_args_list[2][0][3]
     assert add_payload == {
         "key": "sale_id",
         "name": "Sale ID",
@@ -1371,6 +1426,44 @@ async def test_create_doc_payment_sale_id_field(
         "data_type": "string",
         "required": False,
     }
+
+
+@patch("app.services.regos_fields.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_create_doc_payment_sale_id_field_when_key_already_exists(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    from app.core.exceptions import AppError
+
+    existing_field = {
+        "id": 201,
+        "key": "field_sale_id",
+        "name": "Sale ID",
+        "entity_type": "DocPayment",
+        "data_type": "string",
+    }
+    mock_regos.side_effect = [
+        {"ok": True, "result": []},
+        {"ok": True, "result": []},
+        AppError(
+            400,
+            "REGOS API error: 1008 - Ошибка проверки входных данных: параметры указаны неверно. Подробнее: key exists in entyty_type DocPayment",
+            "REGOS_API_ERROR",
+        ),
+        {"ok": True, "result": [existing_field]},
+    ]
+
+    reg = await register_owner(
+        client, email="field-exists@test.com", company_name="Field Exists Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    response = await client.post("/api/v1/regos/fields/doc-payment-sale-id", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is True
+    assert data["created"] is False
+    assert data["field"]["key"] == "field_sale_id"
 
 
 @patch(

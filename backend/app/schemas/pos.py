@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 DEFAULT_TENDERED_QUICK_AMOUNTS = [20.0, 50.0, 100.0]
 CrossCurrencyPaymentMode = Literal["payment_currency", "sale_currency_transfer"]
 DEFAULT_CROSS_CURRENCY_PAYMENT_MODE: CrossCurrencyPaymentMode = "payment_currency"
+DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX = "22"
+DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX = "23"
 
 
 class DefaultCategorySetting(BaseModel):
@@ -20,6 +22,8 @@ class PosSettings(BaseModel):
     )
     auto_open_qty_keypad: bool = False
     cross_currency_payment_mode: CrossCurrencyPaymentMode = DEFAULT_CROSS_CURRENCY_PAYMENT_MODE
+    internal_barcode_weight_prefix: str = DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX
+    internal_barcode_piece_prefix: str = DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX
 
 
 class UserPosSettings(BaseModel):
@@ -32,6 +36,8 @@ class UserPosSettings(BaseModel):
     )
     auto_open_qty_keypad: bool = False
     cross_currency_payment_mode: CrossCurrencyPaymentMode = DEFAULT_CROSS_CURRENCY_PAYMENT_MODE
+    internal_barcode_weight_prefix: str = DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX
+    internal_barcode_piece_prefix: str = DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX
 
 
 class PosSettingsResponse(BaseModel):
@@ -47,6 +53,8 @@ class PosSettingsPatchRequest(BaseModel):
     tendered_quick_amounts: list[float] | None = None
     auto_open_qty_keypad: bool | None = None
     cross_currency_payment_mode: CrossCurrencyPaymentMode | None = None
+    internal_barcode_weight_prefix: str | None = None
+    internal_barcode_piece_prefix: str | None = None
 
 
 class UserPosSettingsPatchRequest(BaseModel):

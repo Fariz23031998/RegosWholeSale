@@ -19,8 +19,16 @@ import {
   type DashboardPeriodPreset,
 } from "@/lib/dashboard-api";
 import { formatAuthError, useAuth } from "@/store/auth";
+import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { fetchCatalogProducts } from "@/lib/catalog-api";
+import {
+  findProductByBarcode,
+  findProductByCode,
+  internalBarcodeToQty,
+  isBarcodeInput,
+  parseInternalBarcode,
+} from "@/lib/barcode";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import {
@@ -67,6 +75,9 @@ export function ReturnModal({ open, onClose }: Props) {
   const checkoutOverrides = useSellContext((s) => s.checkoutOverrides);
   const refreshPartnerOptions = useSellContext((s) => s.refreshPartnerOptions);
   const catalogQuery = useSellContext((s) => s.catalogQuery);
+  const internalBarcodeWeightPrefix = usePosConfig((s) => s.internalBarcodeWeightPrefix);
+  const internalBarcodePiecePrefix = usePosConfig((s) => s.internalBarcodePiecePrefix);
+  const hydratePosConfig = usePosConfig((s) => s.hydrate);
 
   const [sourceMode, setSourceMode] = useState<SourceMode>("sale");
   const [step, setStep] = useState<Step>("items");
@@ -96,8 +107,11 @@ export function ReturnModal({ open, onClose }: Props) {
   }, [customRange, periodPreset]);
 
   const [productSearch, setProductSearch] = useState("");
+  const [debouncedProductSearch, setDebouncedProductSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Product[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
+
+  const isBarcodeMode = isBarcodeInput(productSearch.trim());
 
   const [partnerPickerOpen, setPartnerPickerOpen] = useState(false);
   const [returnPartnerId, setReturnPartnerId] = useState<number | null>(null);
@@ -120,6 +134,7 @@ export function ReturnModal({ open, onClose }: Props) {
     setDocuments([]);
     setSelectedSale(null);
     setProductSearch("");
+    setDebouncedProductSearch("");
     setSearchResults([]);
     setReturnPartnerId(null);
     setReturnPartnerName(null);
@@ -154,8 +169,27 @@ export function ReturnModal({ open, onClose }: Props) {
   }, [open, accessToken, sourceMode, periodParams, t]);
 
   useEffect(() => {
+    if (!open || !accessToken) return;
+    void hydratePosConfig(accessToken);
+  }, [accessToken, hydratePosConfig, open]);
+
+  useEffect(() => {
+    if (isBarcodeMode) return;
+    const timer = window.setTimeout(
+      () => setDebouncedProductSearch(productSearch.trim()),
+      250,
+    );
+    return () => window.clearTimeout(timer);
+  }, [isBarcodeMode, productSearch]);
+
+  useEffect(() => {
     if (!open || !accessToken || sourceMode !== "manual") return;
-    const q = productSearch.trim();
+    if (isBarcodeMode) {
+      setSearchResults([]);
+      return;
+    }
+
+    const q = debouncedProductSearch;
     if (q.length < 2) {
       setSearchResults([]);
       return;
@@ -183,7 +217,15 @@ export function ReturnModal({ open, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, accessToken, sourceMode, productSearch, catalogQuery]);
+  }, [
+    accessToken,
+    catalogQuery,
+    debouncedProductSearch,
+    isBarcodeMode,
+    open,
+    sourceMode,
+    t,
+  ]);
 
   const filteredDocuments = useMemo(() => {
     const q = saleSearch.trim().toLowerCase();
@@ -249,15 +291,15 @@ export function ReturnModal({ open, onClose }: Props) {
     );
   };
 
-  const addManualProduct = (product: Product) => {
+  const addManualProductWithQty = (product: Product, qty: number) => {
     const regosItemId = product.regos_item_id ?? Number(product.id);
-    if (!regosItemId || regosItemId <= 0) return;
+    if (!regosItemId || regosItemId <= 0 || qty <= 0) return;
 
     setLines((prev) => {
       const existing = prev.find((line) => line.regosItemId === regosItemId);
       if (existing) {
         return prev.map((line) =>
-          line.regosItemId === regosItemId ? { ...line, qty: line.qty + 1 } : line,
+          line.regosItemId === regosItemId ? { ...line, qty: line.qty + qty } : line,
         );
       }
       return [
@@ -266,12 +308,85 @@ export function ReturnModal({ open, onClose }: Props) {
           regosItemId,
           name: product.name,
           price: product.price,
-          qty: 1,
+          qty,
         },
       ];
     });
     setProductSearch("");
+    setDebouncedProductSearch("");
     setSearchResults([]);
+    setError("");
+  };
+
+  const addManualProduct = (product: Product) => {
+    addManualProductWithQty(product, 1);
+  };
+
+  const submitManualBarcodeScan = async (term: string) => {
+    if (!accessToken || !term) return;
+
+    const prefixes = {
+      weightPrefix: internalBarcodeWeightPrefix,
+      piecePrefix: internalBarcodePiecePrefix,
+    };
+    const parsedInternal = parseInternalBarcode(term, prefixes);
+    const query = catalogQuery();
+
+    try {
+      if (parsedInternal) {
+        const res = await fetchCatalogProducts(accessToken, {
+          search: parsedInternal.productCode,
+          limit: 20,
+          warehouseId: query.warehouseId,
+          priceTypeId: query.priceTypeId,
+        });
+        const product = findProductByCode(res.products, parsedInternal.productCode);
+        if (!product) {
+          setError(
+            t("pos.barcode.productNotFound", "No product found for this barcode."),
+          );
+          return;
+        }
+
+        const barcodeQty = internalBarcodeToQty(parsedInternal, product);
+        if (barcodeQty == null || barcodeQty <= 0) {
+          setError(
+            t(
+              "pos.barcode.invalidQty",
+              "This barcode quantity is not valid for the product unit.",
+            ),
+          );
+          return;
+        }
+
+        addManualProductWithQty(product, barcodeQty);
+        return;
+      }
+
+      const res = await fetchCatalogProducts(accessToken, {
+        search: term,
+        limit: 20,
+        warehouseId: query.warehouseId,
+        priceTypeId: query.priceTypeId,
+      });
+      const product = findProductByBarcode(res.products, term);
+      if (!product) {
+        setError(
+          t("pos.barcode.productNotFound", "No product found for this barcode."),
+        );
+        return;
+      }
+
+      addManualProduct(product);
+    } catch (err: unknown) {
+      setError(formatAuthError(err, t("returns.errors.productSearch")));
+    }
+  };
+
+  const submitManualProductSearch = (term: string) => {
+    if (isBarcodeInput(term)) {
+      void submitManualBarcodeScan(term);
+    }
   };
 
   const removeManualLine = (regosItemId: number) => {
@@ -565,7 +680,13 @@ export function ReturnModal({ open, onClose }: Props) {
                 </>
               ) : (
                 <>
-                  <div className={styles.searchBox}>
+                  <form
+                    className={styles.searchBox}
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      submitManualProductSearch(productSearch.trim());
+                    }}
+                  >
                     <Search size={16} />
                     <input
                       className={styles.searchInput}
@@ -573,12 +694,17 @@ export function ReturnModal({ open, onClose }: Props) {
                       value={productSearch}
                       onChange={(e) => setProductSearch(e.target.value)}
                     />
-                  </div>
-                  {searchLoading && <div className={styles.status}>{t("returns.modal.searching")}</div>}
-                  {productSearch.trim().length >= 2 && !searchLoading && searchResults.length === 0 && (
+                  </form>
+                  {!isBarcodeMode && searchLoading && (
+                    <div className={styles.status}>{t("returns.modal.searching")}</div>
+                  )}
+                  {!isBarcodeMode &&
+                    debouncedProductSearch.length >= 2 &&
+                    !searchLoading &&
+                    searchResults.length === 0 && (
                     <div className={styles.status}>{t("returns.modal.noProducts")}</div>
                   )}
-                  {searchResults.length > 0 && (
+                  {!isBarcodeMode && searchResults.length > 0 && (
                     <div className={styles.modalSearchResults}>
                       {searchResults.map((product) => (
                         <button

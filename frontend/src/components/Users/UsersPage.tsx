@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
 import clsx from "clsx";
 import { Button } from "@/components/posui/Button";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -42,11 +43,8 @@ export function UsersPage() {
   const token = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
   const canManageUsers = Boolean(user?.permissions.includes("users.manage"));
+  const queryClient = useQueryClient();
 
-  const [users, setUsers] = useState<UserDetail[]>([]);
-  const [permissions, setPermissions] = useState<Permission[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
   const [actionError, setActionError] = useState("");
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<"create" | "edit">("create");
@@ -55,27 +53,32 @@ export function UsersPage() {
   const [settingsModalOpen, setSettingsModalOpen] = useState(false);
   const [actionUserId, setActionUserId] = useState<number | null>(null);
 
-  const loadUsers = useCallback(async () => {
-    if (!token || !canManageUsers) return;
-    setLoading(true);
-    setError("");
-    try {
+  const usersListQuery = useQuery({
+    queryKey: ["users", "list", token],
+    queryFn: async () => {
       const [userList, permissionList] = await Promise.all([
-        fetchUsers(token),
-        fetchPermissions(token),
+        fetchUsers(token!),
+        fetchPermissions(token!),
       ]);
-      setUsers(userList);
-      setPermissions(permissionList);
-    } catch (err) {
-      setError(formatAuthError(err));
-    } finally {
-      setLoading(false);
-    }
-  }, [canManageUsers, token]);
+      return { users: userList, permissions: permissionList };
+    },
+    enabled: Boolean(token) && canManageUsers,
+    staleTime: 30_000,
+  });
 
-  useEffect(() => {
-    void loadUsers();
-  }, [loadUsers]);
+  const users = usersListQuery.data?.users ?? [];
+  const permissions = usersListQuery.data?.permissions ?? [];
+  const loading = usersListQuery.isPending;
+  const error = usersListQuery.error ? formatAuthError(usersListQuery.error) : "";
+
+  type UsersListData = { users: UserDetail[]; permissions: Permission[] };
+
+  const updateUsersList = (updater: (current: UserDetail[]) => UserDetail[]) => {
+    queryClient.setQueryData<UsersListData>(["users", "list", token], (current) => {
+      if (!current) return current;
+      return { ...current, users: updater(current.users) };
+    });
+  };
 
   const openCreate = () => {
     setModalMode("create");
@@ -95,7 +98,7 @@ export function UsersPage() {
   };
 
   const handleSaved = (saved: UserDetail) => {
-    setUsers((prev) => {
+    updateUsersList((prev) => {
       const index = prev.findIndex((u) => u.id === saved.id);
       if (index === -1) return [...prev, saved];
       const next = [...prev];
@@ -110,7 +113,7 @@ export function UsersPage() {
     setActionUserId(item.id);
     try {
       const updated = await deactivateUser(token, item.id);
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      updateUsersList((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
     } catch (err) {
       setActionError(formatAuthError(err));
     } finally {
@@ -124,7 +127,7 @@ export function UsersPage() {
     setActionUserId(item.id);
     try {
       const updated = await patchUser(token, item.id, { is_active: true });
-      setUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
+      updateUsersList((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
     } catch (err) {
       setActionError(formatAuthError(err));
     } finally {

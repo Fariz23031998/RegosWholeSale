@@ -14,6 +14,10 @@ export type CartItem = {
 
 export type DiscountMode = "percent" | "amount";
 
+type AddWithQtyOptions = {
+  skipKeypad?: boolean;
+};
+
 type CartState = {
   items: CartItem[];
   discountMode: DiscountMode;
@@ -21,7 +25,10 @@ type CartState = {
   postponedWholesaleDocId: number | null;
   lastAddedId: string | null;
   lastAddedAt: number;
+  skipKeypadOnLastAdd: boolean;
   add: (p: Product) => void;
+  addWithQty: (p: Product, qty: number, options?: AddWithQtyOptions) => void;
+  clearSkipKeypadOnLastAdd: () => void;
   remove: (productId: string) => void;
   setQty: (productId: string, qty: number, unitType?: number | null) => void;
   setPrice: (productId: string, price: number) => void;
@@ -59,10 +66,20 @@ export const useCart = create<CartState>((set, get) => ({
   postponedWholesaleDocId: null,
   lastAddedId: null,
   lastAddedAt: 0,
-  add: (p) =>
+  skipKeypadOnLastAdd: false,
+  add: (p) => get().addWithQty(p, 1),
+  addWithQty: (p, qty, options) =>
     set((s) => {
+      const unitType = p.unit_type ?? null;
+      const normalizedQty = normalizeCartQty(qty, unitType);
+      if (normalizedQty <= 0) return s;
+
       const existing = s.items.find((i) => i.productId === p.id);
-      const base = { lastAddedId: p.id, lastAddedAt: Date.now() };
+      const base = {
+        lastAddedId: p.id,
+        lastAddedAt: Date.now(),
+        skipKeypadOnLastAdd: options?.skipKeypad ?? false,
+      };
       if (existing) {
         return {
           ...base,
@@ -70,7 +87,10 @@ export const useCart = create<CartState>((set, get) => ({
             i.productId === p.id
               ? {
                   ...i,
-                  qty: normalizeCartQty(i.qty + 1, i.unitType ?? p.unit_type),
+                  qty: normalizeCartQty(
+                    i.qty + normalizedQty,
+                    i.unitType ?? unitType,
+                  ),
                 }
               : i,
           ),
@@ -88,13 +108,14 @@ export const useCart = create<CartState>((set, get) => ({
                 : Number.parseInt(p.id, 10) || 0,
             name: p.name,
             price: p.price,
-            qty: 1,
+            qty: normalizedQty,
             image: p.image,
-            unitType: p.unit_type ?? null,
+            unitType,
           },
         ],
       };
     }),
+  clearSkipKeypadOnLastAdd: () => set({ skipKeypadOnLastAdd: false }),
   remove: (productId) =>
     set((s) => ({ items: s.items.filter((i) => i.productId !== productId) })),
   setQty: (productId, qty, unitType) =>
@@ -159,6 +180,7 @@ export const useCart = create<CartState>((set, get) => ({
       postponedWholesaleDocId: snapshot.postponedWholesaleDocId ?? null,
       lastAddedId: null,
       lastAddedAt: 0,
+      skipKeypadOnLastAdd: false,
     }),
   snapshot: () => {
     const { items, discountMode, discountValue, postponedWholesaleDocId } = get();

@@ -14,7 +14,11 @@ import type { CheckoutResponse } from "@/lib/sales-api";
 import type { PaymentType } from "@/types/payment";
 import type { RegosCurrencyOption } from "@/types/settings";
 import type { Sale, SalePaymentLine } from "@/data/seed";
-import { buildCheckoutCartLines, buildPrintContextFromCartDraft, loadPrintContextFromCheckout } from "@/lib/receipt-context-builder";
+import {
+  buildCheckoutCartLines,
+  buildPrintContextFromCartDraft,
+  buildPrintContextFromCheckout,
+} from "@/lib/receipt-context-builder";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
 import {
@@ -49,7 +53,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
   const partners = useSellContext((s) => s.options.partners);
   const warehouses = useSellContext((s) => s.options.warehouses);
   const postponedWholesaleDocId = useCart((s) => s.postponedWholesaleDocId);
-  const requestCatalogRefresh = useCatalog((s) => s.requestRefresh);
+  const decrementStock = useCatalog((s) => s.decrementStock);
   const catalogProducts = useCatalog((s) => s.products);
   const tenderedQuickAmounts = usePosConfig((s) => s.tenderedQuickAmounts);
 
@@ -236,11 +240,10 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
         cashierId: cashier?.id ?? null,
         cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
       };
+      cartItems.forEach((item) => decrementStock(item.productId, item.qty));
       clearCart();
       clearActiveTabAfterCheckout();
-      requestCatalogRefresh();
-      const printContext = await loadPrintContextFromCheckout(
-        accessToken,
+      const printContext = buildPrintContextFromCheckout(
         {
           result,
           sale,
@@ -249,7 +252,6 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
         },
         [],
         t("checkout.paymentFallback", "Payment"),
-        t,
       );
       setCompletedContext(printContext);
       reset();
@@ -308,15 +310,17 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
         </div>
       </Modal>
 
-      <ReceiptModal
-        context={draftPrintContext ?? completedContext}
-        title={draftPrintContext ? t("sales.printModalTitle", "Print sale") : undefined}
-        closeLabel={draftPrintContext ? t("common.close", "Close") : undefined}
-        onClose={() => {
-          setDraftPrintContext(null);
-          setCompletedContext(null);
-        }}
-      />
+      {(draftPrintContext ?? completedContext) ? (
+        <ReceiptModal
+          context={(draftPrintContext ?? completedContext)!}
+          title={draftPrintContext ? t("sales.printModalTitle", "Print sale") : undefined}
+          closeLabel={draftPrintContext ? t("common.close", "Close") : undefined}
+          onClose={() => {
+            setDraftPrintContext(null);
+            setCompletedContext(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }

@@ -1,28 +1,17 @@
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { useEffect } from "react";
 import { Shell } from "@/components/Layout/Shell";
-import { useAuth } from "@/store/auth";
+import { useAuth, waitForAuthHydration } from "@/store/auth";
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async () => {
+    // Auth lives in localStorage; defer the guard to the client after hydration.
     if (typeof window === "undefined") return;
 
-    const { accessToken, isHydrated, refreshMe } = useAuth.getState();
+    await waitForAuthHydration();
 
-    if (!isHydrated) {
-      await new Promise<void>((resolve) => {
-        const unsub = useAuth.persist.onFinishHydration(() => {
-          unsub();
-          resolve();
-        });
-        setTimeout(() => {
-          unsub();
-          resolve();
-        }, 500);
-      });
-    }
-
-    const token = useAuth.getState().accessToken;
-    if (!token) {
+    const { accessToken, refreshMe } = useAuth.getState();
+    if (!accessToken) {
       throw redirect({ to: "/login" });
     }
 
@@ -31,5 +20,22 @@ export const Route = createFileRoute("/_app")({
       throw redirect({ to: "/login" });
     }
   },
-  component: Shell,
+  component: AppLayout,
 });
+
+function AppLayout() {
+  const accessToken = useAuth((s) => s.accessToken);
+  const isHydrated = useAuth((s) => s.isHydrated);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!isHydrated || accessToken) return;
+    void navigate({ to: "/login", replace: true });
+  }, [accessToken, isHydrated, navigate]);
+
+  if (!isHydrated || !accessToken) {
+    return null;
+  }
+
+  return <Shell />;
+}

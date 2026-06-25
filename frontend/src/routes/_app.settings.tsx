@@ -1,3 +1,4 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -79,11 +80,11 @@ function SettingsPage() {
   const [crossCurrencyPaymentMode, setCrossCurrencyPaymentMode] =
     useState<CrossCurrencyPaymentMode>("payment_currency");
   const [tenderedAmountsInput, setTenderedAmountsInput] = useState("20, 50, 100");
-  const [loadingPosSettings, setLoadingPosSettings] = useState(false);
+  const [internalBarcodeWeightPrefix, setInternalBarcodeWeightPrefix] = useState("22");
+  const [internalBarcodePiecePrefix, setInternalBarcodePiecePrefix] = useState("23");
   const [savingPosSettings, setSavingPosSettings] = useState(false);
   const [posSettingsError, setPosSettingsError] = useState("");
   const [savingToken, setSavingToken] = useState(false);
-  const [loadingRegos, setLoadingRegos] = useState(false);
   const [savingRegosDefaults, setSavingRegosDefaults] = useState(false);
   const [tokenError, setTokenError] = useState("");
   const [tokenInfo, setTokenInfo] = useState("");
@@ -99,12 +100,10 @@ function SettingsPage() {
   const [savingPaymentLinking, setSavingPaymentLinking] = useState(false);
   const [paymentLinkingError, setPaymentLinkingError] = useState("");
   const [paymentLinkingInfo, setPaymentLinkingInfo] = useState("");
-  const [loadingToken, setLoadingToken] = useState(false);
   const [telegramBotToken, setTelegramBotToken] = useState("");
   const [telegramBotConfigured, setTelegramBotConfigured] = useState(false);
   const [telegramBotUsername, setTelegramBotUsername] = useState<string | null>(null);
   const [telegramWebhookUrl, setTelegramWebhookUrl] = useState<string | null>(null);
-  const [loadingTelegramBot, setLoadingTelegramBot] = useState(false);
   const [savingTelegramBot, setSavingTelegramBot] = useState(false);
   const [telegramBotError, setTelegramBotError] = useState("");
   const [telegramBotInfo, setTelegramBotInfo] = useState("");
@@ -161,136 +160,119 @@ function SettingsPage() {
     setPaymentLinkingInfo("");
   };
 
-  const loadRegosOptions = async (authToken: string) => {
-    const [defaults, nextOptions, saleIdFieldStatus, paymentLinking] = await Promise.all([
-      fetchRegosDefaults(authToken),
-      fetchRegosReferenceOptions(authToken),
-      fetchDocPaymentSaleIdField(authToken),
-      fetchPaymentLinking(authToken),
-    ]);
-    applyDefaults(defaults.defaults);
-    setOptions(nextOptions);
-    setSaleIdFieldConfigured(saleIdFieldStatus.configured);
-    setSaleIdField(saleIdFieldStatus.field);
-    setPaymentLinkingMode(paymentLinking.mode);
-  };
+  const queryClient = useQueryClient();
+  const settingsEnabled = Boolean(token) && canManageSettings;
 
-  useEffect(() => {
-    if (!token || !canManageSettings) return;
+  const posSettingsQuery = useQuery({
+    queryKey: ["settings", "pos", token],
+    queryFn: () => fetchPosSettings(token!),
+    enabled: settingsEnabled,
+    staleTime: 30_000,
+  });
 
-    let cancelled = false;
-    setLoadingPosSettings(true);
-    setPosSettingsError("");
-
-    void fetchPosSettings(token)
-      .then((res) => {
-        if (cancelled) return;
-        setAllowOutOfStock(res.settings.allow_out_of_stock);
-        setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
-        setCrossCurrencyPaymentMode(
-          res.settings.cross_currency_payment_mode ?? "payment_currency",
-        );
-        setTenderedAmountsInput(
-          formatTenderedQuickAmounts(res.settings.tendered_quick_amounts),
-        );
-      })
-      .catch((err) => {
-        if (!cancelled) setPosSettingsError(formatAuthError(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoadingPosSettings(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [canManageSettings, token]);
-
-  useEffect(() => {
-    if (!token || !canManageSettings) return;
-
-    let cancelled = false;
-
-    const load = async () => {
-      setLoadingToken(true);
-      setTokenError("");
-      setTokenInfo("");
-      try {
-        const config = await fetchRegosTokenConfig(token);
-        if (cancelled) return;
-        setIntegrationToken(config.token);
-        setIsReplicable(config.is_replicable);
-        setTokenConfigured(config.configured);
-        setRegosWebhookUrl(config.webhook_url);
-
-        if (!config.configured) {
-          clearRegosOptions();
-          return;
-        }
-
-        setLoadingRegos(true);
-        setRegosError("");
-        try {
-          await loadRegosOptions(token);
-        } catch (err) {
-          if (!cancelled) {
-            setRegosError(formatAuthError(err));
-            clearRegosOptions();
-          }
-        } finally {
-          if (!cancelled) setLoadingRegos(false);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setTokenError(formatAuthError(err));
-          setTokenConfigured(false);
-          clearRegosOptions();
-        }
-      } finally {
-        if (!cancelled) setLoadingToken(false);
+  const regosBootstrapQuery = useQuery({
+    queryKey: ["settings", "regos-bootstrap", token],
+    queryFn: async () => {
+      const config = await fetchRegosTokenConfig(token!);
+      if (!config.configured) {
+        return { config, regos: null };
       }
-    };
 
-    void load();
+      const [defaults, nextOptions, saleIdFieldStatus, paymentLinking] = await Promise.all([
+        fetchRegosDefaults(token!),
+        fetchRegosReferenceOptions(token!),
+        fetchDocPaymentSaleIdField(token!),
+        fetchPaymentLinking(token!),
+      ]);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [canManageSettings, token]);
+      return {
+        config,
+        regos: { defaults, nextOptions, saleIdFieldStatus, paymentLinking },
+      };
+    },
+    enabled: settingsEnabled,
+    staleTime: 30_000,
+  });
+
+  const telegramBotQuery = useQuery({
+    queryKey: ["settings", "telegram-bot", token],
+    queryFn: () => fetchTelegramBotConfig(token!),
+    enabled: settingsEnabled,
+    staleTime: 30_000,
+  });
+
+  const loadingPosSettings = posSettingsQuery.isPending;
+  const loadingToken = regosBootstrapQuery.isPending;
+  const loadingRegos = regosBootstrapQuery.isPending;
+  const loadingTelegramBot = telegramBotQuery.isPending;
+
+  const posSettingsFetchError = posSettingsQuery.error
+    ? formatAuthError(posSettingsQuery.error)
+    : "";
+  const regosBootstrapError = regosBootstrapQuery.error
+    ? formatAuthError(regosBootstrapQuery.error)
+    : "";
+  const telegramBotFetchError = telegramBotQuery.error
+    ? formatAuthError(telegramBotQuery.error)
+    : "";
 
   useEffect(() => {
-    if (!token || !canManageSettings) return;
+    const res = posSettingsQuery.data;
+    if (!res) return;
 
-    let cancelled = false;
+    setAllowOutOfStock(res.settings.allow_out_of_stock);
+    setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
+    setCrossCurrencyPaymentMode(
+      res.settings.cross_currency_payment_mode ?? "payment_currency",
+    );
+    setTenderedAmountsInput(formatTenderedQuickAmounts(res.settings.tendered_quick_amounts));
+    setInternalBarcodeWeightPrefix(res.settings.internal_barcode_weight_prefix ?? "22");
+    setInternalBarcodePiecePrefix(res.settings.internal_barcode_piece_prefix ?? "23");
+  }, [posSettingsQuery.data]);
 
-    const loadTelegramBot = async () => {
-      setLoadingTelegramBot(true);
-      setTelegramBotError("");
-      try {
-        const config = await fetchTelegramBotConfig(token);
-        if (cancelled) return;
-        setTelegramBotConfigured(config.configured);
-        setTelegramBotUsername(config.bot_username);
-        setTelegramWebhookUrl(config.webhook_url);
-        if (!config.configured) {
-          setTelegramBotToken("");
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setTelegramBotError(formatAuthError(err));
-          setTelegramBotConfigured(false);
-        }
-      } finally {
-        if (!cancelled) setLoadingTelegramBot(false);
-      }
-    };
+  useEffect(() => {
+    const data = regosBootstrapQuery.data;
+    if (!data) return;
 
-    void loadTelegramBot();
+    setIntegrationToken(data.config.token);
+    setIsReplicable(data.config.is_replicable);
+    setTokenConfigured(data.config.configured);
+    setRegosWebhookUrl(data.config.webhook_url);
 
-    return () => {
-      cancelled = true;
-    };
-  }, [canManageSettings, token]);
+    if (!data.config.configured || !data.regos) {
+      clearRegosOptions();
+      return;
+    }
+
+    applyDefaults(data.regos.defaults.defaults);
+    setOptions(data.regos.nextOptions);
+    setSaleIdFieldConfigured(data.regos.saleIdFieldStatus.configured);
+    setSaleIdField(data.regos.saleIdFieldStatus.field);
+    setPaymentLinkingMode(data.regos.paymentLinking.mode);
+  }, [regosBootstrapQuery.data]);
+
+  useEffect(() => {
+    if (!regosBootstrapQuery.error) return;
+    setTokenConfigured(false);
+    clearRegosOptions();
+  }, [regosBootstrapQuery.error]);
+
+  useEffect(() => {
+    if (!telegramBotQuery.error) return;
+    setTelegramBotConfigured(false);
+  }, [telegramBotQuery.error]);
+
+  useEffect(() => {
+    const config = telegramBotQuery.data;
+    if (!config) return;
+
+    setTelegramBotConfigured(config.configured);
+    setTelegramBotUsername(config.bot_username);
+    setTelegramWebhookUrl(config.webhook_url);
+    if (!config.configured) {
+      setTelegramBotToken("");
+    }
+  }, [telegramBotQuery.data]);
 
   const handleSaveTelegramBot = async () => {
     if (!token) return;
@@ -361,19 +343,9 @@ function SettingsPage() {
         token: nextToken,
         is_replicable: isReplicable,
       });
-      setIntegrationToken(nextToken);
-      setTokenConfigured(true);
       setTokenInfo(t("settings.regos.tokenSaved", "Regos integration token saved."));
-
-      setLoadingRegos(true);
       setRegosError("");
-      try {
-        await loadRegosOptions(token);
-      } catch (err) {
-        setRegosError(formatAuthError(err));
-      } finally {
-        setLoadingRegos(false);
-      }
+      await queryClient.invalidateQueries({ queryKey: ["settings", "regos-bootstrap", token] });
     } catch (err) {
       setTokenError(formatAuthError(err));
     } finally {
@@ -389,13 +361,10 @@ function SettingsPage() {
     setTokenInfo("");
     try {
       await deleteRegosToken(token);
-      setIntegrationToken("");
-      setIsReplicable(false);
-      setTokenConfigured(false);
-      clearRegosOptions();
       setTokenInfo(t("settings.regos.tokenRemoved", "Regos integration token removed."));
       setRegosError("");
       setRegosInfo("");
+      await queryClient.invalidateQueries({ queryKey: ["settings", "regos-bootstrap", token] });
     } catch (err) {
       setTokenError(formatAuthError(err));
     } finally {
@@ -559,6 +528,25 @@ function SettingsPage() {
     }
   };
 
+  const handleSaveInternalBarcodePrefixes = async () => {
+    if (!token || !canManageSettings) return;
+
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(token, {
+        internal_barcode_weight_prefix: internalBarcodeWeightPrefix,
+        internal_barcode_piece_prefix: internalBarcodePiecePrefix,
+      });
+      setInternalBarcodeWeightPrefix(res.settings.internal_barcode_weight_prefix);
+      setInternalBarcodePiecePrefix(res.settings.internal_barcode_piece_prefix);
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -664,6 +652,66 @@ function SettingsPage() {
 
             <div className={styles.fieldBlock}>
               <div className={styles.rowTitle}>
+                {t("settings.pos.internalBarcodes", "Internal barcode prefixes")}
+              </div>
+              <div className={styles.rowDesc}>
+                {t(
+                  "settings.pos.internalBarcodesDesc",
+                  "Two-digit prefixes for weight (e.g. 22 → code + grams) and piece (e.g. 23 → code + quantity) barcodes.",
+                )}
+              </div>
+              <div className={styles.inlineFields}>
+                <label className={styles.inlineField}>
+                  <span className={styles.inlineFieldLabel}>
+                    {t("settings.pos.weightBarcodePrefix", "Weight prefix")}
+                  </span>
+                  <input
+                    className={styles.input}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={2}
+                    value={internalBarcodeWeightPrefix}
+                    disabled={loadingPosSettings || savingPosSettings}
+                    onChange={(e) =>
+                      setInternalBarcodeWeightPrefix(
+                        e.target.value.replace(/\D/g, "").slice(0, 2),
+                      )
+                    }
+                  />
+                </label>
+                <label className={styles.inlineField}>
+                  <span className={styles.inlineFieldLabel}>
+                    {t("settings.pos.pieceBarcodePrefix", "Piece prefix")}
+                  </span>
+                  <input
+                    className={styles.input}
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={2}
+                    value={internalBarcodePiecePrefix}
+                    disabled={loadingPosSettings || savingPosSettings}
+                    onChange={(e) =>
+                      setInternalBarcodePiecePrefix(
+                        e.target.value.replace(/\D/g, "").slice(0, 2),
+                      )
+                    }
+                  />
+                </label>
+              </div>
+              <button
+                type="button"
+                className={styles.saveBtn}
+                disabled={loadingPosSettings || savingPosSettings}
+                onClick={() => void handleSaveInternalBarcodePrefixes()}
+              >
+                {savingPosSettings
+                  ? t("common.saving", "Saving…")
+                  : t("settings.pos.saveBarcodePrefixes", "Save barcode prefixes")}
+              </button>
+            </div>
+
+            <div className={styles.fieldBlock}>
+              <div className={styles.rowTitle}>
                 {t("settings.pos.tenderedShortcuts", "Amount tendered shortcuts")}
               </div>
               <div className={styles.rowDesc}>
@@ -693,7 +741,9 @@ function SettingsPage() {
               </button>
             </div>
 
-            {posSettingsError ? <p className={styles.error}>{posSettingsError}</p> : null}
+            {(posSettingsError || posSettingsFetchError) ? (
+              <p className={styles.error}>{posSettingsError || posSettingsFetchError}</p>
+            ) : null}
           </section>
 
           <section className={styles.section}>
@@ -728,7 +778,9 @@ function SettingsPage() {
               </div>
             </div>
 
-            {tokenError && <p className={styles.error}>{tokenError}</p>}
+            {(tokenError || regosBootstrapError) && (
+              <p className={styles.error}>{tokenError || regosBootstrapError}</p>
+            )}
             {tokenInfo && <p className={styles.success}>{tokenInfo}</p>}
 
             <div className={styles.formGrid}>
@@ -945,7 +997,9 @@ function SettingsPage() {
               </div>
             </div>
 
-            {telegramBotError && <p className={styles.error}>{telegramBotError}</p>}
+            {(telegramBotError || telegramBotFetchError) && (
+              <p className={styles.error}>{telegramBotError || telegramBotFetchError}</p>
+            )}
             {telegramBotInfo && <p className={styles.success}>{telegramBotInfo}</p>}
 
             <div className={styles.formGrid}>

@@ -23,6 +23,7 @@ import {
   presetToCustomRange,
   resolveDashboardPeriodParams,
   resolveDashboardQueryParams,
+  serializeDashboardQueryParams,
   type DashboardCustomRange,
   type DashboardPeriodPreset,
 } from "@/lib/dashboard-api";
@@ -90,6 +91,18 @@ export function SalesPage() {
     [allPartners, allStocks, periodParams, allPartners ? undefined : selectedPartnerIds, allStocks ? undefined : selectedStockIds],
   );
 
+  const documentsQueryKey = useMemo(
+    () => serializeDashboardQueryParams({ ...queryParams, limit: 100 }),
+    [
+      allPartners,
+      allStocks,
+      periodParams.start_date,
+      periodParams.end_date,
+      allPartners ? "" : selectedPartnerIds.join(","),
+      allStocks ? "" : selectedStockIds.join(","),
+    ],
+  );
+
   const periodModalRange = useMemo(() => {
     if (periodPreset === "custom" && customRange) return customRange;
     if (periodPreset !== "custom") return presetToCustomRange(periodPreset);
@@ -155,7 +168,7 @@ export function SalesPage() {
     return () => {
       cancelled = true;
     };
-  }, [token, queryParams]);
+  }, [documentsQueryKey, token]);
 
   const filtered = useMemo(
     () => filterWholesaleDocuments(documents, search),

@@ -52,25 +52,140 @@ export async function deleteRegosToken(token: string): Promise<RegosTokenMessage
   });
 }
 
-export async function fetchRegosDefaults(token: string): Promise<RegosDefaultsResponse> {
-  return apiRequest("/api/v1/company/settings/regos-defaults", { token });
+const REGOS_DEFAULTS_CACHE_TTL_MS = 5 * 60 * 1000;
+const SETTINGS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type RegosDefaultsCacheEntry = {
+  data: RegosDefaultsResponse;
+  expiresAt: number;
+};
+
+const regosDefaultsCache = new Map<string, RegosDefaultsCacheEntry>();
+const regosDefaultsInflight = new Map<string, Promise<RegosDefaultsResponse>>();
+
+type RegosReferenceOptionsCacheEntry = {
+  data: RegosReferenceOptionsResponse;
+  expiresAt: number;
+};
+
+const regosReferenceOptionsCache = new Map<string, RegosReferenceOptionsCacheEntry>();
+const regosReferenceOptionsInflight = new Map<string, Promise<RegosReferenceOptionsResponse>>();
+
+type MyRegosDefaultsCacheEntry = {
+  data: RegosDefaultsResponse;
+  expiresAt: number;
+};
+
+const myRegosDefaultsCache = new Map<string, MyRegosDefaultsCacheEntry>();
+const myRegosDefaultsInflight = new Map<string, Promise<RegosDefaultsResponse>>();
+
+type UserPosSettingsCacheEntry = {
+  data: UserPosSettingsResponse;
+  expiresAt: number;
+};
+
+const userPosSettingsCache = new Map<string, UserPosSettingsCacheEntry>();
+const userPosSettingsInflight = new Map<string, Promise<UserPosSettingsResponse>>();
+
+export async function fetchRegosDefaults(
+  token: string,
+  options?: { force?: boolean },
+): Promise<RegosDefaultsResponse> {
+  if (!options?.force) {
+    const cached = regosDefaultsCache.get(token);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const pending = regosDefaultsInflight.get(token);
+    if (pending) return pending;
+  }
+
+  const request = apiRequest<RegosDefaultsResponse>("/api/v1/company/settings/regos-defaults", {
+    token,
+  })
+    .then((data) => {
+      regosDefaultsCache.set(token, {
+        data,
+        expiresAt: Date.now() + REGOS_DEFAULTS_CACHE_TTL_MS,
+      });
+      regosDefaultsInflight.delete(token);
+      return data;
+    })
+    .catch((error) => {
+      regosDefaultsInflight.delete(token);
+      throw error;
+    });
+
+  regosDefaultsInflight.set(token, request);
+  return request;
+}
+
+export function invalidateRegosDefaultsCache(token?: string) {
+  if (token) {
+    regosDefaultsCache.delete(token);
+    regosDefaultsInflight.delete(token);
+    return;
+  }
+  regosDefaultsCache.clear();
+  regosDefaultsInflight.clear();
 }
 
 export async function patchRegosDefaults(
   token: string,
   body: RegosDefaultsPatchRequest,
 ): Promise<RegosDefaultsResponse> {
-  return apiRequest("/api/v1/company/settings/regos-defaults", {
+  const response = await apiRequest<RegosDefaultsResponse>("/api/v1/company/settings/regos-defaults", {
     method: "PATCH",
     token,
     body,
   });
+  invalidateRegosDefaultsCache(token);
+  return response;
 }
 
 export async function fetchRegosReferenceOptions(
   token: string,
+  options?: { force?: boolean },
 ): Promise<RegosReferenceOptionsResponse> {
-  return apiRequest("/api/v1/regos/reference-options", { token });
+  if (!options?.force) {
+    const cached = regosReferenceOptionsCache.get(token);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const pending = regosReferenceOptionsInflight.get(token);
+    if (pending) return pending;
+  }
+
+  const request = apiRequest<RegosReferenceOptionsResponse>("/api/v1/regos/reference-options", {
+    token,
+  })
+    .then((data) => {
+      regosReferenceOptionsCache.set(token, {
+        data,
+        expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS,
+      });
+      regosReferenceOptionsInflight.delete(token);
+      return data;
+    })
+    .catch((error) => {
+      regosReferenceOptionsInflight.delete(token);
+      throw error;
+    });
+
+  regosReferenceOptionsInflight.set(token, request);
+  return request;
+}
+
+export function invalidateRegosReferenceOptionsCache(token?: string) {
+  if (token) {
+    regosReferenceOptionsCache.delete(token);
+    regosReferenceOptionsInflight.delete(token);
+    return;
+  }
+  regosReferenceOptionsCache.clear();
+  regosReferenceOptionsInflight.clear();
 }
 
 export async function fetchDocPaymentSaleIdField(
@@ -105,21 +220,99 @@ export async function patchPaymentLinking(
   });
 }
 
-export async function fetchMyRegosDefaults(token: string): Promise<RegosDefaultsResponse> {
-  return apiRequest("/api/v1/me/settings/regos-defaults", { token });
+export async function fetchMyRegosDefaults(
+  token: string,
+  options?: { force?: boolean },
+): Promise<RegosDefaultsResponse> {
+  if (!options?.force) {
+    const cached = myRegosDefaultsCache.get(token);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const pending = myRegosDefaultsInflight.get(token);
+    if (pending) return pending;
+  }
+
+  const request = apiRequest<RegosDefaultsResponse>("/api/v1/me/settings/regos-defaults", { token })
+    .then((data) => {
+      myRegosDefaultsCache.set(token, {
+        data,
+        expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS,
+      });
+      myRegosDefaultsInflight.delete(token);
+      return data;
+    })
+    .catch((error) => {
+      myRegosDefaultsInflight.delete(token);
+      throw error;
+    });
+
+  myRegosDefaultsInflight.set(token, request);
+  return request;
 }
 
-export async function fetchUserPosSettings(token: string): Promise<UserPosSettingsResponse> {
-  return apiRequest("/api/v1/me/settings/pos", { token });
+export function invalidateMyRegosDefaultsCache(token?: string) {
+  if (token) {
+    myRegosDefaultsCache.delete(token);
+    myRegosDefaultsInflight.delete(token);
+    return;
+  }
+  myRegosDefaultsCache.clear();
+  myRegosDefaultsInflight.clear();
+}
+
+export async function fetchUserPosSettings(
+  token: string,
+  options?: { force?: boolean },
+): Promise<UserPosSettingsResponse> {
+  if (!options?.force) {
+    const cached = userPosSettingsCache.get(token);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const pending = userPosSettingsInflight.get(token);
+    if (pending) return pending;
+  }
+
+  const request = apiRequest<UserPosSettingsResponse>("/api/v1/me/settings/pos", { token })
+    .then((data) => {
+      userPosSettingsCache.set(token, {
+        data,
+        expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS,
+      });
+      userPosSettingsInflight.delete(token);
+      return data;
+    })
+    .catch((error) => {
+      userPosSettingsInflight.delete(token);
+      throw error;
+    });
+
+  userPosSettingsInflight.set(token, request);
+  return request;
+}
+
+export function invalidateUserPosSettingsCache(token?: string) {
+  if (token) {
+    userPosSettingsCache.delete(token);
+    userPosSettingsInflight.delete(token);
+    return;
+  }
+  userPosSettingsCache.clear();
+  userPosSettingsInflight.clear();
 }
 
 export async function patchUserPosSettings(
   token: string,
   body: UserPosSettingsPatchRequest,
 ): Promise<UserPosSettingsResponse> {
-  return apiRequest("/api/v1/me/settings/pos", {
+  const response = await apiRequest<UserPosSettingsResponse>("/api/v1/me/settings/pos", {
     method: "PATCH",
     token,
     body,
   });
+  invalidateUserPosSettingsCache(token);
+  return response;
 }

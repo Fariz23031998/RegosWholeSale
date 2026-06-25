@@ -89,6 +89,34 @@ export function isAuthenticated(): boolean {
   return Boolean(useAuth.getState().accessToken);
 }
 
+/** Wait until persisted auth state has been restored from storage. */
+export function waitForAuthHydration(): Promise<void> {
+  if (useAuth.getState().isHydrated) {
+    return Promise.resolve();
+  }
+
+  return new Promise<void>((resolve) => {
+    const unsub = useAuth.persist.onFinishHydration(() => {
+      unsub();
+      resolve();
+    });
+
+    if (useAuth.getState().isHydrated) {
+      unsub();
+      resolve();
+      return;
+    }
+
+    setTimeout(() => {
+      unsub();
+      if (!useAuth.getState().isHydrated) {
+        useAuth.getState().setHydrated();
+      }
+      resolve();
+    }, 500);
+  });
+}
+
 export function formatAuthError(
   err: unknown,
   fallback = languageService.t("errors.generic", "Something went wrong"),

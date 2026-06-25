@@ -1,3 +1,4 @@
+import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { CalendarRange, Coins, Download, Search, Users, Warehouse } from "lucide-react";
@@ -35,6 +36,7 @@ import {
   presetToCustomRange,
   resolveDashboardPeriodParams,
   resolveDashboardQueryParams,
+  serializeDashboardQueryParams,
   type DashboardCustomRange,
   type DashboardCurrencyFilter,
   type DashboardPeriodPreset,
@@ -391,8 +393,6 @@ export function DashboardPage() {
   const [productsTotals, setProductsTotals] = useState<DashboardProductTotals | null>(null);
   const [productsTotal, setProductsTotal] = useState(0);
   const [productsNextOffset, setProductsNextOffset] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [productsLoading, setProductsLoading] = useState(false);
   const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
   const [error, setError] = useState("");
   const [productsError, setProductsError] = useState("");
@@ -405,7 +405,6 @@ export function DashboardPage() {
   const [incomePaymentCategoryName, setIncomePaymentCategoryName] = useState<string | null>(null);
   const [outcomePaymentCategoryName, setOutcomePaymentCategoryName] = useState<string | null>(null);
   const [paymentsNextOffset, setPaymentsNextOffset] = useState(0);
-  const [paymentsLoading, setPaymentsLoading] = useState(false);
   const [loadingMorePayments, setLoadingMorePayments] = useState(false);
   const [paymentsError, setPaymentsError] = useState("");
   const [paymentsSearch, setPaymentsSearch] = useState("");
@@ -414,6 +413,7 @@ export function DashboardPage() {
   const [isNarrow, setIsNarrow] = useState(false);
   const [availableCurrencies, setAvailableCurrencies] = useState<RegosCurrencyOption[]>([]);
   const [currencyFilter, setCurrencyFilter] = useState<DashboardCurrencyFilter | null>(null);
+  const [defaultsReady, setDefaultsReady] = useState(false);
 
   const periodParams = useMemo(
     () => resolveDashboardPeriodParams(periodPreset, customRange),
@@ -436,6 +436,20 @@ export function DashboardPage() {
       periodParams,
       allPartners ? undefined : selectedPartnerIds,
       allStocks ? undefined : selectedStockIds,
+    ],
+  );
+
+  const dashboardQueryKey = useMemo(
+    () => serializeDashboardQueryParams(queryParams),
+    [
+      allPartners,
+      allStocks,
+      periodParams.start_date,
+      periodParams.end_date,
+      allPartners ? "" : selectedPartnerIds.join(","),
+      allStocks ? "" : selectedStockIds.join(","),
+      currencyFilter?.currencyId,
+      currencyFilter?.mode,
     ],
   );
 
@@ -481,10 +495,12 @@ export function DashboardPage() {
     if (!token) {
       setWarehouses([]);
       setPartners([]);
+      setDefaultsReady(false);
       return;
     }
 
     let cancelled = false;
+    setDefaultsReady(false);
     void Promise.all([fetchRegosReferenceOptions(token), fetchRegosDefaults(token)])
       .then(([options, defaultsResponse]) => {
         if (cancelled) return;
@@ -513,12 +529,52 @@ export function DashboardPage() {
           setWarehouses([]);
           setPartners([]);
         }
+      })
+      .finally(() => {
+        if (!cancelled) setDefaultsReady(true);
       });
 
     return () => {
       cancelled = true;
     };
   }, [token]);
+
+  const dashboardDataQuery = useQuery({
+    queryKey: ["dashboard", "initial", token, dashboardQueryKey],
+    queryFn: async () => {
+      const [overview, payments] = await Promise.all([
+        fetchDashboardOverview(token!, queryParams),
+        fetchDashboardPayments(token!, queryParams),
+      ]);
+      return { overview, payments };
+    },
+    enabled: Boolean(token) && defaultsReady,
+    staleTime: 30_000,
+  });
+
+  const loading = dashboardDataQuery.isPending;
+  const productsLoading = dashboardDataQuery.isPending;
+  const paymentsLoading = dashboardDataQuery.isPending;
+  const loadError = dashboardDataQuery.error
+    ? formatAuthError(dashboardDataQuery.error, t("dashboard.errors.load"))
+    : "";
+
+  useEffect(() => {
+    if (!token || !defaultsReady) return;
+
+    setStats(null);
+    setProducts([]);
+    setProductsTotals(null);
+    setProductsTotal(0);
+    setProductsNextOffset(0);
+    setIncomePayments([]);
+    setOutcomePayments([]);
+    setIncomePaymentsCount(0);
+    setOutcomePaymentsCount(0);
+    setIncomePaymentCategoryName(null);
+    setOutcomePaymentCategoryName(null);
+    setPaymentsNextOffset(0);
+  }, [dashboardQueryKey, defaultsReady, token]);
 
   useEffect(() => {
     if (!token) {
@@ -534,80 +590,33 @@ export function DashboardPage() {
       setIncomePaymentCategoryName(null);
       setOutcomePaymentCategoryName(null);
       setPaymentsNextOffset(0);
+      setError("");
+      setProductsError("");
+      setPaymentsError("");
       return;
     }
 
-    let cancelled = false;
-    setLoading(true);
-    setProductsLoading(true);
-    setPaymentsLoading(true);
-    setError("");
-    setProductsError("");
-    setPaymentsError("");
-    setProducts([]);
-    setProductsTotals(null);
-    setProductsTotal(0);
-    setProductsNextOffset(0);
-    setIncomePayments([]);
-    setOutcomePayments([]);
-    setIncomePaymentsCount(0);
-    setOutcomePaymentsCount(0);
-    setIncomePaymentCategoryName(null);
-    setOutcomePaymentCategoryName(null);
-    setPaymentsNextOffset(0);
+    setError(loadError);
+    setProductsError(loadError);
+    setPaymentsError(loadError);
 
-    void Promise.all([
-      fetchDashboardOverview(token, queryParams),
-      fetchDashboardPayments(token, queryParams),
-    ])
-      .then(([overview, payments]) => {
-        if (cancelled) return;
-        setStats(overview.stats);
-        setProducts(overview.products);
-        setProductsTotals(overview.totals);
-        setProductsTotal(overview.total);
-        setProductsNextOffset(overview.next_offset);
-        setIncomePayments(payments.income_payments);
-        setOutcomePayments(payments.outcome_payments);
-        setIncomePaymentsCount(payments.income_total);
-        setOutcomePaymentsCount(payments.outcome_total);
-        setIncomePaymentCategoryName(payments.income_payment_category_name);
-        setOutcomePaymentCategoryName(payments.outcome_payment_category_name);
-        setPaymentsNextOffset(payments.next_offset);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        setStats(null);
-        setProducts([]);
-        setProductsTotals(null);
-        setProductsTotal(0);
-        setProductsNextOffset(0);
-        setIncomePayments([]);
-        setOutcomePayments([]);
-        setIncomePaymentsTotal(0);
-        setOutcomePaymentsTotal(0);
-        setIncomePaymentsCount(0);
-        setOutcomePaymentsCount(0);
-        setIncomePaymentCategoryName(null);
-        setOutcomePaymentCategoryName(null);
-        setPaymentsNextOffset(0);
-        const message = formatAuthError(err, t("dashboard.errors.load"));
-        setError(message);
-        setProductsError(message);
-        setPaymentsError(message);
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-          setProductsLoading(false);
-          setPaymentsLoading(false);
-        }
-      });
+    const data = dashboardDataQuery.data;
+    if (!data) return;
 
-    return () => {
-      cancelled = true;
-    };
-  }, [token, queryParams]);
+    const { overview, payments } = data;
+    setStats(overview.stats);
+    setProducts(overview.products);
+    setProductsTotals(overview.totals);
+    setProductsTotal(overview.total);
+    setProductsNextOffset(overview.next_offset);
+    setIncomePayments(payments.income_payments);
+    setOutcomePayments(payments.outcome_payments);
+    setIncomePaymentsCount(payments.income_total);
+    setOutcomePaymentsCount(payments.outcome_total);
+    setIncomePaymentCategoryName(payments.income_payment_category_name);
+    setOutcomePaymentCategoryName(payments.outcome_payment_category_name);
+    setPaymentsNextOffset(payments.next_offset);
+  }, [dashboardDataQuery.data, loadError, token]);
 
   const loadMoreProducts = () => {
     if (!token || !productsNextOffset || loadingMoreProducts) return;

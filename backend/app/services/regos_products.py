@@ -38,6 +38,35 @@ def _regos_scan_cursor(page_offset: int, rows_consumed: int) -> int:
     return page_offset + rows_consumed
 
 
+def _can_scan_more_regos(
+    *,
+    global_search: bool,
+    collected_count: int,
+    limit: int,
+    result_count: int,
+    regos_page_size: int,
+    total: int,
+    scan_cursor: int,
+) -> bool:
+    if collected_count >= limit or result_count <= 0:
+        return False
+    if result_count >= regos_page_size:
+        return True
+    if global_search:
+        return False
+    return total <= 0 or total > scan_cursor
+
+
+def _search_page_exhausted(
+    *,
+    collected_count: int,
+    limit: int,
+    last_page_result_count: int,
+    regos_page_size: int,
+) -> bool:
+    return collected_count < limit and last_page_result_count < regos_page_size
+
+
 def _client_next_offset(
     *,
     total: int,
@@ -46,9 +75,17 @@ def _client_next_offset(
     regos_page_size: int,
     collected_count: int,
     limit: int,
+    global_search: bool = False,
 ) -> int:
     """Cursor for the client's next request after this response."""
     if last_page_result_count <= 0:
+        return 0
+    if global_search and _search_page_exhausted(
+        collected_count=collected_count,
+        limit=limit,
+        last_page_result_count=last_page_result_count,
+        regos_page_size=regos_page_size,
+    ):
         return 0
     if total > 0:
         return scan_cursor if total > scan_cursor else 0
@@ -58,6 +95,28 @@ def _client_next_offset(
     if last_page_result_count >= regos_page_size:
         return scan_cursor
     return 0
+
+
+def _client_list_total(
+    *,
+    global_search: bool,
+    client_offset: int,
+    collected_count: int,
+    regos_total: int,
+    last_page_result_count: int,
+    regos_page_size: int,
+    limit: int,
+) -> int:
+    if global_search and _search_page_exhausted(
+        collected_count=collected_count,
+        limit=limit,
+        last_page_result_count=last_page_result_count,
+        regos_page_size=regos_page_size,
+    ):
+        return client_offset + collected_count
+    if regos_total > 0 and not global_search:
+        return regos_total
+    return regos_total or client_offset + collected_count
 
 
 async def list_all_products(
@@ -229,29 +288,66 @@ async def list_products(
                     regos_page_size=regos_page_size,
                     collected_count=len(collected),
                     limit=limit,
+                    global_search=global_search,
                 ),
-                "total": total,
+                "total": _client_list_total(
+                    global_search=global_search,
+                    client_offset=offset,
+                    collected_count=len(collected),
+                    regos_total=total,
+                    last_page_result_count=result_count,
+                    regos_page_size=regos_page_size,
+                    limit=limit,
+                ),
             }
 
         if result_count == 0:
             return {
                 "products": collected,
                 "next_offset": 0,
-                "total": total or offset + len(collected),
+                "total": _client_list_total(
+                    global_search=global_search,
+                    client_offset=offset,
+                    collected_count=len(collected),
+                    regos_total=total,
+                    last_page_result_count=result_count,
+                    regos_page_size=regos_page_size,
+                    limit=limit,
+                ),
+            }
+
+        if global_search and _search_page_exhausted(
+            collected_count=len(collected),
+            limit=limit,
+            last_page_result_count=result_count,
+            regos_page_size=regos_page_size,
+        ):
+            return {
+                "products": collected,
+                "next_offset": 0,
+                "total": _client_list_total(
+                    global_search=global_search,
+                    client_offset=offset,
+                    collected_count=len(collected),
+                    regos_total=total,
+                    last_page_result_count=result_count,
+                    regos_page_size=regos_page_size,
+                    limit=limit,
+                ),
             }
 
         next_cursor = _next_regos_offset(
             current_offset, page_next_offset, result_count, total
         )
         if next_cursor <= current_offset:
-            if (
-                len(collected) < limit
-                and result_count > 0
-                and (
-                    total <= 0
-                    or total > scan_cursor
-                    or result_count >= regos_page_size
-                )
+            if _can_scan_more_regos(
+                global_search=global_search,
+                collected_count=len(collected),
+                limit=limit,
+                result_count=result_count,
+                regos_page_size=regos_page_size,
+                total=total,
+                scan_cursor=scan_cursor,
             ):
                 current_offset = current_offset + result_count
                 continue
@@ -264,8 +360,17 @@ async def list_products(
                     regos_page_size=regos_page_size,
                     collected_count=len(collected),
                     limit=limit,
+                    global_search=global_search,
                 ),
-                "total": total or offset + len(collected),
+                "total": _client_list_total(
+                    global_search=global_search,
+                    client_offset=offset,
+                    collected_count=len(collected),
+                    regos_total=total,
+                    last_page_result_count=result_count,
+                    regos_page_size=regos_page_size,
+                    limit=limit,
+                ),
             }
 
         current_offset = next_cursor
@@ -279,8 +384,17 @@ async def list_products(
             regos_page_size=regos_page_size,
             collected_count=len(collected),
             limit=limit,
+            global_search=global_search,
         ),
-        "total": total,
+        "total": _client_list_total(
+            global_search=global_search,
+            client_offset=offset,
+            collected_count=len(collected),
+            regos_total=total,
+            last_page_result_count=last_page_result_count,
+            regos_page_size=regos_page_size,
+            limit=limit,
+        ),
     }
 
 

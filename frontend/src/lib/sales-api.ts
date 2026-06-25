@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api";
+import { serializeDashboardQueryParams } from "@/lib/dashboard-api";
 import type { RegosCurrencyOption } from "@/types/settings";
 
 export type CheckoutItemRequest = {  regos_item_id: number;
@@ -238,20 +239,25 @@ export async function postponeSale(
   });
 }
 
-export async function fetchWholesaleDocuments(
-  token: string,
-  params: {
-    start_date?: number;
-    end_date?: number;
-    all_stocks?: boolean;
-    stock_ids?: number[];
-    all_partners?: boolean;
-    partner_ids?: number[];
-    performed?: boolean;
-    offset?: number;
-    limit?: number;
-  } = {},
-): Promise<WholesaleDocumentsResponse> {
+export type WholesaleDocumentsQuery = {
+  start_date?: number;
+  end_date?: number;
+  all_stocks?: boolean;
+  stock_ids?: number[];
+  all_partners?: boolean;
+  partner_ids?: number[];
+  performed?: boolean;
+  offset?: number;
+  limit?: number;
+};
+
+const wholesaleDocumentsInflight = new Map<string, Promise<WholesaleDocumentsResponse>>();
+
+function wholesaleDocumentsRequestKey(token: string, params: WholesaleDocumentsQuery): string {
+  return `${token}|${serializeDashboardQueryParams(params)}`;
+}
+
+function buildWholesaleDocumentsSearch(params: WholesaleDocumentsQuery): string {
   const search = new URLSearchParams();
   if (params.start_date !== undefined) search.set("start_date", String(params.start_date));
   if (params.end_date !== undefined) search.set("end_date", String(params.end_date));
@@ -270,8 +276,33 @@ export async function fetchWholesaleDocuments(
   }
   if (params.offset !== undefined) search.set("offset", String(params.offset));
   if (params.limit !== undefined) search.set("limit", String(params.limit));
-  const qs = search.toString();
-  return apiRequest(`/api/v1/sales/wholesale-documents${qs ? `?${qs}` : ""}`, { token });
+  return search.toString();
+}
+
+export async function fetchWholesaleDocuments(
+  token: string,
+  params: WholesaleDocumentsQuery = {},
+): Promise<WholesaleDocumentsResponse> {
+  const key = wholesaleDocumentsRequestKey(token, params);
+  const pending = wholesaleDocumentsInflight.get(key);
+  if (pending) return pending;
+
+  const qs = buildWholesaleDocumentsSearch(params);
+  const request = apiRequest<WholesaleDocumentsResponse>(
+    `/api/v1/sales/wholesale-documents${qs ? `?${qs}` : ""}`,
+    { token },
+  )
+    .then((data) => {
+      wholesaleDocumentsInflight.delete(key);
+      return data;
+    })
+    .catch((error) => {
+      wholesaleDocumentsInflight.delete(key);
+      throw error;
+    });
+
+  wholesaleDocumentsInflight.set(key, request);
+  return request;
 }
 
 export async function fetchWholesaleOperations(

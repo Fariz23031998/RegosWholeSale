@@ -37,8 +37,53 @@ export async function fetchPartnerGroups(token: string): Promise<PartnerGroupsRe
   return apiRequest("/api/v1/regos/partner-groups", { token });
 }
 
-export async function fetchFirms(token: string): Promise<FirmsListResponse> {
-  return apiRequest("/api/v1/regos/firms", { token });
+const FIRMS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+type FirmsCacheEntry = {
+  data: FirmsListResponse;
+  expiresAt: number;
+};
+
+const firmsCache = new Map<string, FirmsCacheEntry>();
+const firmsInflight = new Map<string, Promise<FirmsListResponse>>();
+
+export async function fetchFirms(
+  token: string,
+  options?: { force?: boolean },
+): Promise<FirmsListResponse> {
+  if (!options?.force) {
+    const cached = firmsCache.get(token);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const pending = firmsInflight.get(token);
+    if (pending) return pending;
+  }
+
+  const request = apiRequest<FirmsListResponse>("/api/v1/regos/firms", { token })
+    .then((data) => {
+      firmsCache.set(token, { data, expiresAt: Date.now() + FIRMS_CACHE_TTL_MS });
+      firmsInflight.delete(token);
+      return data;
+    })
+    .catch((error) => {
+      firmsInflight.delete(token);
+      throw error;
+    });
+
+  firmsInflight.set(token, request);
+  return request;
+}
+
+export function invalidateFirmsCache(token?: string) {
+  if (token) {
+    firmsCache.delete(token);
+    firmsInflight.delete(token);
+    return;
+  }
+  firmsCache.clear();
+  firmsInflight.clear();
 }
 
 export async function createPartner(
