@@ -47,6 +47,13 @@ export async function fetchTelegramReceiptLanguages(
   return apiRequest("/api/v1/telegram/receipt-languages", { token });
 }
 
+export async function deleteTelegramUser(token: string, userId: number): Promise<{ message: string }> {
+  return apiRequest(`/api/v1/telegram/users/${userId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
 export async function updateTelegramUser(
   token: string,
   userId: number,

@@ -143,6 +143,30 @@ class WholesaleDocumentsResponse(BaseModel):
     total: int = 0
 
 
+class ReceiptOperationItemNameRef(BaseModel):
+    name: str | None = None
+
+
+class ReceiptOperationItemVat(BaseModel):
+    name: str | None = None
+    value: float | None = None
+
+
+class ReceiptOperationItem(BaseModel):
+    fullname: str | None = None
+    description: str | None = None
+    articul: str | None = None
+    color: ReceiptOperationItemNameRef = Field(default_factory=ReceiptOperationItemNameRef)
+    size: ReceiptOperationItemNameRef = Field(default_factory=ReceiptOperationItemNameRef)
+    producer: ReceiptOperationItemNameRef = Field(default_factory=ReceiptOperationItemNameRef)
+    country: ReceiptOperationItemNameRef = Field(default_factory=ReceiptOperationItemNameRef)
+    icps: str | None = None
+    package_code: str | None = None
+    department: ReceiptOperationItemNameRef = Field(default_factory=ReceiptOperationItemNameRef)
+    vat: ReceiptOperationItemVat = Field(default_factory=ReceiptOperationItemVat)
+    base_barcode: str | None = None
+
+
 class WholesaleOperationLine(BaseModel):
     id: int
     document_id: int
@@ -158,6 +182,7 @@ class WholesaleOperationLine(BaseModel):
     price2: float | None = None
     amount: float | None = None
     last_purchase_cost: float | None = None
+    item: ReceiptOperationItem = Field(default_factory=ReceiptOperationItem)
 
 
 class WholesaleOperationsResponse(BaseModel):

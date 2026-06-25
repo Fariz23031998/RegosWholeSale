@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { CalendarRange, Printer, Scale, Users, Warehouse } from "lucide-react";
+import { CalendarRange, Printer, Scale, Search, Users, Warehouse } from "lucide-react";
 import { PartnerBalanceModal } from "@/components/POS/PartnerBalanceModal";
 import { Button } from "@/components/posui/Button";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
@@ -36,6 +36,7 @@ import {
   type WholesalePaymentLine,
   type WholesaleReturnDocument,
 } from "@/lib/sales-api";
+import { filterWholesaleDocuments } from "@/lib/wholesale-document-search";
 import { formatAuthError, useAuth } from "@/store/auth";
 import type { RegosDefaultOption } from "@/types/settings";
 import dashboardStyles from "@/components/Dashboard/Dashboard.module.css";
@@ -71,6 +72,7 @@ export function ReturnsPage() {
   const [printContext, setPrintContext] = useState<DocumentPrintContext | null>(null);
   const [printingId, setPrintingId] = useState<number | null>(null);
   const [balancePartner, setBalancePartner] = useState<{ id: number; name: string } | null>(null);
+  const [search, setSearch] = useState("");
 
   const periodParams = useMemo(
     () => resolveDashboardPeriodParams(periodPreset, customRange),
@@ -155,7 +157,16 @@ export function ReturnsPage() {
     };
   }, [token, queryParams]);
 
-  const total = returnDocuments.reduce((s, x) => s + (x.amount ?? 0), 0);
+  const filteredDocuments = useMemo(
+    () =>
+      filterWholesaleDocuments(returnDocuments, search, (doc) => [
+        doc.wholesale_doc_id,
+        doc.reason,
+        doc.description,
+      ]),
+    [returnDocuments, search],
+  );
+  const total = filteredDocuments.reduce((s, x) => s + (x.amount ?? 0), 0);
 
   const loadReturnDetail = async (doc: WholesaleReturnDocument): Promise<ReturnDetail> => {
     if (!token) {
@@ -211,7 +222,7 @@ export function ReturnsPage() {
           <div className={styles.subtitle}>
             {loading
               ? t("common.loadingFromRegos")
-              : `${returnDocuments.length} ${t("returns.title").toLowerCase()} · ${formatCurrency(total)} · ${formatDashboardPeriodLabel(periodPreset, customRange, t)} · ${formatPartnerFilterLabel(allPartners, selectedPartnerIds, partners, t)} · ${formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}`}
+              : `${filteredDocuments.length} ${t("returns.title").toLowerCase()} · ${formatCurrency(total)} · ${formatDashboardPeriodLabel(periodPreset, customRange, t)} · ${formatPartnerFilterLabel(allPartners, selectedPartnerIds, partners, t)} · ${formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}`}
           </div>
         </div>
         <div className={dashboardStyles.filters}>
@@ -296,11 +307,29 @@ export function ReturnsPage() {
 
       {error && <div className={styles.empty}>{error}</div>}
 
+      {!loading && returnDocuments.length > 0 ? (
+        <div className={dashboardStyles.productsToolbar}>
+          <div className={dashboardStyles.productsSearch}>
+            <Search size={16} className={dashboardStyles.productsSearchIcon} />
+            <input
+              className={dashboardStyles.productsSearchInput}
+              type="search"
+              placeholder={t("returns.searchPlaceholder")}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              aria-label={t("returns.searchAria")}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <div className={styles.table}>
         {loading ? (
           <div className={styles.empty}>{t("returns.loading")}</div>
         ) : returnDocuments.length === 0 ? (
           <div className={styles.empty}>{t("returns.empty")}</div>
+        ) : filteredDocuments.length === 0 ? (
+          <div className={styles.empty}>{t("returns.emptySearch")}</div>
         ) : (
           <table className={styles.tbl}>
             <thead>
@@ -317,7 +346,7 @@ export function ReturnsPage() {
               </tr>
             </thead>
             <tbody>
-              {returnDocuments.map((doc) => (
+              {filteredDocuments.map((doc) => (
                 <tr
                   key={doc.id}
                   onClick={() => void openDocument(doc)}

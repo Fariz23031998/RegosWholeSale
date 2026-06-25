@@ -66,9 +66,9 @@
         <td class="num">{{quantity}}</td>
         <td class="num">{{#if price2}}{{formatCurrency price2}}{{else}}{{formatCurrency price}}{{/if}}</td>
         <td class="num">{{formatCurrency price}}</td>
-        <td class="num">{{#unless (gt price2 price)}}{{formatCurrency amount}}{{/unless}}</td>
+        <td class="num">{{#if price2}}{{formatCurrency price2 * quantity}}{{else}}{{formatCurrency price * quantity}}{{/if}}</td>
         <td class="num">{{formatCurrency amount}}</td>
-        <td class="num"></td>
+        <td class="num">{{#if price2}}{{#if (gt price2 price)}}{{formatCurrency price2 * quantity - amount}}{{/if}}{{/if}}</td>
       </tr>
       {{/each}}
       <tr class="grand-total">
@@ -76,9 +76,9 @@
         <td class="num">{{totals.quantity}}</td>
         <td class="num"></td>
         <td class="num"></td>
-        <td class="num">{{formatCurrency (add totals.amount sale.discount)}}</td>
+        <td class="num">{{formatCurrency totals.amount_gross}}</td>
         <td class="num">{{formatCurrency totals.amount}}</td>
-        <td class="num">{{#if (gt sale.discount 0)}}{{formatCurrency sale.discount}}{{/if}}</td>
+        <td class="num">{{#if (gt totals.discount 0)}}{{formatCurrency totals.discount}}{{/if}}</td>
       </tr>
     </tbody>
   </table>

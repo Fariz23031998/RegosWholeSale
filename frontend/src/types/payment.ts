@@ -8,6 +8,7 @@ export type PaymentType = {
   is_cash: boolean;
   allows_debt: boolean;
   image_url: string;
+  account_id?: number | null;
   currency?: PaymentCurrency | null;
 };
 

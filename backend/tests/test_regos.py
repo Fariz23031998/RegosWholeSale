@@ -281,9 +281,11 @@ async def test_payment_types_route_returns_regos_payment_types(
     assert data["payment_types"][0]["id"] == 1
     assert data["payment_types"][0]["name"] == "Наличные"
     assert data["payment_types"][0]["is_cash"] is True
+    assert data["payment_types"][0]["account_id"] == 10
     assert data["payment_types"][0]["currency"]["code_chr"] == "UZS"
     assert data["payment_types"][1]["id"] == 2
     assert data["payment_types"][1]["is_cash"] is False
+    assert data["payment_types"][1]["account_id"] == 11
     assert data["payment_types"][1]["currency"]["code_chr"] == "USD"
 
     mock_regos.assert_called_once()

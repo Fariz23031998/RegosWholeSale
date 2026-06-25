@@ -93,8 +93,9 @@
 .editorModalBody {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
-  height: 100%;
+  overflow: hidden;
   padding: var(--space-4);
 }
 
@@ -172,8 +173,8 @@
   border-radius: var(--radius-md);
   padding: var(--space-3);
   background: #f8f8f8;
-  overflow: auto;
   min-height: 0;
+  overflow: hidden;
   display: flex;
   flex-direction: column;
 }
@@ -192,6 +193,11 @@
   flex: 1;
   min-height: 0;
   overflow: auto;
+  display: flex;
+  flex-direction: column;
+  background: #fff;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
 }
 
 .modalActions {

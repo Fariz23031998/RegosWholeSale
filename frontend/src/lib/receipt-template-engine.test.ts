@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { invalidateReceiptTemplateCache, renderReceiptHtmlTemplate } from "@/lib/receipt-template-engine";
+import Handlebars from "handlebars";
+import {
+  invalidateReceiptTemplateCache,
+  renderReceiptHtmlTemplate,
+  renderReceiptTemplate,
+} from "@/lib/receipt-template-engine";
 import { SAMPLE_RECEIPT_CONTEXT } from "@/lib/receipt-print-context";
 import {
   parseImportedReceiptTemplate,
@@ -81,6 +86,141 @@ describe("receipt template engine", () => {
     );
     expect(html).toContain("326.74");
     expect(html).toContain("Триста двадцать шесть");
+  });
+
+  it("returns a preview error instead of throwing for invalid handlebars", () => {
+    invalidateReceiptTemplateCache("test-invalid-handlebars");
+    const result = renderReceiptTemplate(
+      {
+        ...htmlTemplate,
+        id: "test-invalid-handlebars",
+        html: '<div class="parties">{{    <div class="party"></div></div>',
+      },
+      SAMPLE_RECEIPT_CONTEXT,
+    );
+    expect(result.error).toMatch(/Parse error/i);
+    expect(result.html).toBe("");
+  });
+
+  it("recompiles when html changes instead of using stale cache", () => {
+    const templateId = "test-cache-key";
+    invalidateReceiptTemplateCache(templateId);
+
+    const valid = renderReceiptTemplate(
+      {
+        ...htmlTemplate,
+        id: templateId,
+        html: "<div>{{document.code}}</div>",
+      },
+      SAMPLE_RECEIPT_CONTEXT,
+    );
+    expect(valid.error).toBeNull();
+    expect(valid.html).toContain("13 705");
+
+    const invalid = renderReceiptTemplate(
+      {
+        ...htmlTemplate,
+        id: templateId,
+        html: "<div>{{</div>",
+      },
+      SAMPLE_RECEIPT_CONTEXT,
+    );
+    expect(invalid.error).toMatch(/Parse error/i);
+    expect(invalid.html).toBe("");
+  });
+
+  it("renders formatCurrency with multiplied values inside each", () => {
+    invalidateReceiptTemplateCache("test-format-currency-mul");
+    const html = renderReceiptHtmlTemplate(
+      {
+        ...htmlTemplate,
+        id: "test-format-currency-mul",
+        html: "{{#each operations}}<td class=\"num\">{{formatCurrency price2 * quantity}}</td>{{/each}}",
+      },
+      {
+        ...SAMPLE_RECEIPT_CONTEXT,
+        operations: [
+          {
+            ...SAMPLE_RECEIPT_CONTEXT.operations[0],
+            quantity: 4,
+            price2: 10.7,
+            price: 0.7,
+            amount: 2.8,
+          },
+        ],
+      },
+    );
+    expect(html).toContain("42.8");
+  });
+
+  it("registers mul after legacy helper registration", () => {
+    invalidateReceiptTemplateCache("test-legacy-helpers");
+    const legacyHandlebars = Handlebars as typeof Handlebars & {
+      __receiptHelpers?: boolean;
+      __receiptHelpersVersion?: number;
+    };
+    legacyHandlebars.__receiptHelpers = true;
+    delete legacyHandlebars.__receiptHelpersVersion;
+
+    const html = renderReceiptHtmlTemplate(
+      {
+        ...htmlTemplate,
+        id: "test-legacy-helpers",
+        html: "{{#each operations}}<span>{{formatCurrency price2 * quantity}}</span>{{/each}}",
+      },
+      {
+        ...SAMPLE_RECEIPT_CONTEXT,
+        operations: [
+          {
+            ...SAMPLE_RECEIPT_CONTEXT.operations[0],
+            quantity: 2,
+            price2: 5,
+            price: 4,
+            amount: 8,
+          },
+        ],
+      },
+    );
+
+    expect(html).toContain("10");
+  });
+
+  it("renders multiplication expressions in templates", () => {
+    invalidateReceiptTemplateCache("test-arithmetic");
+    const html = renderReceiptHtmlTemplate(
+      {
+        ...htmlTemplate,
+        id: "test-arithmetic",
+        html: "{{#each operations}}<div>{{formatCurrency price2 * quantity}}</div>{{/each}}",
+      },
+      {
+        ...SAMPLE_RECEIPT_CONTEXT,
+        operations: [
+          {
+            ...SAMPLE_RECEIPT_CONTEXT.operations[0],
+            quantity: 4,
+            price2: 10.7,
+            price: 0.7,
+            amount: 2.8,
+          },
+        ],
+      },
+    );
+    expect(html).toContain("42.8");
+  });
+
+  it("renders operation item fields in templates", () => {
+    invalidateReceiptTemplateCache("test-item-fields");
+    const html = renderReceiptHtmlTemplate(
+      {
+        ...htmlTemplate,
+        id: "test-item-fields",
+        html: "{{#each operations}}<div>{{item_articul}} · {{item_color_name}}</div>{{/each}}",
+      },
+      SAMPLE_RECEIPT_CONTEXT,
+    );
+    expect(html).toContain("11A");
+    expect(html).toContain("Серый");
   });
 
   it("renders logo helper by name", () => {

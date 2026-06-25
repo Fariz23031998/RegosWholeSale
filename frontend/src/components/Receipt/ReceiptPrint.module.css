@@ -9,6 +9,21 @@
   padding: 15mm;
 }
 
+.printPreview.printAreaA4,
+.printPreview.printArea80mm {
+  width: 100%;
+  max-width: 100%;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+.printPreview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 @media print {
   .printArea80mm {
     width: 80mm;

@@ -80,6 +80,22 @@ async def list_telegram_receipt_languages(
     return all_receipt_languages_response()
 
 
+@router.delete("/users/{user_id}")
+async def delete_telegram_user(
+    user_id: int,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    deleted = await telegram_service.delete_telegram_user(
+        session,
+        current.company_id,
+        user_id,
+    )
+    if not deleted:
+        raise not_found("Telegram user not found", "TELEGRAM_USER_NOT_FOUND")
+    return {"message": "Telegram user deleted"}
+
+
 @router.patch("/users/{user_id}", response_model=TelegramUserResponse)
 async def update_telegram_user(
     user_id: int,

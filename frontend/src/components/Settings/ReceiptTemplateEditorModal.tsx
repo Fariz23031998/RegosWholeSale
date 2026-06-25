@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { TemplatedReceiptView } from "@/components/Receipt/TemplatedReceiptView";
+import { ReceiptTemplatePreviewBoundary } from "@/components/Settings/ReceiptTemplatePreviewBoundary";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { invalidateReceiptTemplateCache } from "@/lib/receipt-template-engine";
 import { SAMPLE_RECEIPT_CONTEXT } from "@/lib/receipt-print-context";
@@ -552,7 +553,13 @@ export function ReceiptTemplateEditorModal({
         <div className={styles.previewPane}>
           <div className={styles.previewTitle}>{t("common.preview", "Preview")}</div>
           <div className={styles.previewContent}>
-            <TemplatedReceiptView template={draft} context={SAMPLE_RECEIPT_CONTEXT} />
+            <ReceiptTemplatePreviewBoundary resetKey={draft.html}>
+              <TemplatedReceiptView
+                template={draft}
+                context={SAMPLE_RECEIPT_CONTEXT}
+                preview
+              />
+            </ReceiptTemplatePreviewBoundary>
           </div>
         </div>
       </div>

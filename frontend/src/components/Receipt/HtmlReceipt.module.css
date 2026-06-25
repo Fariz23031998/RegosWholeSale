@@ -2,11 +2,37 @@
   width: 100%;
 }
 
+.htmlReceiptPreview {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+}
+
+.renderError {
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid #f5c2c7;
+  border-radius: 8px;
+  background: #f8d7da;
+  color: #842029;
+  font-family: Menlo, "Courier New", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .htmlFramePreview {
   width: 100%;
   min-height: 240px;
   border: 0;
   background: #fff;
+}
+
+.htmlFramePreviewEditor {
+  display: block;
+  width: 100%;
+  min-height: 100%;
 }
 
 .htmlBodyPrint {

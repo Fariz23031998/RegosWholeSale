@@ -26,6 +26,7 @@ import {
   parseTenderedQuickAmounts,
 } from "@/lib/tendered-amounts";
 import type {
+  CrossCurrencyPaymentMode,
   PaymentLinkingMode,
   RegosCustomField,
   RegosDefaultOption,
@@ -75,6 +76,8 @@ function SettingsPage() {
   const [zeroPrice, setZeroPrice] = useState(false);
   const [allowOutOfStock, setAllowOutOfStock] = useState(false);
   const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
+  const [crossCurrencyPaymentMode, setCrossCurrencyPaymentMode] =
+    useState<CrossCurrencyPaymentMode>("payment_currency");
   const [tenderedAmountsInput, setTenderedAmountsInput] = useState("20, 50, 100");
   const [loadingPosSettings, setLoadingPosSettings] = useState(false);
   const [savingPosSettings, setSavingPosSettings] = useState(false);
@@ -184,6 +187,9 @@ function SettingsPage() {
         if (cancelled) return;
         setAllowOutOfStock(res.settings.allow_out_of_stock);
         setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
+        setCrossCurrencyPaymentMode(
+          res.settings.cross_currency_payment_mode ?? "payment_currency",
+        );
         setTenderedAmountsInput(
           formatTenderedQuickAmounts(res.settings.tendered_quick_amounts),
         );
@@ -535,6 +541,24 @@ function SettingsPage() {
     }
   };
 
+  const handleCrossCurrencyPaymentModeChange = async (mode: CrossCurrencyPaymentMode) => {
+    if (!token || !canManageSettings) return;
+
+    const previous = crossCurrencyPaymentMode;
+    setCrossCurrencyPaymentMode(mode);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(token, { cross_currency_payment_mode: mode });
+      setCrossCurrencyPaymentMode(res.settings.cross_currency_payment_mode);
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setCrossCurrencyPaymentMode(previous);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
   return (
     <div className={styles.page}>
       <header className={styles.header}>
@@ -602,6 +626,41 @@ function SettingsPage() {
                 <span className={styles.slider} />
               </span>
             </label>
+
+            <div className={styles.fieldBlock}>
+              <div className={styles.rowTitle}>
+                {t("settings.pos.crossCurrencyPayment", "Cross-currency payments")}
+              </div>
+              <div className={styles.rowDesc}>
+                {t(
+                  "settings.pos.crossCurrencyPaymentDesc",
+                  "When sale and payment currencies differ, choose how Regos records the payment.",
+                )}
+              </div>
+              <select
+                className={styles.select}
+                value={crossCurrencyPaymentMode}
+                disabled={loadingPosSettings || savingPosSettings}
+                onChange={(e) =>
+                  void handleCrossCurrencyPaymentModeChange(
+                    e.target.value as CrossCurrencyPaymentMode,
+                  )
+                }
+              >
+                <option value="payment_currency">
+                  {t(
+                    "settings.pos.crossCurrencyPaymentCurrency",
+                    "Record in payment type currency",
+                  )}
+                </option>
+                <option value="sale_currency_transfer">
+                  {t(
+                    "settings.pos.crossCurrencySaleCurrencyTransfer",
+                    "Record in sale currency and transfer to payment account",
+                  )}
+                </option>
+              </select>
+            </div>
 
             <div className={styles.fieldBlock}>
               <div className={styles.rowTitle}>

@@ -14,15 +14,21 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     assert initial.status_code == 200
     assert initial.json()["settings"]["allow_out_of_stock"] is False
     assert initial.json()["settings"]["auto_open_qty_keypad"] is False
+    assert initial.json()["settings"]["cross_currency_payment_mode"] == "payment_currency"
     assert initial.json()["settings"]["tendered_quick_amounts"] == [20.0, 50.0, 100.0]
 
     patched = await client.patch(
         "/api/v1/company/settings/pos",
         headers=headers,
-        json={"allow_out_of_stock": True, "tendered_quick_amounts": [10000, 50000, 200000]},
+        json={
+            "allow_out_of_stock": True,
+            "tendered_quick_amounts": [10000, 50000, 200000],
+            "cross_currency_payment_mode": "sale_currency_transfer",
+        },
     )
     assert patched.status_code == 200
     assert patched.json()["settings"]["allow_out_of_stock"] is True
+    assert patched.json()["settings"]["cross_currency_payment_mode"] == "sale_currency_transfer"
     assert patched.json()["settings"]["tendered_quick_amounts"] == [
         10000.0,
         50000.0,

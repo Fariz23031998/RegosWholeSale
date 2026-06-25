@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Search, Undo2 } from "lucide-react";
+import { CalendarRange, Search, Undo2 } from "lucide-react";
 import clsx from "clsx";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
@@ -8,8 +8,16 @@ import {
   PaymentPanel,
   type PaymentSubmitPayload,
 } from "@/components/Checkout/PaymentPanel";
+import { DashboardPeriodModal } from "@/components/Dashboard/DashboardPeriodModal";
 import { PartnerPickerModal } from "@/components/POS/PartnerPickerModal";
 import { useLanguage } from "@/contexts/LanguageContext";
+import {
+  getPeriodLabel,
+  presetToCustomRange,
+  resolveDashboardPeriodParams,
+  type DashboardCustomRange,
+  type DashboardPeriodPreset,
+} from "@/lib/dashboard-api";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
 import { fetchCatalogProducts } from "@/lib/catalog-api";
@@ -24,6 +32,7 @@ import {
   type WholesaleOperationLine,
 } from "@/lib/sales-api";
 import type { Product } from "@/types/catalog";
+import dashboardStyles from "@/components/Dashboard/Dashboard.module.css";
 import styles from "./Returns.module.css";
 
 type Props = {
@@ -44,18 +53,16 @@ type ReturnLine = {
   returnedQty?: number;
 };
 
-function rangeToTimestamps(): { start_date: number; end_date: number } {
-  const now = Math.floor(Date.now() / 1000);
-  const day = 24 * 60 * 60;
-  return { start_date: now - 7 * day, end_date: now };
-}
+type SalePeriodPreset = Exclude<DashboardPeriodPreset, "custom">;
+
+const SALE_PERIOD_PRESETS: SalePeriodPreset[] = ["today", "week", "month", "all"];
 
 export function ReturnModal({ open, onClose }: Props) {
   const { t } = useLanguage();
   const accessToken = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
   const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
-  const saleCurrency = useSellContext((s) => s.saleCurrency);
+  const posSaleCurrency = useSellContext((s) => s.saleCurrency);
   const partnerId = useSellContext((s) => s.partnerId);
   const checkoutOverrides = useSellContext((s) => s.checkoutOverrides);
   const refreshPartnerOptions = useSellContext((s) => s.refreshPartnerOptions);
@@ -70,9 +77,23 @@ export function ReturnModal({ open, onClose }: Props) {
   const [error, setError] = useState("");
 
   const [saleSearch, setSaleSearch] = useState("");
+  const [periodPreset, setPeriodPreset] = useState<DashboardPeriodPreset>("month");
+  const [customRange, setCustomRange] = useState<DashboardCustomRange | null>(null);
+  const [periodModalOpen, setPeriodModalOpen] = useState(false);
   const [documents, setDocuments] = useState<WholesaleDocument[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [selectedSale, setSelectedSale] = useState<WholesaleDocument | null>(null);
+
+  const periodParams = useMemo(
+    () => resolveDashboardPeriodParams(periodPreset, customRange),
+    [customRange, periodPreset],
+  );
+
+  const periodModalRange = useMemo(() => {
+    if (periodPreset === "custom" && customRange) return customRange;
+    if (periodPreset !== "custom") return presetToCustomRange(periodPreset);
+    return presetToCustomRange("month");
+  }, [customRange, periodPreset]);
 
   const [productSearch, setProductSearch] = useState("");
   const [searchResults, setSearchResults] = useState<Product[]>([]);
@@ -93,6 +114,9 @@ export function ReturnModal({ open, onClose }: Props) {
     setProcessing(false);
     setError("");
     setSaleSearch("");
+    setPeriodPreset("month");
+    setCustomRange(null);
+    setPeriodModalOpen(false);
     setDocuments([]);
     setSelectedSale(null);
     setProductSearch("");
@@ -113,7 +137,7 @@ export function ReturnModal({ open, onClose }: Props) {
 
     let cancelled = false;
     setDocumentsLoading(true);
-    void fetchWholesaleDocuments(accessToken, { ...rangeToTimestamps(), limit: 100 })
+    void fetchWholesaleDocuments(accessToken, { ...periodParams, performed: true, limit: 100 })
       .then((res) => {
         if (!cancelled) setDocuments(res.documents);
       })
@@ -127,7 +151,7 @@ export function ReturnModal({ open, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, accessToken, sourceMode]);
+  }, [open, accessToken, sourceMode, periodParams, t]);
 
   useEffect(() => {
     if (!open || !accessToken || sourceMode !== "manual") return;
@@ -260,6 +284,14 @@ export function ReturnModal({ open, onClose }: Props) {
   const effectivePartnerId =
     sourceMode === "sale" ? (selectedSale?.partner_id ?? returnPartnerId) : partnerId;
 
+  const returnCurrency = useMemo(
+    () =>
+      sourceMode === "sale" && selectedSale?.currency
+        ? selectedSale.currency
+        : posSaleCurrency,
+    [posSaleCurrency, selectedSale?.currency, sourceMode],
+  );
+
   const submitReturn = async (payment: PaymentSubmitPayload) => {
     if (!accessToken || selectedLines.length === 0) return;
 
@@ -330,7 +362,8 @@ export function ReturnModal({ open, onClose }: Props) {
         open={open}
         onClose={handleClose}
         title={t("returns.modal.title")}
-        size="lg"
+        fullscreen
+        bodyClassName={styles.modalBody}
       >
         {step === "done" && successCode ? (
           <div className={styles.successBox}>
@@ -348,7 +381,7 @@ export function ReturnModal({ open, onClose }: Props) {
           <div className={styles.paymentStep}>
             <div className={styles.totalLine}>
               <span>{t("returns.modal.refundTotal")}</span>
-              <span>{formatAmountWithCurrency(total, saleCurrency)}</span>
+              <span>{formatAmountWithCurrency(total, returnCurrency)}</span>
             </div>
 
             {canOverrideRegos && (
@@ -372,7 +405,7 @@ export function ReturnModal({ open, onClose }: Props) {
             <PaymentPanel
               mode="return"
               total={total}
-              saleCurrency={saleCurrency}
+              saleCurrency={returnCurrency}
               accessToken={accessToken}
               active={open && step === "payment"}
               processing={processing}
@@ -384,214 +417,250 @@ export function ReturnModal({ open, onClose }: Props) {
             </Button>
           </div>
         ) : (
-          <>
-            <div className={styles.sourceTabs}>
-              <button
-                type="button"
-                className={clsx(styles.sourceTab, sourceMode === "sale" && styles.sourceTabActive)}
-                onClick={() => switchSourceMode("sale")}
-              >
-                {t("returns.modal.fromSale")}
-              </button>
-              <button
-                type="button"
-                className={clsx(styles.sourceTab, sourceMode === "manual" && styles.sourceTabActive)}
-                onClick={() => switchSourceMode("manual")}
-              >
-                {t("returns.modal.manual")}
-              </button>
-            </div>
+          <div className={styles.modalShell}>
+            <div className={styles.modalScroll}>
+              <div className={styles.sourceTabs}>
+                <button
+                  type="button"
+                  className={clsx(styles.sourceTab, sourceMode === "sale" && styles.sourceTabActive)}
+                  onClick={() => switchSourceMode("sale")}
+                >
+                  {t("returns.modal.fromSale")}
+                </button>
+                <button
+                  type="button"
+                  className={clsx(styles.sourceTab, sourceMode === "manual" && styles.sourceTabActive)}
+                  onClick={() => switchSourceMode("manual")}
+                >
+                  {t("returns.modal.manual")}
+                </button>
+              </div>
 
-            {sourceMode === "sale" ? (
-              <>
-                {!selectedSale ? (
-                  <>
-                    <div className={styles.searchBox}>
-                      <Search size={16} />
-                      <input
-                        className={styles.searchInput}
-                        placeholder={t("returns.modal.searchSales")}
-                        value={saleSearch}
-                        onChange={(e) => setSaleSearch(e.target.value)}
-                      />
-                    </div>
-                    {documentsLoading ? (
-                      <div className={styles.status}>{t("returns.modal.loadingSales")}</div>
-                    ) : filteredDocuments.length === 0 ? (
-                      <div className={styles.status}>{t("returns.modal.noSales")}</div>
-                    ) : (
-                      <div className={styles.saleList}>
-                        {filteredDocuments.map((doc) => (
+              {sourceMode === "sale" ? (
+                <>
+                  {!selectedSale ? (
+                    <>
+                      <div className={dashboardStyles.filters}>
+                        {SALE_PERIOD_PRESETS.map((value) => (
                           <button
-                            key={doc.id}
+                            key={value}
                             type="button"
-                            className={styles.saleRow}
-                            onClick={() => void selectSale(doc)}
+                            className={clsx(
+                              dashboardStyles.filter,
+                              periodPreset === value && dashboardStyles.filterActive,
+                            )}
+                            onClick={() => {
+                              setPeriodPreset(value);
+                              setCustomRange(null);
+                            }}
                           >
-                            <div>
-                              <div className={styles.saleCode}>{doc.code}</div>
-                              <div className={styles.saleMeta}>
-                                {formatDateTime(new Date(doc.date * 1000).toISOString())}
-                                {doc.partner_name ? ` · ${doc.partner_name}` : ""}
-                              </div>
-                            </div>
-                            <div className={styles.saleAmount}>
-                              {formatCurrency(doc.amount ?? 0)}
-                            </div>
+                            {getPeriodLabel(value, t)}
                           </button>
                         ))}
+                        <button
+                          type="button"
+                          className={clsx(
+                            dashboardStyles.filter,
+                            dashboardStyles.filterMenu,
+                            periodPreset === "custom" && dashboardStyles.filterActive,
+                          )}
+                          onClick={() => setPeriodModalOpen(true)}
+                        >
+                          <CalendarRange size={14} />
+                          {t("dashboard.period")}
+                        </button>
                       </div>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <div className={styles.selectedSale}>
-                      <div>
-                        <strong>{selectedSale.code}</strong>
-                        {selectedSale.partner_name ? ` · ${selectedSale.partner_name}` : ""}
+                      <div className={styles.searchBox}>
+                        <Search size={16} />
+                        <input
+                          className={styles.searchInput}
+                          placeholder={t("returns.modal.searchSales")}
+                          value={saleSearch}
+                          onChange={(e) => setSaleSearch(e.target.value)}
+                        />
                       </div>
-                      <button
-                        type="button"
-                        className={styles.changeSaleBtn}
-                        onClick={() => {
-                          setSelectedSale(null);
-                          setLines([]);
-                        }}
-                      >
-                        {t("returns.modal.changeSale")}
-                      </button>
+                      {documentsLoading ? (
+                        <div className={styles.status}>{t("returns.modal.loadingSales")}</div>
+                      ) : filteredDocuments.length === 0 ? (
+                        <div className={styles.status}>{t("returns.modal.noSales")}</div>
+                      ) : (
+                        <div className={styles.modalSaleList}>
+                          {filteredDocuments.map((doc) => (
+                            <button
+                              key={doc.id}
+                              type="button"
+                              className={styles.saleRow}
+                              onClick={() => void selectSale(doc)}
+                            >
+                              <div>
+                                <div className={styles.saleCode}>{doc.code}</div>
+                                <div className={styles.saleMeta}>
+                                  {formatDateTime(new Date(doc.date * 1000).toISOString())}
+                                  {doc.partner_name ? ` · ${doc.partner_name}` : ""}
+                                </div>
+                              </div>
+                              <div className={styles.saleAmount}>
+                                {formatCurrency(doc.amount ?? 0)}
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      <div className={styles.selectedSale}>
+                        <div>
+                          <strong>{selectedSale.code}</strong>
+                          {selectedSale.partner_name ? ` · ${selectedSale.partner_name}` : ""}
+                        </div>
+                        <button
+                          type="button"
+                          className={styles.changeSaleBtn}
+                          onClick={() => {
+                            setSelectedSale(null);
+                            setLines([]);
+                          }}
+                        >
+                          {t("returns.modal.changeSale")}
+                        </button>
+                      </div>
+                      <div className={styles.modalItemList}>
+                        {lines.map((line) => {
+                          const max = line.maxQty ?? 0;
+                          const allReturned = max === 0;
+                          return (
+                            <div key={line.regosItemId} className={styles.itemRow}>
+                              <div>
+                                <div className={styles.itemName}>
+                                  {line.name}
+                                  {allReturned && (
+                                    <span className={styles.refunded}>{t("returns.modal.fullyReturned")}</span>
+                                  )}
+                                </div>
+                                <div className={styles.itemMeta}>
+                                  {formatCurrency(line.price)} {t("returns.modal.ea")} · {t("returns.modal.sold")} {line.soldQty}
+                                  {(line.returnedQty ?? 0) > 0 &&
+                                    ` · ${line.returnedQty} ${t("returns.modal.alreadyReturned")}`}
+                                </div>
+                              </div>
+                              <button
+                                type="button"
+                                className={styles.qtyTap}
+                                onClick={() => !allReturned && setKeypadFor(line.regosItemId)}
+                                disabled={allReturned}
+                              >
+                                {line.qty}
+                              </button>
+                              <div className={styles.itemMeta}>/ {max}</div>
+                              <div className={styles.amount}>
+                                {formatCurrency(line.price * line.qty)}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className={styles.searchBox}>
+                    <Search size={16} />
+                    <input
+                      className={styles.searchInput}
+                      placeholder={t("returns.modal.searchProducts")}
+                      value={productSearch}
+                      onChange={(e) => setProductSearch(e.target.value)}
+                    />
+                  </div>
+                  {searchLoading && <div className={styles.status}>{t("returns.modal.searching")}</div>}
+                  {productSearch.trim().length >= 2 && !searchLoading && searchResults.length === 0 && (
+                    <div className={styles.status}>{t("returns.modal.noProducts")}</div>
+                  )}
+                  {searchResults.length > 0 && (
+                    <div className={styles.modalSearchResults}>
+                      {searchResults.map((product) => (
+                        <button
+                          key={product.id}
+                          type="button"
+                          className={styles.searchResultRow}
+                          onClick={() => addManualProduct(product)}
+                        >
+                          <span>{product.name}</span>
+                          <span>{formatCurrency(product.price)}</span>
+                        </button>
+                      ))}
                     </div>
-                    {lines.map((line) => {
-                      const max = line.maxQty ?? 0;
-                      const allReturned = max === 0;
-                      return (
+                  )}
+                  {lines.length > 0 && (
+                    <div className={styles.modalItemList}>
+                      {lines.map((line) => (
                         <div key={line.regosItemId} className={styles.itemRow}>
                           <div>
                             <div className={styles.itemName}>
                               {line.name}
-                              {allReturned && (
-                                <span className={styles.refunded}>{t("returns.modal.fullyReturned")}</span>
-                              )}
+                              <button
+                                type="button"
+                                className={styles.removeLineBtn}
+                                onClick={() => removeManualLine(line.regosItemId)}
+                              >
+                                {t("common.remove")}
+                              </button>
                             </div>
                             <div className={styles.itemMeta}>
-                              {formatCurrency(line.price)} {t("returns.modal.ea")} · {t("returns.modal.sold")} {line.soldQty}
-                              {(line.returnedQty ?? 0) > 0 &&
-                                ` · ${line.returnedQty} ${t("returns.modal.alreadyReturned")}`}
+                              {formatCurrency(line.price)} {t("returns.modal.ea")}
                             </div>
                           </div>
                           <button
                             type="button"
                             className={styles.qtyTap}
-                            onClick={() => !allReturned && setKeypadFor(line.regosItemId)}
-                            disabled={allReturned}
+                            onClick={() => setKeypadFor(line.regosItemId)}
                           >
                             {line.qty}
                           </button>
-                          <div className={styles.itemMeta}>/ {max}</div>
+                          <div />
                           <div className={styles.amount}>
                             {formatCurrency(line.price * line.qty)}
                           </div>
                         </div>
-                      );
-                    })}
-                  </>
-                )}
-              </>
-            ) : (
-              <>
-                <div className={styles.searchBox}>
-                  <Search size={16} />
-                  <input
-                    className={styles.searchInput}
-                    placeholder={t("returns.modal.searchProducts")}
-                    value={productSearch}
-                    onChange={(e) => setProductSearch(e.target.value)}
-                  />
-                </div>
-                {searchLoading && <div className={styles.status}>{t("returns.modal.searching")}</div>}
-                {productSearch.trim().length >= 2 && !searchLoading && searchResults.length === 0 && (
-                  <div className={styles.status}>{t("returns.modal.noProducts")}</div>
-                )}
-                {searchResults.length > 0 && (
-                  <div className={styles.searchResults}>
-                    {searchResults.map((product) => (
-                      <button
-                        key={product.id}
-                        type="button"
-                        className={styles.searchResultRow}
-                        onClick={() => addManualProduct(product)}
-                      >
-                        <span>{product.name}</span>
-                        <span>{formatCurrency(product.price)}</span>
-                      </button>
-                    ))}
-                  </div>
-                )}
-                {lines.length > 0 && (
-                  <div className={styles.manualLines}>
-                    {lines.map((line) => (
-                      <div key={line.regosItemId} className={styles.itemRow}>
-                        <div>
-                          <div className={styles.itemName}>
-                            {line.name}
-                            <button
-                              type="button"
-                              className={styles.removeLineBtn}
-                              onClick={() => removeManualLine(line.regosItemId)}
-                            >
-                              {t("common.remove")}
-                            </button>
-                          </div>
-                          <div className={styles.itemMeta}>
-                            {formatCurrency(line.price)} {t("returns.modal.ea")}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          className={styles.qtyTap}
-                          onClick={() => setKeypadFor(line.regosItemId)}
-                        >
-                          {line.qty}
-                        </button>
-                        <div />
-                        <div className={styles.amount}>
-                          {formatCurrency(line.price * line.qty)}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </>
-            )}
-
-            <textarea
-              className={styles.reason}
-              rows={2}
-              placeholder={t("returns.modal.reasonPlaceholder")}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-            />
-
-            <div className={styles.summary}>
-              <span>{t("returns.modal.refundTotal")}</span>
-              <span>{formatCurrency(total)}</span>
+                      ))}
+                    </div>
+                  )}
+                </>
+              )}
             </div>
 
-            {error && <div className={styles.error}>{error}</div>}
+            <div className={styles.modalFooter}>
+              <textarea
+                className={styles.reason}
+                rows={2}
+                placeholder={t("returns.modal.reasonPlaceholder")}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
 
-            <div className={styles.actions}>
-              <Button variant="ghost" full onClick={handleClose}>
-                {t("common.cancel")}
-              </Button>
-              <Button
-                full
-                disabled={selectedLines.length === 0}
-                onClick={() => setStep("payment")}
-              >
-                {t("returns.modal.continueToRefund")}
-              </Button>
+              <div className={styles.summary}>
+                <span>{t("returns.modal.refundTotal")}</span>
+                <span>{formatAmountWithCurrency(total, returnCurrency)}</span>
+              </div>
+
+              {error && <div className={styles.error}>{error}</div>}
+
+              <div className={styles.actions}>
+                <Button variant="ghost" full onClick={handleClose}>
+                  {t("common.cancel")}
+                </Button>
+                <Button
+                  full
+                  disabled={selectedLines.length === 0}
+                  onClick={() => setStep("payment")}
+                >
+                  {t("returns.modal.continueToRefund")}
+                </Button>
+              </div>
             </div>
-          </>
+          </div>
         )}
 
         {keypadLine && (
@@ -607,6 +676,16 @@ export function ReturnModal({ open, onClose }: Props) {
           />
         )}
       </Modal>
+
+      <DashboardPeriodModal
+        open={periodModalOpen}
+        onClose={() => setPeriodModalOpen(false)}
+        initialRange={periodModalRange}
+        onApply={(range) => {
+          setCustomRange(range);
+          setPeriodPreset("custom");
+        }}
+      />
 
       {canOverrideRegos && accessToken && (
         <PartnerPickerModal

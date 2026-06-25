@@ -1,5 +1,9 @@
 import type { Sale } from "@/data/seed";
 import {
+  EMPTY_RECEIPT_OPERATION_ITEM,
+  normalizeReceiptOperationItem,
+} from "@/lib/receipt-operation-item";
+import {
   buildOperationGroups,
   buildOperationTotals,
 } from "@/lib/receipt-operation-groups";
@@ -59,6 +63,10 @@ export function saleToPrintContext(
     price: item.price,
     price2: item.price,
     amount: +(item.qty * item.price).toFixed(2),
+    item: normalizeReceiptOperationItem({
+      ...EMPTY_RECEIPT_OPERATION_ITEM,
+      fullname: item.name,
+    }),
   }));
   const payments: WholesalePaymentLine[] = (sale.payments ?? []).map((payment, index) => ({
     id: payment.paymentTypeId || index + 1,
@@ -132,6 +140,20 @@ const sampleOperations: WholesaleOperationLine[] = [
     price: 0.7,
     price2: 0.7,
     amount: 2.8,
+    item: {
+      fullname: "Балон болт 9594681 UZ",
+      description: "Крепёжный болон",
+      articul: "11A",
+      color: { name: "Серый" },
+      size: { name: "M12" },
+      producer: { name: "Нексия" },
+      country: { name: "Узбекистан" },
+      icps: "1234567890123",
+      package_code: "PKG-1101",
+      department: { name: "Автожон" },
+      vat: { name: "НДС 12%", value: 12 },
+      base_barcode: "4601234567890",
+    },
   },
   {
     id: 2,
@@ -147,6 +169,7 @@ const sampleOperations: WholesaleOperationLine[] = [
     price: 10.7,
     price2: 10.7,
     amount: 107,
+    item: { ...EMPTY_RECEIPT_OPERATION_ITEM },
   },
   {
     id: 3,
@@ -162,6 +185,7 @@ const sampleOperations: WholesaleOperationLine[] = [
     price: 70.97,
     price2: 70.97,
     amount: 141.94,
+    item: { ...EMPTY_RECEIPT_OPERATION_ITEM },
   },
   {
     id: 4,
@@ -177,6 +201,7 @@ const sampleOperations: WholesaleOperationLine[] = [
     price: 12.5,
     price2: 12.5,
     amount: 75,
+    item: { ...EMPTY_RECEIPT_OPERATION_ITEM },
   },
 ];
 

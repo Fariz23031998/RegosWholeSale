@@ -4,9 +4,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import not_found
 from app.models import Company, User
+from app.schemas.pos import DEFAULT_CROSS_CURRENCY_PAYMENT_MODE
 from app.services import settings as settings_service
 
 POS_SETTINGS_KEY = "pos"
+VALID_CROSS_CURRENCY_PAYMENT_MODES = {"payment_currency", "sale_currency_transfer"}
 DEFAULT_TENDERED_QUICK_AMOUNTS = [20.0, 50.0, 100.0]
 MAX_TENDERED_QUICK_AMOUNTS = 8
 
@@ -102,6 +104,11 @@ def _apply_company_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> 
     if patch.get("auto_open_qty_keypad") is not None:
         updated["auto_open_qty_keypad"] = bool(patch["auto_open_qty_keypad"])
 
+    if patch.get("cross_currency_payment_mode") is not None:
+        updated["cross_currency_payment_mode"] = _normalize_cross_currency_payment_mode(
+            patch["cross_currency_payment_mode"]
+        )
+
     return updated
 
 
@@ -133,6 +140,9 @@ def _normalize_company_pos_settings(raw: Any) -> dict[str, Any]:
             data.get("tendered_quick_amounts")
         ),
         "auto_open_qty_keypad": bool(data.get("auto_open_qty_keypad", False)),
+        "cross_currency_payment_mode": _normalize_cross_currency_payment_mode(
+            data.get("cross_currency_payment_mode")
+        ),
     }
 
 
@@ -179,6 +189,12 @@ def _normalize_tendered_quick_amounts(raw: Any) -> list[float]:
         return list(DEFAULT_TENDERED_QUICK_AMOUNTS)
 
     return amounts[:MAX_TENDERED_QUICK_AMOUNTS]
+
+
+def _normalize_cross_currency_payment_mode(raw: Any) -> str:
+    if isinstance(raw, str) and raw in VALID_CROSS_CURRENCY_PAYMENT_MODES:
+        return raw
+    return DEFAULT_CROSS_CURRENCY_PAYMENT_MODE
 
 
 async def _get_company(session: AsyncSession, company_id: int) -> Company:

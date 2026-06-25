@@ -381,6 +381,19 @@ export const RECEIPT_TEMPLATE_VARIABLE_GROUPS = [
       "price",
       "price2",
       "amount",
+      "item_fullname",
+      "item_description",
+      "item_articul",
+      "item_color_name",
+      "item_size_name",
+      "item_producer_name",
+      "item_country_name",
+      "item_icps",
+      "item_package_code",
+      "item_department_name",
+      "item_vat_name",
+      "item_vat_value",
+      "item_base_barcode",
     ],
   },
   {
@@ -394,7 +407,7 @@ export const RECEIPT_TEMPLATE_VARIABLE_GROUPS = [
   },
   {
     label: "totals",
-    variables: ["quantity", "amount", "total_in_words", "total_with_words"],
+    variables: ["quantity", "amount", "amount_gross", "discount", "total_in_words", "total_with_words"],
   },
   {
     label: "payments[]",

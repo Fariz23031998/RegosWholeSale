@@ -103,8 +103,12 @@ def _map_payment_type(row: dict[str, Any]) -> dict[str, Any]:
 
     account = row.get("account")
     currency = None
+    account_id: int | None = None
     if isinstance(account, dict):
         currency = _extract_currency_reference(account, "currency")
+        raw_account_id = account.get("id")
+        if isinstance(raw_account_id, int) and raw_account_id > 0:
+            account_id = raw_account_id
 
     mapped: dict[str, Any] = {
         "id": payment_type_id,
@@ -113,9 +117,33 @@ def _map_payment_type(row: dict[str, Any]) -> dict[str, Any]:
         "allows_debt": _allows_debt(row, name),
         "image_url": image_url,
     }
+    if account_id is not None:
+        mapped["account_id"] = account_id
     if currency:
         mapped["currency"] = currency
     return mapped
+
+
+async def find_payment_type_for_currency(
+    session: AsyncSession,
+    company_id: int,
+    *,
+    currency_id: int,
+    is_cash: bool,
+) -> dict[str, Any] | None:
+    response = await list_payment_types(session, company_id)
+    for payment_type in response["payment_types"]:
+        currency = payment_type.get("currency")
+        if not isinstance(currency, dict):
+            continue
+        if currency.get("id") != currency_id:
+            continue
+        if payment_type.get("is_cash") != is_cash:
+            continue
+        if not payment_type.get("account_id"):
+            continue
+        return payment_type
+    return None
 
 
 def _allows_debt(row: dict[str, Any], name: str) -> bool:

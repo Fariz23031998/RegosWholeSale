@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
-import { CalendarRange, Printer, Scale, Users, Warehouse } from "lucide-react";
+import { CalendarRange, Printer, Scale, Search, Users, Warehouse } from "lucide-react";
 import { PartnerBalanceModal } from "@/components/POS/PartnerBalanceModal";
 import { Button } from "@/components/posui/Button";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
@@ -36,6 +36,7 @@ import {
   type WholesaleOperationLine,
   type WholesalePaymentLine,
 } from "@/lib/sales-api";
+import { filterWholesaleDocuments } from "@/lib/wholesale-document-search";
 import { formatAuthError, useAuth } from "@/store/auth";
 import type { RegosDefaultOption } from "@/types/settings";
 import dashboardStyles from "@/components/Dashboard/Dashboard.module.css";
@@ -71,6 +72,7 @@ export function SalesPage() {
   const [printContext, setPrintContext] = useState<DocumentPrintContext | null>(null);
   const [printingId, setPrintingId] = useState<number | null>(null);
   const [balancePartner, setBalancePartner] = useState<{ id: number; name: string } | null>(null);
+  const [search, setSearch] = useState("");
 
   const periodParams = useMemo(
     () => resolveDashboardPeriodParams(periodPreset, customRange),
@@ -155,7 +157,10 @@ export function SalesPage() {
     };
   }, [token, queryParams]);
 
-  const filtered = useMemo(() => documents, [documents]);
+  const filtered = useMemo(
+    () => filterWholesaleDocuments(documents, search),
+    [documents, search],
+  );
   const total = filtered.reduce((s, x) => s + (x.amount ?? 0), 0);
 
   const loadSaleDetail = async (doc: WholesaleDocument): Promise<SaleDetail> => {
@@ -303,11 +308,29 @@ export function SalesPage() {
 
       {error && <div className={styles.empty}>{error}</div>}
 
+      {!loading && documents.length > 0 ? (
+        <div className={dashboardStyles.productsToolbar}>
+          <div className={dashboardStyles.productsSearch}>
+            <Search size={16} className={dashboardStyles.productsSearchIcon} />
+            <input
+              className={dashboardStyles.productsSearchInput}
+              type="search"
+              placeholder={t("sales.searchPlaceholder")}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              aria-label={t("sales.searchAria")}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <div className={styles.table}>
         {loading ? (
           <div className={styles.empty}>{t("sales.loading")}</div>
-        ) : filtered.length === 0 ? (
+        ) : documents.length === 0 ? (
           <div className={styles.empty}>{t("sales.empty")}</div>
+        ) : filtered.length === 0 ? (
+          <div className={styles.empty}>{t("sales.emptySearch")}</div>
         ) : (
           <table className={styles.tbl}>
             <thead>

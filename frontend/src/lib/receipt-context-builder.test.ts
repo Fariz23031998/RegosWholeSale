@@ -77,6 +77,9 @@ describe("receipt context builder", () => {
     expect(context.totals.quantity).toBe(2);
     expect(context.payments[0]?.payment_type_name).toBe("Cash");
     expect(context.sale.total).toBe(100);
+    expect(context.sale.discount).toBe(10);
+    expect(context.totals.amount_gross).toBe(90);
+    expect(context.totals.discount).toBe(10);
     expect(context.document_code).toBe("WS-10");
   });
 

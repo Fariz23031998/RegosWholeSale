@@ -57,6 +57,38 @@ describe("receipt operation groups", () => {
     expect(groups[0]?.total_amount).toBe(22);
     expect(buildOperationTotals(operations).amount).toBe(32);
   });
+
+  it("computes gross amount and line discount totals", () => {
+    const operations: WholesaleOperationLine[] = [
+      {
+        id: 1,
+        document_id: 1,
+        item_id: 1,
+        item_code: "1",
+        item_name: "A",
+        quantity: 5,
+        price: 7.192,
+        price2: 8.99,
+        amount: 35.96,
+      },
+      {
+        id: 2,
+        document_id: 1,
+        item_id: 2,
+        item_code: "2",
+        item_name: "B",
+        quantity: 9,
+        price: 7.192,
+        price2: 8.99,
+        amount: 64.728,
+      },
+    ];
+
+    const totals = buildOperationTotals(operations);
+    expect(totals.amount).toBeCloseTo(100.688, 2);
+    expect(totals.amount_gross).toBeCloseTo(125.86, 2);
+    expect(totals.discount).toBeCloseTo(25.172, 2);
+  });
 });
 
 describe("nakladnaya template files", () => {

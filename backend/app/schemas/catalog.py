@@ -43,6 +43,7 @@ class PaymentType(BaseModel):
     is_cash: bool
     allows_debt: bool = False
     image_url: str = ""
+    account_id: int | None = Field(default=None, ge=1)
     currency: RegosCurrencyOption | None = None
 
 

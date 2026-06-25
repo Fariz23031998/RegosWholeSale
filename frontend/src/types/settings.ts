@@ -98,10 +98,13 @@ export type RegosPaymentLinkingPatchRequest = {
   mode: PaymentLinkingMode;
 };
 
+export type CrossCurrencyPaymentMode = "payment_currency" | "sale_currency_transfer";
+
 export type PosSettings = {
   allow_out_of_stock: boolean;
   tendered_quick_amounts: number[];
   auto_open_qty_keypad: boolean;
+  cross_currency_payment_mode: CrossCurrencyPaymentMode;
 };
 
 export type PosSettingsResponse = {
@@ -112,6 +115,7 @@ export type PosSettingsPatchRequest = {
   allow_out_of_stock?: boolean;
   tendered_quick_amounts?: number[];
   auto_open_qty_keypad?: boolean;
+  cross_currency_payment_mode?: CrossCurrencyPaymentMode;
 };
 
 export type DefaultCategorySetting = {
@@ -124,6 +128,7 @@ export type UserPosSettings = {
   tendered_quick_amounts: number[];
   default_category: DefaultCategorySetting;
   auto_open_qty_keypad: boolean;
+  cross_currency_payment_mode: CrossCurrencyPaymentMode;
 };
 
 export type UserPosSettingsResponse = {

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AppError, bad_request
 from app.core.regos_api import regos_async_api_request_for_company
 from app.core.regos_batch import regos_batch_request_chunks_for_company, regos_batch_request_for_company
+from app.services import pos_settings as pos_settings_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services.regos_defaults import _extract_currency_reference
 from app.services import regos_fields as regos_fields_service
@@ -39,6 +40,13 @@ async def complete_checkout(
         session, company_id, defaults, refresh=True
     )
     regos_defaults_service.validate_checkout_defaults(defaults)
+
+    pos_settings = await pos_settings_service.get_effective_pos_settings(
+        session, user_id, company_id
+    )
+    cross_currency_payment_mode = pos_settings.get(
+        "cross_currency_payment_mode", "payment_currency"
+    )
 
     total = float(payload["total"])
     payments_input = _normalize_checkout_payments(payload, total)
@@ -90,6 +98,7 @@ async def complete_checkout(
                     is_return=False,
                     payment_dates=payment_dates,
                     defer_perform=True,
+                    cross_currency_payment_mode=cross_currency_payment_mode,
                 )
             )
             if payment_results:
@@ -107,6 +116,9 @@ async def complete_checkout(
                     company_id,
                     [result["payment_doc_id"] for result in payment_results],
                 )
+                await _perform_pending_account_transfers(
+                    session, company_id, defaults, payment_results
+                )
         else:
             await _set_source_document_date(
                 session, company_id, doc_id, sale_date, is_return=False
@@ -123,6 +135,7 @@ async def complete_checkout(
                     total=total,
                     is_return=False,
                     payment_dates=payment_dates,
+                    cross_currency_payment_mode=cross_currency_payment_mode,
                 )
             )
 
@@ -715,6 +728,13 @@ async def complete_wholesale_return(
             )
     regos_defaults_service.validate_checkout_defaults(defaults)
 
+    pos_settings = await pos_settings_service.get_effective_pos_settings(
+        session, user_id, company_id
+    )
+    cross_currency_payment_mode = pos_settings.get(
+        "cross_currency_payment_mode", "payment_currency"
+    )
+
     payments_input = _normalize_checkout_payments(payload, total)
     amount_paid = round(sum(float(payment["amount_paid"]) for payment in payments_input), 2)
     if amount_paid > total + 0.02:
@@ -865,6 +885,7 @@ async def complete_wholesale_return(
                     is_return=True,
                     payment_dates=payment_dates,
                     defer_perform=True,
+                    cross_currency_payment_mode=cross_currency_payment_mode,
                 )
             )
             if payment_results:
@@ -884,6 +905,9 @@ async def complete_wholesale_return(
                     company_id,
                     [result["payment_doc_id"] for result in payment_results],
                 )
+                await _perform_pending_account_transfers(
+                    session, company_id, defaults, payment_results
+                )
         else:
             await _set_source_document_date(
                 session, company_id, doc_id, return_date, is_return=True
@@ -902,6 +926,7 @@ async def complete_wholesale_return(
                     total=total,
                     is_return=True,
                     payment_dates=payment_dates,
+                    cross_currency_payment_mode=cross_currency_payment_mode,
                 )
             )
 
@@ -993,36 +1018,7 @@ async def _resolve_wholesale_document_defaults(
     defaults: dict[str, Any],
     payments_input: list[dict[str, Any]] | None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    sale_currency = defaults.get("currency")
-    if not isinstance(sale_currency, dict) or not payments_input:
-        return defaults, None
-
-    for payment_input in payments_input:
-        payment_type_id = payment_input.get("payment_type_id")
-        if payment_type_id is None:
-            continue
-        payment_type = await regos_payment_types_service.get_payment_type_by_id(
-            session,
-            company_id,
-            int(payment_type_id),
-        )
-        payment_currency = payment_type.get("currency")
-        if not isinstance(payment_currency, dict):
-            continue
-        if same_currency(sale_currency, payment_currency):
-            return defaults, None
-        if is_foreign_currency(payment_currency):
-            document_defaults = {**defaults, "currency": payment_currency}
-            matched_price_type = await regos_defaults_service.find_price_type_for_currency(
-                session,
-                company_id,
-                int(payment_currency["id"]),
-            )
-            if matched_price_type:
-                document_defaults["price_type"] = matched_price_type
-            return document_defaults, sale_currency
-        return defaults, None
-
+    del session, company_id, payments_input
     return defaults, None
 
 
@@ -1073,12 +1069,6 @@ async def _upsert_wholesale_draft(
         await _regos_call(session, company_id, "docwholesale/unlock", {"ids": [doc_id]})
 
     return doc_id, lines, subtotal, discount, total
-
-
-def is_foreign_currency(currency: dict[str, Any] | None) -> bool:
-    if not currency:
-        return False
-    return parse_exchange_rate(currency.get("exchange_rate")) != 1.0
 
 
 def operative_operation_price(
@@ -1452,6 +1442,7 @@ async def _perform_payments(
     is_return: bool = False,
     payment_dates: list[int] | None = None,
     defer_perform: bool = False,
+    cross_currency_payment_mode: str = "payment_currency",
 ) -> tuple[int | None, list[dict[str, Any]], float, float, bool, dict[str, Any]]:
     amount_paid = round(sum(float(payment["amount_paid"]) for payment in payments_input), 2)
     balance_due = round(max(total - amount_paid, 0), 2)
@@ -1494,16 +1485,32 @@ async def _perform_payments(
         payment_rate = parse_exchange_rate(
             payment_currency.get("exchange_rate") if payment_currency else None
         )
-        payment_doc_amount = convert_between_rates(line_amount_paid, sale_rate, payment_rate)
+
+        posting = await _resolve_payment_posting(
+            session,
+            company_id,
+            selected_payment_type=payment_type,
+            sale_currency=sale_currency,
+            line_amount_paid=line_amount_paid,
+            sale_rate=sale_rate,
+            payment_rate=payment_rate,
+            cross_currency_payment_mode=cross_currency_payment_mode,
+            tendered=tendered,
+            change=change,
+            is_return=is_return,
+            source_document_id=document_id,
+            document_date=document_date,
+        )
+
         payment_doc = await _add_payment_document(
             session,
             company_id,
             defaults,
             source_document_id=document_id,
             document_type_id=document_type_id,
-            payment_type_id=payment_type_id,
-            amount=payment_doc_amount,
-            exchange_rate=payment_rate,
+            payment_type_id=posting["payment_type_id"],
+            amount=posting["payment_doc_amount"],
+            exchange_rate=posting["payment_exchange_rate"],
             category_id=category_id,
             document_date=document_date,
         )
@@ -1512,6 +1519,13 @@ async def _perform_payments(
             await _regos_call(
                 session, company_id, "docpayment/perform", {"id": line_payment_doc_id}
             )
+            if posting.get("account_transfer"):
+                await _add_account_movement(
+                    session,
+                    company_id,
+                    defaults,
+                    **posting["account_transfer"],
+                )
         if payment_doc_id is None:
             payment_doc_id = line_payment_doc_id
 
@@ -1527,7 +1541,9 @@ async def _perform_payments(
                 "change": change,
                 "sale_currency": sale_currency,
                 "payment_currency": payment_currency,
-                "payment_amount": payment_doc_amount,
+                "payment_amount": posting["payment_amount"],
+                "settlement_payment_type_id": posting.get("settlement_payment_type_id"),
+                "account_transfer": posting.get("account_transfer"),
             }
         )
 
@@ -1559,6 +1575,181 @@ async def _perform_payments(
         }
 
     return payment_doc_id, payment_results, amount_paid, balance_due, is_fully_paid, primary_payment
+
+
+async def _resolve_payment_posting(
+    session: AsyncSession,
+    company_id: int,
+    *,
+    selected_payment_type: dict[str, Any],
+    sale_currency: dict[str, Any] | None,
+    line_amount_paid: float,
+    sale_rate: float,
+    payment_rate: float,
+    cross_currency_payment_mode: str,
+    tendered: Any,
+    change: Any,
+    is_return: bool,
+    source_document_id: int,
+    document_date: int,
+) -> dict[str, Any]:
+    payment_currency = selected_payment_type.get("currency")
+    payment_type_id = int(selected_payment_type["id"])
+    payment_doc_amount = convert_between_rates(line_amount_paid, sale_rate, payment_rate)
+
+    use_sale_currency_transfer = (
+        cross_currency_payment_mode == "sale_currency_transfer"
+        and sale_currency
+        and payment_currency
+        and not same_currency(sale_currency, payment_currency)
+    )
+
+    if not use_sale_currency_transfer:
+        return {
+            "payment_type_id": payment_type_id,
+            "payment_doc_amount": payment_doc_amount,
+            "payment_exchange_rate": payment_rate,
+            "payment_amount": payment_doc_amount,
+        }
+
+    sale_currency_id = sale_currency.get("id")
+    if not isinstance(sale_currency_id, int):
+        raise bad_request(
+            "Sale currency is not configured.",
+            "REGOS_SALE_CURRENCY_NOT_CONFIGURED",
+        )
+
+    settlement_payment_type = await regos_payment_types_service.find_payment_type_for_currency(
+        session,
+        company_id,
+        currency_id=sale_currency_id,
+        is_cash=bool(selected_payment_type.get("is_cash")),
+    )
+    if settlement_payment_type is None:
+        raise bad_request(
+            "No payment type is configured for the sale currency with a matching cash type.",
+            "REGOS_SALE_CURRENCY_PAYMENT_TYPE_NOT_FOUND",
+        )
+
+    selected_account_id = selected_payment_type.get("account_id")
+    settlement_account_id = settlement_payment_type.get("account_id")
+    if not isinstance(selected_account_id, int) or selected_account_id <= 0:
+        raise bad_request(
+            "Selected payment type does not have a configured account.",
+            "REGOS_PAYMENT_ACCOUNT_NOT_CONFIGURED",
+        )
+    if not isinstance(settlement_account_id, int) or settlement_account_id <= 0:
+        raise bad_request(
+            "Sale-currency payment type does not have a configured account.",
+            "REGOS_PAYMENT_ACCOUNT_NOT_CONFIGURED",
+        )
+
+    amount_in_payment_currency = _resolve_amount_received_in_payment_currency(
+        line_amount_paid=line_amount_paid,
+        sale_rate=sale_rate,
+        payment_rate=payment_rate,
+        tendered=tendered,
+        change=change,
+        is_cash=bool(selected_payment_type.get("is_cash")),
+    )
+
+    if is_return:
+        account_sender_id = selected_account_id
+        account_receiver_id = settlement_account_id
+        amount_sended = amount_in_payment_currency
+        amount_received = line_amount_paid
+    else:
+        account_sender_id = settlement_account_id
+        account_receiver_id = selected_account_id
+        amount_sended = line_amount_paid
+        amount_received = amount_in_payment_currency
+
+    description = (
+        f"POS return #{source_document_id}"
+        if is_return
+        else f"POS sale #{source_document_id}"
+    )
+
+    return {
+        "payment_type_id": int(settlement_payment_type["id"]),
+        "payment_doc_amount": line_amount_paid,
+        "payment_exchange_rate": sale_rate,
+        "payment_amount": amount_in_payment_currency,
+        "settlement_payment_type_id": int(settlement_payment_type["id"]),
+        "account_transfer": {
+            "account_sender_id": account_sender_id,
+            "account_receiver_id": account_receiver_id,
+            "amount_sended": amount_sended,
+            "amount_received": amount_received,
+            "document_date": document_date,
+            "description": description,
+        },
+    }
+
+
+def _resolve_amount_received_in_payment_currency(
+    *,
+    line_amount_paid: float,
+    sale_rate: float,
+    payment_rate: float,
+    tendered: Any,
+    change: Any,
+    is_cash: bool,
+) -> float:
+    if is_cash and tendered is not None:
+        try:
+            tendered_value = float(tendered)
+            change_value = float(change) if change is not None else 0.0
+            return round(max(tendered_value - change_value, 0), 2)
+        except (TypeError, ValueError):
+            pass
+    return convert_between_rates(line_amount_paid, sale_rate, payment_rate)
+
+
+async def _add_account_movement(
+    session: AsyncSession,
+    company_id: int,
+    defaults: dict[str, Any],
+    *,
+    account_sender_id: int,
+    account_receiver_id: int,
+    amount_sended: float,
+    amount_received: float,
+    document_date: int,
+    description: str,
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "date": document_date,
+        "firm_id": defaults["firm"]["id"],
+        "account_sender_id": account_sender_id,
+        "account_receiver_id": account_receiver_id,
+        "amount_sended": amount_sended,
+        "amount_received": amount_received,
+        "description": description,
+    }
+    attached_user = defaults.get("attached_user")
+    if attached_user:
+        payload["attached_user_id"] = attached_user["id"]
+
+    response = await _regos_call(session, company_id, "docaccountmovement/add", payload)
+    movement = _extract_new_document(response)
+    await _regos_call(
+        session, company_id, "docaccountmovement/perform", {"id": movement["id"]}
+    )
+    return movement
+
+
+async def _perform_pending_account_transfers(
+    session: AsyncSession,
+    company_id: int,
+    defaults: dict[str, Any],
+    payment_results: list[dict[str, Any]],
+) -> None:
+    for payment_result in payment_results:
+        transfer = payment_result.get("account_transfer")
+        if not isinstance(transfer, dict):
+            continue
+        await _add_account_movement(session, company_id, defaults, **transfer)
 
 
 async def _perform_payment_documents(
@@ -1784,6 +1975,57 @@ def _item_brand_from_product(product: dict[str, Any]) -> str | None:
     return None
 
 
+def _coerce_operation_text(value: Any) -> str | None:
+    if isinstance(value, str):
+        stripped = value.strip()
+        return stripped or None
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return str(value)
+    return None
+
+
+def _nested_operation_name(value: Any) -> str | None:
+    if isinstance(value, dict):
+        return _coerce_operation_text(value.get("name"))
+    return _coerce_operation_text(value)
+
+
+def _map_operation_item(product: dict[str, Any]) -> dict[str, Any]:
+    color = product.get("color") if isinstance(product.get("color"), dict) else {}
+    size = product.get("size") if isinstance(product.get("size"), dict) else {}
+    producer = product.get("producer") if isinstance(product.get("producer"), dict) else {}
+    country = product.get("country") if isinstance(product.get("country"), dict) else {}
+    department = product.get("department") if isinstance(product.get("department"), dict) else {}
+    vat = product.get("vat") if isinstance(product.get("vat"), dict) else {}
+
+    vat_value = vat.get("value")
+    if vat_value is None:
+        vat_value = vat.get("rate")
+    parsed_vat_value: float | None
+    if isinstance(vat_value, (int, float)) and not isinstance(vat_value, bool):
+        parsed_vat_value = float(vat_value)
+    else:
+        parsed_vat_value = None
+
+    return {
+        "fullname": _coerce_operation_text(product.get("fullname")),
+        "description": _coerce_operation_text(product.get("description")),
+        "articul": _coerce_operation_text(product.get("articul")),
+        "color": {"name": _nested_operation_name(color)},
+        "size": {"name": _nested_operation_name(size)},
+        "producer": {"name": _nested_operation_name(producer)},
+        "country": {"name": _nested_operation_name(country)},
+        "icps": _coerce_operation_text(product.get("icps")),
+        "package_code": _coerce_operation_text(product.get("package_code")),
+        "department": {"name": _nested_operation_name(department)},
+        "vat": {
+            "name": _nested_operation_name(vat),
+            "value": parsed_vat_value,
+        },
+        "base_barcode": _coerce_operation_text(product.get("base_barcode")),
+    }
+
+
 def _map_wholesale_operation(item: dict[str, Any]) -> dict[str, Any]:
     product = item.get("item") if isinstance(item.get("item"), dict) else {}
     group = product.get("group") if isinstance(product.get("group"), dict) else {}
@@ -1812,4 +2054,5 @@ def _map_wholesale_operation(item: dict[str, Any]) -> dict[str, Any]:
         "last_purchase_cost": float(last_purchase_cost)
         if last_purchase_cost is not None
         else None,
+        "item": _map_operation_item(product),
     }

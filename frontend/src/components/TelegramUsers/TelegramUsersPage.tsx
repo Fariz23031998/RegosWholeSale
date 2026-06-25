@@ -14,7 +14,7 @@ import {
   notificationTypeLabelKey,
   type TelegramNotificationType,
 } from "@/lib/telegram-notification-types";
-import { fetchTelegramBotConfig, fetchTelegramUsers } from "@/lib/telegram-api";
+import { fetchTelegramBotConfig, fetchTelegramUsers, deleteTelegramUser } from "@/lib/telegram-api";
 import type { TelegramUser } from "@/types/telegram";
 import { TelegramUserNotificationsModal } from "./TelegramUserNotificationsModal";
 import styles from "./TelegramUsers.module.css";
@@ -59,6 +59,7 @@ export function TelegramUsersPage() {
   const [error, setError] = useState("");
   const [editingUser, setEditingUser] = useState<TelegramUser | null>(null);
   const [notificationsModalOpen, setNotificationsModalOpen] = useState(false);
+  const [deletingUserId, setDeletingUserId] = useState<number | null>(null);
 
   useEffect(() => {
     if (!token || !canManageUsers) {
@@ -100,6 +101,29 @@ export function TelegramUsersPage() {
 
   const handleUserSaved = (updated: TelegramUser) => {
     setUsers((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+  };
+
+  const handleDelete = async (item: TelegramUser) => {
+    if (!token) return;
+    const confirmed = window.confirm(
+      t(
+        "telegramUsers.confirmDelete",
+        'Remove "{{name}}" from Telegram subscribers?',
+        { name: displayName(item, t) },
+      ),
+    );
+    if (!confirmed) return;
+
+    setDeletingUserId(item.id);
+    setError("");
+    try {
+      await deleteTelegramUser(token, item.id);
+      setUsers((current) => current.filter((user) => user.id !== item.id));
+    } catch (err) {
+      setError(formatAuthError(err));
+    } finally {
+      setDeletingUserId(null);
+    }
   };
 
   if (!canManageUsers) {
@@ -230,6 +254,16 @@ export function TelegramUsersPage() {
                         onClick={() => openNotifications(item)}
                       >
                         {t("telegramUsers.actions.notifications", "Notifications")}
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        disabled={deletingUserId === item.id}
+                        onClick={() => void handleDelete(item)}
+                      >
+                        {deletingUserId === item.id
+                          ? "…"
+                          : t("common.delete", "Delete")}
                       </Button>
                     </div>
                   </td>

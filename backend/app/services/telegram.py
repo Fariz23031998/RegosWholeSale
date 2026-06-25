@@ -281,6 +281,26 @@ async def _upsert_telegram_user(
     return row
 
 
+async def delete_telegram_user(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+) -> bool:
+    result = await session.execute(
+        select(TelegramUser).where(
+            TelegramUser.company_id == company_id,
+            TelegramUser.id == user_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        return False
+
+    await session.delete(row)
+    await session.flush()
+    return True
+
+
 async def update_telegram_user(
     session: AsyncSession,
     company_id: int,

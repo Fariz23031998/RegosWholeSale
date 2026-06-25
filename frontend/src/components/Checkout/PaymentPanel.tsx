@@ -23,6 +23,7 @@ import {
   type PaymentPanelMode,
 } from "@/lib/checkout-payments";
 import { fetchPaymentTypes } from "@/lib/payment-api";
+import { usePosConfig } from "@/store/pos-config";
 import type { CheckoutPaymentLineRequest } from "@/lib/sales-api";
 import type { PaymentType } from "@/types/payment";
 import type { RegosCurrencyOption } from "@/types/settings";
@@ -69,6 +70,7 @@ export function PaymentPanel({
   const labels = paymentPanelLabels(mode, t);
   const totals = useMemo(() => ({ total }), [total]);
   const priceTypes = useSellContext((s) => s.options.price_types);
+  const crossCurrencyPaymentMode = usePosConfig((s) => s.crossCurrencyPaymentMode);
 
   const [paymentTypes, setPaymentTypes] = useState<PaymentType[]>([]);
   const [typesLoading, setTypesLoading] = useState(false);
@@ -106,6 +108,15 @@ export function PaymentPanel({
   );
   const currenciesDiffer = Boolean(selected && !sameCurrency(saleCurrency, resolvedPaymentCurrency));
   const paymentCurrencyCode = currencyLabel(resolvedPaymentCurrency);
+  const showSettlementNote =
+    crossCurrencyPaymentMode === "sale_currency_transfer" &&
+    Boolean(saleCurrency) &&
+    (splitPayment
+      ? paymentLines.some((line) => {
+          const lineType = paymentTypes.find((type) => type.id === line.paymentTypeId);
+          return lineType && !sameCurrency(saleCurrency, lineType.currency);
+        })
+      : currenciesDiffer);
 
   const tenderedNum = parseFloat(tendered) || 0;
   const debtAmountNum = parseFloat(debtAmount) || 0;
@@ -465,6 +476,16 @@ export function PaymentPanel({
               {t("checkout.splitPayment", "Split payment")}
             </button>
           </div>
+
+          {showSettlementNote ? (
+            <div className={styles.hint}>
+              {t(
+                "checkout.crossCurrencySettlementNote",
+                "Payment will be recorded in {{saleCurrency}} and transferred to the selected payment account.",
+                { saleCurrency: currencyLabel(saleCurrency) || t("checkout.saleCurrency", "sale currency") },
+              )}
+            </div>
+          ) : null}
 
           {splitPayment ? (
             <div className={styles.splitPayments}>

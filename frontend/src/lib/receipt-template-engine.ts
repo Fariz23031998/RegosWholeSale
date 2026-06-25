@@ -10,13 +10,33 @@ import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import type { ReceiptTemplate } from "@/types/receipt-templates";
 import type { RegosCurrencyOption } from "@/types/settings";
 import { createReceiptLogoImgMarkup } from "@/lib/receipt-template-logos";
+import { expandOperationTemplateFields } from "@/lib/receipt-operation-item";
+import { preprocessArithmeticExpressions } from "@/lib/receipt-template-arithmetic";
 
 const compiledCache = new Map<string, HandlebarsTemplateDelegate>();
 
+function toNumber(value: unknown): number {
+  const amount = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(amount) ? amount : 0;
+}
+
+function templateCacheKey(templateId: string, source: string): string {
+  return `${templateId}\u0000${source}`;
+}
+
+const RECEIPT_HELPERS_VERSION = 2;
+
 function registerHelpers(): void {
-  if ((Handlebars as typeof Handlebars & { __receiptHelpers?: boolean }).__receiptHelpers) {
+  const handlebarsWithVersion = Handlebars as typeof Handlebars & {
+    __receiptHelpersVersion?: number;
+    __receiptHelpers?: boolean;
+  };
+
+  if (handlebarsWithVersion.__receiptHelpersVersion === RECEIPT_HELPERS_VERSION) {
     return;
   }
+
+  delete handlebarsWithVersion.__receiptHelpers;
 
   Handlebars.registerHelper("formatCurrency", (value: unknown) => {
     const amount = typeof value === "number" ? value : Number(value);
@@ -45,7 +65,13 @@ function registerHelpers(): void {
 
   Handlebars.registerHelper("eq", (left: unknown, right: unknown) => left === right);
   Handlebars.registerHelper("gt", (left: unknown, right: unknown) => Number(left) > Number(right));
-  Handlebars.registerHelper("add", (left: unknown, right: unknown) => Number(left) + Number(right));
+  Handlebars.registerHelper("add", (left: unknown, right: unknown) => toNumber(left) + toNumber(right));
+  Handlebars.registerHelper("sub", (left: unknown, right: unknown) => toNumber(left) - toNumber(right));
+  Handlebars.registerHelper("mul", (left: unknown, right: unknown) => toNumber(left) * toNumber(right));
+  Handlebars.registerHelper("div", (left: unknown, right: unknown) => {
+    const divisor = toNumber(right);
+    return divisor === 0 ? 0 : toNumber(left) / divisor;
+  });
 
   Handlebars.registerHelper("formatRegosDate", (value: unknown) => {
     const timestamp = typeof value === "number" ? value : Number(value);
@@ -104,31 +130,41 @@ function registerHelpers(): void {
     return new Handlebars.SafeString(markup);
   });
 
-  (Handlebars as typeof Handlebars & { __receiptHelpers?: boolean }).__receiptHelpers = true;
+  (Handlebars as typeof Handlebars & { __receiptHelpersVersion?: number }).__receiptHelpersVersion =
+    RECEIPT_HELPERS_VERSION;
 }
 
 function compileTemplate(templateId: string, source: string): HandlebarsTemplateDelegate {
-  const cached = compiledCache.get(templateId);
+  const cacheKey = templateCacheKey(templateId, source);
+  const cached = compiledCache.get(cacheKey);
   if (cached) return cached;
 
   registerHelpers();
-  const compiled = Handlebars.compile(source, { noEscape: false });
-  compiledCache.set(templateId, compiled);
+  const preprocessed = preprocessArithmeticExpressions(source);
+  const compiled = Handlebars.compile(preprocessed, { noEscape: false });
+  compiledCache.set(cacheKey, compiled);
   return compiled;
 }
 
 export function invalidateReceiptTemplateCache(templateId?: string): void {
-  if (templateId) {
-    compiledCache.delete(templateId);
+  if (!templateId) {
+    compiledCache.clear();
     return;
   }
-  compiledCache.clear();
+
+  const prefix = `${templateId}\u0000`;
+  for (const key of compiledCache.keys()) {
+    if (key === templateId || key.startsWith(prefix)) {
+      compiledCache.delete(key);
+    }
+  }
 }
 
 export function renderReceiptHtmlTemplate(
   template: ReceiptTemplate,
   context: DocumentPrintContext,
 ): string {
+  registerHelpers();
   const compiled = compileTemplate(template.id, template.html);
   const amountInWordsLanguage = normalizeAmountInWordsLanguage(template.amount_in_words_language);
   const documentCurrency = context.document.currency ?? context.sale.saleCurrency;
@@ -161,8 +197,16 @@ export function renderReceiptHtmlTemplate(
     total_with_words: totalWithWords,
   };
 
+  const operations = context.operations.map(expandOperationTemplateFields);
+  const operation_groups = context.operation_groups.map((group) => ({
+    ...group,
+    lines: group.lines.map(expandOperationTemplateFields),
+  }));
+
   return compiled({
     ...context,
+    operations,
+    operation_groups,
     sale,
     totals,
     total_in_words: totalInWords,
@@ -175,16 +219,34 @@ export function renderReceiptHtmlTemplate(
   });
 }
 
+export type ReceiptTemplateRenderResult = {
+  html: string;
+  css: string;
+  error: string | null;
+};
+
 export function renderReceiptTemplate(
   template: ReceiptTemplate,
   context: DocumentPrintContext,
-): { html: string; css: string } {
+): ReceiptTemplateRenderResult {
   if (template.engine !== "html") {
-    return { html: "", css: "" };
+    return { html: "", css: "", error: null };
   }
 
-  return {
-    html: renderReceiptHtmlTemplate(template, context),
-    css: template.css,
-  };
+  try {
+    return {
+      html: renderReceiptHtmlTemplate(template, context),
+      css: template.css,
+      error: null,
+    };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Template render failed.";
+    return {
+      html: "",
+      css: template.css,
+      error: message,
+    };
+  }
 }
+
+registerHelpers();

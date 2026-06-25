@@ -345,3 +345,64 @@ async def test_update_telegram_user_notification_types(client, monkeypatch, sess
     )
     assert empty_update.status_code == 400
     assert empty_update.json()["code"] == "TELEGRAM_USER_UPDATE_EMPTY"
+
+
+@pytest.mark.asyncio
+async def test_delete_telegram_user(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "delete-user-telegram@test.com")
+
+    save_response = await client.put(
+        "/api/v1/telegram/bot",
+        json={"bot_token": "123456:ABC-DEF"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    webhook_secret = save_response.json()["bot"]["webhook_url"].split("/")[-1]
+
+    await client.post(
+        f"/api/v1/telegram/webhook/{webhook_secret}",
+        json={
+            "update_id": 6,
+            "message": {
+                "message_id": 13,
+                "from": {"id": 444333, "is_bot": False, "first_name": "Dave"},
+                "chat": {"id": 444333, "type": "private"},
+                "text": "/start",
+            },
+        },
+    )
+
+    list_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    user_id = list_response.json()[0]["id"]
+
+    delete_response = await client.delete(
+        f"/api/v1/telegram/users/{user_id}",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert delete_response.status_code == 200
+    assert delete_response.json()["message"] == "Telegram user deleted"
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser))
+        assert result.scalar_one_or_none() is None
+
+    list_after = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert list_after.json() == []
+
+
+@pytest.mark.asyncio
+async def test_delete_telegram_user_not_found(client):
+    token = await _register_and_login(client, "delete-missing-telegram@test.com")
+
+    response = await client.delete(
+        "/api/v1/telegram/users/999999",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "TELEGRAM_USER_NOT_FOUND"

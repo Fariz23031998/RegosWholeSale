@@ -107,6 +107,8 @@ export type WholesaleDocumentsResponse = {
   total: number;
 };
 
+import type { ReceiptOperationItem } from "@/lib/receipt-operation-item";
+
 export type WholesaleOperationLine = {
   id: number;
   document_id: number;
@@ -121,6 +123,7 @@ export type WholesaleOperationLine = {
   price: number;
   price2: number | null;
   amount: number | null;
+  item?: ReceiptOperationItem;
 };
 
 export type WholesaleOperationsResponse = {

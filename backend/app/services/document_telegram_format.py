@@ -38,6 +38,79 @@ def _parse_inout_type_value(value: Any) -> str | None:
     return None
 
 
+def _partner_phone(partner: dict[str, Any]) -> str | None:
+    phone = partner.get("phone")
+    if isinstance(phone, str) and phone.strip():
+        return phone.strip()
+    phones = partner.get("phones")
+    if isinstance(phones, list):
+        return next(
+            (str(entry).strip() for entry in phones if isinstance(entry, str) and entry.strip()),
+            None,
+        )
+    if isinstance(phones, str) and phones.strip():
+        return phones.strip()
+    return None
+
+
+def _attached_user_name(document: dict[str, Any]) -> str | None:
+    attached_user = document.get("attached_user")
+    if not isinstance(attached_user, dict):
+        attached_user = document.get("user")
+    if not isinstance(attached_user, dict):
+        return None
+
+    user_id = attached_user.get("id")
+
+    full_name = attached_user.get("full_name")
+    if isinstance(full_name, str) and full_name.strip():
+        return full_name.strip()
+
+    parts = [
+        part
+        for part in (attached_user.get("first_name"), attached_user.get("last_name"))
+        if isinstance(part, str) and part.strip()
+    ]
+    if parts:
+        return " ".join(parts)
+
+    name = attached_user.get("name")
+    if isinstance(name, str) and name.strip():
+        return name.strip()
+
+    if isinstance(user_id, int):
+        return f"#{user_id}"
+
+    return None
+
+
+def _append_attached_user(
+    message_parts: list[str],
+    document: dict[str, Any],
+    lang: str,
+) -> None:
+    user_name = _attached_user_name(document)
+    if user_name:
+        message_parts.append(
+            f"🧑‍💼 {t('telegram.receipt.attachedUser', lang, name=user_name)}"
+        )
+
+
+def _resolve_exchange_rate(document: dict[str, Any], currency: dict[str, Any] | None) -> float:
+    raw_rate = document.get("exchange_rate")
+    if raw_rate is not None:
+        try:
+            return float(raw_rate)
+        except (TypeError, ValueError):
+            pass
+    if isinstance(currency, dict) and currency.get("exchange_rate") is not None:
+        try:
+            return float(currency["exchange_rate"])
+        except (TypeError, ValueError):
+            pass
+    return 1.0
+
+
 def parse_inout_type(document: dict[str, Any]) -> str | None:
     raw = document.get("inout_type")
     if raw is None:
@@ -91,6 +164,30 @@ def format_partner_receipt(
 
     warehouse = warehouse_name or t("telegram.receipt.warehouseDefault", lang)
     message_parts.append(f"🏢 {t('telegram.receipt.warehouse', lang, name=warehouse)}")
+    _append_attached_user(message_parts, document, lang)
+
+    partner = document.get("partner", {})
+    if not isinstance(partner, dict):
+        partner = {}
+    partner_name = partner.get("name")
+    if not isinstance(partner_name, str) or not partner_name.strip():
+        partner_name = t("telegram.receipt.unknownPartner", lang)
+    message_parts.append(f"👤 {t('telegram.receipt.partner', lang, name=partner_name)}")
+
+    partner_phone = _partner_phone(partner)
+    if partner_phone:
+        message_parts.append(f"📞 {t('telegram.receipt.partnerPhone', lang, phone=partner_phone)}")
+
+    currency = document.get("currency", {})
+    currency_name = currency.get("name", "") if isinstance(currency, dict) else ""
+    exchange_rate = _resolve_exchange_rate(document, currency if isinstance(currency, dict) else None)
+
+    if currency_name:
+        message_parts.append(f"💰 {t('telegram.receipt.currency', lang, name=currency_name)}")
+    if exchange_rate != 1.0:
+        message_parts.append(
+            f"📊 {t('telegram.receipt.exchangeRate', lang, rate=format_number(exchange_rate, 4))}"
+        )
 
     message_parts.extend(["", f"📦 *{t('telegram.receipt.items', lang)}*", ""])
 
@@ -179,6 +276,7 @@ def format_payment_notification(
 
     warehouse = warehouse_name or t("telegram.receipt.warehouseDefault", lang)
     message_parts.append(f"🏢 {t('telegram.receipt.warehouse', lang, name=warehouse)}")
+    _append_attached_user(message_parts, document, lang)
 
     message_parts.extend(["", f"💳 {t('telegram.receipt.paymentType', lang, name=payment_type_name)}"])
 
@@ -231,6 +329,7 @@ def format_inout_receipt(
 
     warehouse = warehouse_name or t("telegram.receipt.warehouseDefault", lang)
     message_parts.append(f"🏢 {t('telegram.receipt.warehouse', lang, name=warehouse)}")
+    _append_attached_user(message_parts, document, lang)
 
     message_parts.extend(["", f"📦 *{t('telegram.receipt.items', lang)}*", ""])
 
@@ -281,6 +380,11 @@ def format_movement_receipt(
             f"📄 *{t('telegram.receipt.documentNo', lang, code=doc_code)}*",
             f"📅 {t('telegram.receipt.date', lang, date=formatted_date)}",
             f"🏢 {sender_name} → {receiver_name}",
+        ]
+    )
+    _append_attached_user(message_parts, document, lang)
+    message_parts.extend(
+        [
             "",
             f"📦 *{t('telegram.receipt.items', lang)}*",
             "",

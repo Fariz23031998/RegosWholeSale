@@ -12,11 +12,23 @@ export type ReceiptOperationGroup = {
 export type ReceiptOperationTotals = {
   quantity: number;
   amount: number;
+  amount_gross: number;
+  discount: number;
 };
 
-function lineAmount(line: WholesaleOperationLine): number {
+export function lineGrossAmount(line: WholesaleOperationLine): number {
+  const unitPrice = line.price2 != null ? line.price2 : line.price;
+  return +(line.quantity * unitPrice).toFixed(2);
+}
+
+export function lineAmount(line: WholesaleOperationLine): number {
   if (line.amount != null) return line.amount;
   return +(line.quantity * line.price).toFixed(2);
+}
+
+export function lineDiscountAmount(line: WholesaleOperationLine): number {
+  const discount = +(lineGrossAmount(line) - lineAmount(line)).toFixed(2);
+  return discount > 0 ? discount : 0;
 }
 
 export function buildOperationGroups(
@@ -64,5 +76,7 @@ export function buildOperationTotals(
 ): ReceiptOperationTotals {
   const quantity = +operations.reduce((sum, line) => sum + line.quantity, 0).toFixed(2);
   const amount = +operations.reduce((sum, line) => sum + lineAmount(line), 0).toFixed(2);
-  return { quantity, amount };
+  const amount_gross = +operations.reduce((sum, line) => sum + lineGrossAmount(line), 0).toFixed(2);
+  const discount = +operations.reduce((sum, line) => sum + lineDiscountAmount(line), 0).toFixed(2);
+  return { quantity, amount, amount_gross, discount };
 }

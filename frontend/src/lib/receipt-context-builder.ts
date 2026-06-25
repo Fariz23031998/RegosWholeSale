@@ -1,7 +1,17 @@
 import type { Sale, SalePaymentLine } from "@/data/seed";
 import type { TranslateFn } from "@/lib/dashboard-api";
-import type { DocumentPrintContext, DocumentPrintKind } from "@/lib/receipt-print-context";
-import { buildOperationGroups, buildOperationTotals } from "@/lib/receipt-operation-groups";
+import {
+  EMPTY_RECEIPT_OPERATION_ITEM,
+  normalizeReceiptOperationItem,
+  receiptOperationItemFromCatalogProduct,
+} from "@/lib/receipt-operation-item";
+import {
+  buildOperationGroups,
+  buildOperationTotals,
+  lineAmount,
+  lineDiscountAmount,
+  lineGrossAmount,
+} from "@/lib/receipt-operation-groups";
 import {
   fetchWholesaleDocumentPayments,
   fetchWholesaleOperations,
@@ -46,8 +56,11 @@ function buildSaleFromDocument(
     price: op.price,
     qty: op.quantity,
   }));
-  const subtotal = items.reduce((sum, item) => sum + item.price * item.qty, 0);
-  const total = doc.amount ?? subtotal;
+  const grossSubtotal = operations.reduce((sum, op) => sum + lineGrossAmount(op), 0);
+  const netSubtotal = operations.reduce((sum, op) => sum + lineAmount(op), 0);
+  const lineDiscount = operations.reduce((sum, op) => sum + lineDiscountAmount(op), 0);
+  const total = doc.amount ?? netSubtotal;
+  const extraDiscount = Math.max(0, +(netSubtotal - total).toFixed(2));
   const amountPaid = payments.reduce((sum, payment) => sum + (payment.amount ?? 0), 0);
   const paymentLines: SalePaymentLine[] = payments.map((payment, index) => ({
     paymentTypeId: payment.id || index + 1,
@@ -65,8 +78,8 @@ function buildSaleFromDocument(
     cashierId: doc.attached_user_id ? String(doc.attached_user_id) : "",
     cashierName: doc.attached_user_name ?? doc.partner_name ?? "—",
     items,
-    subtotal: +subtotal.toFixed(2),
-    discount: Math.max(0, +(subtotal - total).toFixed(2)),
+    subtotal: +grossSubtotal.toFixed(2),
+    discount: +(lineDiscount + extraDiscount).toFixed(2),
     tax: 0,
     total: +total.toFixed(2),
     paymentTypeId: 0,
@@ -92,12 +105,13 @@ function wrapDocumentContext(
   payments: WholesalePaymentLine[],
   sale: Sale,
 ): DocumentPrintContext {
-  const operation_groups = buildOperationGroups(operations);
-  const totals = buildOperationTotals(operations);
+  const normalizedOperations = operations.map((operation) => withOperationItem(operation));
+  const operation_groups = buildOperationGroups(normalizedOperations);
+  const totals = buildOperationTotals(normalizedOperations);
   return {
     kind,
     document,
-    operations,
+    operations: normalizedOperations,
     operation_groups,
     totals,
     payments,
@@ -141,7 +155,27 @@ export type CheckoutCartLine = {
   item_group_name?: string | null;
   item_unit_name?: string | null;
   item_brand?: string | null;
+  item?: ReturnType<typeof receiptOperationItemFromCatalogProduct>;
 };
+
+function operationItemFromDetails(
+  details?: Pick<CheckoutCartLine, "item"> | null,
+  product?: Product | null,
+) {
+  return normalizeReceiptOperationItem(
+    details?.item ?? receiptOperationItemFromCatalogProduct(product),
+  );
+}
+
+function withOperationItem(
+  line: WholesaleOperationLine,
+  item = EMPTY_RECEIPT_OPERATION_ITEM,
+): WholesaleOperationLine {
+  return {
+    ...line,
+    item: normalizeReceiptOperationItem(line.item ?? item),
+  };
+}
 
 export type CheckoutDocumentExtras = {
   partnerId?: number | null;
@@ -172,6 +206,7 @@ export function buildCheckoutCartLines(
       item_group_id: product?.group_id ?? null,
       item_group_name: product?.category?.trim() || null,
       item_unit_name: product?.unit_name?.trim() || null,
+      item: receiptOperationItemFromCatalogProduct(product),
     };
   });
 }
@@ -220,7 +255,7 @@ function checkoutOperationsFromResult(
 
   return result.lines.map((line, index) => {
     const details = detailsByItemId.get(line.regos_item_id);
-    return {
+    return withOperationItem({
       id: index + 1,
       document_id: result.wholesale_doc_id,
       item_id: line.regos_item_id,
@@ -234,7 +269,7 @@ function checkoutOperationsFromResult(
       price: line.price,
       price2: line.price2,
       amount: +(line.qty * line.price).toFixed(2),
-    };
+    }, operationItemFromDetails(details));
   });
 }
 
@@ -295,7 +330,11 @@ export function buildPrintContextFromCartDraft(
 
   const operations: WholesaleOperationLine[] = input.items.map((item, index) => {
     const details = detailsByItemId.get(item.regosItemId);
-    return {
+    const product = input.catalogProducts.find(
+      (entry) =>
+        entry.regos_item_id === item.regosItemId || entry.id === item.productId,
+    );
+    return withOperationItem({
       id: index + 1,
       document_id: docId,
       item_id: item.regosItemId,
@@ -309,7 +348,7 @@ export function buildPrintContextFromCartDraft(
       price: item.price,
       price2: item.price,
       amount: +(item.qty * item.price).toFixed(2),
-    };
+    }, operationItemFromDetails(details, product));
   });
 
   const document: WholesaleDocument = {

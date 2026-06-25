@@ -300,8 +300,21 @@ Loop with `{{#each operations}}…{{/each}}`.
 | `price` | Unit price |
 | `price2` | Price without discount |
 | `amount` | Line total |
+| `item_fullname` | Product full name (Regos `item.fullname`) |
+| `item_description` | Product description |
+| `item_articul` | Article / SKU |
+| `item_color_name` | Color name |
+| `item_size_name` | Size name |
+| `item_producer_name` | Producer / brand name |
+| `item_country_name` | Country of origin |
+| `item_icps` | ICPS code |
+| `item_package_code` | Package code |
+| `item_department_name` | Department name |
+| `item_vat_name` | VAT type name |
+| `item_vat_value` | VAT rate/value |
+| `item_base_barcode` | Base barcode |
 
-Inside `{{#each operations}}`, use `{{item_name}}`, `{{quantity}}`, etc. (no prefix).
+Inside `{{#each operations}}`, use `{{item_name}}`, `{{item_articul}}`, `{{item_color_name}}`, etc.
 
 ### `operation_groups[]` — lines grouped by product group
 
@@ -319,7 +332,9 @@ Loop with `{{#each operation_groups}}`. Each group has:
 | Variable | Description |
 |----------|-------------|
 | `totals.quantity` | Total item quantity |
-| `totals.amount` | Total amount (sum of line amounts) |
+| `totals.amount` | Total amount after line discounts (sum of line `amount`) |
+| `totals.amount_gross` | Total before line discounts (sum of `price2 × quantity`, or `price × quantity` when `price2` is absent) |
+| `totals.discount` | Total line discount (sum of `price2 × quantity − amount` per row) |
 | `totals.total_in_words` | Same as root `total_in_words` |
 | `totals.total_with_words` | Same as root `total_with_words` |
 
@@ -405,8 +420,25 @@ Use helpers inside `{{...}}`:
 | `formatAmountWithWords` | `{{formatAmountWithWords totals.amount document.currency}}` | `1 296.38 (…words…) сум` |
 | `eq` | `{{#if (eq kind "return")}}…{{/if}}` | Boolean comparison |
 | `gt` | `{{#if (gt sale.discount 0)}}…{{/if}}` | Greater than |
-| `add` | `{{add @index 1}}` | Addition (e.g. row numbers) |
+| `add` | `{{add @index 1}}` or `{{totals.amount + sale.discount}}` | Addition (e.g. row numbers) |
+| `sub` | `{{sub (mul price2 quantity) amount}}` or `{{price2 * quantity - amount}}` | Subtraction |
+| `mul` | `{{mul price2 quantity}}` or `{{price2 * quantity}}` | Multiplication |
+| `div` | `{{div amount quantity}}` or `{{amount / quantity}}` | Division (divisor `0` → `0`) |
 | `logoImg` | `{{logoImg "Primary"}}` or `{{logoImg "Stamp" 80}}` | Renders an `<img>` for the named logo; optional second argument overrides max width (px) |
+
+### Arithmetic in `{{...}}`
+
+You can write simple math directly inside tags. The engine converts it to helpers before rendering:
+
+| Template syntax | Rendered as |
+|-----------------|-------------|
+| `{{price2 * quantity}}` | `{{(mul price2 quantity)}}` |
+| `{{price2 * quantity - amount}}` | `{{(sub (mul price2 quantity) amount)}}` |
+| `{{formatCurrency price2 * quantity}}` | `{{formatCurrency (mul price2 quantity)}}` |
+| `{{totals.amount_gross}}` | `{{formatCurrency totals.amount_gross}}` |
+| `{{totals.discount}}` | `{{formatCurrency totals.discount}}` |
+
+Supported operators: `+`, `-`, `*`, `/` with normal precedence (`*` and `/` before `+` and `-`). Use parentheses when needed. Identifiers can include dots (`sale.total`, `totals.amount`). Block helpers (`{{#if}}`, `{{#each}}`) and existing helper calls like `{{add @index 1}}` are left unchanged.
 
 ---
 
