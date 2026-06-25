@@ -14,6 +14,13 @@ class ReceiptTemplateHeader(BaseModel):
     tax_id: str = ""
 
 
+class ReceiptTemplateLogo(BaseModel):
+    id: str
+    name: str = "Logo"
+    src: str = ""
+    max_width: int | None = None
+
+
 class ReceiptTemplateSections(BaseModel):
     header: bool = True
     meta: bool = True
@@ -56,6 +63,7 @@ class ReceiptTemplate(BaseModel):
     amount_in_words_language: ReceiptAmountInWordsLanguage | None = None
     sections: ReceiptTemplateSections = Field(default_factory=ReceiptTemplateSections)
     line_sort: ReceiptTemplateLineSort = Field(default_factory=ReceiptTemplateLineSort)
+    logos: list[ReceiptTemplateLogo] = Field(default_factory=list)
     html: str = ""
     css: str = ""
 

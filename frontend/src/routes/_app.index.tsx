@@ -7,6 +7,7 @@ import { useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { useCheckoutTabs } from "@/store/checkout-tabs";
+import { useCatalog } from "@/store/catalog";
 import styles from "@/components/POS/POS.module.css";
 
 export const Route = createFileRoute("/_app/")({
@@ -29,7 +30,12 @@ function PosPage() {
   const hydrateSellContext = useSellContext((s) => s.hydrate);
   const hydrateCheckoutTabs = useCheckoutTabs((s) => s.hydrate);
   const resetCheckoutTabs = useCheckoutTabs((s) => s.reset);
+  const hydrateCatalogUi = useCatalog((s) => s.hydrateUiPreferences);
   const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
+
+  useEffect(() => {
+    void hydrateCatalogUi();
+  }, [hydrateCatalogUi]);
 
   useEffect(() => {
     void hydrate(token);

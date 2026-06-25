@@ -4,13 +4,18 @@ from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, require_any_permission, require_permission
-from app.core.exceptions import AppError, not_found
+from app.core.exceptions import AppError, bad_request, not_found
 from app.database import get_db
 from app.schemas.telegram import (
     TelegramBotMessage,
     TelegramBotResponse,
     TelegramBotSaveRequest,
+    TelegramNotificationTypesResponse,
+    TelegramReceiptLanguagesResponse,
     TelegramUserResponse,
+    TelegramUserUpdateRequest,
+    all_notification_types_response,
+    all_receipt_languages_response,
 )
 from app.services import telegram as telegram_service
 
@@ -59,6 +64,47 @@ async def list_telegram_users(
 ) -> list[TelegramUserResponse]:
     users = await telegram_service.list_telegram_users(session, current.company_id)
     return [TelegramUserResponse(**user) for user in users]
+
+
+@router.get("/notification-types", response_model=TelegramNotificationTypesResponse)
+async def list_telegram_notification_types(
+    current: CurrentUser = Depends(require_permission("users.manage")),
+) -> TelegramNotificationTypesResponse:
+    return all_notification_types_response()
+
+
+@router.get("/receipt-languages", response_model=TelegramReceiptLanguagesResponse)
+async def list_telegram_receipt_languages(
+    current: CurrentUser = Depends(require_permission("users.manage")),
+) -> TelegramReceiptLanguagesResponse:
+    return all_receipt_languages_response()
+
+
+@router.patch("/users/{user_id}", response_model=TelegramUserResponse)
+async def update_telegram_user(
+    user_id: int,
+    body: TelegramUserUpdateRequest,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> TelegramUserResponse:
+    if (
+        body.notification_types is None
+        and body.is_active is None
+        and body.receipt_language is None
+    ):
+        raise bad_request("At least one field must be provided", "TELEGRAM_USER_UPDATE_EMPTY")
+
+    updated = await telegram_service.update_telegram_user(
+        session,
+        current.company_id,
+        user_id,
+        notification_types=body.notification_types,
+        is_active=body.is_active,
+        receipt_language=body.receipt_language,
+    )
+    if not updated:
+        raise not_found("Telegram user not found", "TELEGRAM_USER_NOT_FOUND")
+    return TelegramUserResponse(**updated)
 
 
 @router.post("/webhook/{webhook_secret}")

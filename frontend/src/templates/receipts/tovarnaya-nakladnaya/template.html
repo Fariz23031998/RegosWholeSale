@@ -1,0 +1,96 @@
+<div class="tovarnaya-nakladnaya">
+  <h1 class="doc-title">
+    {{#if (eq kind "return")}}
+    Возвратная товарная накладная № {{document.code}} на дату {{formatRegosDate document.date}}
+    {{else}}
+    Товарная накладная № {{document.code}} на дату {{formatRegosDate document.date}}
+    {{/if}}
+  </h1>
+
+  <div class="parties">
+    <div class="party party-sender">
+      <div class="party-line">
+        <span class="label">Отправитель:</span> {{header.company_name}}
+      </div>
+      {{#if document.stock_name}}
+      <div class="party-line">
+        <span class="label">Склад:</span> {{document.stock_name}}
+      </div>
+      {{/if}}
+      {{#if header.phone}}
+      <div class="party-line">
+        <span class="label">Номер отправителя:</span> {{header.phone}}
+      </div>
+      {{/if}}
+    </div>
+
+    <div class="party party-receiver">
+      {{#if document.partner_name}}
+      <div class="party-line">
+        <span class="label">Получатель:</span> {{document.partner_name}}
+      </div>
+      {{/if}}
+      {{#if document.partner_phone}}
+      <div class="party-line">
+        <span class="label">Номер получателя:</span> {{document.partner_phone}}
+      </div>
+      {{/if}}
+      <div class="party-line">
+        <span class="label">Адрес получателя:</span>
+      </div>
+    </div>
+  </div>
+
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th class="col-no">№</th>
+        <th class="col-name">Наименование</th>
+        <th class="col-code">Артикул</th>
+        <th class="col-unit">Ед.изм.</th>
+        <th class="col-qty">Кол-во</th>
+        <th class="col-price2">Цена без скид</th>
+        <th class="col-price">Цена</th>
+        <th class="col-amount2">Сумма без скид</th>
+        <th class="col-amount">Сумма</th>
+        <th class="col-discount">Скидка</th>
+      </tr>
+    </thead>
+    <tbody>
+      {{#each operations}}
+      <tr class="item-row">
+        <td class="center">{{add @index 1}}</td>
+        <td class="text">{{item_name}}</td>
+        <td class="text">{{item_code}}</td>
+        <td class="center">{{item_unit_name}}</td>
+        <td class="num">{{quantity}}</td>
+        <td class="num">{{#if price2}}{{formatCurrency price2}}{{else}}{{formatCurrency price}}{{/if}}</td>
+        <td class="num">{{formatCurrency price}}</td>
+        <td class="num">{{#unless (gt price2 price)}}{{formatCurrency amount}}{{/unless}}</td>
+        <td class="num">{{formatCurrency amount}}</td>
+        <td class="num"></td>
+      </tr>
+      {{/each}}
+      <tr class="grand-total">
+        <td colspan="4" class="text total-label">Итого:</td>
+        <td class="num">{{totals.quantity}}</td>
+        <td class="num"></td>
+        <td class="num"></td>
+        <td class="num">{{formatCurrency (add totals.amount sale.discount)}}</td>
+        <td class="num">{{formatCurrency totals.amount}}</td>
+        <td class="num">{{#if (gt sale.discount 0)}}{{formatCurrency sale.discount}}{{/if}}</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="signatures">
+    <div class="signature">
+      <span class="label">Отправлено:</span>
+      <span class="signature-line"></span>
+    </div>
+    <div class="signature">
+      <span class="label">Получено:</span>
+      <span class="signature-line"></span>
+    </div>
+  </div>
+</div>

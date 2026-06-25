@@ -9,6 +9,7 @@ import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import type { ReceiptTemplate } from "@/types/receipt-templates";
 import type { RegosCurrencyOption } from "@/types/settings";
+import { createReceiptLogoImgMarkup } from "@/lib/receipt-template-logos";
 
 const compiledCache = new Map<string, HandlebarsTemplateDelegate>();
 
@@ -81,6 +82,28 @@ function registerHelpers(): void {
     },
   );
 
+  Handlebars.registerHelper("logoImg", function (name: unknown, maxWidth: unknown) {
+    const options = arguments[arguments.length - 1] as Handlebars.HelperOptions;
+    const logos = options.data.root.logos as ReceiptTemplate["logos"] | undefined;
+    if (!logos?.length) return new Handlebars.SafeString("");
+
+    const key = typeof name === "string" ? name.trim().toLowerCase() : "";
+    const logo =
+      logos.find((entry) => entry.name.trim().toLowerCase() === key) ??
+      logos.find((entry) => entry.id === name);
+    if (!logo) return new Handlebars.SafeString("");
+
+    const widthOverride =
+      typeof maxWidth === "number" && Number.isFinite(maxWidth) && maxWidth > 0
+        ? Math.round(maxWidth)
+        : logo.max_width;
+    const markup = createReceiptLogoImgMarkup({
+      ...logo,
+      max_width: widthOverride ?? null,
+    });
+    return new Handlebars.SafeString(markup);
+  });
+
   (Handlebars as typeof Handlebars & { __receiptHelpers?: boolean }).__receiptHelpers = true;
 }
 
@@ -148,6 +171,7 @@ export function renderReceiptHtmlTemplate(
     header: template.header,
     invoice_title: template.invoice_title,
     footer_text: template.footer_text,
+    logos: template.logos ?? [],
   });
 }
 

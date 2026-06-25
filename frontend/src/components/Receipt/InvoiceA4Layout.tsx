@@ -7,6 +7,7 @@ import {
   getSalePaymentState,
   getSaleTotalWithWords,
 } from "./receipt-content";
+import { ReceiptLogos } from "./ReceiptLogos";
 import styles from "./InvoiceA4.module.css";
 
 type Props = {
@@ -28,6 +29,7 @@ export function InvoiceA4Layout({ template, context }: Props) {
       {sections.header && (
         <header className={styles.header}>
           <div className={styles.seller}>
+            <ReceiptLogos logos={template.logos} variant="a4" />
             {header.company_name && (
               <div className={styles.companyName}>{header.company_name}</div>
             )}

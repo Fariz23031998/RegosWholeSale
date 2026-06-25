@@ -1,4 +1,6 @@
-from sqlalchemy import BigInteger, Boolean, ForeignKey, String, UniqueConstraint
+from typing import Any
+
+from sqlalchemy import JSON, BigInteger, Boolean, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -19,5 +21,7 @@ class TelegramUser(Base, TimestampMixin):
     last_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     language_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    notification_types: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
+    receipt_language: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     company: Mapped["Company"] = relationship("Company", back_populates="telegram_users")

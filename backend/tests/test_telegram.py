@@ -272,3 +272,76 @@ async def test_delete_telegram_bot(client, monkeypatch, session_factory):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert get_response.json()["configured"] is False
+
+
+@pytest.mark.asyncio
+async def test_list_notification_types(client):
+    token = await _register_and_login(client, "notification-types@test.com")
+
+    response = await client.get(
+        "/api/v1/telegram/notification-types",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 200
+    types = response.json()["types"]
+    assert "purchase" in types
+    assert "wholesale" in types
+    assert "payment" in types
+
+
+@pytest.mark.asyncio
+async def test_update_telegram_user_notification_types(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "update-notifications@test.com")
+
+    save_response = await client.put(
+        "/api/v1/telegram/bot",
+        json={"bot_token": "123456:ABC-DEF"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    webhook_secret = save_response.json()["bot"]["webhook_url"].split("/")[-1]
+
+    await client.post(
+        f"/api/v1/telegram/webhook/{webhook_secret}",
+        json={
+            "update_id": 5,
+            "message": {
+                "message_id": 12,
+                "from": {"id": 555444, "is_bot": False, "first_name": "Carol"},
+                "chat": {"id": 555444, "type": "private"},
+                "text": "/start",
+            },
+        },
+    )
+
+    list_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    user_id = list_response.json()[0]["id"]
+    assert set(list_response.json()[0]["notification_types"]) == {
+        "purchase",
+        "return_purchase",
+        "wholesale",
+        "wholesale_return",
+        "payment",
+        "inout",
+        "movement",
+    }
+
+    update_response = await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"notification_types": ["wholesale", "payment"], "receipt_language": "en"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["notification_types"] == ["payment", "wholesale"]
+    assert update_response.json()["receipt_language"] == "en"
+
+    empty_update = await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert empty_update.status_code == 400
+    assert empty_update.json()["code"] == "TELEGRAM_USER_UPDATE_EMPTY"

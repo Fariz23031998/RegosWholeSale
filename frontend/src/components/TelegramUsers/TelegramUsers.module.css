@@ -72,3 +72,102 @@
 }
 .active { background: var(--color-success-soft); color: var(--color-success); }
 .inactive { background: var(--color-surface-2); color: var(--color-text-muted); }
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.notificationSummary {
+  display: grid;
+  gap: 6px;
+}
+
+.notificationTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.notificationTag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
+
+.modalBody {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.modalHint {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.activeToggle,
+.notificationItem {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 12px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.notificationList {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.notificationText {
+  display: grid;
+  gap: 2px;
+}
+
+.notificationLabel {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.notificationDescription {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.modalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.fieldLabel {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.fieldHint {
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.select {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: 14px;
+}

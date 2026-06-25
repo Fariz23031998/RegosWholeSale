@@ -7,6 +7,7 @@ import {
   getSalePaymentState,
   getSaleTotalWithWords,
 } from "./receipt-content";
+import { ReceiptLogos } from "./ReceiptLogos";
 import styles from "./Receipt.module.css";
 
 type Props = {
@@ -26,6 +27,7 @@ export function Receipt80mmLayout({ template, context }: Props) {
     <div className={styles.receipt}>
       {sections.header && (
         <div className={styles.brand}>
+          <ReceiptLogos logos={template.logos} variant="80mm" />
           {header.company_name && (
             <div className={styles.brandName}>{header.company_name}</div>
           )}

@@ -13,6 +13,27 @@
   text-align: center;
   margin-bottom: 12px;
 }
+.logoRow {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.logoRowA4 {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.logoImage {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  object-fit: contain;
+}
 .brandName {
   font-size: 18px;
   font-weight: 700;

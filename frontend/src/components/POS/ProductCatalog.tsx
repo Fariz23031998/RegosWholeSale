@@ -112,7 +112,8 @@ export function ProductCatalog() {
   const [groups, setGroups] = useState<ProductGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [featuredOnly, setFeaturedOnly] = useState(false);
-  const [hideCardImages, setHideCardImages] = useState(false);
+  const hideCardImages = useCatalog((s) => s.hideCardImages);
+  const setHideCardImages = useCatalog((s) => s.setHideCardImages);
   const [returnOpen, setReturnOpen] = useState(false);
   const [categoryReady, setCategoryReady] = useState(false);
   const [featuredIds, setFeaturedIds] = useState<Set<number>>(() => new Set());
@@ -605,14 +606,14 @@ export function ProductCatalog() {
             aria-label={t("pos.hideImagesAria", "Hide product images")}
             aria-pressed={hideCardImages}
             title={t("pos.hideImages", "Hide images")}
-            onClick={() => setHideCardImages((value) => !value)}
+            onClick={() => setHideCardImages(!hideCardImages)}
           >
             <ImageOff size={16} />
             <span className={styles.catalogFilterBtnLabel}>{t("pos.hideImages", "Hide images")}</span>
           </button>
           <button
             type="button"
-            className={styles.catalogFilterBtn}
+            className={clsx(styles.catalogFilterBtn, styles.catalogFilterBtnReturn)}
             aria-label={t("pos.returnAria", "Return products")}
             title={t("pos.return", "Return")}
             onClick={() => setReturnOpen(true)}

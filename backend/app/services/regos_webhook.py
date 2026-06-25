@@ -21,27 +21,56 @@ class EventSpec:
     spec: doc_fetch.OperationDocumentSpec | None
     is_cancelled: bool
     is_payment: bool = False
+    notification_type: str = ""
 
 
 EVENT_SPECS: dict[str, EventSpec] = {
-    "DocPurchasePerformed": EventSpec(doc_fetch.PURCHASE_SPEC, is_cancelled=False),
-    "DocPurchasePerformCanceled": EventSpec(doc_fetch.PURCHASE_SPEC, is_cancelled=True),
-    "DocReturnsToPartnerPerformed": EventSpec(doc_fetch.RETURN_TO_PARTNER_SPEC, is_cancelled=False),
+    "DocPurchasePerformed": EventSpec(
+        doc_fetch.PURCHASE_SPEC, is_cancelled=False, notification_type="purchase"
+    ),
+    "DocPurchasePerformCanceled": EventSpec(
+        doc_fetch.PURCHASE_SPEC, is_cancelled=True, notification_type="purchase"
+    ),
+    "DocReturnsToPartnerPerformed": EventSpec(
+        doc_fetch.RETURN_TO_PARTNER_SPEC, is_cancelled=False, notification_type="return_purchase"
+    ),
     "DocReturnsToPartnerPerformCanceled": EventSpec(
-        doc_fetch.RETURN_TO_PARTNER_SPEC, is_cancelled=True
+        doc_fetch.RETURN_TO_PARTNER_SPEC,
+        is_cancelled=True,
+        notification_type="return_purchase",
     ),
-    "DocWholeSalePerformed": EventSpec(doc_fetch.WHOLESALE_SPEC, is_cancelled=False),
-    "DocWholeSalePerformCanceled": EventSpec(doc_fetch.WHOLESALE_SPEC, is_cancelled=True),
-    "DocWholeSaleReturnPerformed": EventSpec(doc_fetch.WHOLESALE_RETURN_SPEC, is_cancelled=False),
+    "DocWholeSalePerformed": EventSpec(
+        doc_fetch.WHOLESALE_SPEC, is_cancelled=False, notification_type="wholesale"
+    ),
+    "DocWholeSalePerformCanceled": EventSpec(
+        doc_fetch.WHOLESALE_SPEC, is_cancelled=True, notification_type="wholesale"
+    ),
+    "DocWholeSaleReturnPerformed": EventSpec(
+        doc_fetch.WHOLESALE_RETURN_SPEC, is_cancelled=False, notification_type="wholesale_return"
+    ),
     "DocWholeSaleReturnPerformCanceled": EventSpec(
-        doc_fetch.WHOLESALE_RETURN_SPEC, is_cancelled=True
+        doc_fetch.WHOLESALE_RETURN_SPEC,
+        is_cancelled=True,
+        notification_type="wholesale_return",
     ),
-    "DocPaymentPerformed": EventSpec(None, is_cancelled=False, is_payment=True),
-    "DocPaymentPerformCanceled": EventSpec(None, is_cancelled=True, is_payment=True),
-    "DocInOutPerformed": EventSpec(doc_fetch.INOUT_SPEC, is_cancelled=False),
-    "DocInOutPerformCanceled": EventSpec(doc_fetch.INOUT_SPEC, is_cancelled=True),
-    "DocMovementPerformed": EventSpec(doc_fetch.MOVEMENT_SPEC, is_cancelled=False),
-    "DocMovementPerformCanceled": EventSpec(doc_fetch.MOVEMENT_SPEC, is_cancelled=True),
+    "DocPaymentPerformed": EventSpec(
+        None, is_cancelled=False, is_payment=True, notification_type="payment"
+    ),
+    "DocPaymentPerformCanceled": EventSpec(
+        None, is_cancelled=True, is_payment=True, notification_type="payment"
+    ),
+    "DocInOutPerformed": EventSpec(
+        doc_fetch.INOUT_SPEC, is_cancelled=False, notification_type="inout"
+    ),
+    "DocInOutPerformCanceled": EventSpec(
+        doc_fetch.INOUT_SPEC, is_cancelled=True, notification_type="inout"
+    ),
+    "DocMovementPerformed": EventSpec(
+        doc_fetch.MOVEMENT_SPEC, is_cancelled=False, notification_type="movement"
+    ),
+    "DocMovementPerformCanceled": EventSpec(
+        doc_fetch.MOVEMENT_SPEC, is_cancelled=True, notification_type="movement"
+    ),
 }
 
 
@@ -77,7 +106,7 @@ async def _resolve_warehouse_name(
     if stock_id is None:
         return None
     fetched = await doc_fetch.fetch_stock_name(session, company_id, stock_id)
-    return fetched or "Склад"
+    return fetched
 
 
 async def _process_operation_document(
@@ -102,31 +131,39 @@ async def _process_operation_document(
         return False
 
     if spec.kind == "movement":
-        message = fmt.format_movement_receipt(
+        build_message = lambda lang: fmt.format_movement_receipt(
             document,
             operations,
             is_cancelled=event_spec.is_cancelled,
+            lang=lang,
         )
     elif spec.kind == "inout":
         warehouse_name = await _resolve_warehouse_name(session, company_id, document)
-        message = fmt.format_inout_receipt(
+        build_message = lambda lang: fmt.format_inout_receipt(
             document,
             operations,
             warehouse_name,
             is_cancelled=event_spec.is_cancelled,
+            lang=lang,
         )
     else:
         warehouse_name = await _resolve_warehouse_name(session, company_id, document)
-        message = fmt.format_partner_receipt(
+        build_message = lambda lang: fmt.format_partner_receipt(
             document,
             operations,
             warehouse_name,
             is_cancelled=event_spec.is_cancelled,
             is_return=spec.is_return,
             use_cost=spec.use_cost,
+            lang=lang,
         )
 
-    sent = await telegram_service.notify_company_subscribers(session, company_id, message)
+    sent = await telegram_service.notify_company_subscribers(
+        session,
+        company_id,
+        notification_type=event_spec.notification_type,
+        build_message=build_message,
+    )
     return sent > 0
 
 
@@ -136,6 +173,7 @@ async def _process_payment_document(
     document_id: int,
     *,
     is_cancelled: bool,
+    notification_type: str,
 ) -> bool:
     document = await doc_fetch.fetch_document(
         session, company_id, doc_fetch.PAYMENT_DOC_ENDPOINT, document_id
@@ -144,12 +182,18 @@ async def _process_payment_document(
         return False
 
     warehouse_name = await _resolve_warehouse_name(session, company_id, document)
-    message = fmt.format_payment_notification(
+    build_message = lambda lang: fmt.format_payment_notification(
         document,
         warehouse_name,
         is_cancelled=is_cancelled,
+        lang=lang,
     )
-    sent = await telegram_service.notify_company_subscribers(session, company_id, message)
+    sent = await telegram_service.notify_company_subscribers(
+        session,
+        company_id,
+        notification_type=notification_type,
+        build_message=build_message,
+    )
     return sent > 0
 
 
@@ -200,6 +244,7 @@ async def handle_regos_webhook(session: AsyncSession, webhook_data: dict[str, An
             company_id,
             int(document_id),
             is_cancelled=event_spec.is_cancelled,
+            notification_type=event_spec.notification_type,
         )
     else:
         await _process_operation_document(

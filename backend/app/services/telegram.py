@@ -1,5 +1,6 @@
 import logging
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 import aiohttp
@@ -9,11 +10,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.exceptions import bad_request, not_found
 from app.models import TelegramBot, TelegramUser
+from app.services.telegram_i18n import t
+from app.services.telegram_languages import default_receipt_language, resolve_receipt_language
+from app.services.telegram_notifications import (
+    default_notification_types,
+    normalize_notification_types,
+    user_receives_notification,
+)
 
 logger = logging.getLogger("regos.backend")
 
 TELEGRAM_API_BASE = "https://api.telegram.org"
-WELCOME_MESSAGE = "Welcome! You have been registered successfully."
 
 
 def _mask_token(token: str) -> str:
@@ -161,6 +168,8 @@ def telegram_user_to_dict(row: TelegramUser) -> dict:
         "last_name": row.last_name,
         "language_code": row.language_code,
         "is_active": row.is_active,
+        "notification_types": sorted(normalize_notification_types(row.notification_types)),
+        "receipt_language": resolve_receipt_language(row.receipt_language, row.language_code),
         "created_at": row.created_at,
     }
 
@@ -199,7 +208,9 @@ async def send_message(
 async def notify_company_subscribers(
     session: AsyncSession,
     company_id: int,
-    text: str,
+    *,
+    notification_type: str,
+    build_message: Callable[[str], str],
 ) -> int:
     bot = await _get_bot_by_company(session, company_id)
     if not bot:
@@ -219,7 +230,10 @@ async def notify_company_subscribers(
 
     sent = 0
     for user in users:
-        if await send_message(bot.bot_token, user.chat_id, text):
+        if not user_receives_notification(user.notification_types, notification_type):
+            continue
+        lang = resolve_receipt_language(user.receipt_language, user.language_code)
+        if await send_message(bot.bot_token, user.chat_id, build_message(lang)):
             sent += 1
     return sent
 
@@ -245,6 +259,10 @@ async def _upsert_telegram_user(
         row.last_name = from_user.get("last_name")
         row.language_code = from_user.get("language_code")
         row.is_active = True
+        if row.notification_types is None:
+            row.notification_types = default_notification_types()
+        if row.receipt_language is None:
+            row.receipt_language = default_receipt_language(from_user.get("language_code"))
     else:
         row = TelegramUser(
             company_id=company_id,
@@ -255,10 +273,42 @@ async def _upsert_telegram_user(
             last_name=from_user.get("last_name"),
             language_code=from_user.get("language_code"),
             is_active=True,
+            notification_types=default_notification_types(),
+            receipt_language=default_receipt_language(from_user.get("language_code")),
         )
         session.add(row)
     await session.flush()
     return row
+
+
+async def update_telegram_user(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    *,
+    notification_types: list[str] | None = None,
+    is_active: bool | None = None,
+    receipt_language: str | None = None,
+) -> dict | None:
+    result = await session.execute(
+        select(TelegramUser).where(
+            TelegramUser.company_id == company_id,
+            TelegramUser.id == user_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if not row:
+        return None
+
+    if notification_types is not None:
+        row.notification_types = notification_types
+    if is_active is not None:
+        row.is_active = is_active
+    if receipt_language is not None:
+        row.receipt_language = receipt_language
+
+    await session.flush()
+    return telegram_user_to_dict(row)
 
 
 async def handle_webhook_update(
@@ -283,15 +333,16 @@ async def handle_webhook_update(
     if not from_user or not chat:
         return
 
-    await _upsert_telegram_user(session, bot.company_id, from_user, int(chat["id"]))
+    row = await _upsert_telegram_user(session, bot.company_id, from_user, int(chat["id"]))
 
     try:
+        lang = resolve_receipt_language(row.receipt_language, row.language_code)
         await _telegram_api_call(
             bot.bot_token,
             "sendMessage",
             {
                 "chat_id": chat["id"],
-                "text": WELCOME_MESSAGE,
+                "text": t("telegram.welcome", lang),
             },
         )
     except Exception:

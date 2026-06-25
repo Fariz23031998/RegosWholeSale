@@ -18,11 +18,12 @@ This document describes how to create, import, and maintain print templates in *
 10. [Page size, margins, fonts, and layout](#page-size-margins-fonts-and-layout)
 11. [Displaying document sections](#displaying-document-sections)
 12. [Line item sorting](#line-item-sorting)
-13. [Conditional blocks and loops](#conditional-blocks-and-loops)
-14. [Barcode and QR codes](#barcode-and-qr-codes)
-15. [Security and validation rules](#security-and-validation-rules)
-16. [Common mistakes](#common-mistakes)
-17. [Complete examples](#complete-examples)
+13. [Logos](#logos)
+14. [Conditional blocks and loops](#conditional-blocks-and-loops)
+15. [Barcode and QR codes](#barcode-and-qr-codes)
+16. [Security and validation rules](#security-and-validation-rules)
+17. [Common mistakes](#common-mistakes)
+18. [Complete examples](#complete-examples)
 
 ---
 
@@ -92,6 +93,14 @@ Templates are rendered in the browser and sent to the system print dialog.
     "amount_in_words_language": "ru",
     "sections": { "...": true },
     "line_sort": { "column": "document_order", "direction": "asc" },
+    "logos": [
+      {
+        "id": "logo-primary",
+        "name": "Primary",
+        "src": "data:image/png;base64,...",
+        "max_width": 120
+      }
+    ],
     "html": "<div>...</div>",
     "css": "@page { size: 80mm auto; margin: 4mm; }"
   }
@@ -123,6 +132,7 @@ Plain template objects (without `version` wrapper) are also accepted if they con
 | `amount_in_words_language` | `"ru"` \| `"uz"` \| `"en"` \| `"tj"` \| `null` | no | Language for amount-in-words variables. `null` = off. |
 | `sections` | object | no | Section toggles for **built-in** layouts only. |
 | `line_sort` | object | no | Sort order for line items (built-in + HTML). |
+| `logos` | array | no | Header images (see [Logos](#logos)). Max **10** logos, **200 KB** each. |
 | `html` | string | yes for `html` engine | Handlebars HTML body. Max **50 KB**. |
 | `css` | string | no | Print CSS. Max **20 KB**. |
 
@@ -160,6 +170,19 @@ Plain template objects (without `version` wrapper) are also accepted if they con
 | `direction` | `asc`, `desc` |
 
 Applies to `operations` and `operation_groups` before HTML rendering.
+
+### `logos` array
+
+Each logo object:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | string | Unique ID (UUID). Assigned automatically in the UI. |
+| `name` | string | Display name and lookup key for `{{logoImg "Name"}}`. Must be unique per template (case-insensitive). |
+| `src` | string | Image as a `data:image/...` URL (PNG, JPEG, GIF, WebP, or SVG). |
+| `max_width` | number \| `null` | Optional max display width in pixels (1–600). `null` = natural size. |
+
+Logos are configured in the template editor under **Settings → Logos**. They are included in JSON import/export.
 
 ---
 
@@ -275,7 +298,7 @@ Loop with `{{#each operations}}…{{/each}}`.
 | `item_brand` | Brand |
 | `quantity` | Quantity |
 | `price` | Unit price |
-| `price2` | Secondary price |
+| `price2` | Price without discount |
 | `amount` | Line total |
 
 Inside `{{#each operations}}`, use `{{item_name}}`, `{{quantity}}`, etc. (no prefix).
@@ -354,6 +377,17 @@ Loop with `{{#each payments}}…{{/each}}`.
 | `invoice_title` | `invoice_title` |
 | `footer_text` | `footer_text` |
 
+### `logos[]` — header images
+
+Configured in the template editor. Available in HTML templates and shown automatically in **built-in** layouts when the `header` section is enabled.
+
+| Variable | Description |
+|----------|-------------|
+| `id` | Logo ID |
+| `name` | Logo name (used with `{{logoImg "Name"}}`) |
+| `src` | `data:image/...` URL |
+| `max_width` | Max width in px, or empty when unset |
+
 ---
 
 ## Formatting helpers
@@ -372,6 +406,7 @@ Use helpers inside `{{...}}`:
 | `eq` | `{{#if (eq kind "return")}}…{{/if}}` | Boolean comparison |
 | `gt` | `{{#if (gt sale.discount 0)}}…{{/if}}` | Greater than |
 | `add` | `{{add @index 1}}` | Addition (e.g. row numbers) |
+| `logoImg` | `{{logoImg "Primary"}}` or `{{logoImg "Stamp" 80}}` | Renders an `<img>` for the named logo; optional second argument overrides max width (px) |
 
 ---
 
@@ -490,11 +525,14 @@ From template `header` (configured in settings, not from Regos API):
 
 ```handlebars
 <div class="company">
+  {{logoImg "Primary"}}
   <strong>{{header.company_name}}</strong><br />
   {{header.address}}<br />
   {{header.phone}}{{#if header.tax_id}} · INN {{header.tax_id}}{{/if}}
 </div>
 ```
+
+Built-in layouts render all configured logos above the company name automatically — no extra markup required.
 
 ### Customer / partner
 
@@ -609,6 +647,89 @@ Sorting affects `operations`, `operation_groups`, and rebuilt `sale.items`. Defa
 
 ---
 
+## Logos
+
+### Setup in the UI
+
+1. Open **Settings → Receipt templates**
+2. Create or edit a template
+3. In the editor **Settings** tab, scroll to **Logos**
+4. Click **Add logo** and select one or more image files (PNG, JPEG, GIF, WebP, SVG)
+5. For each logo, set:
+   - **Logo name** — used to reference the logo in HTML (`{{logoImg "Name"}}`)
+   - **Max width (px)** — optional; limits print/preview size
+6. Save the template
+
+Limits:
+
+| Limit | Value |
+|-------|-------|
+| Logos per template | 10 |
+| Max size per logo | 200 KB (as stored `data:` URL) |
+| Allowed formats | PNG, JPEG, GIF, WebP, SVG |
+| Logo names | Must be unique (case-insensitive) |
+
+### Built-in layouts
+
+When `sections.header` is enabled, all logos are shown above the company name:
+
+- **80mm receipt** — centered row
+- **A4 invoice** — row above seller details
+
+### HTML templates
+
+**By name** (recommended):
+
+```handlebars
+<div class="header-logos">
+  {{logoImg "Primary"}}
+  {{logoImg "Partner badge" 64}}
+</div>
+```
+
+`logoImg` renders a safe `<img>` tag using the logo's `src` and `max_width`. The optional second argument sets width for that placement only.
+
+**Loop all logos:**
+
+```handlebars
+<div class="logos">
+  {{#each logos}}
+  <img src="{{src}}" alt="{{name}}"{{#if max_width}} style="max-width:{{max_width}}px;height:auto;"{{/if}} />
+  {{/each}}
+</div>
+```
+
+### Import / export
+
+Logos are stored inline in the template JSON under `logos`:
+
+```json
+"logos": [
+  {
+    "id": "a1b2c3d4-...",
+    "name": "Primary",
+    "src": "data:image/png;base64,iVBORw0KGgo...",
+    "max_width": 120
+  },
+  {
+    "id": "e5f6g7h8-...",
+    "name": "Stamp",
+    "src": "data:image/png;base64,...",
+    "max_width": null
+  }
+]
+```
+
+Exported JSON files can be large when logos are included. Re-import on another company via **Import template**.
+
+### Print tips
+
+- Prefer PNG or JPEG for thermal printers; SVG may not print reliably on all devices
+- Keep `max_width` modest on 80mm receipts (e.g. 80–120 px)
+- Test on the target printer; browser print scaling varies
+
+---
+
 ## Conditional blocks and loops
 
 Standard [Handlebars block helpers](https://handlebarsjs.com/guide/block-helpers.html) are supported.
@@ -702,6 +823,16 @@ Templates are sanitized on save (frontend and backend).
 |-------|----------|
 | `html` | 50 000 bytes (UTF-8) |
 | `css` | 20 000 bytes (UTF-8) |
+| Each logo `src` | 200 000 bytes (UTF-8) |
+| Logos per template | 10 |
+
+### Logo validation
+
+| Rule | Example |
+|------|---------|
+| `src` must be `data:image/png`, `jpeg`, `gif`, `webp`, or `svg+xml` | ✓ |
+| No `data:text/html` or other non-image data URLs | ✗ |
+| Logo names unique within template | ✗ duplicate `"Primary"` |
 
 ### Other rules
 
@@ -728,6 +859,8 @@ Templates are sanitized on save (frontend and backend).
 | Including `<script>` or `@import` | Save will fail validation |
 | Expecting per-line tax or barcode | Not in print context; only `sale.tax` aggregate |
 | HTML over 50 KB | Split content or simplify tables/images |
+| Logo over 200 KB or more than 10 logos | Resize/compress images before upload |
+| Duplicate logo names | Each logo `name` must be unique (case-insensitive) |
 
 ---
 
@@ -864,14 +997,15 @@ Then wrap in import JSON or paste into the template editor.
 ## Workflow checklist
 
 1. Choose format: `80mm` or `a4`
-2. Set `engine` to `html`
+2. Set `engine` to `html` (or use built-in for standard layouts)
 3. Fill `header`, `footer_text`, optional `amount_in_words_language`
-4. Write Handlebars `html` using variables from [Available variables](#available-variables)
-5. Add `css` with correct `@page` size
-6. Validate against [Security rules](#security-and-validation-rules)
-7. Preview in template editor
-8. Export JSON for backup or deployment to another company
-9. Import JSON on target system → Save → Set as default if needed
+4. Upload logos under **Logos** if needed (see [Logos](#logos))
+5. Write Handlebars `html` using variables from [Available variables](#available-variables)
+6. Add `css` with correct `@page` size
+7. Validate against [Security rules](#security-and-validation-rules)
+8. Preview in template editor
+9. Export JSON for backup or deployment to another company
+10. Import JSON on target system → Save → Set as default if needed
 
 ---
 

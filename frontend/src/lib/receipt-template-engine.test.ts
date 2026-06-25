@@ -37,7 +37,9 @@ const htmlTemplate: ReceiptTemplate = {
     closed_without_payment: true,
     footer: true,
   },
-    html: `
+  line_sort: { column: "document_order", direction: "asc" },
+  logos: [],
+  html: `
     <h1>{{document.code}}</h1>
     {{#each operation_groups}}<section>{{name}}{{#each lines}}<div>{{item_name}}</div>{{/each}}</section>{{/each}}
   `,
@@ -79,6 +81,28 @@ describe("receipt template engine", () => {
     );
     expect(html).toContain("326.74");
     expect(html).toContain("Триста двадцать шесть");
+  });
+
+  it("renders logo helper by name", () => {
+    invalidateReceiptTemplateCache("test-html-logo");
+    const html = renderReceiptHtmlTemplate(
+      {
+        ...htmlTemplate,
+        id: "test-html-logo",
+        logos: [
+          {
+            id: "logo-1",
+            name: "Primary",
+            src: "data:image/png;base64,abc",
+            max_width: 80,
+          },
+        ],
+        html: "<div>{{logoImg \"Primary\"}}</div>",
+      },
+      SAMPLE_RECEIPT_CONTEXT,
+    );
+    expect(html).toContain('src="data:image/png;base64,abc"');
+    expect(html).toContain('style="max-width:80px');
   });
 });
 

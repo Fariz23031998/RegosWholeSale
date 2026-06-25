@@ -8,6 +8,13 @@ export type ReceiptTemplateHeader = {
   tax_id: string;
 };
 
+export type ReceiptTemplateLogo = {
+  id: string;
+  name: string;
+  src: string;
+  max_width: number | null;
+};
+
 export type ReceiptTemplateSections = {
   header: boolean;
   meta: boolean;
@@ -55,6 +62,7 @@ export type ReceiptTemplate = {
   amount_in_words_language: ReceiptAmountInWordsLanguage | null;
   sections: ReceiptTemplateSections;
   line_sort: ReceiptTemplateLineSort;
+  logos: ReceiptTemplateLogo[];
   html: string;
   css: string;
 };

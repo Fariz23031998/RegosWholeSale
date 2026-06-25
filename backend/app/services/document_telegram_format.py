@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Any
 
+from app.services.telegram_i18n import t
 from app.utils.number_format import format_number
 
 
@@ -13,6 +14,47 @@ def _format_date(doc_date: Any) -> str:
     return str(doc_date) if doc_date else ""
 
 
+def _item_name(item: Any, lang: str) -> str:
+    if isinstance(item, dict):
+        name = item.get("name")
+        if isinstance(name, str) and name.strip():
+            return name
+    if item:
+        return str(item)
+    return t("telegram.receipt.unknownItem", lang)
+
+
+def _parse_inout_type_value(value: Any) -> str | None:
+    if value in (1, "1", "Income", "income", "INCOME"):
+        return "income"
+    if value in (2, "2", "Outcome", "outcome", "OUTCOME"):
+        return "outcome"
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"income", "входящий", "внесение", "приход"}:
+            return "income"
+        if normalized in {"outcome", "исходящий", "списание", "расход"}:
+            return "outcome"
+    return None
+
+
+def parse_inout_type(document: dict[str, Any]) -> str | None:
+    raw = document.get("inout_type")
+    if raw is None:
+        raw = document.get("type")
+
+    if isinstance(raw, dict):
+        for key in ("name", "code", "value", "id"):
+            if key not in raw:
+                continue
+            parsed = _parse_inout_type_value(raw[key])
+            if parsed:
+                return parsed
+        return None
+
+    return _parse_inout_type_value(raw)
+
+
 def format_partner_receipt(
     document: dict[str, Any],
     operations: list[dict[str, Any]],
@@ -21,44 +63,42 @@ def format_partner_receipt(
     is_cancelled: bool = False,
     is_return: bool = False,
     use_cost: bool = False,
+    lang: str = "ru",
 ) -> str:
     doc_code = document.get("code", "N/A")
     formatted_date = _format_date(document.get("date", ""))
     message_parts: list[str] = []
 
     if is_cancelled:
-        message_parts.extend(["❌ *ОТМЕНЕНО*", ""])
+        message_parts.extend([f"❌ *{t('telegram.receipt.cancelled', lang)}*", ""])
 
     if is_return:
-        receipt_type = "Чек возврата отгрузки" if use_cost else "Чек возврата закупки"
+        receipt_key = (
+            "telegram.receipt.wholesaleReturn" if use_cost else "telegram.receipt.purchaseReturn"
+        )
     elif use_cost:
-        receipt_type = "Чек отгрузки"
+        receipt_key = "telegram.receipt.wholesale"
     else:
-        receipt_type = "Чек закупки"
+        receipt_key = "telegram.receipt.purchase"
 
     message_parts.extend(
         [
-            f"🧾 *{receipt_type}*",
-            f"📄 *Документ № {doc_code}*",
-            f"📅 Дата: {formatted_date}",
+            f"🧾 *{t(receipt_key, lang)}*",
+            f"📄 *{t('telegram.receipt.documentNo', lang, code=doc_code)}*",
+            f"📅 {t('telegram.receipt.date', lang, date=formatted_date)}",
         ]
     )
 
-    if warehouse_name:
-        message_parts.append(f"🏢 Склад: {warehouse_name}")
+    warehouse = warehouse_name or t("telegram.receipt.warehouseDefault", lang)
+    message_parts.append(f"🏢 {t('telegram.receipt.warehouse', lang, name=warehouse)}")
 
-    message_parts.extend(["", "📦 *Товары*", ""])
+    message_parts.extend(["", f"📦 *{t('telegram.receipt.items', lang)}*", ""])
 
     total_items = 0.0
     total_to_pay = 0.0
 
     for idx, operation in enumerate(operations, 1):
-        item = operation.get("item", {})
-        if isinstance(item, dict):
-            item_name = item.get("name", "Неизвестный товар")
-        else:
-            item_name = str(item) if item else "Неизвестный товар"
-
+        item_name = _item_name(operation.get("item"), lang)
         quantity = float(operation.get("quantity", 0))
         if use_cost:
             cost_or_price = float(operation.get("cost", 0))
@@ -75,14 +115,14 @@ def format_partner_receipt(
             f"   {format_number(quantity)} × {format_number(cost_or_price)} = {format_number(item_total)}"
         )
         if description:
-            message_parts.append(f"   Примечание: {description}")
+            message_parts.append(f"   {t('telegram.receipt.note', lang, text=description)}")
         message_parts.append("")
 
     message_parts.extend(
         [
             "─" * 20,
-            f"📊 Всего товаров: {format_number(total_items)}",
-            f"💵 *Итого к оплате: {format_number(total_to_pay)}*",
+            f"📊 {t('telegram.receipt.totalItems', lang, count=format_number(total_items))}",
+            f"💵 *{t('telegram.receipt.totalToPay', lang, amount=format_number(total_to_pay))}*",
         ]
     )
     return "\n".join(message_parts)
@@ -93,15 +133,16 @@ def format_payment_notification(
     warehouse_name: str | None = None,
     *,
     is_cancelled: bool = False,
+    lang: str = "ru",
 ) -> str:
     doc_code = document.get("code", "N/A")
     formatted_date = _format_date(document.get("date", ""))
     amount = document.get("amount", 0)
     payment_type = document.get("type", {})
     payment_type_name = (
-        payment_type.get("name", "Неизвестный тип")
+        payment_type.get("name", t("telegram.receipt.unknownPaymentType", lang))
         if isinstance(payment_type, dict)
-        else "Неизвестный тип"
+        else t("telegram.receipt.unknownPaymentType", lang)
     )
 
     currency = document.get("currency", {})
@@ -121,39 +162,39 @@ def format_payment_notification(
 
     message_parts: list[str] = []
     if is_cancelled:
-        message_parts.extend(["❌ *ОТМЕНЕНО*", ""])
+        message_parts.extend([f"❌ *{t('telegram.receipt.cancelled', lang)}*", ""])
 
-    if category_positive:
-        direction_text = "Выплачено"
-        direction_emoji = "⬆️"
-    else:
-        direction_text = "Получено"
-        direction_emoji = "⬇️"
+    direction_key = (
+        "telegram.receipt.paymentPaid" if category_positive else "telegram.receipt.paymentReceived"
+    )
+    direction_emoji = "⬆️" if category_positive else "⬇️"
 
     message_parts.extend(
         [
-            f"{direction_emoji} *{direction_text}*",
-            f"📄 *Документ № {doc_code}*",
-            f"📅 Дата: {formatted_date}",
+            f"{direction_emoji} *{t(direction_key, lang)}*",
+            f"📄 *{t('telegram.receipt.documentNo', lang, code=doc_code)}*",
+            f"📅 {t('telegram.receipt.date', lang, date=formatted_date)}",
         ]
     )
 
-    if warehouse_name:
-        message_parts.append(f"🏢 Склад: {warehouse_name}")
+    warehouse = warehouse_name or t("telegram.receipt.warehouseDefault", lang)
+    message_parts.append(f"🏢 {t('telegram.receipt.warehouse', lang, name=warehouse)}")
 
-    message_parts.extend(["", f"💳 Тип платежа: {payment_type_name}"])
+    message_parts.extend(["", f"💳 {t('telegram.receipt.paymentType', lang, name=payment_type_name)}"])
 
-    amount_line = f"💵 Сумма: {format_number(amount)}"
+    amount_text = format_number(amount)
     if currency_name:
-        amount_line += f" {currency_name}"
-    message_parts.append(amount_line)
+        amount_text = f"{amount_text} {currency_name}"
+    message_parts.append(f"💵 {t('telegram.receipt.amount', lang, amount=amount_text)}")
 
     if exchange_rate != 1.0:
-        message_parts.append(f"📊 Курс обмена: {format_number(exchange_rate, 4)}")
+        message_parts.append(
+            f"📊 {t('telegram.receipt.exchangeRate', lang, rate=format_number(exchange_rate, 4))}"
+        )
 
     description = document.get("description")
     if description:
-        message_parts.append(f"📝 Примечание: {description}")
+        message_parts.append(f"📝 {t('telegram.receipt.note', lang, text=description)}")
 
     return "\n".join(message_parts)
 
@@ -164,42 +205,38 @@ def format_inout_receipt(
     warehouse_name: str | None = None,
     *,
     is_cancelled: bool = False,
+    lang: str = "ru",
 ) -> str:
     doc_code = document.get("code", "N/A")
     formatted_date = _format_date(document.get("date", ""))
-    inout_type = document.get("inout_type", "")
-    if inout_type == "Income":
-        title = "Внесение"
-    elif inout_type == "Outcome":
-        title = "Списание"
+    inout_kind = parse_inout_type(document)
+    if inout_kind == "income":
+        title_key = "telegram.receipt.inoutIncome"
+    elif inout_kind == "outcome":
+        title_key = "telegram.receipt.inoutOutcome"
     else:
-        title = "Списание/внесение"
+        title_key = "telegram.receipt.inoutUnknown"
 
     message_parts: list[str] = []
     if is_cancelled:
-        message_parts.extend(["❌ *ОТМЕНЕНО*", ""])
+        message_parts.extend([f"❌ *{t('telegram.receipt.cancelled', lang)}*", ""])
 
     message_parts.extend(
         [
-            f"📋 *{title}*",
-            f"📄 *Документ № {doc_code}*",
-            f"📅 Дата: {formatted_date}",
+            f"📋 *{t(title_key, lang)}*",
+            f"📄 *{t('telegram.receipt.documentNo', lang, code=doc_code)}*",
+            f"📅 {t('telegram.receipt.date', lang, date=formatted_date)}",
         ]
     )
 
-    if warehouse_name:
-        message_parts.append(f"🏢 Склад: {warehouse_name}")
+    warehouse = warehouse_name or t("telegram.receipt.warehouseDefault", lang)
+    message_parts.append(f"🏢 {t('telegram.receipt.warehouse', lang, name=warehouse)}")
 
-    message_parts.extend(["", "📦 *Товары*", ""])
+    message_parts.extend(["", f"📦 *{t('telegram.receipt.items', lang)}*", ""])
 
     total_items = 0.0
     for idx, operation in enumerate(operations, 1):
-        item = operation.get("item", {})
-        if isinstance(item, dict):
-            item_name = item.get("name", "Неизвестный товар")
-        else:
-            item_name = str(item) if item else "Неизвестный товар"
-
+        item_name = _item_name(operation.get("item"), lang)
         quantity = float(operation.get("quantity", 0))
         total_items += quantity
         description = operation.get("description", "")
@@ -207,10 +244,12 @@ def format_inout_receipt(
         message_parts.append(f"{idx}. *{item_name}*")
         message_parts.append(f"   {format_number(quantity)}")
         if description:
-            message_parts.append(f"   Примечание: {description}")
+            message_parts.append(f"   {t('telegram.receipt.note', lang, text=description)}")
         message_parts.append("")
 
-    message_parts.extend(["─" * 20, f"📊 Всего товаров: {format_number(total_items)}"])
+    message_parts.extend(
+        ["─" * 20, f"📊 {t('telegram.receipt.totalItems', lang, count=format_number(total_items))}"]
+    )
     return "\n".join(message_parts)
 
 
@@ -219,27 +258,31 @@ def format_movement_receipt(
     operations: list[dict[str, Any]],
     *,
     is_cancelled: bool = False,
+    lang: str = "ru",
 ) -> str:
     doc_code = document.get("code", "N/A")
     formatted_date = _format_date(document.get("date", ""))
 
     sender = document.get("stock_sender", {})
     receiver = document.get("stock_receiver", {})
-    sender_name = sender.get("name", "Склад") if isinstance(sender, dict) else "Склад"
-    receiver_name = receiver.get("name", "Склад") if isinstance(receiver, dict) else "Склад"
+    warehouse_default = t("telegram.receipt.warehouseDefault", lang)
+    sender_name = sender.get("name", warehouse_default) if isinstance(sender, dict) else warehouse_default
+    receiver_name = (
+        receiver.get("name", warehouse_default) if isinstance(receiver, dict) else warehouse_default
+    )
 
     message_parts: list[str] = []
     if is_cancelled:
-        message_parts.extend(["❌ *ОТМЕНЕНО*", ""])
+        message_parts.extend([f"❌ *{t('telegram.receipt.cancelled', lang)}*", ""])
 
     message_parts.extend(
         [
-            "🚚 *Перемещение*",
-            f"📄 *Документ № {doc_code}*",
-            f"📅 Дата: {formatted_date}",
+            f"🚚 *{t('telegram.receipt.movement', lang)}*",
+            f"📄 *{t('telegram.receipt.documentNo', lang, code=doc_code)}*",
+            f"📅 {t('telegram.receipt.date', lang, date=formatted_date)}",
             f"🏢 {sender_name} → {receiver_name}",
             "",
-            "📦 *Товары*",
+            f"📦 *{t('telegram.receipt.items', lang)}*",
             "",
         ]
     )
@@ -248,12 +291,7 @@ def format_movement_receipt(
     total_to_pay = 0.0
 
     for idx, operation in enumerate(operations, 1):
-        item = operation.get("item", {})
-        if isinstance(item, dict):
-            item_name = item.get("name", "Неизвестный товар")
-        else:
-            item_name = str(item) if item else "Неизвестный товар"
-
+        item_name = _item_name(operation.get("item"), lang)
         quantity = float(operation.get("quantity", 0))
         price = float(operation.get("price", 0))
         description = operation.get("description", "")
@@ -266,14 +304,14 @@ def format_movement_receipt(
             f"   {format_number(quantity)} × {format_number(price)} = {format_number(item_total)}"
         )
         if description:
-            message_parts.append(f"   Примечание: {description}")
+            message_parts.append(f"   {t('telegram.receipt.note', lang, text=description)}")
         message_parts.append("")
 
     message_parts.extend(
         [
             "─" * 20,
-            f"📊 Всего товаров: {format_number(total_items)}",
-            f"💵 *Итого: {format_number(total_to_pay)}*",
+            f"📊 {t('telegram.receipt.totalItems', lang, count=format_number(total_items))}",
+            f"💵 *{t('telegram.receipt.total', lang, amount=format_number(total_to_pay))}*",
         ]
     )
     return "\n".join(message_parts)

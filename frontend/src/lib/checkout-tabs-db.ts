@@ -1,8 +1,10 @@
 import type { CartItem, DiscountMode } from "@/store/cart";
+import {
+  CHECKOUT_TABS_STORE,
+  openPulsePosDb,
+} from "@/lib/pulse-pos-db";
 
-const DB_NAME = "pulse-pos";
-const STORE_NAME = "checkout-tabs";
-const DB_VERSION = 1;
+const STORE_NAME = CHECKOUT_TABS_STORE;
 
 export type CheckoutTabData = {
   id: string;
@@ -20,17 +22,7 @@ export type CheckoutTabsRecord = {
 };
 
 function openDb(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
-    request.onerror = () => reject(request.error ?? new Error("Failed to open IndexedDB"));
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = () => {
-      const db = request.result;
-      if (!db.objectStoreNames.contains(STORE_NAME)) {
-        db.createObjectStore(STORE_NAME);
-      }
-    };
-  });
+  return openPulsePosDb();
 }
 
 export async function loadCheckoutTabs(

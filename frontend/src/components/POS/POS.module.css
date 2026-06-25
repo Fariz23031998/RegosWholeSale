@@ -96,6 +96,18 @@
   color: var(--color-primary);
 }
 
+.catalogFilterBtnReturn {
+  background: var(--color-danger, #dc2626);
+  border-color: var(--color-danger, #dc2626);
+  color: #fff;
+}
+
+.catalogFilterBtnReturn:hover {
+  background: color-mix(in srgb, var(--color-danger, #dc2626) 88%, #000);
+  border-color: color-mix(in srgb, var(--color-danger, #dc2626) 88%, #000);
+  color: #fff;
+}
+
 .catalogFilterBtnLabel {
   display: inline;
 }

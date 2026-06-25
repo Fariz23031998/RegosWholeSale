@@ -236,6 +236,68 @@ async def test_patch_rejects_html_template_without_body(client: AsyncClient) -> 
 
 
 @pytest.mark.asyncio
+async def test_patch_receipt_template_logos_round_trip(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client, email="receipt-logos@test.com", company_name="Logo Co"
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    logo_src = (
+        "data:image/png;base64,"
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+    initial = await client.get("/api/v1/company/settings/receipt-templates", headers=headers)
+    templates = initial.json()["settings"]["templates"]
+    templates[0]["logos"] = [
+        {
+            "id": "logo-1",
+            "name": "Primary",
+            "src": logo_src,
+            "max_width": 120,
+        }
+    ]
+
+    patched = await client.patch(
+        "/api/v1/company/settings/receipt-templates",
+        headers=headers,
+        json={"templates": templates},
+    )
+    assert patched.status_code == 200
+    saved = patched.json()["settings"]["templates"][0]
+    assert len(saved["logos"]) == 1
+    assert saved["logos"][0]["name"] == "Primary"
+    assert saved["logos"][0]["max_width"] == 120
+
+
+@pytest.mark.asyncio
+async def test_patch_rejects_invalid_receipt_template_logo(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client, email="receipt-logos-bad@test.com", company_name="Bad Logo Co"
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    initial = await client.get("/api/v1/company/settings/receipt-templates", headers=headers)
+    templates = initial.json()["settings"]["templates"]
+    templates[0]["logos"] = [
+        {
+            "id": "logo-bad",
+            "name": "Bad",
+            "src": "data:text/html;base64,PHNjcmlwdD4=",
+            "max_width": None,
+        }
+    ]
+
+    response = await client.patch(
+        "/api/v1/company/settings/receipt-templates",
+        headers=headers,
+        json={"templates": templates},
+    )
+    assert response.status_code in (400, 422)
+
+
+@pytest.mark.asyncio
 async def test_patch_rejects_script_in_html_template(client: AsyncClient) -> None:
     reg = await register_owner(
         client, email="receipt-html-script@test.com", company_name="Script Co"

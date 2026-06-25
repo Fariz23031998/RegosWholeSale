@@ -11,6 +11,7 @@ import {
 } from "@/templates/receipts/nakladnaya";
 import { normalizeAmountInWordsLanguage, amountToWordsText, formatAmountWithWordsText } from "@/lib/amount-in-words";
 import { DEFAULT_RECEIPT_TEMPLATE_LINE_SORT, normalizeReceiptTemplateLineSort } from "@/lib/receipt-line-sort";
+import { normalizeReceiptTemplateLogos, validateReceiptTemplateLogos } from "@/lib/receipt-template-logos";
 
 export function normalizeReceiptTemplate(template: ReceiptTemplate): ReceiptTemplate {
   return {
@@ -20,6 +21,7 @@ export function normalizeReceiptTemplate(template: ReceiptTemplate): ReceiptTemp
     css: template.css ?? "",
     amount_in_words_language: normalizeAmountInWordsLanguage(template.amount_in_words_language),
     line_sort: normalizeReceiptTemplateLineSort(template.line_sort),
+    logos: normalizeReceiptTemplateLogos(template.logos),
   };
 }
 
@@ -74,6 +76,7 @@ export function createReceiptTemplate(
     amount_in_words_language: null,
     sections: defaultSectionsForFormat(format),
     line_sort: { ...DEFAULT_RECEIPT_TEMPLATE_LINE_SORT },
+    logos: [],
     html: engine === "html" ? defaultHtmlTemplate(format) : "",
     css: engine === "html" ? defaultCssTemplate(format) : "",
   };
@@ -236,9 +239,13 @@ export function sanitizeReceiptCss(text: string): string {
 }
 
 export function prepareReceiptTemplateForSave(template: ReceiptTemplate): ReceiptTemplate {
+  const logos = normalizeReceiptTemplateLogos(template.logos);
+  validateReceiptTemplateLogos(logos);
+
   if (template.engine !== "html") {
     return {
       ...template,
+      logos,
       html: "",
       css: "",
     };
@@ -246,6 +253,7 @@ export function prepareReceiptTemplateForSave(template: ReceiptTemplate): Receip
 
   return {
     ...template,
+    logos,
     html: sanitizeTemplateMarkup(template.html),
     css: sanitizeReceiptCss(template.css),
   };
@@ -310,6 +318,7 @@ export function parseImportedReceiptTemplate(
     line_sort: normalizeReceiptTemplateLineSort(
       source.line_sort as ReceiptTemplate["line_sort"] | undefined,
     ),
+    logos: normalizeReceiptTemplateLogos(source.logos),
     html: engine === "html" ? html : "",
     css: engine === "html" ? css : "",
     is_default: false,
@@ -424,6 +433,10 @@ export const RECEIPT_TEMPLATE_VARIABLE_GROUPS = [
       "reason",
       "refundOf",
     ],
+  },
+  {
+    label: "logos[]",
+    variables: ["id", "name", "src", "max_width"],
   },
   {
     label: "template",

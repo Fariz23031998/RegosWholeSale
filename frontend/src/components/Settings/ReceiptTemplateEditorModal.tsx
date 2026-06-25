@@ -14,6 +14,7 @@ import {
   RECEIPT_TEMPLATE_VARIABLE_GROUPS,
 } from "@/lib/receipt-template-utils";
 import { RECEIPT_LINE_SORT_COLUMNS } from "@/lib/receipt-line-sort";
+import { ReceiptTemplateLogosEditor } from "@/components/Settings/ReceiptTemplateLogosEditor";
 import type { ReceiptFormat, ReceiptTemplate, ReceiptTemplateEngine } from "@/types/receipt-templates";
 import { getReceiptLineSortColumnLabels, getReceiptSectionLabels } from "@/types/receipt-templates";
 import styles from "./ReceiptTemplates.module.css";
@@ -185,9 +186,9 @@ export function ReceiptTemplateEditorModal({
                   {tab === "settings"
                     ? t("settings.receiptTemplates.tabSettings", "Settings")
                     : tab === "html"
-                      ? "HTML"
+                      ? t("settings.receiptTemplates.tabHtml", "HTML")
                       : tab === "css"
-                        ? "CSS"
+                        ? t("settings.receiptTemplates.tabCss", "CSS")
                         : t("settings.receiptTemplates.tabVariables", "Variables")}
                 </button>
               ))}
@@ -289,6 +290,15 @@ export function ReceiptTemplateEditorModal({
                   onChange={(e) => updateHeader("phone", e.target.value)}
                 />
               </label>
+
+              <ReceiptTemplateLogosEditor
+                logos={draft.logos}
+                onChange={(logos) => {
+                  setValidationError("");
+                  setDraft({ ...draft, logos });
+                }}
+                onError={setValidationError}
+              />
 
               {(draft.format === "a4" || isHtml) && (
                 <>
@@ -468,7 +478,9 @@ export function ReceiptTemplateEditorModal({
                 </button>
               </div>
               <label className={`${styles.field} ${styles.codeField}`}>
-                <span className={styles.label}>Handlebars HTML</span>
+                <span className={styles.label}>
+                  {t("settings.receiptTemplates.htmlLabel", "Handlebars HTML")}
+                </span>
                 <textarea
                   className={styles.codeArea}
                   value={draft.html}
@@ -484,7 +496,7 @@ export function ReceiptTemplateEditorModal({
 
           {isHtml && editorTab === "css" ? (
             <label className={`${styles.field} ${styles.codeField}`}>
-              <span className={styles.label}>CSS</span>
+              <span className={styles.label}>{t("settings.receiptTemplates.tabCss", "CSS")}</span>
               <textarea
                 className={styles.codeArea}
                 value={draft.css}
@@ -513,6 +525,10 @@ export function ReceiptTemplateEditorModal({
                       const expression =
                         group.label === "operations[]" || group.label === "payments[]"
                           ? `{{${variable}}}`
+                          : group.label === "logos[]"
+                            ? variable === "src"
+                              ? "{{logoImg name}}"
+                              : `{{${variable}}}`
                           : group.label === "operation_groups[]"
                             ? variable === "lines"
                               ? "{{#each lines}}...{{/each}}"

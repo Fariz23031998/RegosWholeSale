@@ -23,5 +23,21 @@ export type TelegramUser = {
   last_name: string | null;
   language_code: string | null;
   is_active: boolean;
+  notification_types: string[];
+  receipt_language: string;
   created_at: string;
+};
+
+export type TelegramUserUpdateRequest = {
+  notification_types?: string[];
+  is_active?: boolean;
+  receipt_language?: string;
+};
+
+export type TelegramReceiptLanguagesResponse = {
+  languages: string[];
+};
+
+export type TelegramNotificationTypesResponse = {
+  types: string[];
 };

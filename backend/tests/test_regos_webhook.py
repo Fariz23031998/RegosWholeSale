@@ -360,6 +360,90 @@ async def test_movement_performed_and_cancelled_format(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_wholesale_respects_user_notification_preferences(client, monkeypatch, session_factory):
+    auth_token = await _setup_company(client, monkeypatch, subscriber_count=2)
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser).order_by(TelegramUser.telegram_user_id))
+        users = list(result.scalars().all())
+        users[0].notification_types = ["wholesale"]
+        users[1].notification_types = ["payment"]
+        await session.commit()
+
+    send_calls: list[int] = []
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        if method == "sendMessage":
+            send_calls.append(int(payload["chat_id"]))
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        if endpoint == "DocWholeSale/Get":
+            return {"ok": True, "result": [SAMPLE_WHOLESALE_DOC]}
+        if endpoint == "WholesaleOperation/Get":
+            return {"ok": True, "result": SAMPLE_WHOLESALE_OPS}
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(
+        "app.services.regos_document_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload("DocWholeSalePerformed", 1, event_id="pref-evt"),
+    )
+    assert response.status_code == 200
+    assert send_calls == [900000]
+
+
+@pytest.mark.asyncio
+async def test_wholesale_sent_in_subscriber_language(client, monkeypatch, session_factory):
+    auth_token = await _setup_company(client, monkeypatch, subscriber_count=2)
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser).order_by(TelegramUser.telegram_user_id))
+        users = list(result.scalars().all())
+        users[0].receipt_language = "en"
+        users[1].receipt_language = "ru"
+        await session.commit()
+
+    sent_texts: list[str] = []
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        if method == "sendMessage":
+            sent_texts.append(payload["text"])
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        if endpoint == "DocWholeSale/Get":
+            return {"ok": True, "result": [SAMPLE_WHOLESALE_DOC]}
+        if endpoint == "WholesaleOperation/Get":
+            return {"ok": True, "result": SAMPLE_WHOLESALE_OPS}
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(
+        "app.services.regos_document_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload("DocWholeSalePerformed", 1, event_id="lang-evt"),
+    )
+    assert response.status_code == 200
+    assert len(sent_texts) == 2
+    assert any("Document №" in text for text in sent_texts)
+    assert any("Документ №" in text for text in sent_texts)
+
+
+@pytest.mark.asyncio
 async def test_regos_token_config_includes_webhook_url(client):
     auth_token = await _register_and_login(client, "webhook-url@test.com")
 

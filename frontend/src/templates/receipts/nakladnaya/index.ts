@@ -43,6 +43,7 @@ export function createNakladnayaReceiptTemplate(companyName: string): ReceiptTem
       column: "item_name",
       direction: "asc",
     },
+    logos: [],
     html: nakladnayaHtml,
     css: nakladnayaCss,
   };

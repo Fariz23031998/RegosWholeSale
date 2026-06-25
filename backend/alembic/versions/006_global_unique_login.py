@@ -37,10 +37,12 @@ def upgrade() -> None:
             "Rename duplicates before running this migration."
         )
 
-    op.drop_constraint("uq_users_company_login", "users", type_="unique")
-    op.create_index(op.f("ix_users_login"), "users", ["login"], unique=True)
+    with op.batch_alter_table("users", schema=None) as batch_op:
+        batch_op.drop_constraint("uq_users_company_login", type_="unique")
+        batch_op.create_index(batch_op.f("ix_users_login"), ["login"], unique=True)
 
 
 def downgrade() -> None:
-    op.drop_index(op.f("ix_users_login"), table_name="users")
-    op.create_unique_constraint("uq_users_company_login", "users", ["company_id", "login"])
+    with op.batch_alter_table("users", schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f("ix_users_login"))
+        batch_op.create_unique_constraint("uq_users_company_login", ["company_id", "login"])

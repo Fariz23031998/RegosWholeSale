@@ -12,6 +12,16 @@ VALID_FORMATS = {"80mm", "a4"}
 VALID_ENGINES = {"builtin", "html"}
 MAX_HTML_BYTES = 50_000
 MAX_CSS_BYTES = 20_000
+MAX_RECEIPT_TEMPLATE_LOGOS = 10
+MAX_RECEIPT_LOGO_BYTES = 200_000
+VALID_LOGO_MIME_PREFIXES = (
+    "data:image/png",
+    "data:image/jpeg",
+    "data:image/jpg",
+    "data:image/gif",
+    "data:image/webp",
+    "data:image/svg+xml",
+)
 VALID_LINE_SORT_COLUMNS = {
     "document_order",
     "item_code",
@@ -126,6 +136,7 @@ def _seed_defaults(company_name: str) -> dict[str, Any]:
                 "amount_in_words_language": None,
                 "sections": receipt_sections,
                 "line_sort": {"column": "document_order", "direction": "asc"},
+                "logos": [],
                 "html": "",
                 "css": "",
             },
@@ -141,6 +152,7 @@ def _seed_defaults(company_name: str) -> dict[str, Any]:
                 "amount_in_words_language": None,
                 "sections": invoice_sections,
                 "line_sort": {"column": "document_order", "direction": "asc"},
+                "logos": [],
                 "html": "",
                 "css": "",
             },
@@ -254,6 +266,7 @@ def _normalize_templates(raw: Any) -> list[dict[str, Any]]:
                 ),
                 "sections": _normalize_sections(item.get("sections"), fmt),
                 "line_sort": _normalize_line_sort(item.get("line_sort")),
+                "logos": _normalize_logos(item.get("logos")),
                 "html": html if engine == "html" else "",
                 "css": css if engine == "html" else "",
             }
@@ -270,6 +283,69 @@ def _normalize_header(raw: Any) -> dict[str, str]:
         "phone": _normalize_str(data.get("phone")),
         "tax_id": _normalize_str(data.get("tax_id")),
     }
+
+
+def _is_valid_logo_data_url(src: str) -> bool:
+    lowered = src.lower()
+    if not any(lowered.startswith(prefix) for prefix in VALID_LOGO_MIME_PREFIXES):
+        return False
+    if "javascript:" in lowered or "data:text/html" in lowered:
+        return False
+    return True
+
+
+def _normalize_logos(raw: Any) -> list[dict[str, Any]]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise bad_request("Template logos must be a list.", "INVALID_RECEIPT_TEMPLATE_LOGOS")
+
+    normalized: list[dict[str, Any]] = []
+    seen_names: set[str] = set()
+
+    for item in raw:
+        if not isinstance(item, dict):
+            raise bad_request("Each logo must be an object.", "INVALID_RECEIPT_TEMPLATE_LOGO")
+
+        src = _normalize_str(item.get("src"))
+        if not src:
+            continue
+        if not _is_valid_logo_data_url(src):
+            raise bad_request("Logo image source is invalid.", "INVALID_RECEIPT_TEMPLATE_LOGO")
+        if len(src.encode("utf-8")) > MAX_RECEIPT_LOGO_BYTES:
+            raise bad_request("Logo image exceeds size limit.", "RECEIPT_LOGO_TOO_LARGE")
+
+        logo_id = item.get("id")
+        if not isinstance(logo_id, str) or not logo_id.strip():
+            logo_id = str(uuid.uuid4())
+
+        name = _normalize_str(item.get("name")) or "Logo"
+        normalized_name = name.casefold()
+        if normalized_name in seen_names:
+            raise bad_request("Duplicate logo name.", "DUPLICATE_RECEIPT_TEMPLATE_LOGO_NAME")
+        seen_names.add(normalized_name)
+
+        max_width = item.get("max_width")
+        normalized_max_width: int | None = None
+        if isinstance(max_width, (int, float)) and max_width > 0:
+            normalized_max_width = min(int(max_width), 600)
+
+        normalized.append(
+            {
+                "id": logo_id.strip(),
+                "name": name,
+                "src": src,
+                "max_width": normalized_max_width,
+            }
+        )
+
+        if len(normalized) > MAX_RECEIPT_TEMPLATE_LOGOS:
+            raise bad_request(
+                f"A template can have at most {MAX_RECEIPT_TEMPLATE_LOGOS} logos.",
+                "TOO_MANY_RECEIPT_TEMPLATE_LOGOS",
+            )
+
+    return normalized
 
 
 def _normalize_line_sort(raw: Any) -> dict[str, str]:

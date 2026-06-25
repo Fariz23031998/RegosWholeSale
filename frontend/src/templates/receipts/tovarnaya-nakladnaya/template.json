@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "template": {
+    "name": "Товарная накладная (A4)",
+    "format": "a4",
+    "engine": "html",
+    "header": {
+      "company_name": "Предприятие",
+      "address": "",
+      "phone": "",
+      "tax_id": ""
+    },
+    "invoice_title": "Товарная накладная",
+    "footer_text": "",
+    "amount_in_words_language": null,
+    "sections": {
+      "header": true,
+      "meta": true,
+      "partner": true,
+      "items": true,
+      "subtotal": true,
+      "discount": true,
+      "total": true,
+      "payments": true,
+      "tendered_change": true,
+      "balance_due": true,
+      "closed_without_payment": true,
+      "footer": true
+    },
+    "line_sort": {
+      "column": "document_order",
+      "direction": "asc"
+    },
+    "logos": [],
+    "html": "<div class=\"tovarnaya-nakladnaya\">\n  <h1 class=\"doc-title\">\n    {{#if (eq kind \"return\")}}\n    Возвратная товарная накладная № {{document.code}} на дату {{formatRegosDate document.date}}\n    {{else}}\n    Товарная накладная № {{document.code}} на дату {{formatRegosDate document.date}}\n    {{/if}}\n  </h1>\n\n  <div class=\"parties\">\n    <div class=\"party party-sender\">\n      <div class=\"party-line\">\n        <span class=\"label\">Отправитель:</span> {{header.company_name}}\n      </div>\n      {{#if document.stock_name}}\n      <div class=\"party-line\">\n        <span class=\"label\">Склад:</span> {{document.stock_name}}\n      </div>\n      {{/if}}\n      {{#if header.phone}}\n      <div class=\"party-line\">\n        <span class=\"label\">Номер отправителя:</span> {{header.phone}}\n      </div>\n      {{/if}}\n    </div>\n\n    <div class=\"party party-receiver\">\n      {{#if document.partner_name}}\n      <div class=\"party-line\">\n        <span class=\"label\">Получатель:</span> {{document.partner_name}}\n      </div>\n      {{/if}}\n      {{#if document.partner_phone}}\n      <div class=\"party-line\">\n        <span class=\"label\">Номер получателя:</span> {{document.partner_phone}}\n      </div>\n      {{/if}}\n      <div class=\"party-line\">\n        <span class=\"label\">Адрес получателя:</span>\n      </div>\n    </div>\n  </div>\n\n  <table class=\"items-table\">\n    <thead>\n      <tr>\n        <th class=\"col-no\">№</th>\n        <th class=\"col-name\">Наименование</th>\n        <th class=\"col-code\">Артикул</th>\n        <th class=\"col-unit\">Ед.изм.</th>\n        <th class=\"col-qty\">Кол-во</th>\n        <th class=\"col-price2\">Цена без скид</th>\n        <th class=\"col-price\">Цена</th>\n        <th class=\"col-amount2\">Сумма без скид</th>\n        <th class=\"col-amount\">Сумма</th>\n        <th class=\"col-discount\">Скидка</th>\n      </tr>\n    </thead>\n    <tbody>\n      {{#each operations}}\n      <tr class=\"item-row\">\n        <td class=\"center\">{{add @index 1}}</td>\n        <td class=\"text\">{{item_name}}</td>\n        <td class=\"text\">{{item_code}}</td>\n        <td class=\"center\">{{item_unit_name}}</td>\n        <td class=\"num\">{{quantity}}</td>\n        <td class=\"num\">{{#if price2}}{{formatCurrency price2}}{{else}}{{formatCurrency price}}{{/if}}</td>\n        <td class=\"num\">{{formatCurrency price}}</td>\n        <td class=\"num\">{{#unless (gt price2 price)}}{{formatCurrency amount}}{{/unless}}</td>\n        <td class=\"num\">{{formatCurrency amount}}</td>\n        <td class=\"num\"></td>\n      </tr>\n      {{/each}}\n      <tr class=\"grand-total\">\n        <td colspan=\"4\" class=\"text total-label\">Итого:</td>\n        <td class=\"num\">{{totals.quantity}}</td>\n        <td class=\"num\"></td>\n        <td class=\"num\"></td>\n        <td class=\"num\">{{formatCurrency (add totals.amount sale.discount)}}</td>\n        <td class=\"num\">{{formatCurrency totals.amount}}</td>\n        <td class=\"num\">{{#if (gt sale.discount 0)}}{{formatCurrency sale.discount}}{{/if}}</td>\n      </tr>\n    </tbody>\n  </table>\n\n  <div class=\"signatures\">\n    <div class=\"signature\">\n      <span class=\"label\">Отправлено:</span>\n      <span class=\"signature-line\"></span>\n    </div>\n    <div class=\"signature\">\n      <span class=\"label\">Получено:</span>\n      <span class=\"signature-line\"></span>\n    </div>\n  </div>\n</div>\n",
+    "css": "@page {\n  size: A4 portrait;\n  margin: 10mm 8mm;\n}\n\n.tovarnaya-nakladnaya {\n  font-family: Arial, Helvetica, sans-serif;\n  font-size: 11px;\n  color: #000;\n  line-height: 1.25;\n}\n\n.doc-title {\n  text-align: center;\n  font-size: 14px;\n  font-weight: 700;\n  margin: 0 0 0;\n  padding-bottom: 6px;\n  border-bottom: 1px solid #000;\n}\n\n.parties {\n  display: flex;\n  justify-content: space-between;\n  gap: 16px;\n  margin: 10px 0 8px;\n}\n\n.party {\n  flex: 1 1 50%;\n  min-width: 0;\n}\n\n.party-line {\n  margin: 2px 0;\n}\n\n.party-line .label {\n  font-weight: 700;\n}\n\n.items-table {\n  width: 100%;\n  border-collapse: collapse;\n  table-layout: fixed;\n}\n\n.items-table th,\n.items-table td {\n  border: 1px solid #000;\n  padding: 3px 4px;\n  vertical-align: middle;\n}\n\n.items-table thead th {\n  font-weight: 700;\n  background: #fff;\n}\n\n.col-no {\n  width: 4%;\n}\n\n.col-name {\n  width: 24%;\n}\n\n.col-code {\n  width: 9%;\n}\n\n.col-unit {\n  width: 7%;\n}\n\n.col-qty {\n  width: 7%;\n}\n\n.col-price2 {\n  width: 10%;\n}\n\n.col-price {\n  width: 8%;\n}\n\n.col-amount2 {\n  width: 11%;\n}\n\n.col-amount {\n  width: 10%;\n}\n\n.col-discount {\n  width: 10%;\n}\n\n.items-table thead .col-no,\n.items-table thead .col-unit {\n  text-align: center;\n}\n\n.items-table thead .col-name,\n.items-table thead .col-code {\n  text-align: left;\n}\n\n.items-table thead .col-qty,\n.items-table thead .col-price2,\n.items-table thead .col-price,\n.items-table thead .col-amount2,\n.items-table thead .col-amount,\n.items-table thead .col-discount {\n  text-align: right;\n}\n\n.center {\n  text-align: center;\n}\n\n.num {\n  text-align: right;\n  white-space: nowrap;\n  font-variant-numeric: tabular-nums;\n}\n\n.text {\n  text-align: left;\n  word-break: break-word;\n}\n\n.grand-total td {\n  font-weight: 700;\n}\n\n.total-label {\n  font-weight: 700;\n}\n\n.signatures {\n  display: flex;\n  justify-content: space-between;\n  gap: 24px;\n  margin-top: 24px;\n}\n\n.signature {\n  flex: 1 1 45%;\n  display: flex;\n  align-items: baseline;\n  gap: 6px;\n}\n\n.signature .label {\n  font-weight: 400;\n  white-space: nowrap;\n}\n\n.signature-line {\n  flex: 1 1 auto;\n  border-bottom: 1px solid #000;\n  min-width: 120px;\n  height: 1em;\n}\n"
+  }
+}
