@@ -2,6 +2,7 @@ import type { DecodeContinuouslyCallback } from "@zxing/browser";
 
 type ScannerControls = {
   stop: () => void;
+  switchTorch?: (onOff: boolean) => Promise<void>;
 };
 
 type BrowserReader = {
@@ -92,3 +93,36 @@ export async function startBarcodeScanner(
 export function isCameraPermissionDenied(err: unknown): boolean {
   return isPermissionDenied(err);
 }
+
+type TorchCapableTrack = MediaTrackCapabilities & { torch?: boolean };
+
+export function isTorchSupported(videoEl: HTMLVideoElement): boolean {
+  const stream = videoEl.srcObject;
+  if (!(stream instanceof MediaStream)) return false;
+
+  const track = stream.getVideoTracks()[0];
+  if (!track?.getCapabilities) return false;
+
+  const capabilities = track.getCapabilities() as TorchCapableTrack;
+  return capabilities.torch === true;
+}
+
+export async function setTorchEnabled(
+  videoEl: HTMLVideoElement,
+  enabled: boolean,
+): Promise<void> {
+  const stream = videoEl.srcObject;
+  if (!(stream instanceof MediaStream)) {
+    throw new Error("No active camera stream");
+  }
+
+  const track = stream.getVideoTracks()[0];
+  if (!track) {
+    throw new Error("No video track");
+  }
+
+  await track.applyConstraints({
+    advanced: [{ torch: enabled } as MediaTrackConstraintSet],
+  });
+}
+

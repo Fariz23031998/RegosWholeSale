@@ -68,6 +68,27 @@
   color: var(--color-text-subtle);
 }
 
+.searchScanBtn {
+  display: none;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.searchScanBtn:active {
+  color: var(--color-primary);
+}
+
 .catalogFilterBtn {
   display: inline-flex;
   align-items: center;
@@ -112,24 +133,28 @@
   display: inline;
 }
 
-.catalogFilterBtnMobileOnly {
-  display: none;
-}
-
 @media (max-width: 900px) {
   .catalogFilterBtnLabel {
     display: none;
   }
 
-  .catalogFilterBtnMobileOnly {
+  .searchScanBtn {
     display: inline-flex;
+  }
+
+  .searchInput {
+    padding-right: 38px;
   }
 }
 
 /* Touch phones that report a wide layout width (e.g. missing viewport meta). */
 @media (hover: none) and (pointer: coarse) and (max-width: 1024px) {
-  .catalogFilterBtnMobileOnly {
+  .searchScanBtn {
     display: inline-flex;
+  }
+
+  .searchInput {
+    padding-right: 38px;
   }
 }
 
@@ -1219,6 +1244,57 @@
   overflow: hidden;
   border-radius: var(--radius-md);
   background: #000;
+}
+
+.barcodeScannerClose {
+  position: absolute;
+  top: max(var(--space-3), env(safe-area-inset-top, 0px));
+  right: var(--space-3);
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.barcodeScannerTorch {
+  position: absolute;
+  top: max(var(--space-3), env(safe-area-inset-top, 0px));
+  left: var(--space-3);
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.barcodeScannerTorchActive {
+  background: rgba(255, 255, 255, 0.92);
+  color: #0b0b0f;
+}
+
+.barcodeScannerClose:active {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.barcodeScannerTorch:active {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.barcodeScannerTorchActive:active {
+  background: rgba(255, 255, 255, 0.75);
 }
 
 .barcodeScannerVideo {
