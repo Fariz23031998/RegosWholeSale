@@ -6,7 +6,7 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
 import { canAddProductToCart } from "@/lib/cart-stock";
 import { isBarcodeInput } from "@/lib/barcode";
-import { isCameraScanAvailable } from "@/lib/barcode-scanner-camera";
+import { shouldShowCameraScanButton } from "@/lib/barcode-scanner-camera";
 import {
   lookupProductForBarcode,
   type BarcodeLookupFailureReason,
@@ -135,7 +135,7 @@ export function ProductCatalog() {
   const [featuredIds, setFeaturedIds] = useState<Set<number>>(() => new Set());
   const view = useCatalog((s) => s.mobileViewMode);
   const [isMobile, setIsMobile] = useState(false);
-  const [cameraScanAvailable, setCameraScanAvailable] = useState(false);
+  const [showCameraScanButton, setShowCameraScanButton] = useState(false);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -163,7 +163,17 @@ export function ProductCatalog() {
   }, []);
 
   useEffect(() => {
-    setCameraScanAvailable(isCameraScanAvailable());
+    const update = () => setShowCameraScanButton(shouldShowCameraScanButton());
+    update();
+
+    const mobileMq = window.matchMedia("(max-width: 900px)");
+    const touchMq = window.matchMedia("(hover: none) and (pointer: coarse)");
+    mobileMq.addEventListener("change", update);
+    touchMq.addEventListener("change", update);
+    return () => {
+      mobileMq.removeEventListener("change", update);
+      touchMq.removeEventListener("change", update);
+    };
   }, []);
 
   useEffect(() => {
@@ -782,7 +792,7 @@ export function ProductCatalog() {
             void submitSearch(q.trim());
           }}
         >
-          <div className={clsx(styles.search, cameraScanAvailable && styles.searchWithScan)}>
+          <div className={clsx(styles.search, showCameraScanButton && styles.searchWithScan)}>
             <Search size={16} className={styles.searchIcon} />
             <input
               className={styles.searchInput}
@@ -790,10 +800,10 @@ export function ProductCatalog() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
-            {cameraScanAvailable ? (
+            {showCameraScanButton ? (
               <button
                 type="button"
-                className={clsx(styles.searchScanBtn, styles.searchScanBtnVisible)}
+                className={styles.searchScanBtn}
                 aria-label={t("pos.scanBarcodeAria", "Scan barcode with camera")}
                 title={t("pos.scanBarcode", "Scan barcode")}
                 onClick={() => setScannerOpen(true)}

@@ -44,6 +44,24 @@ export function isCameraScanAvailable(): boolean {
   );
 }
 
+/** Whether to show the catalog camera scan button (camera works, or mobile/touch layout). */
+export function shouldShowCameraScanButton(): boolean {
+  if (typeof window === "undefined") return false;
+
+  if (isCameraScanAvailable()) return true;
+
+  // HTTP LAN preview / non-secure hosts: still show on phone layouts; the
+  // scanner modal explains HTTPS when the camera API is blocked.
+  try {
+    if (window.matchMedia("(max-width: 900px)").matches) return true;
+    if (window.matchMedia("(hover: none) and (pointer: coarse)").matches) return true;
+  } catch {
+    return false;
+  }
+
+  return false;
+}
+
 function isPermissionDenied(err: unknown): boolean {
   return (
     err instanceof DOMException &&

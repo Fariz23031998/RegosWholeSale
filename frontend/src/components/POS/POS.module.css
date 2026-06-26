@@ -69,7 +69,7 @@
 }
 
 .searchScanBtn {
-  display: none;
+  display: inline-flex;
   position: absolute;
   right: 6px;
   top: 50%;
@@ -83,10 +83,6 @@
   color: var(--color-text-muted);
   border-radius: var(--radius-sm);
   cursor: pointer;
-}
-
-.searchScanBtnVisible {
-  display: inline-flex;
 }
 
 .searchWithScan .searchInput {
@@ -144,25 +140,6 @@
 @media (max-width: 900px) {
   .catalogFilterBtnLabel {
     display: none;
-  }
-
-  .searchScanBtn {
-    display: inline-flex;
-  }
-
-  .searchInput {
-    padding-right: 38px;
-  }
-}
-
-/* Touch phones that report a wide layout width (e.g. missing viewport meta). */
-@media (hover: none) and (pointer: coarse) and (max-width: 1024px) {
-  .searchScanBtn {
-    display: inline-flex;
-  }
-
-  .searchInput {
-    padding-right: 38px;
   }
 }
 
