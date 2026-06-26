@@ -1,5 +1,5 @@
 import { Camera, ImageOff, Search, Undo2 } from "lucide-react";
-import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -34,9 +34,12 @@ import type { ProductGroup } from "@/types/catalog";
 import { CategoryBar } from "./CategoryBar";
 import { CatalogProductCard } from "./CatalogProductCard";
 import { ReturnModal } from "@/components/Returns/ReturnModal";
-import { BarcodeScannerModal } from "./BarcodeScannerModal";
 import { toast } from "sonner";
 import styles from "./POS.module.css";
+
+const BarcodeScannerModal = lazy(() =>
+  import("./BarcodeScannerModal").then((mod) => ({ default: mod.BarcodeScannerModal })),
+);
 
 function barcodeLookupErrorMessage(
   reason: BarcodeLookupFailureReason,
@@ -931,11 +934,15 @@ export function ProductCatalog() {
       </div>
 
       <ReturnModal open={returnOpen} onClose={() => setReturnOpen(false)} />
-      <BarcodeScannerModal
-        open={scannerOpen}
-        onClose={() => setScannerOpen(false)}
-        onScan={handleCameraBarcodeScan}
-      />
+      {scannerOpen ? (
+        <Suspense fallback={null}>
+          <BarcodeScannerModal
+            open={scannerOpen}
+            onClose={() => setScannerOpen(false)}
+            onScan={handleCameraBarcodeScan}
+          />
+        </Suspense>
+      ) : null}
     </div>
   );
 }

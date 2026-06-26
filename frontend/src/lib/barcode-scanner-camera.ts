@@ -1,4 +1,11 @@
-import type { DecodeContinuouslyCallback } from "@zxing/browser";
+type BarcodeScanResult = {
+  getText: () => string;
+};
+
+export type BarcodeScanCallback = (
+  result: BarcodeScanResult | undefined,
+  error?: unknown,
+) => void;
 
 type ScannerControls = {
   stop: () => void;
@@ -9,12 +16,12 @@ type BrowserReader = {
   decodeFromConstraints: (
     constraints: MediaStreamConstraints,
     previewElem: HTMLVideoElement,
-    callbackFn: DecodeContinuouslyCallback,
+    callbackFn: BarcodeScanCallback,
   ) => Promise<ScannerControls>;
   decodeFromVideoDevice: (
     deviceId: string | undefined,
     previewElem: HTMLVideoElement,
-    callbackFn: DecodeContinuouslyCallback,
+    callbackFn: BarcodeScanCallback,
   ) => Promise<ScannerControls>;
 };
 
@@ -49,7 +56,7 @@ function pickRearCameraId(devices: MediaDeviceInfo[]): string | undefined {
 export async function startBarcodeScanner(
   reader: BrowserReader,
   videoEl: HTMLVideoElement,
-  callbackFn: DecodeContinuouslyCallback,
+  callbackFn: BarcodeScanCallback,
 ): Promise<ScannerControls> {
   if (!isCameraSecureContext()) {
     throw new CameraInsecureContextError();
