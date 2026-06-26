@@ -1,17 +1,15 @@
-import { ImageOff, Search, Undo2 } from "lucide-react";
+import { Camera, ImageOff, Search, Undo2 } from "lucide-react";
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePermissions } from "@/hooks/use-permissions";
 import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
-import { canAddProductToCart, clampCartQty } from "@/lib/cart-stock";
+import { canAddProductToCart } from "@/lib/cart-stock";
+import { isBarcodeInput } from "@/lib/barcode";
 import {
-  findProductByBarcode,
-  findProductByCode,
-  internalBarcodeToQty,
-  isBarcodeInput,
-  parseInternalBarcode,
-} from "@/lib/barcode";
+  lookupProductForBarcode,
+  type BarcodeLookupFailureReason,
+} from "@/lib/barcode-lookup";
 import {
   addFeaturedProduct,
   fetchFeaturedProductIds,
@@ -19,6 +17,7 @@ import {
 } from "@/lib/featured-api";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useCatalog } from "@/store/catalog";
+import { useCheckoutTabs, getReservedQtyInOtherTabs } from "@/store/checkout-tabs";
 import { useCart } from "@/store/cart";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
@@ -35,7 +34,26 @@ import type { ProductGroup } from "@/types/catalog";
 import { CategoryBar } from "./CategoryBar";
 import { CatalogProductCard } from "./CatalogProductCard";
 import { ReturnModal } from "@/components/Returns/ReturnModal";
+import { BarcodeScannerModal } from "./BarcodeScannerModal";
+import { toast } from "sonner";
 import styles from "./POS.module.css";
+
+function barcodeLookupErrorMessage(
+  reason: BarcodeLookupFailureReason,
+  t: (key: string, fallback: string) => string,
+): string {
+  switch (reason) {
+    case "invalid_qty":
+      return t(
+        "pos.barcode.invalidQty",
+        "This barcode quantity is not valid for the product unit.",
+      );
+    case "out_of_stock":
+      return t("pos.barcode.outOfStock", "Cannot add more of this product to the cart.");
+    default:
+      return t("pos.barcode.productNotFound", "No product found for this barcode.");
+  }
+}
 
 const PAGE_SIZE = CATALOG_PAGE_SIZE;
 const PREPARE_TIMEOUT_MS = 15_000;
@@ -82,6 +100,8 @@ export function ProductCatalog() {
   const refreshNonce = useCatalog((s) => s.refreshNonce);
   const add = useCart((s) => s.add);
   const addWithQty = useCart((s) => s.addWithQty);
+  const checkoutTabs = useCheckoutTabs((s) => s.tabs);
+  const activeCheckoutTabId = useCheckoutTabs((s) => s.activeTabId);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
   const internalBarcodeWeightPrefix = usePosConfig((s) => s.internalBarcodeWeightPrefix);
   const internalBarcodePiecePrefix = usePosConfig((s) => s.internalBarcodePiecePrefix);
@@ -106,6 +126,7 @@ export function ProductCatalog() {
   const hideCardImages = useCatalog((s) => s.hideCardImages);
   const setHideCardImages = useCatalog((s) => s.setHideCardImages);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [scannerOpen, setScannerOpen] = useState(false);
   const [categoryReady, setCategoryReady] = useState(false);
   const [featuredIds, setFeaturedIds] = useState<Set<number>>(() => new Set());
   const view = useCatalog((s) => s.mobileViewMode);
@@ -195,12 +216,23 @@ export function ProductCatalog() {
     return overrides;
   }, [canChangePriceTypePerm, canChangeWarehousePerm, priceTypeId, warehouseId]);
 
+  const getReservedInOtherTabs = useCallback(
+    (productId: string) =>
+      getReservedQtyInOtherTabs(checkoutTabs, activeCheckoutTabId, productId),
+    [activeCheckoutTabId, checkoutTabs],
+  );
+
   const canAddToCart = useCallback(
     (product: Product) => {
       const inCart = getInCartQty(product.id);
-      return canAddProductToCart(product, inCart, allowOutOfStock);
+      return canAddProductToCart(
+        product,
+        inCart,
+        allowOutOfStock,
+        getReservedInOtherTabs(product.id),
+      );
     },
-    [allowOutOfStock],
+    [allowOutOfStock, getReservedInOtherTabs],
   );
 
   const firstAddableProduct = (items: Product[]) =>
@@ -208,12 +240,21 @@ export function ProductCatalog() {
 
   const handleAddToCart = useCallback(
     (product: Product) => {
-      if (!canAddProductToCart(product, getInCartQty(product.id), allowOutOfStock)) return;
+      if (
+        !canAddProductToCart(
+          product,
+          getInCartQty(product.id),
+          allowOutOfStock,
+          getReservedInOtherTabs(product.id),
+        )
+      ) {
+        return;
+      }
       startTransition(() => {
         add(product);
       });
     },
-    [add, allowOutOfStock],
+    [add, allowOutOfStock, getReservedInOtherTabs],
   );
 
   const catalogFetchParams = useCallback(
@@ -638,85 +679,43 @@ export function ProductCatalog() {
     setSearch("");
   };
 
+  const barcodeLookupOptions = useMemo(
+    () => ({
+      prefixes: {
+        weightPrefix: internalBarcodeWeightPrefix,
+        piecePrefix: internalBarcodePiecePrefix,
+      },
+      catalogOverrides,
+      allowOutOfStock,
+      getInCartQty,
+      getReservedInOtherTabs,
+    }),
+    [
+      allowOutOfStock,
+      catalogOverrides,
+      getReservedInOtherTabs,
+      internalBarcodePiecePrefix,
+      internalBarcodeWeightPrefix,
+    ],
+  );
+
   const submitBarcodeScan = async (term: string) => {
     if (!term || !token) return;
 
-    const prefixes = {
-      weightPrefix: internalBarcodeWeightPrefix,
-      piecePrefix: internalBarcodePiecePrefix,
-    };
-    const parsedInternal = parseInternalBarcode(term, prefixes);
-
     try {
-      if (parsedInternal) {
-        const res = await fetchCatalogProducts(token, {
-          offset: 0,
-          limit: PAGE_SIZE,
-          search: parsedInternal.productCode,
-          groupId: null,
-          featuredOnly: false,
-          ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
-        });
-        const product = findProductByCode(res.products, parsedInternal.productCode);
-        if (!product) {
-          setError(
-            t("pos.barcode.productNotFound", "No product found for this barcode."),
-          );
-          return;
-        }
-
-        const barcodeQty = internalBarcodeToQty(parsedInternal, product);
-        if (barcodeQty == null || barcodeQty <= 0) {
-          setError(
-            t(
-              "pos.barcode.invalidQty",
-              "This barcode quantity is not valid for the product unit.",
-            ),
-          );
-          return;
-        }
-
-        const inCart = getInCartQty(product.id);
-        const clampedTotal = clampCartQty(
-          inCart + barcodeQty,
-          product.stock,
-          allowOutOfStock,
-          product.unit_type,
-        );
-        const qtyToAdd = clampedTotal - inCart;
-        if (qtyToAdd <= 0) {
-          setError(
-            t("pos.barcode.outOfStock", "Cannot add more of this product to the cart."),
-          );
-          return;
-        }
-
-        startTransition(() => {
-          addWithQty(product, qtyToAdd, { skipKeypad: true });
-        });
-        setError("");
-        setQ("");
-        setSearch("");
+      const result = await lookupProductForBarcode(token, term, barcodeLookupOptions);
+      if (!result.ok) {
+        setError(barcodeLookupErrorMessage(result.reason, t));
         return;
       }
 
-      const res = await fetchCatalogProducts(token, {
-        offset: 0,
-        limit: PAGE_SIZE,
-        search: term,
-        groupId: null,
-        featuredOnly: false,
-        ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
+      startTransition(() => {
+        if (result.qty === 1) {
+          add(result.product);
+        } else {
+          addWithQty(result.product, result.qty, { skipKeypad: true });
+        }
       });
-      const product = findProductByBarcode(res.products, term);
-      if (!product || !canAddToCart(product)) {
-        setError(
-          t("pos.barcode.productNotFound", "No product found for this barcode."),
-        );
-        return;
-      }
-
-      handleAddToCart(product);
       setError("");
       setQ("");
       setSearch("");
@@ -724,6 +723,37 @@ export function ProductCatalog() {
       setError(formatAuthError(err));
     }
   };
+
+  const handleCameraBarcodeScan = useCallback(
+    async (term: string) => {
+      if (!term || !token) return;
+
+      try {
+        const result = await lookupProductForBarcode(token, term, barcodeLookupOptions);
+        if (!result.ok) {
+          toast.error(barcodeLookupErrorMessage(result.reason, t));
+          return;
+        }
+
+        startTransition(() => {
+          if (result.qty === 1) {
+            add(result.product);
+          } else {
+            addWithQty(result.product, result.qty, { skipKeypad: true });
+          }
+        });
+        toast.success(
+          t("pos.barcode.scanSuccess", "Added {{name}} to cart", {
+            name: result.product.name,
+          }),
+        );
+        setScannerOpen(false);
+      } catch (err) {
+        toast.error(formatAuthError(err));
+      }
+    },
+    [add, addWithQty, barcodeLookupOptions, t, token],
+  );
 
   const submitSearch = async (term: string) => {
     if (isBarcodeInput(term)) {
@@ -752,6 +782,17 @@ export function ProductCatalog() {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
+          {isMobile ? (
+            <button
+              type="button"
+              className={styles.catalogFilterBtn}
+              aria-label={t("pos.scanBarcodeAria", "Scan barcode with camera")}
+              title={t("pos.scanBarcode", "Scan barcode")}
+              onClick={() => setScannerOpen(true)}
+            >
+              <Camera size={16} />
+            </button>
+          ) : null}
           <button
             type="button"
             className={clsx(
@@ -852,6 +893,7 @@ export function ProductCatalog() {
                   isMobile={isMobile}
                   view={view}
                   allowOutOfStock={allowOutOfStock}
+                  reservedInOtherTabs={getReservedInOtherTabs(p.id)}
                   onAdd={handleAddToCart}
                   onToggleFeatured={toggleFeatured}
                 />
@@ -891,6 +933,11 @@ export function ProductCatalog() {
       </div>
 
       <ReturnModal open={returnOpen} onClose={() => setReturnOpen(false)} />
+      <BarcodeScannerModal
+        open={scannerOpen}
+        onClose={() => setScannerOpen(false)}
+        onScan={handleCameraBarcodeScan}
+      />
     </div>
   );
 }

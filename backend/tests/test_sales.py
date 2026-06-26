@@ -393,6 +393,195 @@ async def test_postpone_sale_creates_unperformed_document(
     assert "docwholesale/perform" not in calls
 
 
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_default_status_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_postpone_sale_creates_order_from_partner_document(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_status_id: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_status_id.return_value = 77
+    mock_doc_type_id.return_value = 88
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 3001, "code": "ORD-3001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 4001}]},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(
+        client, email="postpone-order@test.com", company_name="Postpone Order Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={"postpone_document_type": "doc_order_from_partner"},
+    )
+
+    response = await client.post(
+        "/api/v1/sales/postpone",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 2, "price": 10000}],
+            "discount": 0,
+            "total": 20000,
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["wholesale_doc_id"] == 3001
+    assert data["document_type"] == "doc_order_from_partner"
+
+    calls = [call[0][2] for call in mock_regos.call_args_list]
+    assert calls == [
+        "docorderfrompartner/add",
+        "docorderfrompartner/lock",
+        "orderfrompartneroperation/add",
+        "docorderfrompartner/unlock",
+    ]
+    assert "docwholesale/add" not in calls
+    add_payload = mock_regos.call_args_list[0][0][3]
+    assert add_payload["booked"] is True
+
+
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_default_status_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_postpone_sale_order_from_partner_respects_booked_setting(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_status_id: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_status_id.return_value = 77
+    mock_doc_type_id.return_value = 88
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 3002, "code": "ORD-3002"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 4003}]},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(
+        client, email="postpone-order-booked@test.com", company_name="Postpone Order Booked Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={
+            "postpone_document_type": "doc_order_from_partner",
+            "postpone_order_booked": False,
+        },
+    )
+
+    response = await client.post(
+        "/api/v1/sales/postpone",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 2, "price": 10000}],
+            "discount": 0,
+            "total": 20000,
+        },
+    )
+    assert response.status_code == 200
+
+    add_payload = mock_regos.call_args_list[0][0][3]
+    assert add_payload["booked"] is False
+
+
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_default_status_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_postpone_sale_updates_existing_order_document(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_status_id: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_status_id.return_value = 77
+    mock_doc_type_id.return_value = 88
+    mock_regos.side_effect = [
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"id": 9101, "document_id": 3001, "item_id": 101, "quantity": 1, "price": 10000}]},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 4002}]},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(
+        client,
+        email="postpone-order-update@test.com",
+        company_name="Postpone Order Update Co",
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={"postpone_document_type": "doc_order_from_partner"},
+    )
+
+    response = await client.post(
+        "/api/v1/sales/postpone",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 3, "price": 10000}],
+            "discount": 0,
+            "total": 30000,
+            "wholesale_doc_id": 3001,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["wholesale_doc_id"] == 3001
+
+    calls = [call[0][2] for call in mock_regos.call_args_list]
+    assert calls == [
+        "docorderfrompartner/lock",
+        "orderfrompartneroperation/get",
+        "orderfrompartneroperation/edit",
+        "docorderfrompartner/unlock",
+    ]
+
+
 @patch("app.services.regos_sales.regos_defaults_service.get_regos_defaults", new_callable=AsyncMock)
 @patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio

@@ -46,12 +46,20 @@ export function resolveCartUnitType(
   return getProductUnitType(products, productId);
 }
 
+/**
+ * Maximum quantity allowed in the active cart line for a product.
+ * `reservedInOtherTabs` is the sum of that product's qty in all other open sale tabs.
+ * Returns null when no upper bound (unknown stock, or out-of-stock sales past zero stock).
+ */
 export function maxCartQty(
   stock: number | undefined,
   allowOutOfStock: boolean,
+  reservedInOtherTabs = 0,
 ): number | null {
-  if (allowOutOfStock || stock === undefined) return null;
-  return Math.max(0, stock);
+  if (stock === undefined) return null;
+  if (allowOutOfStock && stock <= 0) return null;
+  const remaining = stock - reservedInOtherTabs;
+  return Math.max(0, remaining);
 }
 
 export function clampCartQty(
@@ -59,9 +67,10 @@ export function clampCartQty(
   stock: number | undefined,
   allowOutOfStock: boolean,
   unitType?: number | null,
+  reservedInOtherTabs = 0,
 ): number {
   const safeQty = normalizeCartQty(qty, unitType);
-  const max = maxCartQty(stock, allowOutOfStock);
+  const max = maxCartQty(stock, allowOutOfStock, reservedInOtherTabs);
   if (max === null) return safeQty;
   return Math.min(safeQty, max);
 }
@@ -70,10 +79,12 @@ export function canAddProductToCart(
   product: Product,
   cartQty: number,
   allowOutOfStock: boolean,
+  reservedInOtherTabs = 0,
 ): boolean {
-  if (allowOutOfStock) return true;
-  if (product.stock <= 0) return false;
-  return cartQty < product.stock;
+  const max = maxCartQty(product.stock, allowOutOfStock, reservedInOtherTabs);
+  if (max === null) return true;
+  if (max <= 0) return false;
+  return cartQty < max;
 }
 
 export function canIncreaseCartQty(
@@ -81,9 +92,10 @@ export function canIncreaseCartQty(
   currentCartQty: number,
   products: Product[],
   allowOutOfStock: boolean,
+  reservedInOtherTabs = 0,
 ): boolean {
-  if (allowOutOfStock) return true;
   const stock = getProductStock(products, productId);
-  if (stock === undefined || stock <= 0) return false;
-  return currentCartQty < stock;
+  const max = maxCartQty(stock, allowOutOfStock, reservedInOtherTabs);
+  if (max === null) return true;
+  return currentCartQty < max;
 }

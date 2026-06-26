@@ -13,6 +13,7 @@ export type CartItem = {
 };
 
 export type DiscountMode = "percent" | "amount";
+export type PostponedDocType = "wholesale" | "order_from_partner" | null;
 
 type AddWithQtyOptions = {
   skipKeypad?: boolean;
@@ -23,6 +24,7 @@ type CartState = {
   discountMode: DiscountMode;
   discountValue: number;
   postponedWholesaleDocId: number | null;
+  postponedDocType: PostponedDocType;
   lastAddedId: string | null;
   lastAddedAt: number;
   skipKeypadOnLastAdd: boolean;
@@ -35,18 +37,21 @@ type CartState = {
   setDiscountValue: (value: number) => void;
   toggleDiscountMode: () => void;
   setPostponedWholesaleDocId: (docId: number | null) => void;
+  setPostponedDocType: (docType: PostponedDocType) => void;
   clear: () => void;
   restore: (snapshot: {
     items: CartItem[];
     discountMode: DiscountMode;
     discountValue: number;
     postponedWholesaleDocId?: number | null;
+    postponedDocType?: PostponedDocType;
   }) => void;
   snapshot: () => {
     items: CartItem[];
     discountMode: DiscountMode;
     discountValue: number;
     postponedWholesaleDocId: number | null;
+    postponedDocType: PostponedDocType;
   };
 };
 
@@ -64,6 +69,7 @@ export const useCart = create<CartState>((set, get) => ({
   discountMode: "percent",
   discountValue: 0,
   postponedWholesaleDocId: null,
+  postponedDocType: null,
   lastAddedId: null,
   lastAddedAt: 0,
   skipKeypadOnLastAdd: false,
@@ -165,12 +171,14 @@ export const useCart = create<CartState>((set, get) => ({
     });
   },
   setPostponedWholesaleDocId: (docId) => set({ postponedWholesaleDocId: docId }),
+  setPostponedDocType: (docType) => set({ postponedDocType: docType }),
   clear: () =>
     set({
       items: [],
       discountMode: "percent",
       discountValue: 0,
       postponedWholesaleDocId: null,
+      postponedDocType: null,
     }),
   restore: (snapshot) =>
     set({
@@ -178,17 +186,27 @@ export const useCart = create<CartState>((set, get) => ({
       discountMode: snapshot.discountMode,
       discountValue: snapshot.discountValue,
       postponedWholesaleDocId: snapshot.postponedWholesaleDocId ?? null,
+      postponedDocType:
+        snapshot.postponedDocType ??
+        (snapshot.postponedWholesaleDocId != null ? "wholesale" : null),
       lastAddedId: null,
       lastAddedAt: 0,
       skipKeypadOnLastAdd: false,
     }),
   snapshot: () => {
-    const { items, discountMode, discountValue, postponedWholesaleDocId } = get();
+    const {
+      items,
+      discountMode,
+      discountValue,
+      postponedWholesaleDocId,
+      postponedDocType,
+    } = get();
     return {
       items: items.map((item) => ({ ...item })),
       discountMode,
       discountValue,
       postponedWholesaleDocId,
+      postponedDocType,
     };
   },
 }));

@@ -1166,6 +1166,60 @@ async def test_get_doc_wholesale_document_type_id(mock_regos: AsyncMock) -> None
 
 @patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
+async def test_get_doc_order_from_partner_default_status_id(mock_regos: AsyncMock) -> None:
+    mock_regos.side_effect = [
+        {"ok": True, "result": [{"id": 15, "name": "Заказ от контрагента"}]},
+        {
+            "ok": True,
+            "result": [
+                {"id": 3, "document_type_id": 15, "name": "В ожидании"},
+            ],
+        },
+    ]
+
+    status_id = await regos_defaults_service.get_doc_order_from_partner_default_status_id(
+        None, 1
+    )
+
+    assert status_id == 3
+    assert mock_regos.await_args_list[0].args[2] == "documenttype/get"
+    assert mock_regos.await_args_list[1].args[2] == "documentstatus/get"
+    assert mock_regos.await_args_list[1].args[3] == {"document_type_id": 15}
+
+
+@patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_get_doc_order_from_partner_default_status_id_falls_back_to_existing_document(
+    mock_regos: AsyncMock,
+) -> None:
+    mock_regos.side_effect = [
+        {"ok": True, "result": [{"id": 99, "name": "Склад: Поступление от контрагента"}]},
+        {
+            "ok": True,
+            "result": [
+                {"id": 99, "name": "Склад: Поступление от контрагента"},
+                {"id": 15, "name": "Склад: Заказ от контрагента", "model": "DocOrderFromPartner"},
+            ],
+        },
+        {"ok": True, "result": []},
+        {
+            "ok": True,
+            "result": [
+                {"id": 501, "status": {"id": 7, "name": "Новый"}},
+            ],
+        },
+    ]
+
+    status_id = await regos_defaults_service.get_doc_order_from_partner_default_status_id(
+        None, 1
+    )
+
+    assert status_id == 7
+    assert mock_regos.await_args_list[-1].args[2] == "docorderfrompartner/get"
+
+
+@patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
 async def test_attached_user_reference_request_uses_valid_user_get_fields(
     mock_regos: AsyncMock,
 ) -> None:

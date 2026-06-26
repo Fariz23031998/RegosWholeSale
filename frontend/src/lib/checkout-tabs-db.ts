@@ -1,4 +1,4 @@
-import type { CartItem, DiscountMode } from "@/store/cart";
+import type { CartItem, DiscountMode, PostponedDocType } from "@/store/cart";
 import {
   CHECKOUT_TABS_STORE,
   openPulsePosDb,
@@ -13,6 +13,7 @@ export type CheckoutTabData = {
   discountMode: DiscountMode;
   discountValue: number;
   postponedWholesaleDocId?: number | null;
+  postponedDocType?: PostponedDocType;
   updatedAt: number;
 };
 

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { DEFAULT_CATEGORY_ALL } from "@/lib/default-category";
 import { DEFAULT_TENDERED_QUICK_AMOUNTS } from "@/lib/tendered-amounts";
 import { fetchUserPosSettings } from "@/lib/settings-api";
-import type { CrossCurrencyPaymentMode, DefaultCategorySetting } from "@/types/settings";
+import type { CrossCurrencyPaymentMode, DefaultCategorySetting, PostponeDocumentType } from "@/types/settings";
 
 type HydrateOptions = {
   force?: boolean;
@@ -15,6 +15,7 @@ type PosConfigState = {
   crossCurrencyPaymentMode: CrossCurrencyPaymentMode;
   internalBarcodeWeightPrefix: string;
   internalBarcodePiecePrefix: string;
+  postponeDocumentType: PostponeDocumentType;
   defaultCategory: DefaultCategorySetting;
   hydrated: boolean;
   hydrate: (token: string | null, options?: HydrateOptions) => Promise<void>;
@@ -31,6 +32,7 @@ export const usePosConfig = create<PosConfigState>((set, get) => ({
   crossCurrencyPaymentMode: "payment_currency",
   internalBarcodeWeightPrefix: "22",
   internalBarcodePiecePrefix: "23",
+  postponeDocumentType: "doc_wholesale",
   defaultCategory: DEFAULT_CATEGORY_ALL,
   hydrated: false,
   hydrate: async (token, options) => {
@@ -48,6 +50,7 @@ export const usePosConfig = create<PosConfigState>((set, get) => ({
         crossCurrencyPaymentMode: "payment_currency",
         internalBarcodeWeightPrefix: "22",
         internalBarcodePiecePrefix: "23",
+        postponeDocumentType: "doc_wholesale",
         defaultCategory: DEFAULT_CATEGORY_ALL,
         hydrated: true,
       });
@@ -79,6 +82,8 @@ export const usePosConfig = create<PosConfigState>((set, get) => ({
             res.settings.internal_barcode_weight_prefix ?? "22",
           internalBarcodePiecePrefix:
             res.settings.internal_barcode_piece_prefix ?? "23",
+          postponeDocumentType:
+            res.settings.postpone_document_type ?? "doc_wholesale",
           defaultCategory: res.settings.default_category,
         });
       } catch {
@@ -89,6 +94,7 @@ export const usePosConfig = create<PosConfigState>((set, get) => ({
           crossCurrencyPaymentMode: "payment_currency",
           internalBarcodeWeightPrefix: "22",
           internalBarcodePiecePrefix: "23",
+          postponeDocumentType: "doc_wholesale",
           defaultCategory: DEFAULT_CATEGORY_ALL,
         });
       } finally {

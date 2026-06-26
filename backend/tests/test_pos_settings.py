@@ -18,6 +18,8 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     assert initial.json()["settings"]["tendered_quick_amounts"] == [20.0, 50.0, 100.0]
     assert initial.json()["settings"]["internal_barcode_weight_prefix"] == "22"
     assert initial.json()["settings"]["internal_barcode_piece_prefix"] == "23"
+    assert initial.json()["settings"]["postpone_document_type"] == "doc_wholesale"
+    assert initial.json()["settings"]["postpone_order_booked"] is True
 
     patched = await client.patch(
         "/api/v1/company/settings/pos",

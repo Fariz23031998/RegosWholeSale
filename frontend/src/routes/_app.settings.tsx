@@ -29,6 +29,7 @@ import {
 import type {
   CrossCurrencyPaymentMode,
   PaymentLinkingMode,
+  PostponeDocumentType,
   RegosCustomField,
   RegosDefaultOption,
   RegosDocPaymentSaleIdFieldResponse,
@@ -85,6 +86,9 @@ function SettingsPage() {
   const [tenderedAmountsInput, setTenderedAmountsInput] = useState("20, 50, 100");
   const [internalBarcodeWeightPrefix, setInternalBarcodeWeightPrefix] = useState("22");
   const [internalBarcodePiecePrefix, setInternalBarcodePiecePrefix] = useState("23");
+  const [postponeDocumentType, setPostponeDocumentType] =
+    useState<PostponeDocumentType>("doc_wholesale");
+  const [postponeOrderBooked, setPostponeOrderBooked] = useState(true);
   const [savingPosSettings, setSavingPosSettings] = useState(false);
   const [posSettingsError, setPosSettingsError] = useState("");
   const [savingToken, setSavingToken] = useState(false);
@@ -269,6 +273,8 @@ function SettingsPage() {
     setTenderedAmountsInput(formatTenderedQuickAmounts(res.settings.tendered_quick_amounts));
     setInternalBarcodeWeightPrefix(res.settings.internal_barcode_weight_prefix ?? "22");
     setInternalBarcodePiecePrefix(res.settings.internal_barcode_piece_prefix ?? "23");
+    setPostponeDocumentType(res.settings.postpone_document_type ?? "doc_wholesale");
+    setPostponeOrderBooked(res.settings.postpone_order_booked ?? true);
   }, [posSettingsQuery.data]);
 
   useEffect(() => {
@@ -581,6 +587,43 @@ function SettingsPage() {
     }
   };
 
+  const handlePostponeDocumentTypeChange = async (value: PostponeDocumentType) => {
+    if (!token || !canManageSettings) return;
+
+    const previous = postponeDocumentType;
+    setPostponeDocumentType(value);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(token, { postpone_document_type: value });
+      setPostponeDocumentType(res.settings.postpone_document_type);
+      setPostponeOrderBooked(res.settings.postpone_order_booked ?? true);
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setPostponeDocumentType(previous);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
+  const handlePostponeOrderBookedChange = async (checked: boolean) => {
+    if (!token || !canManageSettings) return;
+
+    const previous = postponeOrderBooked;
+    setPostponeOrderBooked(checked);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(token, { postpone_order_booked: checked });
+      setPostponeOrderBooked(res.settings.postpone_order_booked);
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setPostponeOrderBooked(previous);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
   const handleSaveInternalBarcodePrefixes = async () => {
     if (!token || !canManageSettings) return;
 
@@ -702,6 +745,63 @@ function SettingsPage() {
                 </option>
               </select>
             </div>
+
+            <div className={styles.fieldBlock}>
+              <div className={styles.rowTitle}>
+                {t("settings.pos.postponeDocumentType", "Postpone sale document")}
+              </div>
+              <div className={styles.rowDesc}>
+                {t(
+                  "settings.pos.postponeDocumentTypeDesc",
+                  "Choose which Regos document type is created when a cashier postpones a sale.",
+                )}
+              </div>
+              <select
+                className={styles.select}
+                value={postponeDocumentType}
+                disabled={loadingPosSettings || savingPosSettings}
+                onChange={(e) =>
+                  void handlePostponeDocumentTypeChange(
+                    e.target.value as PostponeDocumentType,
+                  )
+                }
+              >
+                <option value="doc_wholesale">
+                  {t("settings.pos.postponeDocWholesale", "Wholesale sale (DocWholeSale)")}
+                </option>
+                <option value="doc_order_from_partner">
+                  {t(
+                    "settings.pos.postponeDocOrderFromPartner",
+                    "Partner order (DocOrderFromPartner)",
+                  )}
+                </option>
+              </select>
+            </div>
+
+            {postponeDocumentType === "doc_order_from_partner" && (
+              <label className={styles.row}>
+                <div>
+                  <div className={styles.rowTitle}>
+                    {t("settings.pos.postponeOrderBooked", "Booked")}
+                  </div>
+                  <div className={styles.rowDesc}>
+                    {t(
+                      "settings.pos.postponeOrderBookedDesc",
+                      "Mark postponed partner orders as booked in Regos.",
+                    )}
+                  </div>
+                </div>
+                <span className={styles.switch}>
+                  <input
+                    type="checkbox"
+                    checked={postponeOrderBooked}
+                    disabled={loadingPosSettings || savingPosSettings}
+                    onChange={(e) => void handlePostponeOrderBookedChange(e.target.checked)}
+                  />
+                  <span className={styles.slider} />
+                </span>
+              </label>
+            )}
 
             <div className={styles.fieldBlock}>
               <div className={styles.rowTitle}>

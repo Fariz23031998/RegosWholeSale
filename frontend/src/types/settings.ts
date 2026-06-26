@@ -99,6 +99,7 @@ export type RegosPaymentLinkingPatchRequest = {
 };
 
 export type CrossCurrencyPaymentMode = "payment_currency" | "sale_currency_transfer";
+export type PostponeDocumentType = "doc_wholesale" | "doc_order_from_partner";
 
 export type PosSettings = {
   allow_out_of_stock: boolean;
@@ -107,6 +108,8 @@ export type PosSettings = {
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
   internal_barcode_weight_prefix: string;
   internal_barcode_piece_prefix: string;
+  postpone_document_type: PostponeDocumentType;
+  postpone_order_booked: boolean;
 };
 
 export type PosSettingsResponse = {
@@ -120,6 +123,8 @@ export type PosSettingsPatchRequest = {
   cross_currency_payment_mode?: CrossCurrencyPaymentMode;
   internal_barcode_weight_prefix?: string;
   internal_barcode_piece_prefix?: string;
+  postpone_document_type?: PostponeDocumentType;
+  postpone_order_booked?: boolean;
 };
 
 export type DefaultCategorySetting = {
@@ -135,6 +140,8 @@ export type UserPosSettings = {
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
   internal_barcode_weight_prefix: string;
   internal_barcode_piece_prefix: string;
+  postpone_document_type: PostponeDocumentType;
+  postpone_order_booked: boolean;
 };
 
 export type UserPosSettingsResponse = {

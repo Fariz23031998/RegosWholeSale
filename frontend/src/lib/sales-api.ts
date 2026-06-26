@@ -239,6 +239,8 @@ export async function postponeSale(
   });
 }
 
+export type PostponedDocumentKind = "wholesale" | "order_from_partner";
+
 export type WholesaleDocumentsQuery = {
   start_date?: number;
   end_date?: number;
@@ -247,6 +249,7 @@ export type WholesaleDocumentsQuery = {
   all_partners?: boolean;
   partner_ids?: number[];
   performed?: boolean;
+  document_kind?: PostponedDocumentKind;
   offset?: number;
   limit?: number;
 };
@@ -264,6 +267,7 @@ function buildWholesaleDocumentsSearch(params: WholesaleDocumentsQuery): string 
   if (params.all_stocks !== undefined) search.set("all_stocks", params.all_stocks ? "true" : "false");
   if (params.all_partners !== undefined) search.set("all_partners", params.all_partners ? "true" : "false");
   if (params.performed !== undefined) search.set("performed", params.performed ? "true" : "false");
+  if (params.document_kind !== undefined) search.set("document_kind", params.document_kind);
   if (params.stock_ids?.length) {
     for (const stockId of params.stock_ids) {
       search.append("stock_ids", String(stockId));
@@ -308,8 +312,10 @@ export async function fetchWholesaleDocuments(
 export async function fetchWholesaleOperations(
   token: string,
   documentId: number,
+  documentKind?: PostponedDocumentKind,
 ): Promise<WholesaleOperationsResponse> {
-  return apiRequest(`/api/v1/sales/wholesale-documents/${documentId}/operations`, {
+  const search = documentKind ? `?document_kind=${documentKind}` : "";
+  return apiRequest(`/api/v1/sales/wholesale-documents/${documentId}/operations${search}`, {
     token,
   });
 }

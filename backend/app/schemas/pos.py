@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field
 DEFAULT_TENDERED_QUICK_AMOUNTS = [20.0, 50.0, 100.0]
 CrossCurrencyPaymentMode = Literal["payment_currency", "sale_currency_transfer"]
 DEFAULT_CROSS_CURRENCY_PAYMENT_MODE: CrossCurrencyPaymentMode = "payment_currency"
+PostponeDocumentType = Literal["doc_wholesale", "doc_order_from_partner"]
+DEFAULT_POSTPONE_DOCUMENT_TYPE: PostponeDocumentType = "doc_wholesale"
 DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX = "22"
 DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX = "23"
 
@@ -24,6 +26,8 @@ class PosSettings(BaseModel):
     cross_currency_payment_mode: CrossCurrencyPaymentMode = DEFAULT_CROSS_CURRENCY_PAYMENT_MODE
     internal_barcode_weight_prefix: str = DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX
     internal_barcode_piece_prefix: str = DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX
+    postpone_document_type: PostponeDocumentType = DEFAULT_POSTPONE_DOCUMENT_TYPE
+    postpone_order_booked: bool = True
 
 
 class UserPosSettings(BaseModel):
@@ -38,6 +42,7 @@ class UserPosSettings(BaseModel):
     cross_currency_payment_mode: CrossCurrencyPaymentMode = DEFAULT_CROSS_CURRENCY_PAYMENT_MODE
     internal_barcode_weight_prefix: str = DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX
     internal_barcode_piece_prefix: str = DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX
+    postpone_document_type: PostponeDocumentType = DEFAULT_POSTPONE_DOCUMENT_TYPE
 
 
 class PosSettingsResponse(BaseModel):
@@ -55,6 +60,8 @@ class PosSettingsPatchRequest(BaseModel):
     cross_currency_payment_mode: CrossCurrencyPaymentMode | None = None
     internal_barcode_weight_prefix: str | None = None
     internal_barcode_piece_prefix: str | None = None
+    postpone_document_type: PostponeDocumentType | None = None
+    postpone_order_booked: bool | None = None
 
 
 class UserPosSettingsPatchRequest(BaseModel):
