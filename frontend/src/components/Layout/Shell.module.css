@@ -140,6 +140,26 @@
 
 .spacer { flex: 1; }
 
+.sidebarFooter {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+@media (max-width: 900px) {
+  .sidebar {
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .sidebarFooter {
+    margin-bottom: calc(30px + env(safe-area-inset-bottom, 0px));
+  }
+}
+
 .main {
   position: relative;
   display: flex;

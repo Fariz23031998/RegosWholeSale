@@ -127,27 +127,29 @@ export function Shell() {
 
         <div className={styles.spacer} />
 
-        <LanguageSelector variant="menu" />
+        <div className={styles.sidebarFooter}>
+          <LanguageSelector variant="menu" />
 
-        {session && (
-          <div className={styles.cashier}>
-            <div className={styles.avatar} style={{ background: session.color }}>
-              {session.initials}
+          {session && (
+            <div className={styles.cashier}>
+              <div className={styles.avatar} style={{ background: session.color }}>
+                {session.initials}
+              </div>
+              <div style={{ minWidth: 0 }}>
+                <div className={styles.cashierName}>{session.name}</div>
+                <div className={styles.cashierRole}>{session.role}</div>
+              </div>
+              <button
+                className={styles.logoutBtn}
+                onClick={handleLogout}
+                aria-label={t("nav.signOut", "Sign out")}
+                title={t("nav.signOut", "Sign out")}
+              >
+                <LogOut size={16} />
+              </button>
             </div>
-            <div style={{ minWidth: 0 }}>
-              <div className={styles.cashierName}>{session.name}</div>
-              <div className={styles.cashierRole}>{session.role}</div>
-            </div>
-            <button
-              className={styles.logoutBtn}
-              onClick={handleLogout}
-              aria-label={t("nav.signOut", "Sign out")}
-              title={t("nav.signOut", "Sign out")}
-            >
-              <LogOut size={16} />
-            </button>
-          </div>
-        )}
+          )}
+        </div>
       </aside>
 
       <main className={styles.main}>
