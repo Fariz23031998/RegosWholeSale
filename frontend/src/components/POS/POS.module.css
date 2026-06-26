@@ -112,9 +112,24 @@
   display: inline;
 }
 
+.catalogFilterBtnMobileOnly {
+  display: none;
+}
+
 @media (max-width: 900px) {
   .catalogFilterBtnLabel {
     display: none;
+  }
+
+  .catalogFilterBtnMobileOnly {
+    display: inline-flex;
+  }
+}
+
+/* Touch phones that report a wide layout width (e.g. missing viewport meta). */
+@media (hover: none) and (pointer: coarse) and (max-width: 1024px) {
+  .catalogFilterBtnMobileOnly {
+    display: inline-flex;
   }
 }
 

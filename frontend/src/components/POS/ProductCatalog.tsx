@@ -782,17 +782,15 @@ export function ProductCatalog() {
               onChange={(e) => setQ(e.target.value)}
             />
           </div>
-          {isMobile ? (
-            <button
-              type="button"
-              className={styles.catalogFilterBtn}
-              aria-label={t("pos.scanBarcodeAria", "Scan barcode with camera")}
-              title={t("pos.scanBarcode", "Scan barcode")}
-              onClick={() => setScannerOpen(true)}
-            >
-              <Camera size={16} />
-            </button>
-          ) : null}
+          <button
+            type="button"
+            className={clsx(styles.catalogFilterBtn, styles.catalogFilterBtnMobileOnly)}
+            aria-label={t("pos.scanBarcodeAria", "Scan barcode with camera")}
+            title={t("pos.scanBarcode", "Scan barcode")}
+            onClick={() => setScannerOpen(true)}
+          >
+            <Camera size={16} />
+          </button>
           <button
             type="button"
             className={clsx(
