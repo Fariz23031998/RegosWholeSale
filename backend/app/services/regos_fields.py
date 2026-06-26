@@ -43,6 +43,11 @@ def _is_sale_id_field_already_exists_error(exc: AppError) -> bool:
     return "key exists" in message and "docpayment" in message
 
 
+def _is_custom_fields_lookup_error(exc: AppError) -> bool:
+    """Custom-field reads are optional; plan/tariff errors must not break settings."""
+    return exc.code in ("REGOS_TOKEN_NOT_CONFIGURED", "REGOS_API_ERROR")
+
+
 def _stored_sale_id_field(company_settings: dict[str, Any]) -> dict[str, Any] | None:
     integration = company_settings.get(REGOS_INTEGRATION_KEY)
     if not isinstance(integration, dict):
@@ -78,12 +83,17 @@ async def fetch_doc_payment_sale_id_field(
         {"entity_type": DOC_PAYMENT_ENTITY_TYPE},
     ]
     for payload in lookup_payloads:
-        response = await regos_async_api_request_for_company(
-            session,
-            company_id,
-            "field/get",
-            payload,
-        )
+        try:
+            response = await regos_async_api_request_for_company(
+                session,
+                company_id,
+                "field/get",
+                payload,
+            )
+        except AppError as exc:
+            if _is_custom_fields_lookup_error(exc):
+                return None
+            raise
         field = _match_sale_id_field(response.get("result") or [])
         if field:
             return field
@@ -176,7 +186,7 @@ async def get_doc_payment_sale_id_field_key(
     try:
         remote = await fetch_doc_payment_sale_id_field(session, company_id)
     except AppError as exc:
-        if exc.code == "REGOS_TOKEN_NOT_CONFIGURED":
+        if _is_custom_fields_lookup_error(exc):
             return None
         raise
 

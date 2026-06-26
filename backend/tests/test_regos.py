@@ -1388,6 +1388,55 @@ async def test_get_doc_payment_sale_id_field_not_configured(
 
 @patch("app.services.regos_fields.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
+async def test_get_doc_payment_sale_id_field_treats_tariff_error_as_unconfigured(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    from app.core.exceptions import AppError
+
+    mock_regos.side_effect = AppError(
+        400,
+        "REGOS API error: 7501 - Ошибка тарифа: доступ к данному функционалу возможен только при улучшении тарифа. Подробнее: Работа с доп. полями",
+        "REGOS_API_ERROR",
+    )
+
+    reg = await register_owner(client, email="field-tariff@test.com", company_name="Field Tariff Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    response = await client.get("/api/v1/regos/fields/doc-payment-sale-id", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["configured"] is False
+    assert data["field"] is None
+
+
+@patch("app.services.regos_fields.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_get_payment_linking_survives_custom_field_tariff_error(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    from app.core.exceptions import AppError
+
+    mock_regos.side_effect = AppError(
+        400,
+        "REGOS API error: 7501 - Ошибка тарифа: доступ к данному функционалу возможен только при улучшении тарифа. Подробнее: Работа с доп. полями",
+        "REGOS_API_ERROR",
+    )
+
+    reg = await register_owner(
+        client, email="plink-tariff@test.com", company_name="PLink Tariff Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    response = await client.get("/api/v1/regos/payment-linking", headers=headers)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["mode"] == "document_description"
+    assert data["sale_id_field_configured"] is False
+    assert data["sale_id_field"] is None
+
+
+@patch("app.services.regos_fields.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
 async def test_create_doc_payment_sale_id_field(
     mock_regos: AsyncMock, client: AsyncClient
 ) -> None:

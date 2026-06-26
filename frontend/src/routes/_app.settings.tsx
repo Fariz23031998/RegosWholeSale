@@ -31,6 +31,8 @@ import type {
   PaymentLinkingMode,
   RegosCustomField,
   RegosDefaultOption,
+  RegosDocPaymentSaleIdFieldResponse,
+  RegosPaymentLinkingResponse,
   RegosReferenceOptionsResponse,
   VatCalculationType,
 } from "@/types/settings";
@@ -179,16 +181,54 @@ function SettingsPage() {
         return { config, regos: null };
       }
 
-      const [defaults, nextOptions, saleIdFieldStatus, paymentLinking] = await Promise.all([
+      const [defaults, nextOptions] = await Promise.all([
         fetchRegosDefaults(token!),
         fetchRegosReferenceOptions(token!),
+      ]);
+
+      const defaultSaleIdFieldStatus: RegosDocPaymentSaleIdFieldResponse = {
+        configured: false,
+        field: null,
+        created: false,
+      };
+      const defaultPaymentLinking: RegosPaymentLinkingResponse = {
+        mode: "document_description",
+        sale_id_field_configured: false,
+        sale_id_field: null,
+      };
+
+      let saleIdFieldStatus = defaultSaleIdFieldStatus;
+      let paymentLinking = defaultPaymentLinking;
+      let saleIdFieldLoadError = "";
+      let paymentLinkingLoadError = "";
+
+      const [saleIdFieldResult, paymentLinkingResult] = await Promise.allSettled([
         fetchDocPaymentSaleIdField(token!),
         fetchPaymentLinking(token!),
       ]);
 
+      if (saleIdFieldResult.status === "fulfilled") {
+        saleIdFieldStatus = saleIdFieldResult.value;
+      } else {
+        saleIdFieldLoadError = formatAuthError(saleIdFieldResult.reason);
+      }
+
+      if (paymentLinkingResult.status === "fulfilled") {
+        paymentLinking = paymentLinkingResult.value;
+      } else {
+        paymentLinkingLoadError = formatAuthError(paymentLinkingResult.reason);
+      }
+
       return {
         config,
-        regos: { defaults, nextOptions, saleIdFieldStatus, paymentLinking },
+        regos: {
+          defaults,
+          nextOptions,
+          saleIdFieldStatus,
+          paymentLinking,
+          saleIdFieldLoadError,
+          paymentLinkingLoadError,
+        },
       };
     },
     enabled: settingsEnabled,
@@ -252,7 +292,9 @@ function SettingsPage() {
     setOptions(data.regos.nextOptions);
     setSaleIdFieldConfigured(data.regos.saleIdFieldStatus.configured);
     setSaleIdField(data.regos.saleIdFieldStatus.field);
+    setSaleIdFieldError(data.regos.saleIdFieldLoadError);
     setPaymentLinkingMode(data.regos.paymentLinking.mode);
+    setPaymentLinkingError(data.regos.paymentLinkingLoadError);
   }, [regosBootstrapQuery.data]);
 
   useEffect(() => {
