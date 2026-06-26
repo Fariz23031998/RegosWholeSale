@@ -1,7 +1,8 @@
-import { ImageOff, Search, Star, Undo2 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ImageOff, Search, Undo2 } from "lucide-react";
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePermissions } from "@/hooks/use-permissions";
 import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
 import { canAddProductToCart, clampCartQty } from "@/lib/cart-stock";
 import {
@@ -21,7 +22,6 @@ import { useCatalog } from "@/store/catalog";
 import { useCart } from "@/store/cart";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
-import { formatCurrency } from "@/lib/format";
 import { applyDefaultCategory } from "@/lib/default-category";
 import {
   catalogCanLoadMore,
@@ -30,10 +30,10 @@ import {
   CATALOG_PAGE_SIZE,
   nextCatalogCursor,
 } from "@/lib/catalog-pagination";
-import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
 import type { Product } from "@/types/catalog";
 import type { ProductGroup } from "@/types/catalog";
 import { CategoryBar } from "./CategoryBar";
+import { CatalogProductCard } from "./CatalogProductCard";
 import { ReturnModal } from "@/components/Returns/ReturnModal";
 import styles from "./POS.module.css";
 
@@ -65,31 +65,23 @@ function productIdNumber(product: Product): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function productDisplayName(product: Product): string {
-  const unitName = product.unit_name?.trim();
-  if (!unitName) return product.name;
-  return `${product.name} (${unitName})`;
-}
-
-function productCodeLine(product: Product): string {
-  const code = product.code?.trim();
-  const barcode = product.barcode?.trim();
-  if (code && barcode) return `${code} · ${barcode}`;
-  return code || barcode || product.sku;
+function getInCartQty(productId: string): number {
+  return useCart.getState().items.find((item) => item.productId === productId)?.qty ?? 0;
 }
 
 export function ProductCatalog() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
-  const user = useAuth((s) => s.user);
-  const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
+  const { canChangeWarehouse, canChangePriceType, canChangePosContext } = usePermissions();
+  const canChangeWarehousePerm = canChangeWarehouse();
+  const canChangePriceTypePerm = canChangePriceType();
+  const canChangePosContextPerm = canChangePosContext();
   const products = useCatalog((s) => s.products);
   const setProducts = useCatalog((s) => s.setProducts);
   const appendProducts = useCatalog((s) => s.appendProducts);
   const refreshNonce = useCatalog((s) => s.refreshNonce);
   const add = useCart((s) => s.add);
   const addWithQty = useCart((s) => s.addWithQty);
-  const cartItems = useCart((s) => s.items);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
   const internalBarcodeWeightPrefix = usePosConfig((s) => s.internalBarcodeWeightPrefix);
   const internalBarcodePiecePrefix = usePosConfig((s) => s.internalBarcodePiecePrefix);
@@ -182,12 +174,12 @@ export function ProductCatalog() {
 
     const timer = window.setTimeout(() => {
       setCategoryReady(true);
-      void hydrateSellContext(token, canOverrideRegos, { force: true });
+      void hydrateSellContext(token, canChangePosContextPerm, { force: true });
       void hydratePosConfig(token, { force: true });
     }, PREPARE_TIMEOUT_MS);
 
     return () => window.clearTimeout(timer);
-  }, [canOverrideRegos, hydratePosConfig, hydrateSellContext, isPreparing, token]);
+  }, [canChangePosContextPerm, hydratePosConfig, hydrateSellContext, isPreparing, token]);
 
   const selectedGroup = useMemo(
     () => groups.find((group) => group.id === selectedGroupId) ?? null,
@@ -196,37 +188,33 @@ export function ProductCatalog() {
 
   const isGlobalSearch = search.length > 0;
 
-  const catalogOverrides = useMemo(
-    () =>
-      canOverrideRegos
-        ? {
-            warehouseId: warehouseId ?? undefined,
-            priceTypeId: priceTypeId ?? undefined,
-          }
-        : {},
-    [canOverrideRegos, warehouseId, priceTypeId],
+  const catalogOverrides = useMemo(() => {
+    const overrides: { warehouseId?: number; priceTypeId?: number } = {};
+    if (canChangeWarehousePerm && warehouseId) overrides.warehouseId = warehouseId;
+    if (canChangePriceTypePerm && priceTypeId) overrides.priceTypeId = priceTypeId;
+    return overrides;
+  }, [canChangePriceTypePerm, canChangeWarehousePerm, priceTypeId, warehouseId]);
+
+  const canAddToCart = useCallback(
+    (product: Product) => {
+      const inCart = getInCartQty(product.id);
+      return canAddProductToCart(product, inCart, allowOutOfStock);
+    },
+    [allowOutOfStock],
   );
-
-  const cartQtyByProductId = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const item of cartItems) {
-      counts.set(item.productId, item.qty);
-    }
-    return counts;
-  }, [cartItems]);
-
-  const canAddToCart = (product: Product) => {
-    const inCart = cartQtyByProductId.get(product.id) ?? 0;
-    return canAddProductToCart(product, inCart, allowOutOfStock);
-  };
 
   const firstAddableProduct = (items: Product[]) =>
     items.find((product) => canAddToCart(product));
 
-  const handleAddToCart = (product: Product) => {
-    if (!canAddToCart(product)) return;
-    add(product);
-  };
+  const handleAddToCart = useCallback(
+    (product: Product) => {
+      if (!canAddProductToCart(product, getInCartQty(product.id), allowOutOfStock)) return;
+      startTransition(() => {
+        add(product);
+      });
+    },
+    [add, allowOutOfStock],
+  );
 
   const catalogFetchParams = useCallback(
     (offset: number) => ({
@@ -235,9 +223,9 @@ export function ProductCatalog() {
       search,
       groupId: isGlobalSearch ? null : selectedGroupId,
       featuredOnly: isGlobalSearch ? false : featuredOnly,
-      ...(canOverrideRegos ? catalogOverrides : {}),
+      ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
     }),
-    [canOverrideRegos, catalogOverrides, featuredOnly, isGlobalSearch, search, selectedGroupId],
+    [catalogOverrides, featuredOnly, isGlobalSearch, search, selectedGroupId],
   );
 
   const catalogQueryKey = useMemo(
@@ -331,7 +319,7 @@ export function ProductCatalog() {
   const prevCatalogContextRef = useRef({ warehouseId, priceTypeId });
 
   useEffect(() => {
-    if (!canOverrideRegos || !sellContextHydrated) return;
+    if (!canChangePosContextPerm || !sellContextHydrated) return;
 
     const prev = prevCatalogContextRef.current;
     const catalogContextChanged =
@@ -341,7 +329,7 @@ export function ProductCatalog() {
     if (catalogContextChanged && (prev.warehouseId !== null || prev.priceTypeId !== null)) {
       clearCart();
     }
-  }, [canOverrideRegos, clearCart, priceTypeId, sellContextHydrated, warehouseId]);
+  }, [canChangePosContextPerm, clearCart, priceTypeId, sellContextHydrated, warehouseId]);
 
   useEffect(() => {
     if (!token || !categoryReady || !sellContextHydrated) {
@@ -594,29 +582,32 @@ export function ProductCatalog() {
     setError("");
     setLoadMoreError("");
     setCategoryReady(false);
-    void hydrateSellContext(token, canOverrideRegos, { force: true });
+    void hydrateSellContext(token, canChangePosContextPerm, { force: true });
     void hydratePosConfig(token, { force: true });
   };
 
-  const toggleFeatured = async (product: Product) => {
-    if (!token) return;
-    const productId = productIdNumber(product);
-    if (productId <= 0) return;
+  const toggleFeatured = useCallback(
+    async (product: Product) => {
+      if (!token) return;
+      const productId = productIdNumber(product);
+      if (productId <= 0) return;
 
-    const isFeatured = featuredIds.has(productId);
-    try {
-      const res = isFeatured
-        ? await removeFeaturedProduct(token, productId)
-        : await addFeaturedProduct(token, productId);
-      setFeaturedIds(new Set(res.product_ids));
-      if (featuredOnly && isFeatured) {
-        setProducts(products.filter((item) => productIdNumber(item) !== productId));
-        setTotal((value) => Math.max(0, value - 1));
+      const isFeatured = featuredIds.has(productId);
+      try {
+        const res = isFeatured
+          ? await removeFeaturedProduct(token, productId)
+          : await addFeaturedProduct(token, productId);
+        setFeaturedIds(new Set(res.product_ids));
+        if (featuredOnly && isFeatured) {
+          setProducts(products.filter((item) => productIdNumber(item) !== productId));
+          setTotal((value) => Math.max(0, value - 1));
+        }
+      } catch (err) {
+        setError(formatAuthError(err));
       }
-    } catch (err) {
-      setError(formatAuthError(err));
-    }
-  };
+    },
+    [featuredIds, featuredOnly, products, setProducts, token],
+  );
 
   const submitSearchAddFirst = async (term: string) => {
     if (!term || !token) return;
@@ -633,7 +624,7 @@ export function ProductCatalog() {
           search: term,
           groupId: null,
           featuredOnly: false,
-          ...(canOverrideRegos ? catalogOverrides : {}),
+          ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
         });
         firstProduct = firstAddableProduct(res.products);
       } catch (err) {
@@ -664,7 +655,7 @@ export function ProductCatalog() {
           search: parsedInternal.productCode,
           groupId: null,
           featuredOnly: false,
-          ...(canOverrideRegos ? catalogOverrides : {}),
+          ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
         });
         const product = findProductByCode(res.products, parsedInternal.productCode);
         if (!product) {
@@ -685,7 +676,7 @@ export function ProductCatalog() {
           return;
         }
 
-        const inCart = cartQtyByProductId.get(product.id) ?? 0;
+        const inCart = getInCartQty(product.id);
         const clampedTotal = clampCartQty(
           inCart + barcodeQty,
           product.stock,
@@ -700,7 +691,9 @@ export function ProductCatalog() {
           return;
         }
 
-        addWithQty(product, qtyToAdd, { skipKeypad: true });
+        startTransition(() => {
+          addWithQty(product, qtyToAdd, { skipKeypad: true });
+        });
         setError("");
         setQ("");
         setSearch("");
@@ -713,7 +706,7 @@ export function ProductCatalog() {
         search: term,
         groupId: null,
         featuredOnly: false,
-        ...(canOverrideRegos ? catalogOverrides : {}),
+        ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
       });
       const product = findProductByBarcode(res.products, term);
       if (!product || !canAddToCart(product)) {
@@ -849,109 +842,20 @@ export function ProductCatalog() {
                 isMobile && view === "list" && styles.gridList,
               )}
             >
-              {products.map((p) => {
-              const out = p.stock <= 0;
-              const low = p.stock > 0 && p.stock < 10;
-              const cannotAdd = !canAddToCart(p);
-              const productId = productIdNumber(p);
-              const isFeatured = featuredIds.has(productId);
-              const stockText = Number.isInteger(p.stock)
-                ? t("pos.stockLeft", "{{n}} left", { n: p.stock })
-                : t("pos.stockLeft", "{{n}} left", {
-                    n: p.stock.toFixed(2).replace(/\.?0+$/, ""),
-                  });
-              return (
-                <div
+              {products.map((p) => (
+                <CatalogProductCard
                   key={p.id}
-                  className={clsx(
-                    styles.card,
-                    hideCardImages && styles.cardNoImage,
-                    cannotAdd && styles.cardDisabled,
-                  )}
-                  role="button"
-                  tabIndex={cannotAdd ? -1 : 0}
-                  aria-disabled={cannotAdd}
-                  onClick={() => handleAddToCart(p)}
-                  onKeyDown={(event) => {
-                    if (cannotAdd) return;
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      handleAddToCart(p);
-                    }
-                  }}
-                >
-                  {!hideCardImages ? (
-                    <div className={styles.cardMedia}>
-                      <img
-                        src={p.image || PRODUCT_FALLBACK_IMAGE}
-                        alt={p.name}
-                        className={styles.cardImg}
-                        loading="lazy"
-                      />
-                      <button
-                        type="button"
-                        className={clsx(styles.featureBtn, isFeatured && styles.featureBtnActive)}
-                        aria-label={
-                          isFeatured
-                            ? t("pos.featuredRemove", "Remove from featured")
-                            : t("pos.featuredAdd", "Add to featured")
-                        }
-                        aria-pressed={isFeatured}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void toggleFeatured(p);
-                        }}
-                      >
-                        <Star size={15} fill={isFeatured ? "currentColor" : "none"} />
-                      </button>
-                    </div>
-                  ) : null}
-                  <div className={styles.cardBody}>
-                    <div className={styles.cardBodyHead}>
-                      <div className={styles.cardName}>{productDisplayName(p)}</div>
-                      {hideCardImages ? (
-                        <button
-                          type="button"
-                          className={clsx(
-                            styles.featureBtn,
-                            styles.featureBtnInline,
-                            isFeatured && styles.featureBtnActive,
-                          )}
-                          aria-label={
-                          isFeatured
-                            ? t("pos.featuredRemove", "Remove from featured")
-                            : t("pos.featuredAdd", "Add to featured")
-                        }
-                          aria-pressed={isFeatured}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            void toggleFeatured(p);
-                          }}
-                        >
-                          <Star size={15} fill={isFeatured ? "currentColor" : "none"} />
-                        </button>
-                      ) : null}
-                    </div>
-                    <div className={styles.cardCategory}>
-                      {selectedGroup?.name ?? p.category}
-                    </div>
-                    <div className={styles.cardSku}>{productCodeLine(p)}</div>
-                    <div className={styles.cardFoot}>
-                      <div className={styles.cardPrice}>{formatCurrency(p.price)}</div>
-                      <span
-                        className={clsx(
-                          styles.stockBadge,
-                          out && styles.stockOut,
-                          low && styles.stockLow,
-                        )}
-                      >
-                        {out ? t("pos.outOfStock", "Out") : stockText}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+                  product={p}
+                  categoryName={selectedGroup?.name ?? p.category}
+                  hideCardImages={hideCardImages}
+                  isFeatured={featuredIds.has(productIdNumber(p))}
+                  isMobile={isMobile}
+                  view={view}
+                  allowOutOfStock={allowOutOfStock}
+                  onAdd={handleAddToCart}
+                  onToggleFeatured={toggleFeatured}
+                />
+              ))}
             </div>
 
             {loadMoreError ? (

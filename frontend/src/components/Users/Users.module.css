@@ -137,6 +137,57 @@
   color: var(--color-text-muted);
   font-size: 12px;
 }
+.permissionGroup {
+  margin-top: var(--space-3);
+}
+.permissionGroupTitle {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: var(--space-2);
+}
+.permissionMatrix {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.permissionMatrixHeader,
+.permissionMatrixRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) repeat(3, minmax(88px, 0.34fr));
+  gap: var(--space-2);
+  align-items: center;
+}
+.permissionMatrixHeader {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  letter-spacing: 0.02em;
+}
+.permissionMatrixHeader span:not(:first-child) {
+  text-align: center;
+  white-space: normal;
+  line-height: 1.25;
+  word-break: break-word;
+  hyphens: auto;
+  padding: 0 2px;
+}
+.permissionEffectCell {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+.permissionMatrixLabel {
+  font-size: 13px;
+}
+.permissionDefaultBadge {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-text-muted);
+}
+.permissionEffectCell input {
+  margin: 0;
+}
 .row {
   display: flex;
   align-items: center;

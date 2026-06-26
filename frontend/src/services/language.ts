@@ -26,10 +26,57 @@ interface LanguageApiResponse {
   translations: TranslationDictionary;
 }
 
+type LanguageListener = () => void;
+
 class LanguageService {
   private currentLanguage: SupportedLanguage = "en";
   private translations: TranslationDictionary = {};
   private supportedLanguages: SupportedLanguage[] = ["uz", "ru", "en", "tj"];
+  private listeners = new Set<LanguageListener>();
+  private loading = true;
+  private notifyFrame: number | null = null;
+
+  subscribe = (listener: LanguageListener): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  };
+
+  getIsLoading(): boolean {
+    return this.loading;
+  }
+
+  private setLoading(loading: boolean): void {
+    if (this.loading === loading) return;
+    this.loading = loading;
+    this.scheduleNotify();
+  }
+
+  private scheduleNotify(): void {
+    if (typeof window === "undefined") {
+      this.emitNotify();
+      return;
+    }
+
+    if (this.notifyFrame !== null) return;
+    this.notifyFrame = window.requestAnimationFrame(() => {
+      this.notifyFrame = null;
+      this.emitNotify();
+    });
+  }
+
+  private emitNotify(): void {
+    for (const listener of this.listeners) {
+      listener();
+    }
+  }
+
+  private applyLanguage(langCode: SupportedLanguage, translations: TranslationDictionary): void {
+    this.translations = translations;
+    this.currentLanguage = langCode;
+    this.scheduleNotify();
+  }
 
   detectBrowserLanguage(): SupportedLanguage {
     const browserLang = navigator.language || (navigator as Navigator & { userLanguage?: string }).userLanguage;
@@ -43,6 +90,7 @@ class LanguageService {
   }
 
   async initialize(): Promise<SupportedLanguage> {
+    this.setLoading(true);
     const detectedLang = this.detectBrowserLanguage();
     const storedLang = await getLanguageSetting<SupportedLanguage>("current_language");
     const langToUse: SupportedLanguage = storedLang ?? detectedLang;
@@ -51,9 +99,10 @@ class LanguageService {
       await this.loadLanguage(langToUse);
     } catch (error) {
       console.error("Error loading language:", error);
-      this.translations = this.getFallbackTranslations();
-      this.currentLanguage = "en";
+      this.applyLanguage("en", this.getFallbackTranslations());
       await saveLanguageSetting("current_language", "en");
+    } finally {
+      this.setLoading(false);
     }
 
     return this.currentLanguage;
@@ -77,8 +126,7 @@ class LanguageService {
       return;
     }
 
-    this.translations = { ...cachedTranslations! };
-    this.currentLanguage = langCode;
+    this.applyLanguage(langCode, cachedTranslations!);
     await saveLanguageSetting("current_language", langCode);
   }
 
@@ -94,8 +142,7 @@ class LanguageService {
 
     await saveLanguage(langCode, data.version, data.translations);
 
-    this.translations = { ...data.translations };
-    this.currentLanguage = langCode;
+    this.applyLanguage(langCode, data.translations);
     await saveLanguageSetting("current_language", langCode);
   }
 
@@ -116,11 +163,12 @@ class LanguageService {
   }
 
   async changeLanguage(langCode: SupportedLanguage): Promise<void> {
+    if (langCode === this.currentLanguage) return;
     await this.loadLanguage(langCode);
   }
 
   private getFallbackTranslations(): TranslationDictionary {
-    return { ...FALLBACK_TRANSLATIONS };
+    return FALLBACK_TRANSLATIONS;
   }
 
   async clearCache(): Promise<void> {

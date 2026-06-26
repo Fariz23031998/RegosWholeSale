@@ -3,6 +3,8 @@ export type CompanySummary = {
   name: string;
   slug: string;
   timezone: string;
+  subscription_status?: string | null;
+  subscription_expires_at?: string | null;
 };
 
 export type AuthUser = {

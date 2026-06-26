@@ -17,6 +17,7 @@ import {
 } from "@/components/Dashboard/DashboardWarehousesModal";
 import { SalesDetailModal } from "@/components/Sales/SalesDetailModal";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePermissions } from "@/hooks/use-permissions";
 import {
   formatDashboardPeriodLabel,
   getPeriodLabel,
@@ -54,6 +55,7 @@ type SaleDetail = {
 export function SalesPage() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
+  const { canPrintDocuments } = usePermissions();
   const [periodPreset, setPeriodPreset] = useState<DashboardPeriodPreset>("week");
   const [customRange, setCustomRange] = useState<DashboardCustomRange | null>(null);
   const [periodModalOpen, setPeriodModalOpen] = useState(false);
@@ -405,6 +407,7 @@ export function SalesPage() {
                           <Scale size={16} />
                         </Button>
                       ) : null}
+                      {canPrintDocuments() ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -418,6 +421,7 @@ export function SalesPage() {
                       >
                         <Printer size={16} />
                       </Button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

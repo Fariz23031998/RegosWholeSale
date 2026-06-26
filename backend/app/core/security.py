@@ -27,12 +27,27 @@ def create_access_token(
     expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     payload: dict[str, Any] = {
         "sub": str(user_id),
+        "typ": "tenant",
         "company_id": company_id,
         "role": role,
         "permissions": permissions,
         "exp": expire,
     }
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def create_platform_access_token(*, admin_id: int) -> str:
+    expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
+    payload: dict[str, Any] = {
+        "sub": str(admin_id),
+        "typ": "platform",
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
+def token_type(payload: dict[str, Any]) -> str:
+    return str(payload.get("typ") or "tenant")
 
 
 def decode_access_token(token: str) -> dict[str, Any]:

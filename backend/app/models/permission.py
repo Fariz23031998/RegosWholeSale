@@ -1,7 +1,14 @@
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+import enum
+
+from sqlalchemy import Enum, ForeignKey, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
+
+
+class PermissionEffect(str, enum.Enum):
+    allow = "allow"
+    deny = "deny"
 
 
 class Permission(Base):
@@ -21,6 +28,9 @@ class UserPermission(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     permission_id: Mapped[int] = mapped_column(ForeignKey("permissions.id", ondelete="CASCADE"), nullable=False)
+    effect: Mapped[PermissionEffect] = mapped_column(
+        Enum(PermissionEffect), nullable=False, default=PermissionEffect.allow
+    )
 
     user: Mapped["User"] = relationship("User", back_populates="extra_permissions")
     permission: Mapped["Permission"] = relationship("Permission", back_populates="user_links")

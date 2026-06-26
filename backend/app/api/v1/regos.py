@@ -42,8 +42,12 @@ from app.services import regos_payment_linking as regos_payment_linking_service
 from app.services import regos_payment_types as regos_payment_types_service
 from app.services import regos_products as regos_products_service
 from app.services import regos_tokens as regos_tokens_service
+from app.services.permissions import POS_CONTEXT_CHANGE_PERMISSIONS
 
 router = APIRouter(prefix="/regos", tags=["regos"])
+
+_POS_CONTEXT_OR_SETTINGS = ("settings.manage", *POS_CONTEXT_CHANGE_PERMISSIONS)
+_PARTNER_OR_SETTINGS = ("settings.manage", "pos.change_partner")
 
 
 @router.get("/tokens/status", response_model=RegosTokenStatus)
@@ -95,9 +99,7 @@ async def delete_regos_token(
 
 @router.get("/reference-options", response_model=RegosReferenceOptionsResponse)
 async def get_regos_reference_options(
-    current: CurrentUser = Depends(
-        require_any_permission("settings.manage", "pos.override_regos")
-    ),
+    current: CurrentUser = Depends(require_any_permission(*_POS_CONTEXT_OR_SETTINGS)),
     session: AsyncSession = Depends(get_db),
 ) -> RegosReferenceOptionsResponse:
     data = await regos_defaults_service.list_reference_options(session, current.company_id)
@@ -191,13 +193,10 @@ async def get_regos_products(
     current: CurrentUser = Depends(require_permission("pos.access")),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogProductsResponse:
-    if (warehouse_id is not None or price_type_id is not None) and (
-        "pos.override_regos" not in current.permissions
-    ):
-        raise forbidden(
-            "Missing permission: pos.override_regos",
-            "FORBIDDEN",
-        )
+    if warehouse_id is not None and "pos.change_warehouse" not in current.permissions:
+        raise forbidden("Missing permission: pos.change_warehouse", "FORBIDDEN")
+    if price_type_id is not None and "pos.change_price_type" not in current.permissions:
+        raise forbidden("Missing permission: pos.change_price_type", "FORBIDDEN")
 
     data = await regos_products_service.list_products(
         session,
@@ -237,9 +236,7 @@ async def get_regos_partners(
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     search: str | None = Query(default=None, max_length=255),
-    current: CurrentUser = Depends(
-        require_any_permission("settings.manage", "pos.override_regos")
-    ),
+    current: CurrentUser = Depends(require_any_permission(*_PARTNER_OR_SETTINGS)),
     session: AsyncSession = Depends(get_db),
 ) -> PartnersListResponse:
     data = await regos_partners_service.list_partners(
@@ -255,9 +252,7 @@ async def get_regos_partners(
 @router.get("/partners/{partner_id}", response_model=Partner)
 async def get_regos_partner(
     partner_id: int,
-    current: CurrentUser = Depends(
-        require_any_permission("settings.manage", "pos.override_regos")
-    ),
+    current: CurrentUser = Depends(require_any_permission(*_PARTNER_OR_SETTINGS)),
     session: AsyncSession = Depends(get_db),
 ) -> Partner:
     data = await regos_partners_service.get_partner_by_id(
@@ -270,9 +265,7 @@ async def get_regos_partner(
 
 @router.get("/partner-groups", response_model=PartnerGroupsResponse)
 async def get_regos_partner_groups(
-    current: CurrentUser = Depends(
-        require_any_permission("settings.manage", "pos.override_regos")
-    ),
+    current: CurrentUser = Depends(require_any_permission(*_PARTNER_OR_SETTINGS)),
     session: AsyncSession = Depends(get_db),
 ) -> PartnerGroupsResponse:
     data = await regos_partners_service.list_partner_groups(session, current.company_id)
@@ -282,9 +275,7 @@ async def get_regos_partner_groups(
 @router.post("/partners", response_model=PartnerCreateResponse)
 async def create_regos_partner(
     body: PartnerCreateRequest,
-    current: CurrentUser = Depends(
-        require_any_permission("settings.manage", "pos.override_regos")
-    ),
+    current: CurrentUser = Depends(require_any_permission(*_PARTNER_OR_SETTINGS)),
     session: AsyncSession = Depends(get_db),
 ) -> PartnerCreateResponse:
     data = await regos_partners_service.add_partner(
@@ -299,9 +290,7 @@ async def create_regos_partner(
 async def update_regos_partner(
     partner_id: int,
     body: PartnerUpdateRequest,
-    current: CurrentUser = Depends(
-        require_any_permission("settings.manage", "pos.override_regos")
-    ),
+    current: CurrentUser = Depends(require_any_permission(*_PARTNER_OR_SETTINGS)),
     session: AsyncSession = Depends(get_db),
 ) -> PartnerMutationResponse:
     data = await regos_partners_service.edit_partner(
@@ -315,9 +304,7 @@ async def update_regos_partner(
 
 @router.get("/firms", response_model=FirmsListResponse)
 async def get_regos_firms(
-    current: CurrentUser = Depends(
-        require_any_permission("settings.manage", "pos.override_regos")
-    ),
+    current: CurrentUser = Depends(require_any_permission(*_PARTNER_OR_SETTINGS)),
     session: AsyncSession = Depends(get_db),
 ) -> FirmsListResponse:
     data = await regos_firms_service.list_firms(session, current.company_id)
@@ -332,9 +319,7 @@ async def get_regos_partner_balance(
     firm_id: int | None = Query(default=None, ge=1),
     currency_id: int | None = Query(default=None, ge=1),
     in_base_currency: bool = Query(default=False),
-    current: CurrentUser = Depends(
-        require_any_permission("settings.manage", "pos.override_regos")
-    ),
+    current: CurrentUser = Depends(require_any_permission(*_PARTNER_OR_SETTINGS)),
     session: AsyncSession = Depends(get_db),
 ) -> PartnerBalanceResponse:
     data = await regos_partner_balance_service.get_partner_balance(
@@ -353,9 +338,7 @@ async def get_regos_partner_balance(
 @router.post("/partners/{partner_id}/delete-mark", response_model=PartnerMutationResponse)
 async def delete_mark_regos_partner(
     partner_id: int,
-    current: CurrentUser = Depends(
-        require_any_permission("settings.manage", "pos.override_regos")
-    ),
+    current: CurrentUser = Depends(require_any_permission(*_PARTNER_OR_SETTINGS)),
     session: AsyncSession = Depends(get_db),
 ) -> PartnerMutationResponse:
     data = await regos_partners_service.delete_mark_partner(

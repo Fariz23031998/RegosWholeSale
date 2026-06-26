@@ -19,6 +19,10 @@ class Settings(BaseSettings):
     regos_client_secret: str = ""
     # Public base URL for Telegram bot webhooks and REGOS integration HandleWebhook
     telegram_webhook_base_url: str = ""
+    registration_trial_days: int = 7
+    subscription_days_per_month: int = 30
+    platform_admin_email: str = ""
+    platform_admin_password: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:

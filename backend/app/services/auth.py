@@ -7,6 +7,7 @@ from app.core.security import create_access_token, hash_password, verify_passwor
 from app.models import Company, User, UserPermission, UserRole
 from app.services.permissions import effective_permission_codes, seed_permissions
 from app.services.schedules import is_within_login_schedule
+from app.services.subscriptions import is_subscription_active, start_trial
 from app.services.users import slugify, unique_company_slug
 
 
@@ -30,6 +31,7 @@ async def register_owner(
 
     slug = await unique_company_slug(session, slugify(company_name))
     company = Company(name=company_name, slug=slug, timezone="UTC", settings={})
+    start_trial(company)
     session.add(company)
     await session.flush()
 
@@ -90,6 +92,11 @@ async def _authenticate(session: AsyncSession, user: User, password: str) -> tup
         from app.core.exceptions import forbidden
 
         raise forbidden("Account is deactivated", "ACCOUNT_INACTIVE")
+
+    if not is_subscription_active(user.company):
+        from app.core.exceptions import forbidden
+
+        raise forbidden("Subscription has expired", "SUBSCRIPTION_EXPIRED")
 
     if not is_within_login_schedule(user.login_schedules, user.company.timezone):
         from app.core.exceptions import forbidden

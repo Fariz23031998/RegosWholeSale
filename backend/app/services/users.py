@@ -9,7 +9,11 @@ from app.core.exceptions import bad_request, conflict, not_found
 from app.core.security import hash_password
 from app.models import LoginSchedule, User, UserRole
 from app.models.permission import UserPermission
-from app.services.permissions import effective_permission_codes, set_user_permissions
+from app.services.permissions import (
+    effective_permission_codes,
+    get_user_permission_rules,
+    set_user_permission_rules,
+)
 
 
 def slugify(name: str) -> str:
@@ -80,6 +84,15 @@ async def get_company_user(session: AsyncSession, company_id: int, user_id: int)
     return user
 
 
+async def ensure_login_available(
+    session: AsyncSession, login: str, *, exclude_user_id: int | None = None
+) -> None:
+    result = await session.execute(select(User).where(User.login == login))
+    existing = result.scalar_one_or_none()
+    if existing and existing.id != exclude_user_id:
+        raise conflict("Login already exists", "LOGIN_EXISTS")
+
+
 async def create_employee(
     session: AsyncSession,
     *,
@@ -88,15 +101,13 @@ async def create_employee(
     password: str,
     display_name: str,
     role: UserRole,
-    permission_codes: list[str] | None,
+    permission_rules: list[dict] | None,
     schedules: list[dict] | None,
 ) -> User:
     if role == UserRole.owner:
         raise bad_request("Cannot create another owner via this endpoint", "INVALID_ROLE")
 
-    result = await session.execute(select(User).where(User.login == login))
-    if result.scalar_one_or_none():
-        raise conflict("Login already exists", "LOGIN_EXISTS")
+    await ensure_login_available(session, login)
 
     user = User(
         company_id=company_id,
@@ -109,8 +120,8 @@ async def create_employee(
     session.add(user)
     await session.flush()
 
-    if permission_codes is not None:
-        await set_user_permissions(session, user, permission_codes)
+    if permission_rules is not None:
+        await set_user_permission_rules(session, user, permission_rules)
     await apply_schedules(session, user, schedules)
     await session.flush()
     return user
@@ -121,14 +132,18 @@ async def update_user(
     user: User,
     *,
     display_name: str | None = None,
+    login: str | None = None,
     password: str | None = None,
     role: UserRole | None = None,
     is_active: bool | None = None,
-    permission_codes: list[str] | None = None,
+    permission_rules: list[dict] | None = None,
     schedules: list[dict] | None = None,
 ) -> User:
     if display_name is not None:
         user.display_name = display_name
+    if login is not None and login != user.login:
+        await ensure_login_available(session, login, exclude_user_id=user.id)
+        user.login = login
     if password is not None:
         user.password_hash = hash_password(password)
     if role is not None:
@@ -141,8 +156,8 @@ async def update_user(
         if user.role == UserRole.owner and not is_active:
             raise bad_request("Cannot deactivate owner", "INVALID_OPERATION")
         user.is_active = is_active
-    if permission_codes is not None:
-        await set_user_permissions(session, user, permission_codes)
+    if permission_rules is not None:
+        await set_user_permission_rules(session, user, permission_rules)
     if schedules is not None:
         await apply_schedules(session, user, schedules)
     await session.flush()
@@ -159,6 +174,7 @@ def user_to_dict(user: User) -> dict:
         "role": user.role.value,
         "is_active": user.is_active,
         "permissions": sorted(effective_permission_codes(user)),
+        "permission_rules": get_user_permission_rules(user),
         "schedules": [
             {
                 "id": s.id,

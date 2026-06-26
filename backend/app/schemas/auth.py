@@ -1,5 +1,7 @@
 from typing import Literal
 
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 
@@ -68,11 +70,16 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
 
 
+from app.schemas.users import PermissionRule
+
+
 class CompanySummary(BaseModel):
     id: int
     name: str
     slug: str
     timezone: str
+    subscription_status: str | None = None
+    subscription_expires_at: datetime | None = None
 
 
 class UserResponse(BaseModel):
@@ -84,6 +91,7 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     permissions: list[str]
+    permission_rules: list[PermissionRule] = []
     company: CompanySummary | None = None
 
 

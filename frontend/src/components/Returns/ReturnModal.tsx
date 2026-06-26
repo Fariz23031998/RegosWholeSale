@@ -18,6 +18,8 @@ import {
   type DashboardCustomRange,
   type DashboardPeriodPreset,
 } from "@/lib/dashboard-api";
+import { usePermissions } from "@/hooks/use-permissions";
+import { filterCheckoutOverrides } from "@/types/users";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
@@ -68,8 +70,8 @@ const SALE_PERIOD_PRESETS: SalePeriodPreset[] = ["today", "week", "month", "all"
 export function ReturnModal({ open, onClose }: Props) {
   const { t } = useLanguage();
   const accessToken = useAuth((s) => s.accessToken);
-  const user = useAuth((s) => s.user);
-  const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
+  const { canChangePartner } = usePermissions();
+  const canChangePartnerPerm = canChangePartner();
   const posSaleCurrency = useSellContext((s) => s.saleCurrency);
   const partnerId = useSellContext((s) => s.partnerId);
   const checkoutOverrides = useSellContext((s) => s.checkoutOverrides);
@@ -426,9 +428,16 @@ export function ReturnModal({ open, onClose }: Props) {
           }));
 
     try {
-      const overridePartnerId = canOverrideRegos ? checkoutOverrides().partner_id : undefined;
+      const partnerOverrides = canChangePartnerPerm
+        ? filterCheckoutOverrides(checkoutOverrides(), {
+            canChangeWarehouse: false,
+            canChangePriceType: false,
+            canChangePartner: true,
+          })
+        : {};
+      const overridePartnerId = partnerOverrides.partner_id;
       const resolvedPartnerId =
-        (canOverrideRegos && returnPartnerId) ||
+        (canChangePartnerPerm && returnPartnerId) ||
         (sourceMode === "sale" ? effectivePartnerId : undefined) ||
         overridePartnerId;
 
@@ -447,7 +456,13 @@ export function ReturnModal({ open, onClose }: Props) {
               tendered: payment.tendered,
               change: payment.change,
             }),
-        ...(canOverrideRegos ? checkoutOverrides() : {}),
+        ...(canChangePartnerPerm
+          ? filterCheckoutOverrides(checkoutOverrides(), {
+              canChangeWarehouse: false,
+              canChangePriceType: false,
+              canChangePartner: true,
+            })
+          : {}),
         ...(resolvedPartnerId ? { partner_id: resolvedPartnerId } : {}),
       });
 
@@ -499,7 +514,7 @@ export function ReturnModal({ open, onClose }: Props) {
               <span>{formatAmountWithCurrency(total, returnCurrency)}</span>
             </div>
 
-            {canOverrideRegos && (
+            {canChangePartnerPerm && (
               <div className={styles.partnerRow}>
                 <span className={styles.partnerLabel}>{t("returns.modal.customer")}</span>
                 <button
@@ -813,7 +828,7 @@ export function ReturnModal({ open, onClose }: Props) {
         }}
       />
 
-      {canOverrideRegos && accessToken && (
+      {canChangePartnerPerm && accessToken && (
         <PartnerPickerModal
           open={partnerPickerOpen}
           onClose={() => setPartnerPickerOpen(false)}

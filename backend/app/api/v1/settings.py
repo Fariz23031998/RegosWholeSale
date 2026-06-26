@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, get_current_user, require_permission
+from app.api.deps import CurrentUser, get_current_user, require_any_permission, require_permission
 from app.database import get_db
 from app.schemas.featured import FeaturedProductMutationResponse, FeaturedProductsResponse
 from app.schemas.pos import (
@@ -183,7 +183,9 @@ async def patch_company_pos_settings(
 
 @router.get("/company/settings/receipt-templates", response_model=ReceiptTemplatesResponse)
 async def get_company_receipt_templates(
-    current: CurrentUser = Depends(get_current_user),
+    current: CurrentUser = Depends(
+        require_any_permission("documents.print", "settings.manage")
+    ),
     session: AsyncSession = Depends(get_db),
 ) -> ReceiptTemplatesResponse:
     settings = await receipt_templates_service.get_receipt_templates(

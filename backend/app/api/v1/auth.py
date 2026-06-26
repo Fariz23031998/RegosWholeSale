@@ -34,7 +34,11 @@ from app.schemas.auth import (
 
 from app.services import auth as auth_service
 
-from app.services.permissions import effective_permission_codes, get_user_with_permissions
+from app.services.permissions import (
+    effective_permission_codes,
+    get_user_permission_rules,
+    get_user_with_permissions,
+)
 
 from app.services.verification import (
 
@@ -244,16 +248,15 @@ def _user_response(user, company, permissions: list[str] | None = None) -> UserR
 
         permissions=perms,
 
+        permission_rules=get_user_permission_rules(user),
+
         company=CompanySummary(
-
             id=company.id,
-
             name=company.name,
-
             slug=company.slug,
-
             timezone=company.timezone,
-
+            subscription_status=company.subscription_status.value,
+            subscription_expires_at=company.subscription_expires_at,
         )
 
         if company

@@ -15,7 +15,7 @@ from app.schemas.users import (
 from app.services import pos_settings as pos_settings_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services import users as users_service
-from app.services.permissions import set_user_permissions
+from app.services.permissions import set_user_permission_rules
 from app.services.users import get_company_user, user_to_dict
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -44,7 +44,9 @@ async def create_user(
         password=body.password,
         display_name=body.display_name,
         role=body.role,
-        permission_codes=body.permission_codes,
+        permission_rules=(
+            [r.model_dump() for r in body.permission_rules] if body.permission_rules else None
+        ),
         schedules=schedules,
     )
     user = await get_company_user(session, current.company_id, user.id)
@@ -74,10 +76,13 @@ async def patch_user(
         session,
         user,
         display_name=body.display_name,
+        login=body.login,
         password=body.password,
         role=body.role,
         is_active=body.is_active,
-        permission_codes=body.permission_codes,
+        permission_rules=(
+            [r.model_dump() for r in body.permission_rules] if body.permission_rules else None
+        ),
         schedules=schedules,
     )
     user = await get_company_user(session, current.company_id, user.id)
@@ -104,7 +109,11 @@ async def update_permissions(
     session: AsyncSession = Depends(get_db),
 ) -> UserDetailResponse:
     user = await get_company_user(session, current.company_id, user_id)
-    await set_user_permissions(session, user, body.permission_codes)
+    await set_user_permission_rules(
+        session,
+        user,
+        [r.model_dump() for r in body.permission_rules],
+    )
     user = await get_company_user(session, current.company_id, user.id)
     return UserDetailResponse(**user_to_dict(user))
 

@@ -17,18 +17,19 @@ import { CatalogViewToggle } from "@/components/POS/CatalogViewToggle";
 import { SellContextBar } from "@/components/POS/SellContextBar";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useAuth } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
 import styles from "./Shell.module.css";
 
 const NAV = [
-  { to: "/", labelKey: "nav.sell", icon: ShoppingCart },
-  { to: "/sales", labelKey: "nav.sales", icon: Receipt },
-  { to: "/returns", labelKey: "nav.returns", icon: Undo2 },
-  { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard },
+  { to: "/", labelKey: "nav.sell", icon: ShoppingCart, permission: "pos.access" },
+  { to: "/sales", labelKey: "nav.sales", icon: Receipt, permission: "sales.read" },
+  { to: "/returns", labelKey: "nav.returns", icon: Undo2, permission: "returns.manage" },
+  { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, permission: "dashboard.read" },
   { to: "/users", labelKey: "nav.users", icon: Users, permission: "users.manage" },
-  { to: "/telegram-users", labelKey: "nav.telegramUsers", icon: MessageCircle },
-  { to: "/settings", labelKey: "nav.settings", icon: Settings },
+  { to: "/telegram-users", labelKey: "nav.telegramUsers", icon: MessageCircle, permission: "users.manage" },
+  { to: "/settings", labelKey: "nav.settings", icon: Settings, permission: "settings.manage" },
 ] as const;
 
 export function Shell() {
@@ -42,9 +43,9 @@ export function Shell() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isCompactTopBar, setIsCompactTopBar] = useState(false);
   const sellContextHydrated = useSellContext((s) => s.hydrated);
-  const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
+  const { can, canChangePosContext } = usePermissions();
   const isSellPage = location.pathname === "/";
-  const showSellContext = isSellPage && canOverrideRegos && sellContextHydrated;
+  const showSellContext = isSellPage && canChangePosContext() && sellContextHydrated;
   const showCatalogViewToggle = isSellPage && isCompactTopBar;
 
   useEffect(() => {
@@ -106,9 +107,7 @@ export function Shell() {
           </div>
         </div>
 
-        {NAV.filter(
-          (item) => !("permission" in item) || user?.permissions.includes(item.permission),
-        ).map(({ to, labelKey, icon: Icon }) => {
+        {NAV.filter((item) => can(item.permission)).map(({ to, labelKey, icon: Icon }) => {
           const active =
             to === "/"
               ? location.pathname === "/"

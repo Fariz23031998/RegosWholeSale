@@ -65,6 +65,9 @@ export const useAuth = create<AuthState>()(
         } catch (e) {
           if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
             get().clearSession();
+            if (e.code === "SUBSCRIPTION_EXPIRED" && typeof window !== "undefined") {
+              window.location.href = "/login?subscription=expired";
+            }
           }
           return false;
         }
@@ -121,7 +124,15 @@ export function formatAuthError(
   err: unknown,
   fallback = languageService.t("errors.generic", "Something went wrong"),
 ): string {
-  if (err instanceof ApiError) return err.message;
+  if (err instanceof ApiError) {
+    if (err.code === "SUBSCRIPTION_EXPIRED") {
+      return languageService.t(
+        "auth.subscriptionExpired",
+        "Your trial has ended. Contact support to continue using the service.",
+      );
+    }
+    return err.message;
+  }
   if (err instanceof Error) return err.message;
   return fallback;
 }

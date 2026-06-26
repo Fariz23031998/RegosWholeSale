@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import CurrentUser, require_permission
+from app.api.deps import CurrentUser, get_current_user, require_any_permission, require_permission
+from app.core.exceptions import forbidden
 from app.database import get_db
 from app.schemas.sales import (
     CheckoutRequest,
@@ -21,6 +22,10 @@ from app.services import regos_sales as regos_sales_service
 router = APIRouter(prefix="/sales", tags=["sales"])
 
 
+def _permission_set(current: CurrentUser) -> set[str]:
+    return set(current.permissions)
+
+
 @router.post("/checkout", response_model=CheckoutResponse)
 async def checkout_sale(
     body: CheckoutRequest,
@@ -32,7 +37,7 @@ async def checkout_sale(
         current.company_id,
         current.id,
         body.model_dump(),
-        allow_regos_overrides="pos.override_regos" in current.permissions,
+        permissions=_permission_set(current),
     )
     return CheckoutResponse(**result)
 
@@ -40,7 +45,7 @@ async def checkout_sale(
 @router.post("/postpone", response_model=PostponeResponse)
 async def postpone_sale(
     body: PostponeRequest,
-    current: CurrentUser = Depends(require_permission("sales.write")),
+    current: CurrentUser = Depends(require_permission("sales.postpone")),
     session: AsyncSession = Depends(get_db),
 ) -> PostponeResponse:
     result = await regos_sales_service.postpone_sale(
@@ -48,7 +53,7 @@ async def postpone_sale(
         current.company_id,
         current.id,
         body.model_dump(),
-        allow_regos_overrides="pos.override_regos" in current.permissions,
+        permissions=_permission_set(current),
     )
     return PostponeResponse(**result)
 
@@ -64,9 +69,15 @@ async def get_wholesale_documents(
     performed: bool | None = Query(default=None),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
-    current: CurrentUser = Depends(require_permission("sales.read")),
+    current: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleDocumentsResponse:
+    if performed is False:
+        if "sales.continue" not in current.permissions:
+            raise forbidden("Missing permission: sales.continue", "FORBIDDEN")
+    elif "sales.read" not in current.permissions:
+        raise forbidden("Missing permission: sales.read", "FORBIDDEN")
+
     data = await regos_sales_service.list_wholesale_documents(
         session,
         current.company_id,
@@ -87,7 +98,9 @@ async def get_wholesale_documents(
 @router.get("/wholesale-operations", response_model=WholesaleOperationsResponse)
 async def get_wholesale_operations_batch(
     document_ids: list[int] = Query(..., min_length=1),
-    current: CurrentUser = Depends(require_permission("sales.read")),
+    current: CurrentUser = Depends(
+        require_any_permission("sales.read", "sales.continue")
+    ),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleOperationsResponse:
     data = await regos_sales_service.list_wholesale_operations_batch(
@@ -104,7 +117,9 @@ async def get_wholesale_operations_batch(
 )
 async def get_wholesale_operations(
     document_id: int,
-    current: CurrentUser = Depends(require_permission("sales.read")),
+    current: CurrentUser = Depends(
+        require_any_permission("sales.read", "sales.continue")
+    ),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleOperationsResponse:
     data = await regos_sales_service.list_wholesale_operations(
@@ -142,7 +157,7 @@ async def get_wholesale_return_documents(
     all_stocks: bool = Query(default=True),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
-    current: CurrentUser = Depends(require_permission("sales.read")),
+    current: CurrentUser = Depends(require_permission("returns.manage")),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleReturnDocumentsResponse:
     data = await regos_sales_service.list_wholesale_return_documents(
@@ -167,7 +182,7 @@ async def get_wholesale_return_documents(
 )
 async def get_wholesale_return_operations(
     document_id: int,
-    current: CurrentUser = Depends(require_permission("sales.read")),
+    current: CurrentUser = Depends(require_permission("returns.manage")),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleOperationsResponse:
     data = await regos_sales_service.list_wholesale_return_operations(
@@ -184,7 +199,7 @@ async def get_wholesale_return_operations(
 )
 async def get_wholesale_return_document_payments(
     document_id: int,
-    current: CurrentUser = Depends(require_permission("sales.read")),
+    current: CurrentUser = Depends(require_permission("returns.manage")),
     session: AsyncSession = Depends(get_db),
 ) -> WholesalePaymentsResponse:
     data = await regos_sales_service.list_wholesale_return_document_payments(
@@ -201,7 +216,7 @@ async def get_wholesale_return_document_payments(
 )
 async def get_wholesale_return_summary(
     document_id: int,
-    current: CurrentUser = Depends(require_permission("sales.read")),
+    current: CurrentUser = Depends(require_any_permission("sales.read", "returns.manage")),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleReturnSummaryResponse:
     data = await regos_sales_service.get_wholesale_return_summary(
@@ -216,7 +231,7 @@ async def get_wholesale_return_summary(
 @router.post("/wholesale-returns", response_model=WholesaleReturnResponse)
 async def create_wholesale_return(
     body: WholesaleReturnRequest,
-    current: CurrentUser = Depends(require_permission("sales.write")),
+    current: CurrentUser = Depends(require_permission("returns.manage")),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleReturnResponse:
     result = await regos_sales_service.complete_wholesale_return(
@@ -224,6 +239,6 @@ async def create_wholesale_return(
         current.company_id,
         current.id,
         body.model_dump(),
-        allow_regos_overrides="pos.override_regos" in current.permissions,
+        permissions=_permission_set(current),
     )
     return WholesaleReturnResponse(**result)

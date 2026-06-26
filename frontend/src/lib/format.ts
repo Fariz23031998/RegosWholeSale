@@ -12,17 +12,26 @@ export const formatCurrency = (n: number): string => {
   return `${sign}${formattedInt}.${decPart}`;
 };
 
-export const formatDateTime = (iso: string) =>
-  new Date(iso).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
+const pad2 = (value: number) => String(value).padStart(2, "0");
 
-export const formatDate = (iso: string) =>
-  new Date(iso).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
+const formatDateParts = (date: Date) => ({
+  day: pad2(date.getDate()),
+  month: pad2(date.getMonth() + 1),
+  year: date.getFullYear(),
+  hours: pad2(date.getHours()),
+  minutes: pad2(date.getMinutes()),
+});
+
+export const formatDateTime = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const { day, month, year, hours, minutes } = formatDateParts(date);
+  return `${day}.${month}.${year} ${hours}:${minutes}`;
+};
+
+export const formatDate = (iso: string) => {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  const { day, month, year } = formatDateParts(date);
+  return `${day}.${month}.${year}`;
+};

@@ -11,6 +11,10 @@
   animation: fade 0.15s ease;
 }
 
+.elevatedOverlay {
+  z-index: 120;
+}
+
 .modal {
   background: var(--color-surface);
   border-radius: var(--radius-xl);

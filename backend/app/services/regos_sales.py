@@ -6,7 +6,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import AppError, bad_request
+from app.core.exceptions import AppError, bad_request, forbidden
 from app.core.regos_api import regos_async_api_request_for_company
 from app.core.regos_batch import regos_batch_request_chunks_for_company, regos_batch_request_for_company
 from app.services import pos_settings as pos_settings_service
@@ -15,6 +15,7 @@ from app.services.regos_defaults import _extract_currency_reference
 from app.services import regos_fields as regos_fields_service
 from app.services import regos_payment_linking as regos_payment_linking_service
 from app.services import regos_payment_types as regos_payment_types_service
+from app.services import regos_products as regos_products_service
 from app.utils.currency_conversion import convert_between_rates, parse_exchange_rate, same_currency
 
 WHOLESALE_RETURN_SOURCE_PREFIX = "pulse:ws:"
@@ -27,9 +28,11 @@ async def complete_checkout(
     user_id: int,
     payload: dict[str, Any],
     *,
-    allow_regos_overrides: bool = False,
+    permissions: set[str] | None = None,
 ) -> dict[str, Any]:
-    session_overrides = _extract_session_overrides(payload, allow_regos_overrides)
+    perms = permissions or set()
+    _validate_sale_restrictions(payload, perms)
+    session_overrides = _extract_session_overrides(payload, perms)
     defaults = await regos_defaults_service.apply_regos_session_overrides(
         session,
         company_id,
@@ -62,6 +65,14 @@ async def complete_checkout(
 
     doc_id: int | None = None
     try:
+        await _validate_cart_item_prices(
+            session,
+            company_id,
+            user_id,
+            payload,
+            session_overrides,
+            permissions=perms,
+        )
         doc_id, lines, subtotal, discount, total = await _upsert_wholesale_draft(
             session,
             company_id,
@@ -172,9 +183,11 @@ async def postpone_sale(
     user_id: int,
     payload: dict[str, Any],
     *,
-    allow_regos_overrides: bool = False,
+    permissions: set[str] | None = None,
 ) -> dict[str, Any]:
-    session_overrides = _extract_session_overrides(payload, allow_regos_overrides)
+    perms = permissions or set()
+    _validate_sale_restrictions(payload, perms)
+    session_overrides = _extract_session_overrides(payload, perms)
     defaults = await regos_defaults_service.apply_regos_session_overrides(
         session,
         company_id,
@@ -188,6 +201,14 @@ async def postpone_sale(
 
     doc_id: int | None = None
     try:
+        await _validate_cart_item_prices(
+            session,
+            company_id,
+            user_id,
+            payload,
+            session_overrides,
+            permissions=perms,
+        )
         doc_id, lines, subtotal, discount, total = await _upsert_wholesale_draft(
             session,
             company_id,
@@ -684,8 +705,9 @@ async def complete_wholesale_return(
     user_id: int,
     payload: dict[str, Any],
     *,
-    allow_regos_overrides: bool = False,
+    permissions: set[str] | None = None,
 ) -> dict[str, Any]:
+    perms = permissions or set()
     raw_wholesale_doc_id = payload.get("wholesale_doc_id")
     wholesale_doc_id = int(raw_wholesale_doc_id) if raw_wholesale_doc_id is not None else None
     items = payload["items"]
@@ -697,7 +719,7 @@ async def complete_wholesale_return(
         raise bad_request("Return must include at least one item.", "RETURN_EMPTY")
 
     session_overrides = _extract_return_overrides(
-        payload, allow_regos_overrides, is_sale_linked=not is_manual
+        payload, perms, is_sale_linked=not is_manual
     )
     partner_override_id = session_overrides.pop("partner_id", None)
 
@@ -1378,28 +1400,74 @@ def _extract_code(response: dict[str, Any], doc_id: int) -> str:
     return str(doc_id)
 
 
-def _extract_session_overrides(
-    payload: dict[str, Any], allow_regos_overrides: bool
-) -> dict[str, int]:
-    if not allow_regos_overrides:
-        return {}
+def _validate_sale_restrictions(payload: dict[str, Any], permissions: set[str]) -> None:
+    discount = float(payload.get("discount") or 0)
+    if discount > 0 and "pos.apply_discount" not in permissions:
+        raise forbidden("Missing permission: pos.apply_discount", "FORBIDDEN")
 
+
+async def _validate_cart_item_prices(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    payload: dict[str, Any],
+    session_overrides: dict[str, int],
+    *,
+    permissions: set[str],
+) -> None:
+    if "pos.modify_price" in permissions:
+        return
+
+    items = payload.get("items") or []
+    if not items:
+        return
+
+    product_ids = [int(item["regos_item_id"]) for item in items]
+    catalog_products = await regos_products_service.get_products_by_ids(
+        session,
+        company_id,
+        user_id,
+        product_ids,
+        warehouse_id=session_overrides.get("warehouse_id"),
+        price_type_id=session_overrides.get("price_type_id"),
+    )
+    catalog_by_id = {int(product["regos_item_id"]): float(product.get("price") or 0) for product in catalog_products}
+
+    for item in items:
+        item_id = int(item["regos_item_id"])
+        submitted_price = round(float(item["price"]), 2)
+        catalog_price = round(catalog_by_id.get(item_id, submitted_price), 2)
+        if abs(submitted_price - catalog_price) > 0.02:
+            raise forbidden("Missing permission: pos.modify_price", "FORBIDDEN")
+
+
+def _extract_session_overrides(
+    payload: dict[str, Any], permissions: set[str]
+) -> dict[str, int]:
     overrides: dict[str, int] = {}
-    for key in ("warehouse_id", "price_type_id", "partner_id"):
-        value = payload.get(key)
+    if "pos.change_warehouse" in permissions:
+        value = payload.get("warehouse_id")
         if value is not None:
-            overrides[key] = int(value)
+            overrides["warehouse_id"] = int(value)
+    if "pos.change_price_type" in permissions:
+        value = payload.get("price_type_id")
+        if value is not None:
+            overrides["price_type_id"] = int(value)
+    if "pos.change_partner" in permissions:
+        value = payload.get("partner_id")
+        if value is not None:
+            overrides["partner_id"] = int(value)
     return overrides
 
 
 def _extract_return_overrides(
     payload: dict[str, Any],
-    allow_regos_overrides: bool,
+    permissions: set[str],
     *,
     is_sale_linked: bool,
 ) -> dict[str, int]:
-    overrides = _extract_session_overrides(payload, allow_regos_overrides)
-    if is_sale_linked and payload.get("partner_id") is not None:
+    overrides = _extract_session_overrides(payload, permissions)
+    if is_sale_linked and payload.get("partner_id") is not None and "pos.change_partner" in permissions:
         overrides["partner_id"] = int(payload["partner_id"])
     return overrides
 

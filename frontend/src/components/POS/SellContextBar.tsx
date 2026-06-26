@@ -10,6 +10,7 @@ import { Modal } from "@/components/posui/Modal";
 
 import { PartnerPickerModal } from "@/components/POS/PartnerPickerModal";
 
+import { usePermissions } from "@/hooks/use-permissions";
 import { useAuth } from "@/store/auth";
 
 import { useSellContext } from "@/store/sell-context";
@@ -32,6 +33,7 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
 
   const { t } = useLanguage();
 
+  const { canChangeWarehouse, canChangePriceType, canChangePartner } = usePermissions();
   const token = useAuth((s) => s.accessToken);
 
   const options = useSellContext((s) => s.options);
@@ -120,6 +122,7 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
 
     <>
 
+      {canChangeWarehouse() && (
       <label className={fieldClassName}>
 
         <span className={styles.sellContextLabel}>{t("pos.sellContext.warehouse", "Warehouse")}</span>
@@ -157,9 +160,11 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
         </select>
 
       </label>
+      )}
 
 
 
+      {canChangePriceType() && (
       <label className={fieldClassName}>
 
         <span className={styles.sellContextLabel}>{t("pos.sellContext.priceType", "Price type")}</span>
@@ -197,9 +202,11 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
         </select>
 
       </label>
+      )}
 
 
 
+      {canChangePartner() && (
       <div className={fieldClassName}>
 
         <span className={styles.sellContextLabel}>{t("pos.sellContext.partner", "Partner")}</span>
@@ -225,10 +232,11 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
         </button>
 
       </div>
+      )}
 
 
 
-      {token ? (
+      {canChangePartner() && token ? (
 
         <PartnerPickerModal
 
