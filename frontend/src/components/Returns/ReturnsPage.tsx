@@ -18,6 +18,7 @@ import {
 } from "@/components/Dashboard/DashboardWarehousesModal";
 import { ReturnsDetailModal } from "@/components/Returns/ReturnsDetailModal";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePermissions } from "@/hooks/use-permissions";
 import {
   formatDashboardPeriodLabel,
   getPeriodLabel,
@@ -55,6 +56,7 @@ type ReturnDetail = {
 export function ReturnsPage() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
+  const { canPrintDocuments } = usePermissions();
   const [periodPreset, setPeriodPreset] = useState<DashboardPeriodPreset>("week");
   const [customRange, setCustomRange] = useState<DashboardCustomRange | null>(null);
   const [periodModalOpen, setPeriodModalOpen] = useState(false);
@@ -395,6 +397,7 @@ export function ReturnsPage() {
                           <Scale size={16} />
                         </Button>
                       ) : null}
+                      {canPrintDocuments() ? (
                       <Button
                         type="button"
                         variant="ghost"
@@ -408,6 +411,7 @@ export function ReturnsPage() {
                       >
                         <Printer size={16} />
                       </Button>
+                      ) : null}
                     </div>
                   </td>
                 </tr>

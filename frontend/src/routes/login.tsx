@@ -6,6 +6,7 @@ import { isAuthenticated, waitForAuthHydration } from "@/store/auth";
 
 const loginSearchSchema = z.object({
   reset: z.string().optional(),
+  subscription: z.string().optional(),
 });
 
 export const Route = createFileRoute("/login")({

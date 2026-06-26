@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { Globe } from "lucide-react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -50,8 +50,10 @@ export function LanguageSelector({ className, variant = "icon" }: LanguageSelect
   }, [open]);
 
   const handleSelect = (lang: SupportedLanguage) => {
-    void changeLanguage(lang);
     setOpen(false);
+    startTransition(() => {
+      void changeLanguage(lang);
+    });
   };
 
   return (
@@ -67,7 +69,9 @@ export function LanguageSelector({ className, variant = "icon" }: LanguageSelect
         aria-label={t("language.selectorLabel", "Language")}
         onClick={(event) => {
           event.stopPropagation();
-          setOpen((value) => !value);
+          startTransition(() => {
+            setOpen((value) => !value);
+          });
         }}
       >
         {variant === "menu" ? (

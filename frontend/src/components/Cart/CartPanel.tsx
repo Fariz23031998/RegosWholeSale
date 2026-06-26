@@ -1,10 +1,12 @@
 import { Minus, Percent, Plus, Printer, ShoppingBag, ShoppingCart, Tag, X } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cartTotals, useCart } from "@/store/cart";
 import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
+import { usePermissions } from "@/hooks/use-permissions";
+import { filterCheckoutOverrides } from "@/types/users";
 import { useAuth, formatAuthError } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
 import { useCheckoutTabs } from "@/store/checkout-tabs";
@@ -44,9 +46,23 @@ export function CartPanel() {
   const postponedWholesaleDocId = useCart((s) => s.postponedWholesaleDocId);
   const accessToken = useAuth((s) => s.accessToken);
   const cashier = useAuth((s) => s.cashier);
-  const user = useAuth((s) => s.user);
-  const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
+  const {
+    canChangeWarehouse,
+    canChangePriceType,
+    canChangePartner,
+    canApplyDiscount,
+    canModifyPrice,
+    canPostponeSale,
+    canContinueSale,
+    canPrintDocuments,
+  } = usePermissions();
   const checkoutOverrides = useSellContext((s) => s.checkoutOverrides);
+  const permittedOverrides = () =>
+    filterCheckoutOverrides(checkoutOverrides(), {
+      canChangeWarehouse: canChangeWarehouse(),
+      canChangePriceType: canChangePriceType(),
+      canChangePartner: canChangePartner(),
+    });
   const saleCurrency = useSellContext((s) => s.saleCurrency);
   const partnerId = useSellContext((s) => s.partnerId);
   const warehouseId = useSellContext((s) => s.warehouseId);
@@ -155,7 +171,7 @@ export function CartPanel() {
         ...(postponedWholesaleDocId
           ? { wholesale_doc_id: postponedWholesaleDocId }
           : {}),
-        ...(canOverrideRegos ? checkoutOverrides() : {}),
+        ...(permittedOverrides()),
       });
       clear();
       clearActiveTabAfterCheckout();
@@ -194,7 +210,7 @@ export function CartPanel() {
             <span className={styles.count}>{items.length}</span>
           </div>
           <div className={styles.headerActions}>
-            {items.length > 0 && (
+            {items.length > 0 && canPrintDocuments() && (
               <>
                 <button
                   type="button"
@@ -210,6 +226,11 @@ export function CartPanel() {
                   {t("cart.clear", "Clear")}
                 </button>
               </>
+            )}
+            {items.length > 0 && !canPrintDocuments() && (
+              <button className={styles.clear} onClick={clear}>
+                {t("cart.clear", "Clear")}
+              </button>
             )}
             <button
               className={styles.closeBtn}
@@ -266,7 +287,9 @@ export function CartPanel() {
                 <div className={styles.qty} style={{ marginTop: 6, width: "fit-content" }}>
                   <button
                     className={styles.qtyBtn}
-                    onClick={() => setQty(i.productId, i.qty - 1, unitType)}
+                    onClick={() => {
+                      startTransition(() => setQty(i.productId, i.qty - 1, unitType));
+                    }}
                     aria-label={t("cart.qty.decrease", "Decrease")}
                   >
                     <Minus size={13} />
@@ -285,7 +308,7 @@ export function CartPanel() {
                     disabled={!canIncrease}
                     onClick={() => {
                       if (!canIncrease) return;
-                      setQty(i.productId, i.qty + 1, unitType);
+                      startTransition(() => setQty(i.productId, i.qty + 1, unitType));
                     }}
                     aria-label={t("cart.qty.increase", "Increase")}
                   >
@@ -296,7 +319,9 @@ export function CartPanel() {
               <div className={styles.lineRight}>
                 <button
                   className={styles.qtyBtn}
-                  onClick={() => remove(i.productId)}
+                  onClick={() => {
+                    startTransition(() => remove(i.productId));
+                  }}
                   aria-label={t("cart.qty.remove", "Remove")}
                   title={t("cart.qty.remove", "Remove")}
                 >
@@ -317,13 +342,16 @@ export function CartPanel() {
           <span>{t("cart.subtotal", "Subtotal")}</span>
           <span>{formatCurrency(totals.subtotal)}</span>
         </div>
+        {canApplyDiscount() && (
         <div className={styles.row}>
           <span className={styles.discountLabel}>{t("cart.discount", "Discount")}</span>
           <div className={styles.discountControls}>
             <button
               type="button"
               className={styles.discountModeBtn}
-              onClick={toggleDiscountMode}
+              onClick={() => {
+                startTransition(() => toggleDiscountMode());
+              }}
               aria-label={
                 discountMode === "percent"
                   ? t("cart.discountMode.toFixed", "Switch to fixed amount discount")
@@ -368,13 +396,16 @@ export function CartPanel() {
             )}
           </div>
         </div>
+        )}
         <div className={`${styles.row} ${styles.totalRow}`}>
           <span>{t("cart.total", "Total")}</span>
           <span>{formatCurrency(totals.total)}</span>
         </div>
         {postponeError && <div className={styles.postponeError}>{postponeError}</div>}
         {printError && <div className={styles.postponeError}>{printError}</div>}
+        {(canContinueSale() || canPostponeSale()) && (
         <div className={styles.saleActions}>
+          {canContinueSale() && (
           <Button
             full
             variant="secondary"
@@ -383,6 +414,8 @@ export function CartPanel() {
           >
             {t("cart.continueSale", "Continue Sale")}
           </Button>
+          )}
+          {canPostponeSale() && (
           <Button
             full
             variant="secondary"
@@ -391,7 +424,9 @@ export function CartPanel() {
           >
             {postponing ? t("cart.postponing", "Postponing…") : t("cart.postponeSale", "Postpone Sale")}
           </Button>
+          )}
         </div>
+        )}
         <Button
           full
           size="lg"
@@ -425,7 +460,7 @@ export function CartPanel() {
       <QtyKeypad
         open={keypadItem !== null}
         initial={keypadItem?.qty ?? 0}
-        initialPrice={keypadItem?.price ?? 0}
+        initialPrice={canModifyPrice() ? keypadItem?.price ?? 0 : undefined}
         productName={keypadItem?.name}
         allowDecimals={keypadQtyAllowsDecimals}
         onClose={() => setKeypadFor(null)}

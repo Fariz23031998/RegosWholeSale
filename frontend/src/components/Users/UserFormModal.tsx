@@ -6,9 +6,13 @@ import { formatAuthError } from "@/store/auth";
 import { isValidScheduleTime, normalizeScheduleTime } from "@/lib/schedule-time";
 import { createUser, patchUser } from "@/lib/users-api";
 import {
-  ROLE_DEFAULTS,
-  extraPermissionCodes,
+  CONFIGURABLE_PERMISSION_CODES,
+  PERMISSION_GROUPS,
+  explicitPermissionRules,
+  isRoleDefaultPermission,
   type Permission,
+  type PermissionEffect,
+  type PermissionRule,
   type ScheduleItem,
   type UserDetail,
   type UserRole,
@@ -28,7 +32,31 @@ type Props = {
   onSaved: (user: UserDetail) => void;
 };
 
+type RuleState = "inherit" | PermissionEffect;
+
 const EDITABLE_ROLES: UserRole[] = ["employee", "admin"];
+
+function rulesToState(rules: PermissionRule[]): Record<string, RuleState> {
+  const map: Record<string, RuleState> = {};
+  for (const rule of rules) {
+    map[rule.code] = rule.effect;
+  }
+  return map;
+}
+
+function stateToRules(state: Record<string, RuleState>): PermissionRule[] {
+  return Object.entries(state)
+    .filter(([, effect]) => effect !== "inherit")
+    .map(([code, effect]) => ({ code, effect: effect as PermissionEffect }));
+}
+
+function permissionNameKey(code: string): string {
+  return `users.permissions.codes.${code}`;
+}
+
+function permissionDescriptionKey(code: string): string {
+  return `users.permissions.descriptions.${code}`;
+}
 
 export function UserFormModal({ open, mode, token, user, permissions, onClose, onSaved }: Props) {
   const { t } = useLanguage();
@@ -40,10 +68,15 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<UserRole>("employee");
   const [isActive, setIsActive] = useState(true);
-  const [extraCodes, setExtraCodes] = useState<string[]>([]);
+  const [ruleState, setRuleState] = useState<Record<string, RuleState>>({});
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const permissionByCode = useMemo(
+    () => new Map(permissions.map((permission) => [permission.code, permission])),
+    [permissions],
+  );
 
   useEffect(() => {
     if (!open) return;
@@ -56,7 +89,7 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
       setPassword("");
       setRole("employee");
       setIsActive(true);
-      setExtraCodes([]);
+      setRuleState({});
       setSchedules([]);
       return;
     }
@@ -67,7 +100,7 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
     setPassword("");
     setRole(user.role === "owner" ? "owner" : user.role);
     setIsActive(user.is_active);
-    setExtraCodes(extraPermissionCodes(user.role, user.permissions));
+    setRuleState(rulesToState(explicitPermissionRules(user)));
     setSchedules(user.schedules.map(({ day_of_week, start_time, end_time }) => ({
       day_of_week,
       start_time,
@@ -75,21 +108,22 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
     })));
   }, [open, isCreate, user]);
 
-  const assignablePermissions = useMemo(() => {
-    const defaults = new Set(ROLE_DEFAULTS[role]);
-    return permissions.filter((p) => !defaults.has(p.code));
-  }, [permissions, role]);
-
-  const togglePermission = (code: string) => {
-    setExtraCodes((prev) =>
-      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
-    );
+  const setPermissionEffect = (code: string, effect: RuleState) => {
+    setRuleState((prev) => {
+      const next = { ...prev };
+      if (effect === "inherit") {
+        delete next[code];
+      } else {
+        next[code] = effect;
+      }
+      return next;
+    });
   };
 
   const handleRoleChange = (nextRole: UserRole) => {
     setRole(nextRole);
     if (nextRole === "admin") {
-      setExtraCodes([]);
+      setRuleState({});
     }
   };
 
@@ -107,8 +141,46 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
         );
         return;
       }
+      if (login.trim().includes("@")) {
+        setError(
+          t(
+            "users.form.validationLoginFormat",
+            "Login cannot contain @. Use email sign-in for email addresses.",
+          ),
+        );
+        return;
+      }
     } else if (!user) {
       return;
+    } else {
+      const trimmedLogin = login.trim();
+      if (!isOwner && trimmedLogin.length < 2) {
+        setError(
+          t(
+            "users.form.validationLogin",
+            "Login is required and must be at least 2 characters.",
+          ),
+        );
+        return;
+      }
+      if (isOwner && trimmedLogin.length > 0 && trimmedLogin.length < 2) {
+        setError(
+          t(
+            "users.form.validationLogin",
+            "Login is required and must be at least 2 characters.",
+          ),
+        );
+        return;
+      }
+      if (trimmedLogin.includes("@")) {
+        setError(
+          t(
+            "users.form.validationLoginFormat",
+            "Login cannot contain @. Use email sign-in for email addresses.",
+          ),
+        );
+        return;
+      }
     }
 
     if (!isOwner) {
@@ -134,6 +206,8 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
           end_time: normalizeScheduleTime(s.end_time)!,
         }));
 
+    const permission_rules = role === "employee" ? stateToRules(ruleState) : [];
+
     setSaving(true);
     try {
       if (isCreate) {
@@ -142,7 +216,7 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
           password,
           display_name: displayName.trim(),
           role,
-          permission_codes: role === "employee" ? extraCodes : [],
+          permission_rules,
           schedules: normalizedSchedules,
         });
         onSaved(created);
@@ -155,13 +229,18 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
         schedules: normalizedSchedules,
       };
 
+      const trimmedLogin = login.trim();
+      if (trimmedLogin !== (user!.login ?? "")) {
+        body.login = trimmedLogin;
+      }
+
       if (password.trim()) {
         body.password = password;
       }
       if (!isOwner) {
         body.role = role;
         body.is_active = isActive;
-        body.permission_codes = role === "employee" ? extraCodes : [];
+        body.permission_rules = permission_rules;
       }
 
       const updated = await patchUser(token, user!.id, body);
@@ -210,14 +289,19 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
             className={styles.input}
             value={login}
             onChange={(e) => setLogin(e.target.value)}
-            disabled={!isCreate}
-            required={isCreate}
+            required={isCreate || !isOwner}
           />
-          {!isCreate && (
-            <p className={styles.hint}>
-              {t("users.form.loginImmutable", "Login cannot be changed after creation.")}
-            </p>
-          )}
+          <p className={styles.hint}>
+            {isOwner
+              ? t(
+                  "users.form.loginOwnerHint",
+                  "Optional username for sign-in. You can still use your email address.",
+                )
+              : t(
+                  "users.form.loginHint",
+                  "Username used to sign in to the application.",
+                )}
+          </p>
         </div>
 
         <div className={styles.field}>
@@ -284,32 +368,72 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
           </div>
         )}
 
-        {role === "employee" && assignablePermissions.length > 0 && (
+        {role === "employee" && (
           <div className={styles.field}>
             <div className={styles.sectionTitle}>
-              {t("users.form.extraPermissions", "Extra permissions")}
+              {t("users.form.permissionsTitle", "Permissions")}
             </div>
             <p className={styles.hint}>
               {t(
-                "users.form.extraPermissionsHint",
-                "Employees receive POS access by default. Add extra permissions here.",
+                "users.form.permissionsHint",
+                "Set Allow or Deny rules for each permission. Inherit uses the employee role default.",
               )}
             </p>
-            <div className={styles.checkboxGrid}>
-              {assignablePermissions.map((perm) => (
-                <label key={perm.code} className={styles.checkboxRow}>
-                  <input
-                    type="checkbox"
-                    checked={extraCodes.includes(perm.code)}
-                    onChange={() => togglePermission(perm.code)}
-                  />
-                  <span>
-                    <div>{perm.code}</div>
-                    <div className={styles.checkboxDesc}>{perm.description}</div>
-                  </span>
-                </label>
-              ))}
-            </div>
+            {PERMISSION_GROUPS.map((group) => {
+              const groupCodes = group.codes.filter((code) =>
+                CONFIGURABLE_PERMISSION_CODES.includes(code),
+              );
+              if (groupCodes.length === 0) return null;
+
+              return (
+                <div key={group.id} className={styles.permissionGroup}>
+                  <div className={styles.permissionGroupTitle}>
+                    {t(group.labelKey, group.fallback)}
+                  </div>
+                  <div className={styles.permissionMatrix}>
+                    <div className={styles.permissionMatrixHeader}>
+                      <span>{t("users.permissions.column.permission", "Permission")}</span>
+                      <span>{t("users.permissions.effect.inherit", "Inherit")}</span>
+                      <span>{t("users.permissions.effect.allow", "Allow")}</span>
+                      <span>{t("users.permissions.effect.deny", "Deny")}</span>
+                    </div>
+                    {groupCodes.map((code) => {
+                      const perm = permissionByCode.get(code);
+                      if (!perm) return null;
+                      const current = ruleState[code] ?? "inherit";
+                      const isDefault = isRoleDefaultPermission("employee", code);
+
+                      return (
+                        <div key={code} className={styles.permissionMatrixRow}>
+                          <div className={styles.permissionMatrixLabel}>
+                            <div>{t(permissionNameKey(code), code)}</div>
+                            <div className={styles.checkboxDesc}>
+                              {t(permissionDescriptionKey(code), perm.description)}
+                            </div>
+                            {isDefault && (
+                              <div className={styles.permissionDefaultBadge}>
+                                {t("users.permissions.roleDefault", "Included by default")}
+                              </div>
+                            )}
+                          </div>
+                          {(["inherit", "allow", "deny"] as const).map((effect) => (
+                            <label key={effect} className={styles.permissionEffectCell}>
+                              <input
+                                type="radio"
+                                name={`perm-${code}`}
+                                checked={current === effect}
+                                onChange={() => setPermissionEffect(code, effect)}
+                                aria-label={`${t(permissionNameKey(code), code)} — ${t(`users.permissions.effect.${effect}`, effect)}`}
+                              />
+                            </label>
+                          ))}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
 

@@ -3,6 +3,8 @@ import { Printer } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Modal } from "@/components/posui/Modal";
 import { useCart } from "@/store/cart";
+import { usePermissions } from "@/hooks/use-permissions";
+import { filterCheckoutOverrides } from "@/types/users";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
@@ -44,9 +46,15 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
   );
   const cashier = useAuth((s) => s.cashier);
   const accessToken = useAuth((s) => s.accessToken);
-  const user = useAuth((s) => s.user);
-  const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
+  const { canChangeWarehouse, canChangePriceType, canChangePartner, canPrintDocuments } =
+    usePermissions();
   const checkoutOverrides = useSellContext((s) => s.checkoutOverrides);
+  const permittedOverrides = () =>
+    filterCheckoutOverrides(checkoutOverrides(), {
+      canChangeWarehouse: canChangeWarehouse(),
+      canChangePriceType: canChangePriceType(),
+      canChangePartner: canChangePartner(),
+    });
   const saleCurrency = useSellContext((s) => s.saleCurrency);
   const partnerId = useSellContext((s) => s.partnerId);
   const warehouseId = useSellContext((s) => s.warehouseId);
@@ -182,7 +190,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
               tendered: payload.tendered,
               change: payload.change,
             }),
-        ...(canOverrideRegos ? checkoutOverrides() : {}),
+        ...permittedOverrides(),
       });
 
       const paymentTypeId = payload.payment_type_id ?? payload.payments?.[0]?.payment_type_id ?? 0;
@@ -273,6 +281,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
         modalClassName={styles.checkoutModal}
         bodyClassName={styles.checkoutBody}
         headerActions={
+          canPrintDocuments() ? (
           <button
             type="button"
             className={styles.headerPrintBtn}
@@ -283,6 +292,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
           >
             <Printer size={18} />
           </button>
+          ) : null
         }
       >
         <div className={styles.checkoutInner}>

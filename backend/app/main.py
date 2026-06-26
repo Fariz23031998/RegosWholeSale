@@ -39,6 +39,9 @@ async def lifespan(_app: FastAPI):
     await init_db()
     async with async_session_factory() as session:
         await seed_permissions(session)
+        from app.services.platform_admin import bootstrap_platform_admin
+
+        await bootstrap_platform_admin(session)
         await session.commit()
     if regos_oauth_configured():
         try:

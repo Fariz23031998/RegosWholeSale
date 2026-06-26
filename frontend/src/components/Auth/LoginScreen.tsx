@@ -77,6 +77,14 @@ export function LoginScreen() {
             {t("auth.passwordUpdated", "Password updated. You can sign in now.")}
           </p>
         )}
+        {search.subscription === "expired" && (
+          <p className={styles.error}>
+            {t(
+              "auth.subscriptionExpired",
+              "Your trial has ended. Contact support to continue using the service.",
+            )}
+          </p>
+        )}
         {error && <p className={styles.error}>{error}</p>}
 
         <button type="submit" className={styles.btn} disabled={loading}>

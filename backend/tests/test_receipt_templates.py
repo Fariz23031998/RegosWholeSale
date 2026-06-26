@@ -132,6 +132,7 @@ async def test_employee_can_read_but_not_patch_receipt_templates(
             "password": "employee123",
             "display_name": "Cashier",
             "role": "employee",
+            "permission_rules": [{"code": "documents.print", "effect": "allow"}],
         },
     )
 

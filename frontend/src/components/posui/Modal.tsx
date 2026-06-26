@@ -1,5 +1,6 @@
 import { X } from "lucide-react";
-import { useEffect, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import styles from "./Modal.module.css";
@@ -10,6 +11,7 @@ type Props = {
   title?: string;
   size?: "md" | "lg" | "xl";
   fullscreen?: boolean;
+  elevated?: boolean;
   overlayClassName?: string;
   modalClassName?: string;
   bodyClassName?: string;
@@ -23,6 +25,7 @@ export function Modal({
   title,
   size = "md",
   fullscreen = false,
+  elevated = false,
   overlayClassName,
   modalClassName,
   bodyClassName,
@@ -30,6 +33,11 @@ export function Modal({
   children,
 }: Props) {
   const { t } = useLanguage();
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -40,10 +48,16 @@ export function Modal({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  if (!open) return null;
-  return (
+  if (!open || !mounted || typeof document === "undefined") return null;
+
+  return createPortal(
     <div
-      className={clsx(styles.overlay, fullscreen && styles.fullscreenOverlay, overlayClassName)}
+      className={clsx(
+        styles.overlay,
+        fullscreen && styles.fullscreenOverlay,
+        elevated && styles.elevatedOverlay,
+        overlayClassName,
+      )}
       onMouseDown={onClose}
     >
       <div
@@ -69,6 +83,7 @@ export function Modal({
         )}
         <div className={clsx(styles.body, bodyClassName)}>{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

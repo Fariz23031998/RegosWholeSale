@@ -11,7 +11,7 @@ import {
   toDateInputValue,
   type DashboardCustomRange,
 } from "@/lib/dashboard-api";
-import { formatCurrency } from "@/lib/format";
+import { formatCurrency, formatDateTime } from "@/lib/format";
 import { fetchFirms, fetchPartnerBalance } from "@/lib/partners-api";
 import { fetchRegosDefaults } from "@/lib/settings-api";
 import { formatAuthError } from "@/store/auth";
@@ -46,14 +46,7 @@ function currentYearRange(): DashboardCustomRange {
 
 function formatUnixDateTime(ts: number): string {
   if (!ts) return "—";
-  return new Date(ts * 1000).toLocaleString(undefined, {
-    day: "2-digit",
-    month: "2-digit",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  return formatDateTime(new Date(ts * 1000).toISOString());
 }
 
 function formatAmount(value: number): string {

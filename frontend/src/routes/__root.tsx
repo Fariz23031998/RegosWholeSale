@@ -8,12 +8,13 @@ import {
   Scripts,
 } from "@tanstack/react-router";
 
-import { LanguageProvider, useLanguage } from "@/contexts/LanguageContext";
+import { LanguageProvider } from "@/contexts/LanguageContext";
 import { languageService } from "@/services/language";
 import appCss from "../styles.css?url";
 
+const t = languageService.t.bind(languageService);
+
 function NotFoundComponent() {
-  const { t } = useLanguage();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">
@@ -41,7 +42,6 @@ function NotFoundComponent() {
 function ErrorComponent({ error, reset }: { error: Error; reset: () => void }) {
   console.error(error);
   const router = useRouter();
-  const { t } = useLanguage();
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4">

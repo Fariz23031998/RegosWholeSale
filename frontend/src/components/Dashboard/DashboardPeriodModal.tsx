@@ -39,7 +39,7 @@ export function DashboardPeriodModal({ open, onClose, initialRange, onApply }: P
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={t("dashboard.periodModal.title")} size="md">
+    <Modal open={open} onClose={onClose} title={t("dashboard.periodModal.title")} size="md" elevated>
       <div className={styles.modalForm}>
         <label className={styles.field}>
           <span className={styles.fieldLabel}>{t("common.from")}</span>

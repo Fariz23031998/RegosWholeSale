@@ -118,7 +118,10 @@ async def test_create_employee_and_login(client: AsyncClient) -> None:
             "password": "employee123",
             "display_name": "Alice",
             "role": "employee",
-            "permission_codes": ["pos.access", "sales.read"],
+            "permission_rules": [
+                {"code": "pos.access", "effect": "allow"},
+                {"code": "sales.read", "effect": "allow"},
+            ],
         },
     )
     assert create.status_code == 201
@@ -249,3 +252,63 @@ async def test_login_globally_unique_across_companies(client: AsyncClient) -> No
     )
     assert duplicate.status_code == 409
     assert duplicate.json()["code"] == "LOGIN_EXISTS"
+
+
+@pytest.mark.asyncio
+async def test_update_user_login(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client,
+        email="owner-login@test.com",
+        display_name="Owner",
+        company_name="Login Co",
+    )
+    owner_token = reg.json()["access_token"]
+    owner_id = reg.json()["user"]["id"]
+    headers = {"Authorization": f"Bearer {owner_token}"}
+
+    create = await client.post(
+        "/api/v1/users",
+        headers=headers,
+        json={
+            "login": "alice",
+            "password": "employee123",
+            "display_name": "Alice",
+            "role": "employee",
+        },
+    )
+    assert create.status_code == 201
+    user_id = create.json()["id"]
+
+    patch = await client.patch(
+        f"/api/v1/users/{user_id}",
+        headers=headers,
+        json={"login": "alice-renamed"},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["login"] == "alice-renamed"
+
+    old_login = await client.post(
+        "/api/v1/auth/login",
+        json={"login": "alice", "password": "employee123"},
+    )
+    assert old_login.status_code == 401
+
+    new_login = await client.post(
+        "/api/v1/auth/login",
+        json={"login": "alice-renamed", "password": "employee123"},
+    )
+    assert new_login.status_code == 200
+
+    owner_patch = await client.patch(
+        f"/api/v1/users/{owner_id}",
+        headers=headers,
+        json={"login": "owner-user"},
+    )
+    assert owner_patch.status_code == 200
+    assert owner_patch.json()["login"] == "owner-user"
+
+    owner_username_login = await client.post(
+        "/api/v1/auth/login",
+        json={"login": "owner-user", "password": "password123"},
+    )
+    assert owner_username_login.status_code == 200

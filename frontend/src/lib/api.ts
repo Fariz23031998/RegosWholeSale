@@ -1,6 +1,21 @@
 import type { ApiErrorBody, ApiValidationError } from "@/types/auth";
 
-const API_BASE = (import.meta.env.VITE_API_BASE_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+function normalizeConfiguredApiBaseUrl(): string {
+  const raw = import.meta.env.VITE_API_BASE_URL;
+  if (typeof raw !== "string") return "";
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  return trimmed.replace(/\/$/, "");
+}
+
+export function getApiBaseUrl(): string {
+  const configured = normalizeConfiguredApiBaseUrl();
+  if (configured) return configured;
+  if (typeof globalThis.location !== "undefined") {
+    return globalThis.location.origin;
+  }
+  return "";
+}
 
 function formatValidationError(item: ApiValidationError): string {
   const field = item.loc?.filter((part) => part !== "body").join(".") ?? "";
@@ -26,10 +41,6 @@ export class ApiError extends Error {
   }
 }
 
-export function getApiBaseUrl(): string {
-  return API_BASE;
-}
-
 const DEFAULT_TIMEOUT_MS = 30_000;
 
 type RequestOptions = {
@@ -53,7 +64,8 @@ function abortSignalForTimeout(timeoutMs: number): { signal: AbortSignal; clear:
 }
 
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  if (!API_BASE) {
+  const apiBase = getApiBaseUrl();
+  if (!apiBase) {
     throw new ApiError(0, "API URL not configured (set VITE_API_BASE_URL)");
   }
 
@@ -68,7 +80,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, {
+    res = await fetch(`${apiBase}${path}`, {
       method: options.method ?? (options.body !== undefined ? "POST" : "GET"),
       headers,
       body: options.body !== undefined ? JSON.stringify(options.body) : undefined,

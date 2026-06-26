@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { ProductCatalog } from "@/components/POS/ProductCatalog";
 import { CartPanel } from "@/components/Cart/CartPanel";
 import { languageService } from "@/services/language";
+import { usePermissions } from "@/hooks/use-permissions";
 import { useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
@@ -31,7 +32,8 @@ function PosPage() {
   const hydrateCheckoutTabs = useCheckoutTabs((s) => s.hydrate);
   const resetCheckoutTabs = useCheckoutTabs((s) => s.reset);
   const hydrateCatalogUi = useCatalog((s) => s.hydrateUiPreferences);
-  const canOverrideRegos = Boolean(user?.permissions.includes("pos.override_regos"));
+  const { canChangePosContext } = usePermissions();
+  const canChangePosContextPerm = canChangePosContext();
 
   useEffect(() => {
     void hydrateCatalogUi();
@@ -39,8 +41,8 @@ function PosPage() {
 
   useEffect(() => {
     void hydrate(token);
-    void hydrateSellContext(token, canOverrideRegos);
-  }, [canOverrideRegos, hydrate, hydrateSellContext, token]);
+    void hydrateSellContext(token, canChangePosContextPerm);
+  }, [canChangePosContextPerm, hydrate, hydrateSellContext, token]);
 
   useEffect(() => {
     if (!token || !user) {
