@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   CameraInsecureContextError,
+  isCameraScanAvailable,
   startBarcodeScanner,
 } from "./barcode-scanner-camera";
 
@@ -17,6 +18,20 @@ describe("startBarcodeScanner", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+  });
+
+  it("isCameraScanAvailable is false outside a secure context", () => {
+    vi.stubGlobal("window", { isSecureContext: false });
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn() } });
+
+    expect(isCameraScanAvailable()).toBe(false);
+  });
+
+  it("isCameraScanAvailable is true when secure context and getUserMedia exist", () => {
+    vi.stubGlobal("window", { isSecureContext: true });
+    vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn() } });
+
+    expect(isCameraScanAvailable()).toBe(true);
   });
 
   it("throws when the page is not a secure context", async () => {

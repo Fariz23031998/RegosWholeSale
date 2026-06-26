@@ -85,6 +85,14 @@
   cursor: pointer;
 }
 
+.searchScanBtnVisible {
+  display: inline-flex;
+}
+
+.searchWithScan .searchInput {
+  padding-right: 38px;
+}
+
 .searchScanBtn:active {
   color: var(--color-primary);
 }

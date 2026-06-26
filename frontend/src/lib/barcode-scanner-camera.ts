@@ -36,6 +36,14 @@ export function isCameraSecureContext(): boolean {
   return typeof window !== "undefined" && window.isSecureContext;
 }
 
+export function isCameraScanAvailable(): boolean {
+  return (
+    isCameraSecureContext() &&
+    typeof navigator !== "undefined" &&
+    typeof navigator.mediaDevices?.getUserMedia === "function"
+  );
+}
+
 function isPermissionDenied(err: unknown): boolean {
   return (
     err instanceof DOMException &&
