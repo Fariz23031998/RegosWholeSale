@@ -4,6 +4,7 @@ import {
   saveCheckoutTabs,
   type CheckoutTabData,
 } from "@/lib/checkout-tabs-db";
+import { maybeResetSellContextAfterSaleClosed } from "@/lib/sell-context-lifecycle";
 import { languageService } from "@/services/language";
 import { useCart, type PostponedDocType } from "@/store/cart";
 
@@ -317,6 +318,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
       set({ tabs: [clearedTab] });
       applyActiveTabToCart(clearedTab);
       void get().persistNow();
+      maybeResetSellContextAfterSaleClosed();
       return;
     }
 
@@ -338,6 +340,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
 
     set({ tabs: nextTabs, activeTabId: nextActiveId });
     void get().persistNow();
+    maybeResetSellContextAfterSaleClosed();
   },
 
   clearActiveTabAfterCheckout: () => {
@@ -357,6 +360,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
     );
     set({ tabs: nextTabs });
     void get().persistNow();
+    maybeResetSellContextAfterSaleClosed();
   },
 
   persistNow: async () => {

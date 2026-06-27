@@ -3,9 +3,10 @@ import clsx from "clsx";
 import { Star } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { canAddProductToCart } from "@/lib/cart-stock";
-import { formatCurrency } from "@/lib/format";
+import { formatAmountWithCurrency } from "@/lib/checkout-payments";
 import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
 import { useCart } from "@/store/cart";
+import { useSellContext } from "@/store/sell-context";
 import type { Product } from "@/types/catalog";
 import styles from "./POS.module.css";
 
@@ -31,10 +32,11 @@ function productDisplayName(product: Product): string {
 }
 
 function productCodeLine(product: Product): string {
-  const code = product.code?.trim();
-  const barcode = product.barcode?.trim();
-  if (code && barcode) return `${code} · ${barcode}`;
-  return code || barcode || product.sku;
+  const parts = [product.code, product.articul, product.barcode]
+    .map((value) => value?.trim())
+    .filter(Boolean);
+  if (parts.length > 0) return parts.join(" · ");
+  return product.sku;
 }
 
 export const CatalogProductCard = memo(function CatalogProductCard({
@@ -50,6 +52,7 @@ export const CatalogProductCard = memo(function CatalogProductCard({
   onToggleFeatured,
 }: CatalogProductCardProps) {
   const { t } = useLanguage();
+  const saleCurrency = useSellContext((state) => state.saleCurrency);
   const inCartQty = useCart(
     (state) => state.items.find((item) => item.productId === product.id)?.qty ?? 0,
   );
@@ -145,7 +148,9 @@ export const CatalogProductCard = memo(function CatalogProductCard({
         <div className={styles.cardCategory}>{categoryName}</div>
         <div className={styles.cardSku}>{productCodeLine(product)}</div>
         <div className={styles.cardFoot}>
-          <div className={styles.cardPrice}>{formatCurrency(product.price)}</div>
+          <div className={styles.cardPrice}>
+            {formatAmountWithCurrency(product.price, saleCurrency)}
+          </div>
           <span
             className={clsx(styles.stockBadge, out && styles.stockOut, low && styles.stockLow)}
           >

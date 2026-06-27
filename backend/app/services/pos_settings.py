@@ -86,7 +86,9 @@ def _merge_pos_settings(
             user_overrides["default_category"]
         )
     else:
-        merged["default_category"] = _normalize_default_category(None)
+        merged["default_category"] = _normalize_default_category(
+            company_settings.get("default_category")
+        )
 
     if "auto_open_qty_keypad" in user_overrides:
         merged["auto_open_qty_keypad"] = bool(user_overrides["auto_open_qty_keypad"])
@@ -106,6 +108,9 @@ def _apply_company_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> 
         updated["tendered_quick_amounts"] = _normalize_tendered_quick_amounts(
             patch["tendered_quick_amounts"]
         )
+
+    if patch.get("default_category") is not None:
+        updated["default_category"] = _normalize_default_category(patch["default_category"])
 
     if patch.get("auto_open_qty_keypad") is not None:
         updated["auto_open_qty_keypad"] = bool(patch["auto_open_qty_keypad"])
@@ -165,6 +170,7 @@ def _normalize_company_pos_settings(raw: Any) -> dict[str, Any]:
         "tendered_quick_amounts": _normalize_tendered_quick_amounts(
             data.get("tendered_quick_amounts")
         ),
+        "default_category": _normalize_default_category(data.get("default_category")),
         "auto_open_qty_keypad": bool(data.get("auto_open_qty_keypad", False)),
         "cross_currency_payment_mode": _normalize_cross_currency_payment_mode(
             data.get("cross_currency_payment_mode")

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import clsx from "clsx";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -15,6 +16,7 @@ import {
 } from "@/lib/users-api";
 import {
   defaultCategoryToSelectValue,
+  formatDefaultCategorySelectLabel,
   selectValueToDefaultCategory,
 } from "@/lib/default-category";
 import {
@@ -94,6 +96,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
   const [tenderedAmountsInput, setTenderedAmountsInput] = useState("20, 50, 100");
   const [defaultCategoryValue, setDefaultCategoryValue] = useState("all");
+  const [companyDefaultCategoryValue, setCompanyDefaultCategoryValue] = useState("all");
+  const [isMobile, setIsMobile] = useState(false);
   const [options, setOptions] = useState<RegosReferenceOptionsResponse>(EMPTY_OPTIONS);
   const [warehouseId, setWarehouseId] = useState("");
   const [priceTypeId, setPriceTypeId] = useState("");
@@ -106,6 +110,14 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [derivedFirm, setDerivedFirm] = useState<RegosDefaultOption | null>(null);
   const [zeroQuantity, setZeroQuantity] = useState(false);
   const [zeroPrice, setZeroPrice] = useState(false);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     if (!open || !token || !user) return;
@@ -135,6 +147,9 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         setCompanyAutoOpenQtyKeypad(companyPosRes.settings.auto_open_qty_keypad);
         setCompanyTenderedAmounts(
           formatTenderedQuickAmounts(companyPosRes.settings.tendered_quick_amounts),
+        );
+        setCompanyDefaultCategoryValue(
+          defaultCategoryToSelectValue(companyPosRes.settings.default_category),
         );
         setProductGroups(groupsRes.groups);
 
@@ -293,8 +308,9 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           : t("users.settings.title", "User settings")
       }
       size="lg"
+      fullscreen={isMobile}
     >
-      <form onSubmit={handleSave} className={styles.formGrid}>
+      <form onSubmit={handleSave} className={clsx(styles.formGrid, styles.settingsModalForm)}>
         {error && <div className={styles.formError}>{error}</div>}
 
         <p className={styles.hint}>
@@ -314,7 +330,14 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
             {t(
               "users.settings.defaultCategoryHint",
               "Category selected automatically when this user opens the Sell screen.",
-            )}
+            )}{" "}
+            {t("common.companyDefault", "Company default: {{value}}", {
+              value: formatDefaultCategorySelectLabel(
+                companyDefaultCategoryValue,
+                productGroups,
+                t,
+              ),
+            })}
           </p>
           <select
             className={styles.select}

@@ -31,10 +31,7 @@
 .checkoutModal {
   display: flex;
   flex-direction: column;
-  max-height: min(88dvh, calc(100dvh - env(safe-area-inset-bottom, 0px) - 12px));
   overflow: hidden;
-  border-radius: var(--radius-xl) var(--radius-xl) 0 0;
-  margin-top: auto;
 }
 
 .checkoutBody {
@@ -73,20 +70,25 @@
   padding-inline: var(--space-5);
 }
 
-@media (max-width: 768px) {
-  .checkoutModal {
-    max-height: min(
-      82dvh,
-      calc(100dvh - 64px - env(safe-area-inset-bottom, 0px) - 12px)
-    );
+@media (max-width: 900px) {
+  .checkoutOverlay {
+    align-items: stretch;
+    justify-content: flex-start;
+    padding: 0;
   }
 
-  .checkoutOverlay {
-    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+  .checkoutModal {
+    width: 100%;
+    max-width: none;
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    margin-top: 0;
+    padding-top: env(safe-area-inset-top, 0px);
   }
 }
 
-@media (min-width: 769px) {
+@media (min-width: 901px) {
   .checkoutOverlay {
     align-items: center;
     justify-content: center;

@@ -12,11 +12,16 @@ const nginxDeploy = process.env.VITE_DEPLOY_TARGET === "nginx";
 
 export default defineConfig({
   // Cloudflare Workers build is default (Lovable). Set VITE_DEPLOY_TARGET=nginx for VPS static hosting.
+  vite: {
+    server: {
+      allowedHosts: ["46cc-82-215-106-69.ngrok-free.app"],
+      // host: true,  // often needed with ngrok/tunnels
+    },
+  },
   cloudflare: nginxDeploy ? false : undefined,
   tanstackStart: {
     server: { 
       entry: "server",
-      allowedHosts: ["rofeev.loca.lt"] 
     },
     ...(nginxDeploy
       ? {

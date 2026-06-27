@@ -40,6 +40,13 @@ import type {
 import { getVatCalculationTypeOptions } from "@/types/settings";
 import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
+import { fetchProductGroups } from "@/lib/catalog-api";
+import {
+  defaultCategoryToSelectValue,
+  selectValueToDefaultCategory,
+} from "@/lib/default-category";
+import { extractRegosIntegrationToken } from "@/lib/regos-integration-token";
+import type { ProductGroup } from "@/types/catalog";
 import styles from "./settings.module.css";
 
 export const Route = createFileRoute("/_app/settings")({
@@ -89,6 +96,8 @@ function SettingsPage() {
   const [postponeDocumentType, setPostponeDocumentType] =
     useState<PostponeDocumentType>("doc_wholesale");
   const [postponeOrderBooked, setPostponeOrderBooked] = useState(true);
+  const [defaultCategoryValue, setDefaultCategoryValue] = useState("all");
+  const [productGroups, setProductGroups] = useState<ProductGroup[]>([]);
   const [savingPosSettings, setSavingPosSettings] = useState(false);
   const [posSettingsError, setPosSettingsError] = useState("");
   const [savingToken, setSavingToken] = useState(false);
@@ -275,7 +284,29 @@ function SettingsPage() {
     setInternalBarcodePiecePrefix(res.settings.internal_barcode_piece_prefix ?? "23");
     setPostponeDocumentType(res.settings.postpone_document_type ?? "doc_wholesale");
     setPostponeOrderBooked(res.settings.postpone_order_booked ?? true);
+    setDefaultCategoryValue(defaultCategoryToSelectValue(res.settings.default_category));
   }, [posSettingsQuery.data]);
+
+  useEffect(() => {
+    if (!token || !tokenConfigured) {
+      setProductGroups([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    void fetchProductGroups(token)
+      .then((res) => {
+        if (!cancelled) setProductGroups(res.groups);
+      })
+      .catch(() => {
+        if (!cancelled) setProductGroups([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, tokenConfigured]);
 
   useEffect(() => {
     const data = regosBootstrapQuery.data;
@@ -378,7 +409,7 @@ function SettingsPage() {
   const handleSaveRegosToken = async () => {
     if (!token) return;
 
-    const nextToken = integrationToken.trim();
+    const nextToken = extractRegosIntegrationToken(integrationToken);
     setSavingToken(true);
     setTokenError("");
     setTokenInfo("");
@@ -569,6 +600,26 @@ function SettingsPage() {
     }
   };
 
+  const handleDefaultCategoryChange = async (value: string) => {
+    if (!token || !canManageSettings) return;
+
+    const previous = defaultCategoryValue;
+    setDefaultCategoryValue(value);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(token, {
+        default_category: selectValueToDefaultCategory(value),
+      });
+      setDefaultCategoryValue(defaultCategoryToSelectValue(res.settings.default_category));
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setDefaultCategoryValue(previous);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
   const handleCrossCurrencyPaymentModeChange = async (mode: CrossCurrencyPaymentMode) => {
     if (!token || !canManageSettings) return;
 
@@ -710,6 +761,32 @@ function SettingsPage() {
                 <span className={styles.slider} />
               </span>
             </label>
+
+            <div className={styles.fieldBlock}>
+              <div className={styles.rowTitle}>
+                {t("settings.pos.defaultCategory", "Default category")}
+              </div>
+              <div className={styles.rowDesc}>
+                {t(
+                  "settings.pos.defaultCategoryHint",
+                  "Category selected automatically when users open the Sell screen.",
+                )}
+              </div>
+              <select
+                className={styles.select}
+                value={defaultCategoryValue}
+                disabled={loadingPosSettings || savingPosSettings || !tokenConfigured}
+                onChange={(e) => void handleDefaultCategoryChange(e.target.value)}
+              >
+                <option value="all">{t("common.all", "All")}</option>
+                <option value="featured">{t("users.settings.featured", "Featured")}</option>
+                {productGroups.map((group) => (
+                  <option key={group.id} value={`group:${group.id}`}>
+                    {group.path || group.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             <div className={styles.fieldBlock}>
               <div className={styles.rowTitle}>
@@ -948,7 +1025,9 @@ function SettingsPage() {
                   disabled={loadingToken || savingToken}
                   autoComplete="off"
                   spellCheck={false}
-                  onChange={(e) => setIntegrationToken(e.target.value)}
+                  onChange={(e) =>
+                    setIntegrationToken(extractRegosIntegrationToken(e.target.value))
+                  }
                   placeholder={
                     tokenConfigured
                       ? t(

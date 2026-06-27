@@ -22,6 +22,9 @@ class PosSettings(BaseModel):
     tendered_quick_amounts: list[float] = Field(
         default_factory=lambda: list(DEFAULT_TENDERED_QUICK_AMOUNTS)
     )
+    default_category: DefaultCategorySetting = Field(
+        default_factory=lambda: DefaultCategorySetting(mode="all")
+    )
     auto_open_qty_keypad: bool = False
     cross_currency_payment_mode: CrossCurrencyPaymentMode = DEFAULT_CROSS_CURRENCY_PAYMENT_MODE
     internal_barcode_weight_prefix: str = DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX
@@ -56,6 +59,7 @@ class UserPosSettingsResponse(BaseModel):
 class PosSettingsPatchRequest(BaseModel):
     allow_out_of_stock: bool | None = None
     tendered_quick_amounts: list[float] | None = None
+    default_category: DefaultCategorySetting | None = None
     auto_open_qty_keypad: bool | None = None
     cross_currency_payment_mode: CrossCurrencyPaymentMode | None = None
     internal_barcode_weight_prefix: str | None = None

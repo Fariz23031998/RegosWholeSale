@@ -9,16 +9,13 @@ import {
   isCameraPermissionDenied,
   isTorchSupported,
   setTorchEnabled,
-  startBarcodeScanner,
+  startCameraBarcodeScanner,
+  type ScannerControls,
 } from "@/lib/barcode-scanner-camera";
 import styles from "./POS.module.css";
 
 const DUPLICATE_SCAN_MS = 2000;
 
-type ScannerControls = {
-  stop: () => void;
-  switchTorch?: (onOff: boolean) => Promise<void>;
-};
 type BarcodeScannerModalProps = {
   open: boolean;
   onClose: () => void;
@@ -117,12 +114,10 @@ export function BarcodeScannerModal({ open, onClose, onScan }: BarcodeScannerMod
       const sessionId = ++scanSessionRef.current;
 
       try {
-        const { BrowserMultiFormatReader } = await import("@zxing/browser");
         if (scanSessionRef.current !== sessionId) return;
 
-        const reader = new BrowserMultiFormatReader();
-        const controls = await startBarcodeScanner(reader, videoEl, (result) => {
-          void handleScanResult(result?.getText());
+        const controls = await startCameraBarcodeScanner(videoEl, (code) => {
+          void handleScanResult(code);
         });
 
         if (scanSessionRef.current !== sessionId) {

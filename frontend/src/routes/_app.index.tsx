@@ -41,8 +41,11 @@ function PosPage() {
 
   useEffect(() => {
     void hydrate(token);
-    void hydrateSellContext(token, canChangePosContextPerm);
-  }, [canChangePosContextPerm, hydrate, hydrateSellContext, token]);
+    void hydrateSellContext(token, canChangePosContextPerm, {
+      userId: user?.id,
+      companyId: user?.company_id,
+    });
+  }, [canChangePosContextPerm, hydrate, hydrateSellContext, token, user?.company_id, user?.id]);
 
   useEffect(() => {
     if (!token || !user) {

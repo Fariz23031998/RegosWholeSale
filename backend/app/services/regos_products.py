@@ -571,11 +571,12 @@ def _map_product(row: dict[str, Any]) -> dict[str, Any]:
     )
     barcode = _coerce_text(item.get("base_barcode")) or ""
     code = _coerce_text(item.get("code")) or ""
+    articul = _coerce_text(item.get("articul")) or ""
     unit = item.get("unit") if isinstance(item.get("unit"), dict) else {}
     unit_name = _coerce_text(unit.get("name")) or ""
     unit_type = _coerce_unit_type(unit.get("type"))
     sku = (
-        _coerce_text(item.get("articul"))
+        articul
         or barcode
         or code
         or str(regos_item_id)
@@ -593,6 +594,7 @@ def _map_product(row: dict[str, Any]) -> dict[str, Any]:
         "stock": _coerce_number(quantity.get("allowed"), quantity.get("common")),
         "image": _coerce_text(row.get("image_url")) or _coerce_text(item.get("image_url")) or "",
         "sku": sku,
+        "articul": articul,
         "barcode": barcode,
         "code": code,
         "unit_name": unit_name,

@@ -102,6 +102,7 @@ function getInCartQty(productId: string): number {
 export function ProductCatalog() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
+  const user = useAuth((s) => s.user);
   const { canChangeWarehouse, canChangePriceType, canChangePosContext } = usePermissions();
   const canChangeWarehousePerm = canChangeWarehouse();
   const canChangePriceTypePerm = canChangePriceType();
@@ -207,12 +208,24 @@ export function ProductCatalog() {
 
     const timer = window.setTimeout(() => {
       setCategoryReady(true);
-      void hydrateSellContext(token, canChangePosContextPerm, { force: true });
+      void hydrateSellContext(token, canChangePosContextPerm, {
+        force: true,
+        userId: user?.id,
+        companyId: user?.company_id,
+      });
       void hydratePosConfig(token, { force: true });
     }, PREPARE_TIMEOUT_MS);
 
     return () => window.clearTimeout(timer);
-  }, [canChangePosContextPerm, hydratePosConfig, hydrateSellContext, isPreparing, token]);
+  }, [
+    canChangePosContextPerm,
+    hydratePosConfig,
+    hydrateSellContext,
+    isPreparing,
+    token,
+    user?.company_id,
+    user?.id,
+  ]);
 
   const selectedGroup = useMemo(
     () => groups.find((group) => group.id === selectedGroupId) ?? null,
@@ -635,7 +648,11 @@ export function ProductCatalog() {
     setError("");
     setLoadMoreError("");
     setCategoryReady(false);
-    void hydrateSellContext(token, canChangePosContextPerm, { force: true });
+    void hydrateSellContext(token, canChangePosContextPerm, {
+      force: true,
+      userId: user?.id,
+      companyId: user?.company_id,
+    });
     void hydratePosConfig(token, { force: true });
   };
 
@@ -800,7 +817,7 @@ export function ProductCatalog() {
               title={t("pos.scanBarcode", "Scan barcode")}
               onClick={() => setScannerOpen(true)}
             >
-              <Camera size={16} />
+              <Camera size={24} />
             </button>
           </div>
           <button

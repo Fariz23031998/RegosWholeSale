@@ -1,9 +1,18 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+from app.utils.regos_integration_token import extract_integration_token
 
 
 class RegosTokenUpsert(BaseModel):
     token: str | None = Field(default=None, min_length=32, max_length=32)
     is_replicable: bool = False
+
+    @field_validator("token", mode="before")
+    @classmethod
+    def normalize_token(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return extract_integration_token(value) or None
 
 
 class RegosTokenConfig(BaseModel):

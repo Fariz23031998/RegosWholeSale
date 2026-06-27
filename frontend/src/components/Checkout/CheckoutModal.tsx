@@ -35,10 +35,11 @@ type Totals = { subtotal: number; discount: number; total: number };
 type Props = {
   open: boolean;
   onClose: () => void;
+  onSuccess?: () => void;
   totals: Totals;
 };
 
-export function CheckoutModal({ open, onClose, totals }: Props) {
+export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
   const { t } = useLanguage();
   const items = useCart((s) => s.items);
   const clearCart = useCart((s) => s.clear);
@@ -272,6 +273,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
       setCompletedContext(printContext);
       reset();
       onClose();
+      onSuccess?.();
     } catch (err: unknown) {
       const failedWholesaleDocId = extractWholesaleDocIdFromError(err);
       if (failedWholesaleDocId !== null) {

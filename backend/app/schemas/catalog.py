@@ -13,6 +13,7 @@ class CatalogProduct(BaseModel):
     stock: float = 0
     image: str = ""
     sku: str
+    articul: str = ""
     barcode: str = ""
     code: str = ""
     unit_name: str = ""

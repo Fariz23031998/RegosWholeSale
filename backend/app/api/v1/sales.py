@@ -17,7 +17,6 @@ from app.schemas.sales import (
     WholesaleReturnResponse,
     WholesaleReturnSummaryResponse,
 )
-from app.services import pos_settings as pos_settings_service
 from app.services import regos_sales as regos_sales_service
 
 router = APIRouter(prefix="/sales", tags=["sales"])
@@ -27,17 +26,9 @@ def _permission_set(current: CurrentUser) -> set[str]:
     return set(current.permissions)
 
 
-async def _resolve_document_kind(
-    session: AsyncSession,
-    company_id: int,
-    document_kind: str | None,
-) -> str:
+def _resolve_document_kind(document_kind: str | None) -> str:
     if document_kind in {"wholesale", "order_from_partner"}:
         return document_kind
-    company_pos = await pos_settings_service.get_pos_settings(session, company_id)
-    postpone_type = company_pos.get("postpone_document_type", "doc_wholesale")
-    if postpone_type == "doc_order_from_partner":
-        return "order_from_partner"
     return "wholesale"
 
 
@@ -94,7 +85,7 @@ async def get_wholesale_documents(
     elif "sales.read" not in current.permissions:
         raise forbidden("Missing permission: sales.read", "FORBIDDEN")
 
-    resolved_kind = await _resolve_document_kind(session, current.company_id, document_kind)
+    resolved_kind = _resolve_document_kind(document_kind)
     list_kwargs = dict(
         start_date=start_date,
         end_date=end_date,
@@ -132,7 +123,7 @@ async def get_wholesale_operations_batch(
     ),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleOperationsResponse:
-    resolved_kind = await _resolve_document_kind(session, current.company_id, document_kind)
+    resolved_kind = _resolve_document_kind(document_kind)
     if resolved_kind == "order_from_partner":
         data = await regos_sales_service.list_order_from_partner_operations_batch(
             session,
@@ -160,7 +151,7 @@ async def get_wholesale_operations(
     ),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleOperationsResponse:
-    resolved_kind = await _resolve_document_kind(session, current.company_id, document_kind)
+    resolved_kind = _resolve_document_kind(document_kind)
     if resolved_kind == "order_from_partner":
         data = await regos_sales_service.list_order_from_partner_operations(
             session,

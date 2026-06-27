@@ -1461,6 +1461,89 @@ async def test_list_wholesale_documents(mock_regos: AsyncMock, client: AsyncClie
 
 @patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
+async def test_list_wholesale_documents_uses_wholesale_when_postpone_is_order(
+    mock_regos: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "id": 1001,
+                "code": "WS-1001",
+                "date": 1717000000,
+                "amount": 25000,
+                "performed": True,
+                "partner": {"id": 33, "name": "Walk-in"},
+                "stock": {"id": 11, "name": "Main warehouse"},
+            }
+        ],
+        "next_offset": 0,
+        "total": 1,
+    }
+
+    reg = await register_owner(
+        client, email="sales-list-order@test.com", company_name="Sales List Order Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={"postpone_document_type": "doc_order_from_partner"},
+    )
+
+    response = await client.get(
+        "/api/v1/sales/wholesale-documents",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["documents"][0]["code"] == "WS-1001"
+    assert mock_regos.call_args[0][2] == "docwholesale/get"
+
+
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_list_wholesale_documents_honors_explicit_order_document_kind(
+    mock_regos: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "id": 2001,
+                "code": "ORD-2001",
+                "date": 1717000000,
+                "amount": 12000,
+                "performed": False,
+                "partner": {"id": 33, "name": "Walk-in"},
+                "stock": {"id": 11, "name": "Main warehouse"},
+            }
+        ],
+        "next_offset": 0,
+        "total": 1,
+    }
+
+    reg = await register_owner(
+        client, email="sales-list-explicit@test.com", company_name="Sales List Explicit Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.get(
+        "/api/v1/sales/wholesale-documents",
+        headers=headers,
+        params={"document_kind": "order_from_partner"},
+    )
+    assert response.status_code == 200
+    assert response.json()["documents"][0]["code"] == "ORD-2001"
+    assert mock_regos.call_args[0][2] == "docorderfrompartner/get"
+
+
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
 async def test_list_wholesale_documents_filters_by_partner_ids(
     mock_regos: AsyncMock, client: AsyncClient
 ) -> None:

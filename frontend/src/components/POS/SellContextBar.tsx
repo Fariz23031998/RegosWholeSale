@@ -1,6 +1,6 @@
 import clsx from "clsx";
 
-import { ChevronDown, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, SlidersHorizontal, User } from "lucide-react";
 
 import { useEffect, useMemo, useState } from "react";
 
@@ -29,12 +29,117 @@ type SellContextBarProps = {
 
 
 
-function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
+function SellContextPartnerField({
+  layout,
+}: {
+  layout: "inline" | "stacked" | "compact";
+}) {
+  const { t } = useLanguage();
+  const { canChangePartner } = usePermissions();
+  const token = useAuth((s) => s.accessToken);
+  const options = useSellContext((s) => s.options);
+  const partnerId = useSellContext((s) => s.partnerId);
+  const setPartnerId = useSellContext((s) => s.setPartnerId);
+  const refreshPartnerOptions = useSellContext((s) => s.refreshPartnerOptions);
+  const [partnerModalOpen, setPartnerModalOpen] = useState(false);
+  const [partnerLabel, setPartnerLabel] = useState<string | null>(null);
+
+  const selectedPartnerName = useMemo(() => {
+    if (partnerLabel) return partnerLabel;
+    const match = options.partners.find((item) => item.id === partnerId);
+    return match?.name ?? null;
+  }, [options.partners, partnerId, partnerLabel]);
+
+  useEffect(() => {
+    if (!partnerId) {
+      setPartnerLabel(null);
+      return;
+    }
+    const match = options.partners.find((item) => item.id === partnerId);
+    if (match) {
+      setPartnerLabel(match.name);
+    }
+  }, [options.partners, partnerId]);
+
+  const handlePartnerSelect = (partner: Partner) => {
+    setPartnerId(partner.id);
+    setPartnerLabel(partner.name);
+  };
+
+  const handlePartnersChanged = async () => {
+    if (!token) return;
+    await refreshPartnerOptions(token);
+  };
+
+  if (!canChangePartner()) return null;
+
+  const partnerLabelText =
+    selectedPartnerName ?? t("pos.sellContext.selectPartner", "Select partner");
+
+  return (
+    <>
+      {layout === "compact" ? (
+        <button
+          type="button"
+          className={styles.sellContextMobileBtn}
+          onClick={() => setPartnerModalOpen(true)}
+          aria-label={
+            selectedPartnerName
+              ? t("pos.sellContext.partnerSelected", "Partner: {{name}}", {
+                  name: selectedPartnerName,
+                })
+              : t("pos.sellContext.selectPartner", "Select partner")
+          }
+        >
+          <User size={20} />
+        </button>
+      ) : (
+        <div
+          className={
+            layout === "stacked"
+              ? styles.sellContextFieldStacked
+              : styles.sellContextField
+          }
+        >
+          <span className={styles.sellContextLabel}>
+            {t("pos.sellContext.partner", "Partner")}
+          </span>
+          <button
+            type="button"
+            className={clsx(styles.sellContextSelect, styles.sellContextPartnerBtn)}
+            onClick={() => setPartnerModalOpen(true)}
+          >
+            <span className={styles.sellContextPartnerLabel}>{partnerLabelText}</span>
+            <ChevronDown size={14} className={styles.sellContextPartnerIcon} />
+          </button>
+        </div>
+      )}
+
+      {token ? (
+        <PartnerPickerModal
+          open={partnerModalOpen}
+          onClose={() => setPartnerModalOpen(false)}
+          token={token}
+          selectedPartnerId={partnerId}
+          onSelect={handlePartnerSelect}
+          onPartnersChanged={handlePartnersChanged}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function SellContextFields({
+  layout,
+  showPartner = true,
+}: {
+  layout: "inline" | "stacked";
+  showPartner?: boolean;
+}) {
 
   const { t } = useLanguage();
 
-  const { canChangeWarehouse, canChangePriceType, canChangePartner } = usePermissions();
-  const token = useAuth((s) => s.accessToken);
+  const { canChangeWarehouse, canChangePriceType } = usePermissions();
 
   const options = useSellContext((s) => s.options);
 
@@ -42,81 +147,13 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
 
   const priceTypeId = useSellContext((s) => s.priceTypeId);
 
-  const partnerId = useSellContext((s) => s.partnerId);
-
   const setWarehouseId = useSellContext((s) => s.setWarehouseId);
 
   const setPriceTypeId = useSellContext((s) => s.setPriceTypeId);
 
-  const setPartnerId = useSellContext((s) => s.setPartnerId);
-
-  const refreshPartnerOptions = useSellContext((s) => s.refreshPartnerOptions);
-
-  const [partnerModalOpen, setPartnerModalOpen] = useState(false);
-
-  const [partnerLabel, setPartnerLabel] = useState<string | null>(null);
-
-
-
   const fieldClassName =
 
     layout === "stacked" ? styles.sellContextFieldStacked : styles.sellContextField;
-
-
-
-  const selectedPartnerName = useMemo(() => {
-
-    if (partnerLabel) return partnerLabel;
-
-    const match = options.partners.find((item) => item.id === partnerId);
-
-    return match?.name ?? null;
-
-  }, [options.partners, partnerId, partnerLabel]);
-
-
-
-  useEffect(() => {
-
-    if (!partnerId) {
-
-      setPartnerLabel(null);
-
-      return;
-
-    }
-
-    const match = options.partners.find((item) => item.id === partnerId);
-
-    if (match) {
-
-      setPartnerLabel(match.name);
-
-    }
-
-  }, [options.partners, partnerId]);
-
-
-
-  const handlePartnerSelect = (partner: Partner) => {
-
-    setPartnerId(partner.id);
-
-    setPartnerLabel(partner.name);
-
-  };
-
-
-
-  const handlePartnersChanged = async () => {
-
-    if (!token) return;
-
-    await refreshPartnerOptions(token);
-
-  };
-
-
 
   return (
 
@@ -204,62 +241,9 @@ function SellContextFields({ layout }: { layout: "inline" | "stacked" }) {
       </label>
       )}
 
-
-
-      {canChangePartner() && (
-      <div className={fieldClassName}>
-
-        <span className={styles.sellContextLabel}>{t("pos.sellContext.partner", "Partner")}</span>
-
-        <button
-
-          type="button"
-
-          className={clsx(styles.sellContextSelect, styles.sellContextPartnerBtn)}
-
-          onClick={() => setPartnerModalOpen(true)}
-
-        >
-
-          <span className={styles.sellContextPartnerLabel}>
-
-            {selectedPartnerName ?? t("pos.sellContext.selectPartner", "Select partner")}
-
-          </span>
-
-          <ChevronDown size={14} className={styles.sellContextPartnerIcon} />
-
-        </button>
-
-      </div>
-      )}
-
-
-
-      {canChangePartner() && token ? (
-
-        <PartnerPickerModal
-
-          open={partnerModalOpen}
-
-          onClose={() => setPartnerModalOpen(false)}
-
-          token={token}
-
-          selectedPartnerId={partnerId}
-
-          onSelect={handlePartnerSelect}
-
-          onPartnersChanged={handlePartnersChanged}
-
-        />
-
-      ) : null}
-
+      {showPartner ? <SellContextPartnerField layout={layout} /> : null}
     </>
-
   );
-
 }
 
 
@@ -296,21 +280,27 @@ export function SellContextBar({ className }: SellContextBarProps) {
 
       <>
 
-        <button
+        <div className={clsx(styles.sellContextMobileActions, className)}>
 
-          type="button"
+          <button
 
-          className={styles.sellContextMobileBtn}
+            type="button"
 
-          onClick={() => setModalOpen(true)}
+            className={styles.sellContextMobileBtn}
 
-          aria-label={t("pos.sellContext.ariaLabel", "Warehouse, price type, and partner")}
+            onClick={() => setModalOpen(true)}
 
-        >
+            aria-label={t("pos.sellContext.ariaLabelMobile", "Warehouse and price type")}
 
-          <SlidersHorizontal size={20} />
+          >
 
-        </button>
+            <SlidersHorizontal size={20} />
+
+          </button>
+
+          <SellContextPartnerField layout="compact" />
+
+        </div>
 
         <Modal
 
@@ -326,7 +316,7 @@ export function SellContextBar({ className }: SellContextBarProps) {
 
           <div className={styles.sellContextStacked}>
 
-            <SellContextFields layout="stacked" />
+            <SellContextFields layout="stacked" showPartner={false} />
 
           </div>
 

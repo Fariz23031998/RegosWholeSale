@@ -21,6 +21,7 @@ import {
 } from "@/lib/cart-stock";
 import { formatCurrency } from "@/lib/format";
 import { toast } from "sonner";
+import { maybeResetSellContextAfterSaleClosed } from "@/lib/sell-context-lifecycle";
 import { postponeSale } from "@/lib/sales-api";
 import { buildPrintContextFromCartDraft } from "@/lib/receipt-context-builder";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
@@ -80,6 +81,7 @@ export function CartPanel() {
   const autoOpenKeypad = usePosConfig((s) => s.autoOpenQtyKeypad);
   const [keypadFor, setKeypadFor] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const totals = cartTotals(items, discountMode, discountValue);
   const keypadItem = items.find((i) => i.productId === keypadFor) ?? null;
   const keypadUnitType = keypadItem
@@ -110,6 +112,15 @@ export function CartPanel() {
   const skipKeypadOnLastAdd = useCart((s) => s.skipKeypadOnLastAdd);
   const clearSkipKeypadOnLastAdd = useCart((s) => s.clearSkipKeypadOnLastAdd);
   const seenAddRef = useRef(0);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
   useEffect(() => {
     if (!lastAddedAt || lastAddedAt === seenAddRef.current) return;
     seenAddRef.current = lastAddedAt;
@@ -193,6 +204,13 @@ export function CartPanel() {
     }
   };
 
+  const handleClearCart = () => {
+    clear();
+    queueMicrotask(() => {
+      maybeResetSellContextAfterSaleClosed();
+    });
+  };
+
   return (
     <>
       <button
@@ -232,13 +250,13 @@ export function CartPanel() {
                 >
                   <Printer size={18} />
                 </button>
-                <button className={styles.clear} onClick={clear}>
+                <button className={styles.clear} onClick={handleClearCart}>
                   {t("cart.clear", "Clear")}
                 </button>
               </>
             )}
             {items.length > 0 && !canPrintDocuments() && (
-              <button className={styles.clear} onClick={clear}>
+              <button className={styles.clear} onClick={handleClearCart}>
                 {t("cart.clear", "Clear")}
               </button>
             )}
@@ -461,6 +479,9 @@ export function CartPanel() {
       <CheckoutModal
         open={checkoutOpen}
         onClose={() => setCheckoutOpen(false)}
+        onSuccess={() => {
+          if (isMobile) setMobileOpen(false);
+        }}
         totals={totals}
       />
       <ContinueSaleModal

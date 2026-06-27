@@ -1,8 +1,9 @@
 export const PULSE_POS_DB_NAME = "pulse-pos";
-export const PULSE_POS_DB_VERSION = 2;
+export const PULSE_POS_DB_VERSION = 3;
 
 export const CHECKOUT_TABS_STORE = "checkout-tabs";
 export const CATALOG_UI_STORE = "catalog-ui";
+export const SELL_CONTEXT_STORE = "sell-context";
 
 export function ensurePulsePosStores(db: IDBDatabase): void {
   if (!db.objectStoreNames.contains(CHECKOUT_TABS_STORE)) {
@@ -10,6 +11,9 @@ export function ensurePulsePosStores(db: IDBDatabase): void {
   }
   if (!db.objectStoreNames.contains(CATALOG_UI_STORE)) {
     db.createObjectStore(CATALOG_UI_STORE);
+  }
+  if (!db.objectStoreNames.contains(SELL_CONTEXT_STORE)) {
+    db.createObjectStore(SELL_CONTEXT_STORE);
   }
 }
 

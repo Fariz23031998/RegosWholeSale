@@ -38,6 +38,30 @@ async def test_upsert_and_status_regos_token(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_upsert_regos_token_from_integration_url(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client,
+        email="regos-url-owner@test.com",
+        company_name="Regos URL Co",
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    integration_url = f"https://integration.regos.uz/gateway/out/{REGOS_TOKEN}"
+    upsert = await client.put(
+        "/api/v1/regos/tokens",
+        headers=headers,
+        json={"token": integration_url, "is_replicable": False},
+    )
+    assert upsert.status_code == 200
+
+    token_config = await client.get("/api/v1/regos/tokens", headers=headers)
+    assert token_config.status_code == 200
+    assert token_config.json()["configured"] is True
+    assert token_config.json()["token_masked"].endswith(REGOS_TOKEN[-4:])
+
+
+@pytest.mark.asyncio
 async def test_employee_cannot_manage_regos_token(client: AsyncClient) -> None:
     reg = await register_owner(client, email="regos-emp@test.com", company_name="Emp Co")
     owner_token = reg.json()["access_token"]
@@ -165,6 +189,7 @@ async def test_products_use_default_warehouse_and_price_type(
     assert data["products"][0]["stock"] == 7
     assert data["products"][0]["category"] == "Beverages"
     assert data["products"][0]["code"] == "COLA-101"
+    assert data["products"][0]["articul"] == "SKU-101"
     assert data["products"][0]["barcode"] == "4601234567890"
     assert data["products"][0]["unit_name"] == "piece"
     assert data["products"][0]["unit_type"] == 1

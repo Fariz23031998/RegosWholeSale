@@ -101,9 +101,15 @@ export type RegosPaymentLinkingPatchRequest = {
 export type CrossCurrencyPaymentMode = "payment_currency" | "sale_currency_transfer";
 export type PostponeDocumentType = "doc_wholesale" | "doc_order_from_partner";
 
+export type DefaultCategorySetting = {
+  mode: "all" | "featured" | "group";
+  group_id: number | null;
+};
+
 export type PosSettings = {
   allow_out_of_stock: boolean;
   tendered_quick_amounts: number[];
+  default_category: DefaultCategorySetting;
   auto_open_qty_keypad: boolean;
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
   internal_barcode_weight_prefix: string;
@@ -119,17 +125,13 @@ export type PosSettingsResponse = {
 export type PosSettingsPatchRequest = {
   allow_out_of_stock?: boolean;
   tendered_quick_amounts?: number[];
+  default_category?: DefaultCategorySetting;
   auto_open_qty_keypad?: boolean;
   cross_currency_payment_mode?: CrossCurrencyPaymentMode;
   internal_barcode_weight_prefix?: string;
   internal_barcode_piece_prefix?: string;
   postpone_document_type?: PostponeDocumentType;
   postpone_order_booked?: boolean;
-};
-
-export type DefaultCategorySetting = {
-  mode: "all" | "featured" | "group";
-  group_id: number | null;
 };
 
 export type UserPosSettings = {

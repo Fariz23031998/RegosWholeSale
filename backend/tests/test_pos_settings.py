@@ -20,6 +20,10 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     assert initial.json()["settings"]["internal_barcode_piece_prefix"] == "23"
     assert initial.json()["settings"]["postpone_document_type"] == "doc_wholesale"
     assert initial.json()["settings"]["postpone_order_booked"] is True
+    assert initial.json()["settings"]["default_category"] == {
+        "mode": "all",
+        "group_id": None,
+    }
 
     patched = await client.patch(
         "/api/v1/company/settings/pos",
@@ -28,11 +32,13 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
             "allow_out_of_stock": True,
             "tendered_quick_amounts": [10000, 50000, 200000],
             "cross_currency_payment_mode": "sale_currency_transfer",
+            "default_category": {"mode": "featured", "group_id": None},
         },
     )
     assert patched.status_code == 200
     assert patched.json()["settings"]["allow_out_of_stock"] is True
     assert patched.json()["settings"]["cross_currency_payment_mode"] == "sale_currency_transfer"
+    assert patched.json()["settings"]["default_category"]["mode"] == "featured"
     assert patched.json()["settings"]["tendered_quick_amounts"] == [
         10000.0,
         50000.0,

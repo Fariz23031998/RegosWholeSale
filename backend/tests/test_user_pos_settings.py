@@ -61,6 +61,7 @@ async def test_user_pos_settings_fallback_to_company(client: AsyncClient) -> Non
             "allow_out_of_stock": True,
             "auto_open_qty_keypad": True,
             "tendered_quick_amounts": [500.0, 1000.0],
+            "default_category": {"mode": "featured", "group_id": None},
         },
     )
 
@@ -69,6 +70,7 @@ async def test_user_pos_settings_fallback_to_company(client: AsyncClient) -> Non
     assert effective.json()["settings"]["allow_out_of_stock"] is True
     assert effective.json()["settings"]["auto_open_qty_keypad"] is True
     assert effective.json()["settings"]["tendered_quick_amounts"] == [500.0, 1000.0]
+    assert effective.json()["settings"]["default_category"]["mode"] == "featured"
 
     user_patch = await client.patch(
         "/api/v1/me/settings/pos",
