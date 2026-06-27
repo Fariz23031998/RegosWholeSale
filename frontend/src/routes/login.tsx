@@ -12,6 +12,9 @@ const loginSearchSchema = z.object({
 export const Route = createFileRoute("/login")({
   validateSearch: loginSearchSchema,
   beforeLoad: async () => {
+    // Auth lives in localStorage; skip redirect guard during SSR/prerender.
+    if (typeof window === "undefined") return;
+
     await waitForAuthHydration();
     if (isAuthenticated()) {
       throw redirect({ to: "/" });

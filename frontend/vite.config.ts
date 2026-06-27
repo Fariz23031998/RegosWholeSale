@@ -22,7 +22,9 @@ export default defineConfig({
       ? {
           prerender: {
             enabled: true,
-            crawlLinks: true,
+            // Static nginx hosting only needs the SPA shell; crawling auth routes
+            // triggers SSR during build and can fail (e.g. /login 500).
+            crawlLinks: false,
             failOnError: false,
           },
           spa: {

@@ -8,7 +8,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from "react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -16,7 +15,6 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
 import { canAddProductToCart } from "@/lib/cart-stock";
 import { isBarcodeInput } from "@/lib/barcode";
-import { shouldShowCameraScanButton } from "@/lib/barcode-scanner-camera";
 import {
   lookupProductForBarcode,
   type BarcodeLookupFailureReason,
@@ -101,18 +99,6 @@ function getInCartQty(productId: string): number {
   return useCart.getState().items.find((item) => item.productId === productId)?.qty ?? 0;
 }
 
-function subscribeToCameraScanButton(_onStoreChange: () => void) {
-  return () => undefined;
-}
-
-function getCameraScanButtonSnapshot() {
-  return shouldShowCameraScanButton();
-}
-
-function getCameraScanButtonServerSnapshot() {
-  return true;
-}
-
 export function ProductCatalog() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
@@ -157,11 +143,6 @@ export function ProductCatalog() {
   const [featuredIds, setFeaturedIds] = useState<Set<number>>(() => new Set());
   const view = useCatalog((s) => s.mobileViewMode);
   const [isMobile, setIsMobile] = useState(false);
-  const showCameraScanButton = useSyncExternalStore(
-    subscribeToCameraScanButton,
-    getCameraScanButtonSnapshot,
-    getCameraScanButtonServerSnapshot,
-  );
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -804,7 +785,7 @@ export function ProductCatalog() {
             void submitSearch(q.trim());
           }}
         >
-          <div className={clsx(styles.search, showCameraScanButton && styles.searchWithScan)}>
+          <div className={clsx(styles.search, styles.searchWithScan)}>
             <Search size={16} className={styles.searchIcon} />
             <input
               className={styles.searchInput}
@@ -812,17 +793,15 @@ export function ProductCatalog() {
               value={q}
               onChange={(e) => setQ(e.target.value)}
             />
-            {showCameraScanButton ? (
-              <button
-                type="button"
-                className={styles.searchScanBtn}
-                aria-label={t("pos.scanBarcodeAria", "Scan barcode with camera")}
-                title={t("pos.scanBarcode", "Scan barcode")}
-                onClick={() => setScannerOpen(true)}
-              >
-                <Camera size={16} />
-              </button>
-            ) : null}
+            <button
+              type="button"
+              className={styles.searchScanBtn}
+              aria-label={t("pos.scanBarcodeAria", "Scan barcode with camera")}
+              title={t("pos.scanBarcode", "Scan barcode")}
+              onClick={() => setScannerOpen(true)}
+            >
+              <Camera size={16} />
+            </button>
           </div>
           <button
             type="button"
