@@ -44,22 +44,12 @@ export function isCameraScanAvailable(): boolean {
   );
 }
 
-/** Whether to show the catalog camera scan button (camera works, or mobile/touch layout). */
+/** Whether to show the catalog camera scan button in the current environment. */
 export function shouldShowCameraScanButton(): boolean {
-  if (typeof window === "undefined") return false;
-
-  if (isCameraScanAvailable()) return true;
-
-  // HTTP LAN preview / non-secure hosts: still show on phone layouts; the
-  // scanner modal explains HTTPS when the camera API is blocked.
-  try {
-    if (window.matchMedia("(max-width: 900px)").matches) return true;
-    if (window.matchMedia("(hover: none) and (pointer: coarse)").matches) return true;
-  } catch {
-    return false;
-  }
-
-  return false;
+  // Always show in the browser. BarcodeScannerModal handles HTTPS, permission,
+  // and hardware errors. Hiding the control on desktop/non-secure contexts caused
+  // it to disappear in production while dev (narrow viewport) still showed it.
+  return typeof window !== "undefined" && typeof navigator !== "undefined";
 }
 
 function isPermissionDenied(err: unknown): boolean {

@@ -1,5 +1,15 @@
 import { Camera, ImageOff, Search, Undo2 } from "lucide-react";
-import { lazy, startTransition, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  startTransition,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -91,6 +101,18 @@ function getInCartQty(productId: string): number {
   return useCart.getState().items.find((item) => item.productId === productId)?.qty ?? 0;
 }
 
+function subscribeToCameraScanButton(_onStoreChange: () => void) {
+  return () => undefined;
+}
+
+function getCameraScanButtonSnapshot() {
+  return shouldShowCameraScanButton();
+}
+
+function getCameraScanButtonServerSnapshot() {
+  return true;
+}
+
 export function ProductCatalog() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
@@ -135,7 +157,11 @@ export function ProductCatalog() {
   const [featuredIds, setFeaturedIds] = useState<Set<number>>(() => new Set());
   const view = useCatalog((s) => s.mobileViewMode);
   const [isMobile, setIsMobile] = useState(false);
-  const [showCameraScanButton, setShowCameraScanButton] = useState(false);
+  const showCameraScanButton = useSyncExternalStore(
+    subscribeToCameraScanButton,
+    getCameraScanButtonSnapshot,
+    getCameraScanButtonServerSnapshot,
+  );
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -160,20 +186,6 @@ export function ProductCatalog() {
     update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
-  }, []);
-
-  useEffect(() => {
-    const update = () => setShowCameraScanButton(shouldShowCameraScanButton());
-    update();
-
-    const mobileMq = window.matchMedia("(max-width: 900px)");
-    const touchMq = window.matchMedia("(hover: none) and (pointer: coarse)");
-    mobileMq.addEventListener("change", update);
-    touchMq.addEventListener("change", update);
-    return () => {
-      mobileMq.removeEventListener("change", update);
-      touchMq.removeEventListener("change", update);
-    };
   }, []);
 
   useEffect(() => {

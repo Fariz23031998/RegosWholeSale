@@ -35,18 +35,18 @@ describe("startBarcodeScanner", () => {
     expect(isCameraScanAvailable()).toBe(true);
   });
 
-  it("shouldShowCameraScanButton is true on narrow mobile layouts without secure context", () => {
-    vi.stubGlobal("window", {
-      isSecureContext: false,
-      matchMedia: (query: string) => ({
-        matches: query.includes("max-width: 900px"),
-        addEventListener: vi.fn(),
-        removeEventListener: vi.fn(),
-      }),
-    });
+  it("shouldShowCameraScanButton is true in the browser even without secure context", () => {
+    vi.stubGlobal("window", { isSecureContext: false });
     vi.stubGlobal("navigator", {});
 
     expect(shouldShowCameraScanButton()).toBe(true);
+  });
+
+  it("shouldShowCameraScanButton is false during SSR", () => {
+    vi.stubGlobal("window", undefined);
+    vi.stubGlobal("navigator", {});
+
+    expect(shouldShowCameraScanButton()).toBe(false);
   });
 
   it("throws when the page is not a secure context", async () => {
