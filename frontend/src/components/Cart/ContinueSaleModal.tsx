@@ -5,11 +5,14 @@ import { Modal } from "@/components/posui/Modal";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useCart, type CartItem, type DiscountMode } from "@/store/cart";
 import { useCatalog } from "@/store/catalog";
+import { usePosConfig } from "@/store/pos-config";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
+import type { RegosCurrencyOption } from "@/types/settings";
 import {
   fetchWholesaleDocuments,
   fetchWholesaleOperations,
+  type PostponedDocumentKind,
   type WholesaleDocument,
   type WholesaleOperationLine,
 } from "@/lib/sales-api";
@@ -81,7 +84,14 @@ export function ContinueSaleModal({ open, onClose }: Props) {
   const accessToken = useAuth((s) => s.accessToken);
   const restore = useCart((s) => s.restore);
   const setPostponedWholesaleDocId = useCart((s) => s.setPostponedWholesaleDocId);
+  const setPostponedDocType = useCart((s) => s.setPostponedDocType);
+  const postponeDocumentType = usePosConfig((s) => s.postponeDocumentType);
   const catalogProducts = useCatalog((s) => s.products);
+
+  const documentKind: PostponedDocumentKind =
+    postponeDocumentType === "doc_order_from_partner"
+      ? "order_from_partner"
+      : "wholesale";
 
   const [search, setSearch] = useState("");
   const [documents, setDocuments] = useState<WholesaleDocument[]>([]);
@@ -110,7 +120,11 @@ export function ContinueSaleModal({ open, onClose }: Props) {
     setLoading(true);
     setError("");
 
-    void fetchWholesaleDocuments(accessToken, { performed: false, limit: 100 })
+    void fetchWholesaleDocuments(accessToken, {
+      performed: documentKind === "wholesale" ? false : undefined,
+      document_kind: documentKind,
+      limit: 100,
+    })
       .then((response) => {
         if (!cancelled) setDocuments(response.documents);
       })
@@ -126,7 +140,7 @@ export function ContinueSaleModal({ open, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, accessToken]);
+  }, [open, accessToken, documentKind]);
 
   const filteredDocuments = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -146,7 +160,11 @@ export function ContinueSaleModal({ open, onClose }: Props) {
     setError("");
 
     try {
-      const { operations } = await fetchWholesaleOperations(accessToken, doc.id);
+      const { operations } = await fetchWholesaleOperations(
+        accessToken,
+        doc.id,
+        documentKind,
+      );
       if (operations.length === 0) {
         setError(t("cart.continueModal.noItems", "This postponed sale has no line items."));
         return;
@@ -161,8 +179,10 @@ export function ContinueSaleModal({ open, onClose }: Props) {
         discountMode,
         discountValue,
         postponedWholesaleDocId: doc.id,
+        postponedDocType: documentKind,
       });
       setPostponedWholesaleDocId(doc.id);
+      setPostponedDocType(documentKind);
       reset();
       onClose();
     } catch (err: unknown) {
@@ -193,7 +213,9 @@ export function ContinueSaleModal({ open, onClose }: Props) {
         <div className={styles.status}>{t("cart.continueModal.loading", "Loading postponed sales…")}</div>
       ) : filteredDocuments.length === 0 ? (
         <div className={styles.status}>
-          {t("cart.continueModal.empty", "No unperformed wholesale sales found.")}
+          {documentKind === "order_from_partner"
+            ? t("cart.continueModal.emptyOrders", "No postponed orders found.")
+            : t("cart.continueModal.empty", "No unperformed wholesale sales found.")}
         </div>
       ) : (
         <div className={styles.saleList}>

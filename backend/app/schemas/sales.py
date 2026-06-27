@@ -69,6 +69,7 @@ class PostponeResponse(BaseModel):
     subtotal: float
     discount: float
     total: float
+    document_type: str | None = None
 
 
 class CheckoutPaymentResponse(BaseModel):

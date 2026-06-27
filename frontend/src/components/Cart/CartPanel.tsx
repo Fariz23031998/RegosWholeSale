@@ -9,7 +9,7 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { filterCheckoutOverrides } from "@/types/users";
 import { useAuth, formatAuthError } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
-import { useCheckoutTabs } from "@/store/checkout-tabs";
+import { useCheckoutTabs, getReservedQtyInOtherTabs } from "@/store/checkout-tabs";
 import {
   allowsDecimalQty,
   clampCartQty,
@@ -20,6 +20,7 @@ import {
   resolveCartUnitType,
 } from "@/lib/cart-stock";
 import { formatCurrency } from "@/lib/format";
+import { toast } from "sonner";
 import { postponeSale } from "@/lib/sales-api";
 import { buildPrintContextFromCartDraft } from "@/lib/receipt-context-builder";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
@@ -44,6 +45,7 @@ export function CartPanel() {
   const toggleDiscountMode = useCart((s) => s.toggleDiscountMode);
   const clear = useCart((s) => s.clear);
   const postponedWholesaleDocId = useCart((s) => s.postponedWholesaleDocId);
+  const postponedDocType = useCart((s) => s.postponedDocType);
   const accessToken = useAuth((s) => s.accessToken);
   const cashier = useAuth((s) => s.cashier);
   const {
@@ -71,6 +73,8 @@ export function CartPanel() {
   const clearActiveTabAfterCheckout = useCheckoutTabs(
     (s) => s.clearActiveTabAfterCheckout,
   );
+  const checkoutTabs = useCheckoutTabs((s) => s.tabs);
+  const activeCheckoutTabId = useCheckoutTabs((s) => s.activeTabId);
   const catalogProducts = useCatalog((s) => s.products);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
   const autoOpenKeypad = usePosConfig((s) => s.autoOpenQtyKeypad);
@@ -86,6 +90,11 @@ export function CartPanel() {
     ? maxCartQty(
         getProductStock(catalogProducts, keypadItem.productId),
         allowOutOfStock,
+        getReservedQtyInOtherTabs(
+          checkoutTabs,
+          activeCheckoutTabId,
+          keypadItem.productId,
+        ),
       )
     : null;
   const itemCount = items.reduce((s, i) => s + i.qty, 0);
@@ -173,6 +182,7 @@ export function CartPanel() {
           : {}),
         ...(permittedOverrides()),
       });
+      toast.success(t("cart.postponeSuccess", "Sale postponed"));
       clear();
       clearActiveTabAfterCheckout();
       setMobileOpen(false);
@@ -246,9 +256,13 @@ export function CartPanel() {
 
         {postponedWholesaleDocId !== null && (
           <div className={styles.postponedBanner}>
-            {t("cart.postponedBanner", "Continuing postponed sale #{{id}}", {
-              id: postponedWholesaleDocId,
-            })}
+            {postponedDocType === "order_from_partner"
+              ? t("cart.postponedOrderBanner", "Continuing postponed order #{{id}}", {
+                  id: postponedWholesaleDocId,
+                })
+              : t("cart.postponedBanner", "Continuing postponed sale #{{id}}", {
+                  id: postponedWholesaleDocId,
+                })}
           </div>
         )}
 
@@ -270,11 +284,17 @@ export function CartPanel() {
               catalogProducts,
               i.productId,
             );
+            const reservedInOtherTabs = getReservedQtyInOtherTabs(
+              checkoutTabs,
+              activeCheckoutTabId,
+              i.productId,
+            );
             const canIncrease = canIncreaseCartQty(
               i.productId,
               i.qty,
               catalogProducts,
               allowOutOfStock,
+              reservedInOtherTabs,
             );
             return (
             <div key={i.productId} className={styles.line}>
@@ -467,9 +487,20 @@ export function CartPanel() {
         onConfirm={(n, p) => {
           if (!keypadItem) return;
           const stock = getProductStock(catalogProducts, keypadItem.productId);
+          const reservedInOtherTabs = getReservedQtyInOtherTabs(
+            checkoutTabs,
+            activeCheckoutTabId,
+            keypadItem.productId,
+          );
           setQty(
             keypadItem.productId,
-            clampCartQty(n, stock, allowOutOfStock, keypadUnitType),
+            clampCartQty(
+              n,
+              stock,
+              allowOutOfStock,
+              keypadUnitType,
+              reservedInOtherTabs,
+            ),
             keypadUnitType,
           );
           if (p !== undefined) setPrice(keypadItem.productId, p);

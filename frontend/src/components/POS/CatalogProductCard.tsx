@@ -19,6 +19,7 @@ type CatalogProductCardProps = {
   isMobile: boolean;
   view: CatalogViewMode;
   allowOutOfStock: boolean;
+  reservedInOtherTabs: number;
   onAdd: (product: Product) => void;
   onToggleFeatured: (product: Product) => void;
 };
@@ -44,6 +45,7 @@ export const CatalogProductCard = memo(function CatalogProductCard({
   isMobile,
   view,
   allowOutOfStock,
+  reservedInOtherTabs,
   onAdd,
   onToggleFeatured,
 }: CatalogProductCardProps) {
@@ -52,7 +54,12 @@ export const CatalogProductCard = memo(function CatalogProductCard({
     (state) => state.items.find((item) => item.productId === product.id)?.qty ?? 0,
   );
 
-  const cannotAdd = !canAddProductToCart(product, inCartQty, allowOutOfStock);
+  const cannotAdd = !canAddProductToCart(
+    product,
+    inCartQty,
+    allowOutOfStock,
+    reservedInOtherTabs,
+  );
   const out = product.stock <= 0;
   const low = product.stock > 0 && product.stock < 10;
   const stockText = Number.isInteger(product.stock)

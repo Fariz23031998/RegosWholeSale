@@ -5,13 +5,19 @@ import {
   type CheckoutTabData,
 } from "@/lib/checkout-tabs-db";
 import { languageService } from "@/services/language";
-import { useCart } from "@/store/cart";
+import { useCart, type PostponedDocType } from "@/store/cart";
 
 const PERSIST_DEBOUNCE_MS = 300;
+const CHECKOUT_TABS_CHANNEL = "pulse-pos-checkout-tabs";
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let skipCartPersist = false;
 let cartUnsubscribe: (() => void) | null = null;
+let crossWindowUnsubscribe: (() => void) | null = null;
+const crossWindowSourceId =
+  typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : String(Date.now());
 
 function createTabId(): string {
   return crypto.randomUUID();
@@ -34,9 +40,17 @@ function createEmptyTab(index: number): CheckoutTabData {
   };
 }
 
+function resolvePostponedDocType(
+  docId: number | null | undefined,
+  docType: PostponedDocType | undefined,
+): PostponedDocType {
+  if (docId == null) return null;
+  return docType ?? "wholesale";
+}
+
 function tabFromCartSnapshot(
   tab: CheckoutTabData,
-  snapshot: ReturnType<typeof useCart.getState>["snapshot"],
+  snapshot: ReturnType<ReturnType<typeof useCart.getState>["snapshot"]>,
 ): CheckoutTabData {
   return {
     ...tab,
@@ -44,6 +58,10 @@ function tabFromCartSnapshot(
     discountMode: snapshot.discountMode,
     discountValue: snapshot.discountValue,
     postponedWholesaleDocId: snapshot.postponedWholesaleDocId,
+    postponedDocType: resolvePostponedDocType(
+      snapshot.postponedWholesaleDocId,
+      snapshot.postponedDocType,
+    ),
     updatedAt: Date.now(),
   };
 }
@@ -74,6 +92,10 @@ function applyActiveTabToCart(tab: CheckoutTabData) {
     discountMode: tab.discountMode,
     discountValue: tab.discountValue,
     postponedWholesaleDocId: tab.postponedWholesaleDocId ?? null,
+    postponedDocType: resolvePostponedDocType(
+      tab.postponedWholesaleDocId,
+      tab.postponedDocType,
+    ),
   });
   queueMicrotask(() => {
     skipCartPersist = false;
@@ -97,6 +119,65 @@ function schedulePersist(get: () => CheckoutTabsState) {
   }, PERSIST_DEBOUNCE_MS);
 }
 
+export function getReservedQtyInOtherTabs(
+  tabs: CheckoutTabData[],
+  activeTabId: string,
+  productId: string,
+): number {
+  return tabs.reduce((sum, tab) => {
+    if (tab.id === activeTabId) return sum;
+    const item = tab.items.find((entry) => entry.productId === productId);
+    return sum + (item?.qty ?? 0);
+  }, 0);
+}
+
+function broadcastCheckoutTabsUpdate(scopeKey: string) {
+  if (typeof BroadcastChannel === "undefined") return;
+  try {
+    const channel = new BroadcastChannel(CHECKOUT_TABS_CHANNEL);
+    channel.postMessage({ scopeKey, sourceId: crossWindowSourceId });
+    channel.close();
+  } catch {
+    // Ignore broadcast failures; IndexedDB remains the source of truth.
+  }
+}
+
+async function reloadCheckoutTabsFromStorage(get: () => CheckoutTabsState) {
+  const { scopeKey, activeTabId, hydrated } = get();
+  if (!hydrated || !scopeKey) return;
+
+  try {
+    const stored = await loadCheckoutTabs(scopeKey);
+    if (!stored?.tabs.length) return;
+
+    const activeTab =
+      stored.tabs.find((tab) => tab.id === activeTabId) ?? stored.tabs[0];
+    useCheckoutTabs.setState({ tabs: stored.tabs });
+    if (activeTab.id === activeTabId) {
+      applyActiveTabToCart(activeTab);
+    }
+  } catch {
+    // Ignore reload errors; in-memory state remains available.
+  }
+}
+
+function ensureCrossWindowSync(get: () => CheckoutTabsState) {
+  if (crossWindowUnsubscribe || typeof BroadcastChannel === "undefined") return;
+
+  const channel = new BroadcastChannel(CHECKOUT_TABS_CHANNEL);
+  channel.onmessage = (event) => {
+    const { scopeKey, hydrated } = get();
+    if (!hydrated || !scopeKey) return;
+    if (event.data?.sourceId === crossWindowSourceId) return;
+    if (event.data?.scopeKey !== scopeKey) return;
+    void reloadCheckoutTabsFromStorage(get);
+  };
+  crossWindowUnsubscribe = () => {
+    channel.close();
+    crossWindowUnsubscribe = null;
+  };
+}
+
 function ensureCartSubscription(get: () => CheckoutTabsState) {
   if (cartUnsubscribe) return;
   cartUnsubscribe = useCart.subscribe((state, prev) => {
@@ -105,7 +186,8 @@ function ensureCartSubscription(get: () => CheckoutTabsState) {
       state.items === prev.items &&
       state.discountMode === prev.discountMode &&
       state.discountValue === prev.discountValue &&
-      state.postponedWholesaleDocId === prev.postponedWholesaleDocId
+      state.postponedWholesaleDocId === prev.postponedWholesaleDocId &&
+      state.postponedDocType === prev.postponedDocType
     ) {
       return;
     }
@@ -136,6 +218,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
       });
       applyActiveTabToCart(tab);
       ensureCartSubscription(get);
+      ensureCrossWindowSync(get);
       return;
     }
 
@@ -177,6 +260,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
     }
 
     ensureCartSubscription(get);
+    ensureCrossWindowSync(get);
   },
 
   reset: () => {
@@ -184,6 +268,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
       clearTimeout(persistTimer);
       persistTimer = null;
     }
+    crossWindowUnsubscribe?.();
     set({
       scopeKey: null,
       hydrated: false,
@@ -226,6 +311,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
         discountMode: "percent" as const,
         discountValue: 0,
         postponedWholesaleDocId: null,
+        postponedDocType: null,
         updatedAt: Date.now(),
       };
       set({ tabs: [clearedTab] });
@@ -264,6 +350,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
             discountMode: "percent" as const,
             discountValue: 0,
             postponedWholesaleDocId: null,
+            postponedDocType: null,
             updatedAt: Date.now(),
           }
         : tab,
@@ -284,6 +371,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
         activeTabId,
         tabs: nextTabs,
       });
+      broadcastCheckoutTabsUpdate(scopeKey);
     } catch {
       // Ignore persistence errors; in-memory state remains available.
     }

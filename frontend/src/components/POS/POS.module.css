@@ -68,6 +68,31 @@
   color: var(--color-text-subtle);
 }
 
+.searchScanBtn {
+  display: inline-flex;
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.searchWithScan .searchInput {
+  padding-right: 38px;
+}
+
+.searchScanBtn:active {
+  color: var(--color-primary);
+}
+
 .catalogFilterBtn {
   display: inline-flex;
   align-items: center;
@@ -1172,4 +1197,113 @@
     gap: 8px;
     width: 100%;
   }
+}
+
+.barcodeScannerModal {
+  background: #0b0b0f;
+  color: #fff;
+  --color-border: rgba(255, 255, 255, 0.12);
+  --color-text-muted: rgba(255, 255, 255, 0.82);
+}
+
+.barcodeScannerBody {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.barcodeScannerHint {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 14px;
+  text-align: center;
+}
+
+.barcodeScannerPreview {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: #000;
+}
+
+.barcodeScannerClose {
+  position: absolute;
+  top: max(var(--space-3), env(safe-area-inset-top, 0px));
+  right: var(--space-3);
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.barcodeScannerTorch {
+  position: absolute;
+  top: max(var(--space-3), env(safe-area-inset-top, 0px));
+  left: var(--space-3);
+  z-index: 2;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 999px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.barcodeScannerTorchActive {
+  background: rgba(255, 255, 255, 0.92);
+  color: #0b0b0f;
+}
+
+.barcodeScannerClose:active {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.barcodeScannerTorch:active {
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.barcodeScannerTorchActive:active {
+  background: rgba(255, 255, 255, 0.75);
+}
+
+.barcodeScannerVideo {
+  width: 100%;
+  height: 100%;
+  min-height: 280px;
+  object-fit: cover;
+}
+
+.barcodeScannerOverlay {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: min(72vw, 280px);
+  height: min(36vw, 140px);
+  transform: translate(-50%, -50%);
+  border: 2px solid rgba(255, 255, 255, 0.85);
+  border-radius: var(--radius-md);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+}
+
+.barcodeScannerError {
+  margin: 0;
+  color: #fecaca;
+  font-size: 14px;
+  text-align: center;
 }

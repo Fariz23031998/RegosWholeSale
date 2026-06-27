@@ -200,6 +200,7 @@ async def postpone_sale(
     regos_defaults_service.validate_checkout_defaults(defaults)
 
     doc_id: int | None = None
+    document_type = "doc_wholesale"
     try:
         await _validate_cart_item_prices(
             session,
@@ -209,13 +210,26 @@ async def postpone_sale(
             session_overrides,
             permissions=perms,
         )
-        doc_id, lines, subtotal, discount, total = await _upsert_wholesale_draft(
-            session,
-            company_id,
-            defaults,
-            payload,
-            wholesale_doc_id=payload.get("wholesale_doc_id"),
-        )
+        company_pos = await pos_settings_service.get_pos_settings(session, company_id)
+        postpone_doc_type = company_pos.get("postpone_document_type", "doc_wholesale")
+        if postpone_doc_type == "doc_order_from_partner":
+            document_type = "doc_order_from_partner"
+            doc_id, lines, subtotal, discount, total = await _upsert_order_from_partner_draft(
+                session,
+                company_id,
+                defaults,
+                payload,
+                wholesale_doc_id=payload.get("wholesale_doc_id"),
+                booked=bool(company_pos.get("postpone_order_booked", True)),
+            )
+        else:
+            doc_id, lines, subtotal, discount, total = await _upsert_wholesale_draft(
+                session,
+                company_id,
+                defaults,
+                payload,
+                wholesale_doc_id=payload.get("wholesale_doc_id"),
+            )
         return {
             "wholesale_doc_id": doc_id,
             "wholesale_code": str(doc_id),
@@ -223,6 +237,7 @@ async def postpone_sale(
             "subtotal": round(subtotal, 2),
             "discount": round(discount, 2),
             "total": total,
+            "document_type": document_type,
         }
     except AppError as exc:
         if doc_id is not None and isinstance(exc.detail, dict):
@@ -259,6 +274,47 @@ async def _build_filtered_document_list_payload(
         "limit": limit,
         "offset": offset,
         "performed": True if performed is None else performed,
+        "deleted_mark": False,
+        "sort_orders": [{"column": "Date", "direction": "desc"}],
+    }
+    if start_date is not None:
+        payload["start_date"] = start_date
+    if end_date is not None:
+        payload["end_date"] = end_date
+    if partner_ids:
+        payload["partner_ids"] = partner_ids
+    elif not all_partners and partner:
+        payload["partner_ids"] = [partner["id"]]
+    if stock_ids:
+        payload["stock_ids"] = stock_ids
+    elif not all_stocks and warehouse:
+        payload["stock_ids"] = [warehouse["id"]]
+    return payload
+
+
+async def _build_order_document_list_payload(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    *,
+    start_date: int | None = None,
+    end_date: int | None = None,
+    partner_ids: list[int] | None = None,
+    all_partners: bool = True,
+    stock_ids: list[int] | None = None,
+    all_stocks: bool = False,
+    offset: int = 0,
+    limit: int = 50,
+) -> dict[str, Any]:
+    defaults = await regos_defaults_service.get_regos_defaults(
+        session, company_id, user_id=user_id
+    )
+    warehouse = defaults.get("warehouse")
+    partner = defaults.get("partner")
+
+    payload: dict[str, Any] = {
+        "limit": limit,
+        "offset": offset,
         "deleted_mark": False,
         "sort_orders": [{"column": "Date", "direction": "desc"}],
     }
@@ -363,6 +419,38 @@ async def list_wholesale_documents(
     return _parse_document_list_response(response, _map_wholesale_document)
 
 
+async def list_order_from_partner_documents(
+    session: AsyncSession,
+    company_id: int,
+    *,
+    user_id: int,
+    start_date: int | None = None,
+    end_date: int | None = None,
+    partner_ids: list[int] | None = None,
+    all_partners: bool = True,
+    stock_ids: list[int] | None = None,
+    all_stocks: bool = False,
+    offset: int = 0,
+    limit: int = 50,
+) -> dict[str, Any]:
+    payload = await _build_order_document_list_payload(
+        session,
+        company_id,
+        user_id,
+        start_date=start_date,
+        end_date=end_date,
+        partner_ids=partner_ids,
+        all_partners=all_partners,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+        offset=offset,
+        limit=limit,
+    )
+
+    response = await _regos_call(session, company_id, "docorderfrompartner/get", payload)
+    return _parse_document_list_response(response, _map_order_from_partner_document)
+
+
 async def list_wholesale_operations(
     session: AsyncSession,
     company_id: int,
@@ -371,6 +459,16 @@ async def list_wholesale_operations(
     if document_id <= 0:
         raise bad_request("Invalid wholesale document id.", "INVALID_DOCUMENT_ID")
     return await list_wholesale_operations_batch(session, company_id, [document_id])
+
+
+async def list_order_from_partner_operations(
+    session: AsyncSession,
+    company_id: int,
+    document_id: int,
+) -> dict[str, Any]:
+    if document_id <= 0:
+        raise bad_request("Invalid order document id.", "INVALID_DOCUMENT_ID")
+    return await list_order_from_partner_operations_batch(session, company_id, [document_id])
 
 
 async def list_wholesale_document_payments(
@@ -443,6 +541,57 @@ async def list_wholesale_operations_batch(
         {
             "key": f"doc_{document_id}",
             "path": "wholesaleoperation/get",
+            "payload": {"document_ids": [document_id], "limit": 1000, "offset": 0},
+        }
+        for document_id in unique_ids
+    ]
+    responses = await regos_batch_request_chunks_for_company(session, company_id, steps)
+    operations: list[dict[str, Any]] = []
+    for document_id in unique_ids:
+        response = responses[f"doc_{document_id}"]
+        raw_items = response.get("result") or []
+        operations.extend(
+            _map_wholesale_operation(item)
+            for item in raw_items
+            if isinstance(item, dict)
+        )
+    return {"operations": operations}
+
+
+async def list_order_from_partner_operations_batch(
+    session: AsyncSession,
+    company_id: int,
+    document_ids: list[int],
+) -> dict[str, Any]:
+    unique_ids = sorted({doc_id for doc_id in document_ids if doc_id > 0})
+    if not unique_ids:
+        return {"operations": []}
+    if len(unique_ids) > 200:
+        raise bad_request(
+            "Cannot fetch operations for more than 200 documents at once.",
+            "TOO_MANY_DOCUMENT_IDS",
+        )
+
+    if len(unique_ids) == 1:
+        document_id = unique_ids[0]
+        response = await _regos_call(
+            session,
+            company_id,
+            "orderfrompartneroperation/get",
+            {"document_ids": [document_id], "limit": 1000, "offset": 0},
+        )
+        raw_items = response.get("result") or []
+        operations = [
+            _map_wholesale_operation(item)
+            for item in raw_items
+            if isinstance(item, dict)
+        ]
+        return {"operations": operations}
+
+    steps = [
+        {
+            "key": f"doc_{document_id}",
+            "path": "orderfrompartneroperation/get",
             "payload": {"document_ids": [document_id], "limit": 1000, "offset": 0},
         }
         for document_id in unique_ids
@@ -1093,6 +1242,49 @@ async def _upsert_wholesale_draft(
     return doc_id, lines, subtotal, discount, total
 
 
+async def _upsert_order_from_partner_draft(
+    session: AsyncSession,
+    company_id: int,
+    defaults: dict[str, Any],
+    payload: dict[str, Any],
+    *,
+    wholesale_doc_id: int | None = None,
+    booked: bool = True,
+) -> tuple[int, list[dict[str, Any]], float, float, float]:
+    lines, subtotal, discount, total = _validate_checkout_cart(
+        payload,
+        document_currency=defaults.get("currency"),
+        source_currency=None,
+    )
+    description = payload.get("description")
+    raw_doc_id = wholesale_doc_id if wholesale_doc_id is not None else payload.get("wholesale_doc_id")
+    existing_doc_id = int(raw_doc_id) if raw_doc_id is not None else None
+
+    if existing_doc_id is not None:
+        if existing_doc_id <= 0:
+            raise bad_request("Invalid order document id.", "INVALID_DOCUMENT_ID")
+        doc_id = existing_doc_id
+        await _regos_call(session, company_id, "docorderfrompartner/lock", {"ids": [doc_id]})
+        try:
+            await _sync_order_from_partner_operations(session, company_id, doc_id, lines)
+        finally:
+            await _regos_call(session, company_id, "docorderfrompartner/unlock", {"ids": [doc_id]})
+        return doc_id, lines, subtotal, discount, total
+
+    order_doc = await _add_order_from_partner_document(
+        session, company_id, defaults, description, booked=booked
+    )
+    doc_id = int(order_doc["id"])
+
+    await _regos_call(session, company_id, "docorderfrompartner/lock", {"ids": [doc_id]})
+    try:
+        await _add_order_from_partner_operations(session, company_id, doc_id, lines)
+    finally:
+        await _regos_call(session, company_id, "docorderfrompartner/unlock", {"ids": [doc_id]})
+
+    return doc_id, lines, subtotal, discount, total
+
+
 def operative_operation_price(
     price: float,
     price2: float | None,
@@ -1229,6 +1421,57 @@ async def _sync_wholesale_operations(
         await _add_wholesale_operations(session, company_id, document_id, add_lines)
 
 
+async def _sync_order_from_partner_operations(
+    session: AsyncSession,
+    company_id: int,
+    document_id: int,
+    lines: list[dict[str, Any]],
+) -> None:
+    existing = await list_order_from_partner_operations(session, company_id, document_id)
+    existing_by_item: dict[int, dict[str, Any]] = {}
+    for operation in existing.get("operations", []):
+        if not isinstance(operation, dict):
+            continue
+        operation_id = int(operation.get("id") or 0)
+        item_id = int(operation.get("item_id") or 0)
+        if operation_id <= 0 or item_id <= 0:
+            continue
+        existing_by_item[item_id] = operation
+
+    desired_by_item = _merge_desired_wholesale_lines(lines)
+
+    edits: list[dict[str, Any]] = []
+    for item_id, line in desired_by_item.items():
+        existing_operation = existing_by_item.get(item_id)
+        if existing_operation is None:
+            continue
+        edits.append(
+            {
+                "id": int(existing_operation["id"]),
+                "quantity": line["qty"],
+                "price": line["price"],
+                "price2": line["price2"],
+            }
+        )
+
+    delete_payload = [
+        {"id": int(existing_operation["id"])}
+        for item_id, existing_operation in existing_by_item.items()
+        if item_id not in desired_by_item
+    ]
+
+    add_lines = [
+        line for item_id, line in desired_by_item.items() if item_id not in existing_by_item
+    ]
+
+    if edits:
+        await _regos_call(session, company_id, "orderfrompartneroperation/edit", edits)
+    if delete_payload:
+        await _regos_call(session, company_id, "orderfrompartneroperation/delete", delete_payload)
+    if add_lines:
+        await _add_order_from_partner_operations(session, company_id, document_id, add_lines)
+
+
 async def _add_wholesale_document(
     session: AsyncSession,
     company_id: int,
@@ -1277,6 +1520,62 @@ async def _add_wholesale_operations(
         for line in lines
     ]
     await _regos_call(session, company_id, "wholesaleoperation/add", operations)
+
+
+async def _add_order_from_partner_document(
+    session: AsyncSession,
+    company_id: int,
+    defaults: dict[str, Any],
+    description: str | None,
+    *,
+    booked: bool = True,
+) -> dict[str, Any]:
+    status_id = await regos_defaults_service.get_doc_order_from_partner_default_status_id(
+        session, company_id
+    )
+    payload: dict[str, Any] = {
+        "date": int(time.time()),
+        "partner_id": defaults["partner"]["id"],
+        "stock_id": defaults["warehouse"]["id"],
+        "currency_id": defaults["currency"]["id"],
+        "status_id": status_id,
+        "vat_calculation_type": defaults.get(
+            "vat_calculation_type", regos_defaults_service.DEFAULT_VAT_CALCULATION_TYPE
+        ),
+        "booked": booked,
+    }
+    currency = defaults.get("currency")
+    if isinstance(currency, dict):
+        exchange_rate = parse_exchange_rate(currency.get("exchange_rate"))
+        if exchange_rate != 1.0:
+            payload["exchange_rate"] = exchange_rate
+    attached_user = defaults.get("attached_user")
+    if attached_user:
+        payload["attached_user_id"] = attached_user["id"]
+    if description:
+        payload["description"] = description
+
+    response = await _regos_call(session, company_id, "docorderfrompartner/add", payload)
+    return _extract_new_document(response)
+
+
+async def _add_order_from_partner_operations(
+    session: AsyncSession,
+    company_id: int,
+    document_id: int,
+    lines: list[dict[str, Any]],
+) -> None:
+    operations = [
+        {
+            "document_id": document_id,
+            "item_id": line["regos_item_id"],
+            "quantity": line["qty"],
+            "price": line["price"],
+            "price2": line["price2"],
+        }
+        for line in lines
+    ]
+    await _regos_call(session, company_id, "orderfrompartneroperation/add", operations)
 
 
 async def _add_wholesale_return_document(
@@ -1967,6 +2266,12 @@ def _partner_phone_from_row(partner: dict[str, Any]) -> str | None:
     if isinstance(phones, str) and phones.strip():
         return phones.strip()
     return None
+
+
+def _map_order_from_partner_document(item: dict[str, Any]) -> dict[str, Any]:
+    mapped = _map_wholesale_document(item)
+    mapped["performed"] = False
+    return mapped
 
 
 def _map_wholesale_document(item: dict[str, Any]) -> dict[str, Any]:

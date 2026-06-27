@@ -10,6 +10,7 @@ import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { useCheckoutTabs } from "@/store/checkout-tabs";
+import { extractWholesaleDocIdFromError } from "@/lib/checkout-error";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
 import { checkoutSale } from "@/lib/sales-api";
 import type { CheckoutResponse } from "@/lib/sales-api";
@@ -41,6 +42,9 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
   const { t } = useLanguage();
   const items = useCart((s) => s.items);
   const clearCart = useCart((s) => s.clear);
+  const setPostponedWholesaleDocId = useCart((s) => s.setPostponedWholesaleDocId);
+  const setPostponedDocType = useCart((s) => s.setPostponedDocType);
+  const persistCheckoutTabs = useCheckoutTabs((s) => s.persistNow);
   const clearActiveTabAfterCheckout = useCheckoutTabs(
     (s) => s.clearActiveTabAfterCheckout,
   );
@@ -169,6 +173,12 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
     setProcessing(true);
     setCheckoutError(null);
 
+    const { postponedWholesaleDocId, postponedDocType } = useCart.getState();
+    const wholesaleDocId =
+      postponedDocType === "wholesale" || postponedDocType == null
+        ? postponedWholesaleDocId
+        : null;
+
     try {
       const result = await checkoutSale(accessToken, {
         items: cartItems.map((i) => ({
@@ -179,9 +189,7 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
         discount: totals.discount,
         total: totals.total,
         description: `POS ${cashier.name}`,
-        ...(postponedWholesaleDocId
-          ? { wholesale_doc_id: postponedWholesaleDocId }
-          : {}),
+        ...(wholesaleDocId ? { wholesale_doc_id: wholesaleDocId } : {}),
         ...(payload.payments
           ? { payments: payload.payments }
           : {
@@ -265,6 +273,12 @@ export function CheckoutModal({ open, onClose, totals }: Props) {
       reset();
       onClose();
     } catch (err: unknown) {
+      const failedWholesaleDocId = extractWholesaleDocIdFromError(err);
+      if (failedWholesaleDocId !== null) {
+        setPostponedWholesaleDocId(failedWholesaleDocId);
+        setPostponedDocType("wholesale");
+        void persistCheckoutTabs();
+      }
       setCheckoutError(formatAuthError(err, t("checkout.errors.failed", "Checkout failed")));
     } finally {
       setProcessing(false);

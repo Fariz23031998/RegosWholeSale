@@ -17,6 +17,7 @@ from app.schemas.sales import (
     WholesaleReturnResponse,
     WholesaleReturnSummaryResponse,
 )
+from app.services import pos_settings as pos_settings_service
 from app.services import regos_sales as regos_sales_service
 
 router = APIRouter(prefix="/sales", tags=["sales"])
@@ -24,6 +25,20 @@ router = APIRouter(prefix="/sales", tags=["sales"])
 
 def _permission_set(current: CurrentUser) -> set[str]:
     return set(current.permissions)
+
+
+async def _resolve_document_kind(
+    session: AsyncSession,
+    company_id: int,
+    document_kind: str | None,
+) -> str:
+    if document_kind in {"wholesale", "order_from_partner"}:
+        return document_kind
+    company_pos = await pos_settings_service.get_pos_settings(session, company_id)
+    postpone_type = company_pos.get("postpone_document_type", "doc_wholesale")
+    if postpone_type == "doc_order_from_partner":
+        return "order_from_partner"
+    return "wholesale"
 
 
 @router.post("/checkout", response_model=CheckoutResponse)
@@ -67,6 +82,7 @@ async def get_wholesale_documents(
     stock_ids: list[int] | None = Query(default=None),
     all_stocks: bool = Query(default=True),
     performed: bool | None = Query(default=None),
+    document_kind: str | None = Query(default=None),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
     current: CurrentUser = Depends(get_current_user),
@@ -78,36 +94,57 @@ async def get_wholesale_documents(
     elif "sales.read" not in current.permissions:
         raise forbidden("Missing permission: sales.read", "FORBIDDEN")
 
-    data = await regos_sales_service.list_wholesale_documents(
-        session,
-        current.company_id,
-        user_id=current.id,
+    resolved_kind = await _resolve_document_kind(session, current.company_id, document_kind)
+    list_kwargs = dict(
         start_date=start_date,
         end_date=end_date,
         partner_ids=partner_ids,
         all_partners=all_partners,
         stock_ids=stock_ids,
         all_stocks=all_stocks,
-        performed=performed,
         offset=offset,
         limit=limit,
     )
+    if resolved_kind == "order_from_partner":
+        data = await regos_sales_service.list_order_from_partner_documents(
+            session,
+            current.company_id,
+            user_id=current.id,
+            **list_kwargs,
+        )
+    else:
+        data = await regos_sales_service.list_wholesale_documents(
+            session,
+            current.company_id,
+            user_id=current.id,
+            performed=performed,
+            **list_kwargs,
+        )
     return WholesaleDocumentsResponse(**data)
 
 
 @router.get("/wholesale-operations", response_model=WholesaleOperationsResponse)
 async def get_wholesale_operations_batch(
     document_ids: list[int] = Query(..., min_length=1),
+    document_kind: str | None = Query(default=None),
     current: CurrentUser = Depends(
         require_any_permission("sales.read", "sales.continue")
     ),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleOperationsResponse:
-    data = await regos_sales_service.list_wholesale_operations_batch(
-        session,
-        current.company_id,
-        document_ids,
-    )
+    resolved_kind = await _resolve_document_kind(session, current.company_id, document_kind)
+    if resolved_kind == "order_from_partner":
+        data = await regos_sales_service.list_order_from_partner_operations_batch(
+            session,
+            current.company_id,
+            document_ids,
+        )
+    else:
+        data = await regos_sales_service.list_wholesale_operations_batch(
+            session,
+            current.company_id,
+            document_ids,
+        )
     return WholesaleOperationsResponse(**data)
 
 
@@ -117,16 +154,25 @@ async def get_wholesale_operations_batch(
 )
 async def get_wholesale_operations(
     document_id: int,
+    document_kind: str | None = Query(default=None),
     current: CurrentUser = Depends(
         require_any_permission("sales.read", "sales.continue")
     ),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleOperationsResponse:
-    data = await regos_sales_service.list_wholesale_operations(
-        session,
-        current.company_id,
-        document_id,
-    )
+    resolved_kind = await _resolve_document_kind(session, current.company_id, document_kind)
+    if resolved_kind == "order_from_partner":
+        data = await regos_sales_service.list_order_from_partner_operations(
+            session,
+            current.company_id,
+            document_id,
+        )
+    else:
+        data = await regos_sales_service.list_wholesale_operations(
+            session,
+            current.company_id,
+            document_id,
+        )
     return WholesaleOperationsResponse(**data)
 
 

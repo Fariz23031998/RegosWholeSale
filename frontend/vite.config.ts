@@ -12,15 +12,20 @@ const nginxDeploy = process.env.VITE_DEPLOY_TARGET === "nginx";
 
 export default defineConfig({
   // Cloudflare Workers build is default (Lovable). Set VITE_DEPLOY_TARGET=nginx for VPS static hosting.
-  cloudflare: !nginxDeploy,
+  cloudflare: nginxDeploy ? false : undefined,
   tanstackStart: {
-    server: { entry: "server" },
+    server: { 
+      entry: "server",
+      allowedHosts: ["rofeev.loca.lt"] 
+    },
     ...(nginxDeploy
       ? {
           prerender: {
             enabled: true,
-            crawlLinks: true,
-            failOnError: true,
+            // Static nginx hosting only needs the SPA shell; crawling auth routes
+            // triggers SSR during build and can fail (e.g. /login 500).
+            crawlLinks: false,
+            failOnError: false,
           },
           spa: {
             enabled: true,
