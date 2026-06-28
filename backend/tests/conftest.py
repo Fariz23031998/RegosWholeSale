@@ -48,6 +48,8 @@ async def session_factory(engine):
 
 @pytest_asyncio.fixture
 async def client(session_factory):
+    import app.database as database_module
+
     async def override_get_db():
         async with session_factory() as session:
             try:
@@ -57,6 +59,8 @@ async def client(session_factory):
                 await session.rollback()
                 raise
 
+    original_session_factory = database_module.async_session_factory
+    database_module.async_session_factory = session_factory
     app.dependency_overrides[get_db] = override_get_db
 
     async with session_factory() as session:
@@ -68,3 +72,4 @@ async def client(session_factory):
         yield ac
 
     app.dependency_overrides.clear()
+    database_module.async_session_factory = original_session_factory

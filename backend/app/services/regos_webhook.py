@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any
 
+from fastapi import BackgroundTasks
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,6 +14,7 @@ from app.services import pos_session_report as session_report
 from app.services import regos_document_fetch as doc_fetch
 from app.services import regos_out_of_stock as out_of_stock_service
 from app.services import regos_pos_fetch as pos_fetch
+from app.services import regos_webhook_background as webhook_background
 from app.services import telegram as telegram_service
 from app.services.telegram_notifications import (
     resolve_document_notification_type,
@@ -141,6 +143,46 @@ def _mark_pos_cheque_receipt_sent(cache_key: str) -> None:
     notified_pos_cheque_receipts[cache_key] = datetime.utcnow()
 
 
+def _schedule_out_of_stock_for_document(
+    background_tasks: BackgroundTasks | None,
+    company_id: int,
+    event_action: str,
+    document: dict[str, Any],
+    operations: list[dict[str, Any]],
+) -> None:
+    if background_tasks is None:
+        return
+    if not out_of_stock_service.is_stock_decrease_event(event_action, document):
+        return
+    if not doc_fetch.item_ids_from_operations(operations):
+        return
+    background_tasks.add_task(
+        webhook_background.process_out_of_stock_for_document,
+        company_id,
+        event_action,
+        document,
+        operations,
+    )
+
+
+def _schedule_out_of_stock_for_cheque(
+    background_tasks: BackgroundTasks | None,
+    company_id: int,
+    cheque: dict[str, Any],
+    operations: list[dict[str, Any]],
+) -> None:
+    if background_tasks is None:
+        return
+    if bool(cheque.get("is_return")):
+        return
+    background_tasks.add_task(
+        webhook_background.process_out_of_stock_for_cheque,
+        company_id,
+        cheque,
+        operations,
+    )
+
+
 async def _resolve_warehouse_name(
     session: AsyncSession,
     company_id: int,
@@ -163,6 +205,7 @@ async def _process_operation_document(
     event_spec: EventSpec,
     *,
     event_action: str,
+    background_tasks: BackgroundTasks | None = None,
 ) -> bool:
     assert event_spec.spec is not None
     spec = event_spec.spec
@@ -218,8 +261,8 @@ async def _process_operation_document(
         build_message=build_message,
     )
 
-    await out_of_stock_service.check_and_record_out_of_stock(
-        session,
+    _schedule_out_of_stock_for_document(
+        background_tasks,
         company_id,
         event_action,
         document,
@@ -268,6 +311,8 @@ async def _process_pos_cheque(
     company_id: int,
     cheque_uuid: str,
     pos_spec: PosEventSpec,
+    *,
+    background_tasks: BackgroundTasks | None = None,
 ) -> bool:
     cheque = await pos_fetch.fetch_cheque_by_uuid(session, company_id, cheque_uuid)
     if not cheque:
@@ -330,8 +375,8 @@ async def _process_pos_cheque(
         _mark_pos_cheque_receipt_sent(receipt_cache_key)
 
     if variant == "closed" and operations:
-        await out_of_stock_service.check_and_record_out_of_stock_from_cheque(
-            session,
+        _schedule_out_of_stock_for_cheque(
+            background_tasks,
             company_id,
             cheque,
             operations,
@@ -390,7 +435,12 @@ async def _process_pos_session(
     return sent > 0
 
 
-async def handle_regos_webhook(session: AsyncSession, webhook_data: dict[str, Any]) -> dict[str, Any]:
+async def handle_regos_webhook(
+    session: AsyncSession,
+    webhook_data: dict[str, Any],
+    *,
+    background_tasks: BackgroundTasks | None = None,
+) -> dict[str, Any]:
     event_id = webhook_data.get("event_id")
     if event_id:
         _cleanup_processed_events()
@@ -434,7 +484,13 @@ async def handle_regos_webhook(session: AsyncSession, webhook_data: dict[str, An
             return {"ok": True, "message": "Missing uuid", "company_id": company_id}
 
         if pos_spec.kind == "cheque":
-            await _process_pos_cheque(session, company_id, str(resource_uuid), pos_spec)
+            await _process_pos_cheque(
+                session,
+                company_id,
+                str(resource_uuid),
+                pos_spec,
+                background_tasks=background_tasks,
+            )
         else:
             await _process_pos_session(session, company_id, str(resource_uuid), pos_spec)
 
@@ -463,6 +519,7 @@ async def handle_regos_webhook(session: AsyncSession, webhook_data: dict[str, An
             int(document_id),
             event_spec,
             event_action=event_action,
+            background_tasks=background_tasks,
         )
 
     return {"ok": True, "message": "Webhook processed", "company_id": company_id}

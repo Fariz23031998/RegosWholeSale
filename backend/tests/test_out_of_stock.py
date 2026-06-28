@@ -620,6 +620,48 @@ async def test_wholesale_webhook_triggers_out_of_stock_notification(client, monk
 
 
 @pytest.mark.asyncio
+async def test_operation_document_schedules_out_of_stock_in_background(monkeypatch):
+    from unittest.mock import MagicMock
+
+    from app.services import regos_webhook as regos_webhook_service
+
+    background_tasks = MagicMock()
+    scheduled: list[tuple] = []
+    background_tasks.add_task.side_effect = lambda func, *args: scheduled.append((func, args))
+
+    monkeypatch.setattr(
+        regos_webhook_service.doc_fetch,
+        "fetch_document",
+        AsyncMock(return_value=SAMPLE_WHOLESALE_DOC),
+    )
+    monkeypatch.setattr(
+        regos_webhook_service.doc_fetch,
+        "fetch_operations",
+        AsyncMock(return_value=SAMPLE_WHOLESALE_OPS),
+    )
+    monkeypatch.setattr(
+        regos_webhook_service.telegram_service,
+        "notify_company_subscribers",
+        AsyncMock(return_value=1),
+    )
+
+    event_spec = regos_webhook_service.EVENT_SPECS["DocWholeSalePerformed"]
+    await regos_webhook_service._process_operation_document(
+        AsyncMock(),
+        company_id=1,
+        document_id=1,
+        event_spec=event_spec,
+        event_action="DocWholeSalePerformed",
+        background_tasks=background_tasks,
+    )
+
+    assert len(scheduled) == 1
+    func, args = scheduled[0]
+    assert func.__name__ == "process_out_of_stock_for_document"
+    assert args == (1, "DocWholeSalePerformed", SAMPLE_WHOLESALE_DOC, SAMPLE_WHOLESALE_OPS)
+
+
+@pytest.mark.asyncio
 async def test_out_of_stock_excel_callback_sends_report(client, monkeypatch, session_factory):
     from unittest.mock import AsyncMock, patch
 
