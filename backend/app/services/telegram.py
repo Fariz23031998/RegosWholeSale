@@ -27,6 +27,7 @@ WEBHOOK_ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
 GROUP_CHAT_TYPES = frozenset({"group", "supergroup"})
 BOT_MEMBER_STATUSES = frozenset({"member", "administrator"})
 BOT_REMOVED_STATUSES = frozenset({"left", "kicked"})
+UNLINKED_GROUP_TELEGRAM_USER_ID = 0
 
 
 def _mask_token(token: str) -> str:
@@ -218,6 +219,59 @@ async def list_telegram_users(session: AsyncSession, company_id: int) -> list[di
     return [telegram_user_to_dict(row) for row in result.scalars().all()]
 
 
+def _is_group_subscriber(subscriber: TelegramUser) -> bool:
+    return subscriber.chat_type in GROUP_CHAT_TYPES
+
+
+def select_notification_recipients(
+    subscribers: list[TelegramUser],
+    notification_type: str,
+) -> list[TelegramUser]:
+    """Pick who receives a broadcast without duplicate delivery.
+
+    - Each chat_id receives at most one message.
+    - When the same person is active on both private chat and a group they
+      registered (/start in group), only the group receives the notification.
+    """
+    eligible = [
+        subscriber
+        for subscriber in subscribers
+        if user_receives_notification(subscriber.notification_types, notification_type)
+    ]
+    if not eligible:
+        return []
+
+    linked_group_by_user_id: dict[int, TelegramUser] = {}
+    for subscriber in eligible:
+        if (
+            _is_group_subscriber(subscriber)
+            and subscriber.telegram_user_id > UNLINKED_GROUP_TELEGRAM_USER_ID
+        ):
+            linked_group_by_user_id[subscriber.telegram_user_id] = subscriber
+
+    selected: list[TelegramUser] = []
+    seen_chat_ids: set[int] = set()
+
+    def add_recipient(subscriber: TelegramUser) -> None:
+        if subscriber.chat_id in seen_chat_ids:
+            return
+        selected.append(subscriber)
+        seen_chat_ids.add(subscriber.chat_id)
+
+    for subscriber in eligible:
+        if _is_group_subscriber(subscriber):
+            add_recipient(subscriber)
+
+    for subscriber in eligible:
+        if _is_group_subscriber(subscriber):
+            continue
+        if subscriber.telegram_user_id in linked_group_by_user_id:
+            continue
+        add_recipient(subscriber)
+
+    return selected
+
+
 def split_telegram_message(text: str, max_length: int = TELEGRAM_MESSAGE_MAX_LENGTH) -> list[str]:
     if max_length <= 0:
         raise ValueError("max_length must be positive")
@@ -344,9 +398,8 @@ async def send_out_of_stock_excel_prompt(
         return 0
 
     sent = 0
-    for user in users:
-        if not user_receives_notification(user.notification_types, "out_of_stock"):
-            continue
+    recipients = select_notification_recipients(users, "out_of_stock")
+    for user in recipients:
         lang = resolve_receipt_language(user.receipt_language, user.language_code)
         if await send_message(
             bot.bot_token,
@@ -492,9 +545,8 @@ async def notify_company_subscribers(
         return 0
 
     sent = 0
-    for user in users:
-        if not user_receives_notification(user.notification_types, notification_type):
-            continue
+    recipients = select_notification_recipients(users, notification_type)
+    for user in recipients:
         lang = resolve_receipt_language(user.receipt_language, user.language_code)
         if await send_message(
             bot.bot_token,
@@ -548,6 +600,7 @@ async def _upsert_telegram_subscriber(
         if row:
             row.title = title
             row.chat_type = chat_type
+            row.telegram_user_id = sender_id
             if row.notification_types is None:
                 row.notification_types = default_notification_types()
             if row.receipt_language is None:
@@ -624,7 +677,7 @@ async def _upsert_group_from_chat_member(
     else:
         row = TelegramUser(
             company_id=company_id,
-            telegram_user_id=chat_id,
+            telegram_user_id=UNLINKED_GROUP_TELEGRAM_USER_ID,
             chat_id=chat_id,
             chat_type=chat_type,
             title=chat.get("title"),

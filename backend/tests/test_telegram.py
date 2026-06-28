@@ -719,6 +719,7 @@ async def test_my_chat_member_add_creates_pending_group(client, monkeypatch, ses
         user = result.scalar_one()
         assert user.chat_id == -1009876543210
         assert user.title == "Sales Team"
+        assert user.telegram_user_id == 0
         assert user.is_active is False
 
 
@@ -791,6 +792,123 @@ async def test_notify_company_subscribers_sends_to_active_group(client, monkeypa
 
         result = await session.execute(select(TelegramUser))
         company_id = result.scalar_one().company_id
+
+        count = await notify_company_subscribers(
+            session,
+            company_id,
+            notification_type="payment_performed",
+            build_message=lambda lang: "payment alert",
+        )
+        assert count == 1
+        assert sent_chat_ids == [-1001234567890]
+
+
+def test_select_notification_recipients_skips_private_when_group_linked():
+    from app.models import TelegramUser
+    from app.services.telegram import select_notification_recipients
+
+    private = TelegramUser(
+        company_id=1,
+        telegram_user_id=111222,
+        chat_id=111222,
+        chat_type="private",
+        is_active=True,
+        notification_types=["payment_performed"],
+    )
+    group = TelegramUser(
+        company_id=1,
+        telegram_user_id=111222,
+        chat_id=-1001234567890,
+        chat_type="supergroup",
+        title="Alerts",
+        is_active=True,
+        notification_types=["payment_performed"],
+    )
+
+    recipients = select_notification_recipients([private, group], "payment_performed")
+
+    assert [recipient.chat_id for recipient in recipients] == [-1001234567890]
+
+
+def test_select_notification_recipients_keeps_unrelated_private_and_group():
+    from app.models import TelegramUser
+    from app.services.telegram import select_notification_recipients
+
+    private = TelegramUser(
+        company_id=1,
+        telegram_user_id=999888,
+        chat_id=999888,
+        chat_type="private",
+        is_active=True,
+        notification_types=["payment_performed"],
+    )
+    group = TelegramUser(
+        company_id=1,
+        telegram_user_id=111222,
+        chat_id=-1001234567890,
+        chat_type="supergroup",
+        title="Alerts",
+        is_active=True,
+        notification_types=["payment_performed"],
+    )
+
+    recipients = select_notification_recipients([private, group], "payment_performed")
+
+    assert sorted(recipient.chat_id for recipient in recipients) == [-1001234567890, 999888]
+
+
+@pytest.mark.asyncio
+async def test_notify_company_subscribers_skips_private_when_group_linked(
+    client,
+    monkeypatch,
+    session_factory,
+):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "notify-dedupe-telegram@test.com")
+    webhook_secret = await _save_bot_and_get_secret(client, token)
+
+    private_update = {
+        "update_id": 200,
+        "message": {
+            "message_id": 10,
+            "from": {
+                "id": 111222,
+                "is_bot": False,
+                "first_name": "Admin",
+                "username": "groupadmin",
+                "language_code": "en",
+            },
+            "chat": {"id": 111222, "type": "private", "first_name": "Admin", "username": "groupadmin"},
+            "text": "/start",
+        },
+    }
+    await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=private_update)
+    await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=GROUP_START_UPDATE)
+
+    list_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    for user in list_response.json():
+        await client.patch(
+            f"/api/v1/telegram/users/{user['id']}",
+            json={"is_active": True, "notification_types": ["payment_performed"]},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    sent_chat_ids: list[int] = []
+
+    async def fake_send_message(bot_token, chat_id, text, parse_mode="Markdown", reply_markup=None):
+        sent_chat_ids.append(chat_id)
+        return True
+
+    monkeypatch.setattr("app.services.telegram.send_message", fake_send_message)
+
+    async with session_factory() as session:
+        from app.services.telegram import notify_company_subscribers
+
+        result = await session.execute(select(TelegramUser))
+        company_id = result.scalars().first().company_id
 
         count = await notify_company_subscribers(
             session,
