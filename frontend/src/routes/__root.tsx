@@ -10,13 +10,17 @@ import {
 
 import { Toaster } from "@/components/ui/sonner";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import {
   SITE_NAME,
   SITE_OG_IMAGE_PATH,
   SITE_THEME_COLOR,
 } from "@/lib/site";
 import { languageService } from "@/services/language";
+import { THEME_STORAGE_KEY } from "@/services/theme";
 import appCss from "../styles.css?url";
+
+const themeInitScript = `(function(){try{var p=localStorage.getItem("${THEME_STORAGE_KEY}")||"system";var d=p==="dark"||(p==="system"&&window.matchMedia("(prefers-color-scheme: dark)").matches);if(d)document.documentElement.classList.add("dark");}catch(e){}})();`;
 
 const t = languageService.t.bind(languageService);
 
@@ -149,6 +153,7 @@ function RootShell({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
         <HeadContent />
       </head>
       <body suppressHydrationWarning>
@@ -164,10 +169,12 @@ function RootComponent() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <LanguageProvider>
-        <Outlet />
-        <Toaster />
-      </LanguageProvider>
+      <ThemeProvider>
+        <LanguageProvider>
+          <Outlet />
+          <Toaster />
+        </LanguageProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

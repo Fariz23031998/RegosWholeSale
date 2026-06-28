@@ -17,6 +17,7 @@ import { BrandLogo } from "@/components/BrandLogo";
 import { CatalogViewToggle } from "@/components/POS/CatalogViewToggle";
 import { SellContextBar } from "@/components/POS/SellContextBar";
 import { LanguageSelector } from "@/components/LanguageSelector";
+import { ThemeSelector } from "@/components/ThemeSelector";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useAuth } from "@/store/auth";
@@ -128,6 +129,7 @@ export function Shell() {
         <div className={styles.spacer} />
 
         <div className={styles.sidebarFooter}>
+          <ThemeSelector variant="menu" />
           <LanguageSelector variant="menu" />
 
           {session && (

@@ -30,9 +30,9 @@
 }
 .filter:hover { color: var(--color-text); }
 .filterActive {
-  border-color: var(--color-primary);
-  color: var(--color-primary);
-  background: var(--color-primary-soft);
+  border-color: var(--color-filter-active-border);
+  color: var(--color-filter-active-text);
+  background: var(--color-filter-active-bg);
 }
 
 .table {

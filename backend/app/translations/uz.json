@@ -1,5 +1,5 @@
 {
-  "version": "1.1.2",
+  "version": "1.1.3",
   "last_updated": "2026-06-28",
   "translations": {
     "common.loading": "Yuklanmoqda...",
@@ -104,6 +104,10 @@
     "language.en": "English",
     "language.tj": "Тоҷикӣ",
     "language.selectorLabel": "Til",
+    "theme.light": "Yorug'",
+    "theme.dark": "Qorong'u",
+    "theme.system": "Tizim",
+    "theme.selectorLabel": "Ko'rinish",
     "meta.registerTitle": "Ro'yxatdan o'tish · Regos Optom",
     "meta.registerDescription": "Kompaniya hisobini yarating.",
     "meta.resetPasswordTitle": "Parolni tiklash · Regos Optom",
@@ -793,6 +797,8 @@
     "telegram.outOfStock.excelSendFailed": "Excel hisobotini yaratib bo'lmadi. Keyinroq qayta urinib ko'ring.",
     "settings.title": "Sozlamalar",
     "settings.subtitle": "Kompaniya sozlamalari va integratsiyalar.",
+    "settings.appearance.title": "Ko'rinish",
+    "settings.appearance.subtitle": "Regos Optom ushbu qurilmada qanday ko'rinishini tanlang.",
     "settings.noPermission": "Sozlamalarni boshqarish uchun ruxsatingiz yo'q.",
     "settings.companyFallback": "Kompaniya",
     "settings.pos.title": "Kompaniya POS sozlamalari",

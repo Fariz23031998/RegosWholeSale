@@ -1,5 +1,5 @@
 {
-  "version": "1.1.2",
+  "version": "1.1.3",
   "last_updated": "2026-06-28",
   "translations": {
     "common.loading": "Бор карда истодааст...",
@@ -104,6 +104,10 @@
     "language.en": "English",
     "language.tj": "Тоҷикӣ",
     "language.selectorLabel": "Забон",
+    "theme.light": "Рӯшно",
+    "theme.dark": "Тира",
+    "theme.system": "Система",
+    "theme.selectorLabel": "Намуд",
     "meta.registerTitle": "Бақайдгирӣ · Regos Optom",
     "meta.registerDescription": "Ҳисоби ширкат эҷод кунед.",
     "meta.resetPasswordTitle": "Барқарор кардани парол · Regos Optom",
@@ -760,6 +764,8 @@
     "telegram.outOfStock.excelSendFailed": "Таҳияи гузориши Excel муваффақ нашуд. Баъдтар такрор кунед.",
     "settings.title": "Танзимот",
     "settings.subtitle": "Танзимоти ширкат ва интегратсияҳо.",
+    "settings.appearance.title": "Намуд",
+    "settings.appearance.subtitle": "Интихоб кунед, ки Regos Optom дар ин дастгоҳ чӣ гуна намоиш дода шавад.",
     "settings.noPermission": "Иҷозати идораи танзимот надоред.",
     "settings.companyFallback": "Ширкат",
     "settings.pos.title": "Танзимоти POS-и ширкат",

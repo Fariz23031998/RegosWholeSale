@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { ThemeSelector } from "@/components/ThemeSelector";
 import {
   createDocPaymentSaleIdField,
   deleteRegosToken,
@@ -702,6 +703,23 @@ function SettingsPage() {
           {t("settings.subtitle", "Configure company defaults and integrations.")}
         </p>
       </header>
+
+      <section className={styles.section}>
+        <div className={styles.sectionHeader}>
+          <div>
+            <h2 className={styles.sectionTitle}>
+              {t("settings.appearance.title", "Appearance")}
+            </h2>
+            <p className={styles.sectionDesc}>
+              {t(
+                "settings.appearance.subtitle",
+                "Choose how Regos Optom looks on this device.",
+              )}
+            </p>
+          </div>
+        </div>
+        <ThemeSelector variant="segmented" />
+      </section>
 
       {canManageSettings ? (
         <>

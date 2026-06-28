@@ -239,6 +239,8 @@
   text-align: right;
   outline: none;
   font-size: 13px;
+  background: var(--color-surface);
+  color: var(--color-text);
 }
 .discountField:focus { border-color: var(--color-primary); }
 .discountSuffix {
@@ -331,7 +333,7 @@
     display: block;
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--color-overlay);
     z-index: 40;
     animation: fadeIn 0.15s ease-out;
   }
