@@ -1267,7 +1267,7 @@ function SettingsPage() {
               </label>
             </div>
 
-            <div className={styles.actions}>
+            <div className={styles.telegramFooter}>
               <div className={styles.buttonRow}>
                 <button
                   type="button"
@@ -1288,33 +1288,52 @@ function SettingsPage() {
                   {t("settings.telegram.removeBot", "Remove bot")}
                 </button>
               </div>
-              <p className={styles.note}>
-                {loadingTelegramBot
-                  ? t("settings.telegram.loading", "Loading Telegram bot...")
-                  : telegramBotConfigured
-                    ? telegramBotUsername
-                      ? t(
-                          "settings.telegram.connectedWebhook",
-                          "Connected as @{{username}}. Webhook: {{webhook}}",
-                          {
-                            username: telegramBotUsername,
-                            webhook: telegramWebhookUrl ?? "registered",
-                          },
-                        )
-                      : t("settings.telegram.configured", "Telegram bot is configured.")
+
+              {loadingTelegramBot ? (
+                <p className={styles.note}>
+                  {t("settings.telegram.loading", "Loading Telegram bot...")}
+                </p>
+              ) : telegramBotConfigured && telegramBotUsername ? (
+                <div className={styles.telegramStatus}>
+                  <p className={styles.telegramMeta}>
+                    {t(
+                      "settings.telegram.connectedAs",
+                      "Connected as @{{username}}",
+                      { username: telegramBotUsername },
+                    )}
+                  </p>
+                  {telegramWebhookUrl ? (
+                    <div className={styles.telegramMeta}>
+                      <span className={styles.telegramLabel}>
+                        {t("settings.telegram.webhook", "Webhook")}
+                      </span>
+                      <code className={styles.telegramUrl}>{telegramWebhookUrl}</code>
+                    </div>
+                  ) : null}
+                  <p className={styles.telegramMeta}>
+                    {t("settings.telegram.botLink", "Bot link:")}{" "}
+                    <a href={`https://t.me/${telegramBotUsername}`} target="_blank" rel="noreferrer">
+                      t.me/{telegramBotUsername}
+                    </a>
+                  </p>
+                  <p className={styles.telegramMeta}>
+                    {t(
+                      "settings.telegram.groupInstructions",
+                      "For groups: add the bot to a group, then send /start@{{username}} in the group. Activate the group on the Telegram subscribers page.",
+                      { username: telegramBotUsername },
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <p className={styles.note}>
+                  {telegramBotConfigured
+                    ? t("settings.telegram.configured", "Telegram bot is configured.")
                     : t(
                         "settings.telegram.noWebhookBaseUrl",
                         "No Telegram bot saved yet. TELEGRAM_WEBHOOK_BASE_URL must be set on the server.",
                       )}
-              </p>
-              {telegramBotConfigured && telegramBotUsername ? (
-                <p className={styles.note}>
-                  {t("settings.telegram.botLink", "Bot link:")}{" "}
-                  <a href={`https://t.me/${telegramBotUsername}`} target="_blank" rel="noreferrer">
-                    t.me/{telegramBotUsername}
-                  </a>
                 </p>
-              ) : null}
+              )}
             </div>
           </section>
 

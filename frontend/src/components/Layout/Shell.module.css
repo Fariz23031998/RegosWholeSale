@@ -60,18 +60,6 @@
   padding: 4px 8px;
   min-width: 0;
 }
-.brandMark {
-  width: 36px;
-  height: 36px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, var(--color-primary), #7c3aed);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 700;
-  flex-shrink: 0;
-}
 .brandText {
   font-weight: 600;
   font-size: 16px;

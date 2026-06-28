@@ -126,6 +126,43 @@ def stock_name_from_document(document: dict[str, Any]) -> str | None:
     return None
 
 
+def _stock_id_from_nested(document: dict[str, Any], key: str) -> int | None:
+    stock_obj = document.get(key)
+    if isinstance(stock_obj, dict) and stock_obj.get("id") is not None:
+        return int(stock_obj["id"])
+    return None
+
+
+def stock_sender_id_from_document(document: dict[str, Any]) -> int | None:
+    return _stock_id_from_nested(document, "stock_sender")
+
+
+def stock_receiver_id_from_document(document: dict[str, Any]) -> int | None:
+    return _stock_id_from_nested(document, "stock_receiver")
+
+
+def item_ids_from_operations(operations: list[dict[str, Any]]) -> list[int]:
+    item_ids: list[int] = []
+    seen: set[int] = set()
+    for operation in operations:
+        item_id = operation.get("item_id")
+        if item_id is None:
+            item = operation.get("item")
+            if isinstance(item, dict):
+                item_id = item.get("id")
+        if item_id is None:
+            continue
+        try:
+            parsed = int(item_id)
+        except (TypeError, ValueError):
+            continue
+        if parsed <= 0 or parsed in seen:
+            continue
+        seen.add(parsed)
+        item_ids.append(parsed)
+    return item_ids
+
+
 @dataclass(frozen=True)
 class OperationDocumentSpec:
     doc_endpoint: str

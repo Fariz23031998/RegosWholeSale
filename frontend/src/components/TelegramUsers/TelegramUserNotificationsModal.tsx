@@ -11,10 +11,15 @@ import {
 } from "@/lib/telegram-receipt-languages";
 import { updateTelegramUser } from "@/lib/telegram-api";
 import {
-  TELEGRAM_NOTIFICATION_TYPES,
+  ALL_LEAF_NOTIFICATION_TYPES,
+  TELEGRAM_NOTIFICATION_CATEGORIES,
+  categorySelectionState,
+  expandLegacyNotificationTypes,
+  isSingleLeafCategory,
   notificationTypeDescriptionKey,
   notificationTypeLabelKey,
-  type TelegramNotificationType,
+  subcategoryLabelKey,
+  type TelegramNotificationLeaf,
 } from "@/lib/telegram-notification-types";
 import type { TelegramUser } from "@/types/telegram";
 import styles from "./TelegramUsers.module.css";
@@ -35,7 +40,7 @@ export function TelegramUserNotificationsModal({
   onSaved,
 }: Props) {
   const { t } = useLanguage();
-  const [selectedTypes, setSelectedTypes] = useState<TelegramNotificationType[]>([]);
+  const [selectedLeaves, setSelectedLeaves] = useState<Set<TelegramNotificationLeaf>>(new Set());
   const [receiptLanguage, setReceiptLanguage] = useState<TelegramReceiptLanguage>("ru");
   const [isActive, setIsActive] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -43,23 +48,40 @@ export function TelegramUserNotificationsModal({
 
   useEffect(() => {
     if (!open || !user) return;
-    setSelectedTypes(user.notification_types as TelegramNotificationType[]);
+    setSelectedLeaves(new Set(expandLegacyNotificationTypes(user.notification_types)));
     setReceiptLanguage(user.receipt_language as TelegramReceiptLanguage);
     setIsActive(user.is_active);
     setError("");
   }, [open, user]);
 
-  const toggleType = (type: TelegramNotificationType, checked: boolean) => {
-    setSelectedTypes((current) => {
+  const toggleLeaf = (leaf: TelegramNotificationLeaf, checked: boolean) => {
+    setSelectedLeaves((current) => {
+      const next = new Set(current);
       if (checked) {
-        return current.includes(type) ? current : [...current, type];
+        next.add(leaf);
+      } else {
+        next.delete(leaf);
       }
-      return current.filter((item) => item !== type);
+      return next;
+    });
+  };
+
+  const toggleCategory = (subcategories: readonly string[], checked: boolean) => {
+    setSelectedLeaves((current) => {
+      const next = new Set(current);
+      for (const leaf of subcategories) {
+        if (checked) {
+          next.add(leaf as TelegramNotificationLeaf);
+        } else {
+          next.delete(leaf as TelegramNotificationLeaf);
+        }
+      }
+      return next;
     });
   };
 
   const handleSave = async () => {
-    if (!user || selectedTypes.length === 0) {
+    if (!user || selectedLeaves.size === 0) {
       setError(
         t(
           "telegramUsers.notifications.selectAtLeastOne",
@@ -73,7 +95,9 @@ export function TelegramUserNotificationsModal({
     setError("");
     try {
       const updated = await updateTelegramUser(token, user.id, {
-        notification_types: selectedTypes,
+        notification_types: ALL_LEAF_NOTIFICATION_TYPES.filter((leaf) =>
+          selectedLeaves.has(leaf),
+        ),
         is_active: isActive,
         receipt_language: receiptLanguage,
       });
@@ -136,23 +160,69 @@ export function TelegramUserNotificationsModal({
         </label>
 
         <div className={styles.notificationList}>
-          {TELEGRAM_NOTIFICATION_TYPES.map((type) => (
-            <label key={type} className={styles.notificationItem}>
-              <Checkbox
-                checked={selectedTypes.includes(type)}
-                disabled={!isActive}
-                onCheckedChange={(value) => toggleType(type, value === true)}
-              />
-              <span className={styles.notificationText}>
-                <span className={styles.notificationLabel}>
-                  {t(notificationTypeLabelKey(type), type)}
-                </span>
-                <span className={styles.notificationDescription}>
-                  {t(notificationTypeDescriptionKey(type), "")}
-                </span>
-              </span>
-            </label>
-          ))}
+          {TELEGRAM_NOTIFICATION_CATEGORIES.map((category) => {
+            const singleLeaf = isSingleLeafCategory(category.subcategories);
+            const parentChecked = categorySelectionState(selectedLeaves, category.subcategories);
+
+            if (singleLeaf) {
+              const leaf = category.subcategories[0] as TelegramNotificationLeaf;
+              return (
+                <label key={category.id} className={styles.notificationItem}>
+                  <Checkbox
+                    checked={selectedLeaves.has(leaf)}
+                    disabled={!isActive}
+                    onCheckedChange={(value) => toggleLeaf(leaf, value === true)}
+                  />
+                  <span className={styles.notificationText}>
+                    <span className={styles.notificationLabel}>
+                      {t(notificationTypeLabelKey(category.id), category.id)}
+                    </span>
+                    <span className={styles.notificationDescription}>
+                      {t(notificationTypeDescriptionKey(category.id), "")}
+                    </span>
+                  </span>
+                </label>
+              );
+            }
+
+            return (
+              <div key={category.id} className={styles.notificationCategory}>
+                <label className={styles.notificationCategoryHeader}>
+                  <Checkbox
+                    checked={parentChecked}
+                    disabled={!isActive}
+                    onCheckedChange={(value) =>
+                      toggleCategory(category.subcategories, value === true)
+                    }
+                  />
+                  <span className={styles.notificationText}>
+                    <span className={styles.notificationLabel}>
+                      {t(notificationTypeLabelKey(category.id), category.id)}
+                    </span>
+                    <span className={styles.notificationDescription}>
+                      {t(notificationTypeDescriptionKey(category.id), "")}
+                    </span>
+                  </span>
+                </label>
+                <div className={styles.notificationSubList}>
+                  {category.subcategories.map((leaf) => (
+                    <label key={leaf} className={styles.notificationSubItem}>
+                      <Checkbox
+                        checked={selectedLeaves.has(leaf as TelegramNotificationLeaf)}
+                        disabled={!isActive}
+                        onCheckedChange={(value) =>
+                          toggleLeaf(leaf as TelegramNotificationLeaf, value === true)
+                        }
+                      />
+                      <span className={styles.notificationSubLabel}>
+                        {t(subcategoryLabelKey(leaf), leaf)}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
         </div>
 
         {error && <div className={styles.error}>{error}</div>}

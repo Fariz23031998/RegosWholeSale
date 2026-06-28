@@ -32,11 +32,14 @@ def _mock_telegram_api(monkeypatch):
             return {"ok": True, "result": {"id": 1, "username": "test_bot", "is_bot": True}}
         if method == "setWebhook":
             assert payload and payload.get("url", "").startswith("https://example.com/api/v1/telegram/webhook/")
+            assert payload.get("allowed_updates") == ["message", "callback_query", "my_chat_member"]
             return {"ok": True, "result": True, "description": "Webhook was set"}
         if method == "deleteWebhook":
             return {"ok": True, "result": True, "description": "Webhook was deleted"}
         if method == "sendMessage":
             return {"ok": True, "result": {"message_id": 1}}
+        if method == "answerCallbackQuery":
+            return {"ok": True, "result": True}
         raise AssertionError(f"Unexpected Telegram API method: {method}")
 
     monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_call)
@@ -126,6 +129,8 @@ async def test_webhook_start_creates_user(client, monkeypatch, session_factory):
         users = list(result.scalars().all())
         assert len(users) == 1
         assert users[0].telegram_user_id == 999888
+        assert users[0].chat_id == 999888
+        assert users[0].chat_type == "private"
         assert users[0].username == "alice"
         assert users[0].first_name == "Alice"
         assert users[0].is_active is False
@@ -344,10 +349,18 @@ async def test_list_notification_types(client):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert response.status_code == 200
-    types = response.json()["types"]
-    assert "purchase" in types
-    assert "wholesale" in types
-    assert "payment" in types
+    payload = response.json()
+    types = payload["types"]
+    assert "purchase_performed" in types
+    assert "wholesale_performed" in types
+    assert "payment_performed" in types
+    assert "categories" in payload
+    pos_cheque = next(item for item in payload["categories"] if item["id"] == "pos_cheque")
+    assert set(pos_cheque["subcategories"]) == {
+        "pos_cheque_closed",
+        "pos_cheque_cancelled",
+        "pos_cheque_return",
+    }
 
 
 @pytest.mark.asyncio
@@ -375,29 +388,36 @@ async def test_update_telegram_user_notification_types(client, monkeypatch, sess
         },
     )
 
+    from app.services.telegram_notifications import ALL_NOTIFICATION_TYPES
+
     list_response = await client.get(
         "/api/v1/telegram/users",
         headers={"Authorization": f"Bearer {token}"},
     )
     user_id = list_response.json()[0]["id"]
-    assert set(list_response.json()[0]["notification_types"]) == {
-        "purchase",
-        "return_purchase",
-        "wholesale",
-        "wholesale_return",
-        "payment",
-        "inout",
-        "movement",
-    }
+    assert set(list_response.json()[0]["notification_types"]) == set(ALL_NOTIFICATION_TYPES)
 
     update_response = await client.patch(
         f"/api/v1/telegram/users/{user_id}",
-        json={"notification_types": ["wholesale", "payment"], "receipt_language": "en"},
+        json={
+            "notification_types": ["wholesale_performed", "payment_performed"],
+            "receipt_language": "en",
+        },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert update_response.status_code == 200
-    assert update_response.json()["notification_types"] == ["payment", "wholesale"]
+    assert set(update_response.json()["notification_types"]) == {
+        "payment_performed",
+        "wholesale_performed",
+    }
     assert update_response.json()["receipt_language"] == "en"
+
+    legacy_update = await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"notification_types": ["pos_cheque"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert legacy_update.status_code == 422
 
     empty_update = await client.patch(
         f"/api/v1/telegram/users/{user_id}",
@@ -467,3 +487,309 @@ async def test_delete_telegram_user_not_found(client):
     )
     assert response.status_code == 404
     assert response.json()["code"] == "TELEGRAM_USER_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_send_document_returns_false_on_api_error(monkeypatch):
+    class FakeResponse:
+        async def json(self):
+            return {"ok": False, "description": "bad"}
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+    class FakeClientSession:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return False
+
+        def post(self, url, data=None):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.services.telegram.aiohttp.ClientSession", FakeClientSession)
+
+    from app.services.telegram import send_document
+
+    assert await send_document("token", 1, b"x", "report.xlsx") is False
+
+
+GROUP_START_UPDATE = {
+    "update_id": 100,
+    "message": {
+        "message_id": 50,
+        "from": {
+            "id": 111222,
+            "is_bot": False,
+            "first_name": "Admin",
+            "username": "groupadmin",
+            "language_code": "en",
+        },
+        "chat": {
+            "id": -1001234567890,
+            "type": "supergroup",
+            "title": "Warehouse Alerts",
+        },
+        "text": "/start@test_bot",
+    },
+}
+
+
+async def _save_bot_and_get_secret(client: AsyncClient, token: str) -> str:
+    save_response = await client.put(
+        "/api/v1/telegram/bot",
+        json={"bot_token": "123456:ABC-DEF"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    return save_response.json()["bot"]["webhook_url"].split("/")[-1]
+
+
+@pytest.mark.asyncio
+async def test_webhook_start_creates_supergroup_subscriber(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "group-telegram@test.com")
+    webhook_secret = await _save_bot_and_get_secret(client, token)
+
+    response = await client.post(
+        f"/api/v1/telegram/webhook/{webhook_secret}",
+        json=GROUP_START_UPDATE,
+    )
+    assert response.status_code == 200
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser))
+        users = list(result.scalars().all())
+        assert len(users) == 1
+        assert users[0].chat_id == -1001234567890
+        assert users[0].chat_type == "supergroup"
+        assert users[0].title == "Warehouse Alerts"
+        assert users[0].telegram_user_id == 111222
+        assert users[0].is_active is False
+
+
+@pytest.mark.asyncio
+async def test_webhook_start_does_not_reactivate_inactive_group(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "reactivate-group-telegram@test.com")
+    webhook_secret = await _save_bot_and_get_secret(client, token)
+
+    await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=GROUP_START_UPDATE)
+
+    list_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    user_id = list_response.json()[0]["id"]
+    assert list_response.json()[0]["chat_type"] == "supergroup"
+
+    await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"is_active": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"is_active": False},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    updated = {**GROUP_START_UPDATE, "message": {**GROUP_START_UPDATE["message"], "chat": {
+        **GROUP_START_UPDATE["message"]["chat"],
+        "title": "Renamed Alerts",
+    }}}
+    await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=updated)
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser))
+        user = result.scalar_one()
+        assert user.is_active is False
+        assert user.title == "Renamed Alerts"
+
+
+@pytest.mark.asyncio
+async def test_my_chat_member_add_creates_pending_group(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "my-chat-member-add@test.com")
+    webhook_secret = await _save_bot_and_get_secret(client, token)
+
+    update = {
+        "update_id": 101,
+        "my_chat_member": {
+            "chat": {
+                "id": -1009876543210,
+                "type": "supergroup",
+                "title": "Sales Team",
+            },
+            "new_chat_member": {
+                "user": {"id": 1, "is_bot": True, "username": "test_bot"},
+                "status": "member",
+            },
+        },
+    }
+    response = await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=update)
+    assert response.status_code == 200
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser))
+        user = result.scalar_one()
+        assert user.chat_id == -1009876543210
+        assert user.title == "Sales Team"
+        assert user.is_active is False
+
+
+@pytest.mark.asyncio
+async def test_my_chat_member_removal_deactivates_group(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "my-chat-member-remove@test.com")
+    webhook_secret = await _save_bot_and_get_secret(client, token)
+
+    await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=GROUP_START_UPDATE)
+
+    list_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    user_id = list_response.json()[0]["id"]
+    await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"is_active": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    removal_update = {
+        "update_id": 102,
+        "my_chat_member": {
+            "chat": GROUP_START_UPDATE["message"]["chat"],
+            "new_chat_member": {
+                "user": {"id": 1, "is_bot": True, "username": "test_bot"},
+                "status": "left",
+            },
+        },
+    }
+    await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=removal_update)
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser))
+        user = result.scalar_one()
+        assert user.is_active is False
+
+
+@pytest.mark.asyncio
+async def test_notify_company_subscribers_sends_to_active_group(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "notify-group-telegram@test.com")
+    webhook_secret = await _save_bot_and_get_secret(client, token)
+
+    await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=GROUP_START_UPDATE)
+
+    list_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    user_id = list_response.json()[0]["id"]
+    await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"is_active": True, "notification_types": ["payment_performed"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    sent_chat_ids: list[int] = []
+
+    async def fake_send_message(bot_token, chat_id, text, parse_mode="Markdown", reply_markup=None):
+        sent_chat_ids.append(chat_id)
+        return True
+
+    monkeypatch.setattr("app.services.telegram.send_message", fake_send_message)
+
+    async with session_factory() as session:
+        from app.services.telegram import notify_company_subscribers
+
+        result = await session.execute(select(TelegramUser))
+        company_id = result.scalar_one().company_id
+
+        count = await notify_company_subscribers(
+            session,
+            company_id,
+            notification_type="payment_performed",
+            build_message=lambda lang: "payment alert",
+        )
+        assert count == 1
+        assert sent_chat_ids == [-1001234567890]
+
+
+@pytest.mark.asyncio
+async def test_out_of_stock_excel_callback_authorizes_by_chat_id_in_group(
+    client,
+    monkeypatch,
+    session_factory,
+):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "oos-group-callback@test.com")
+    webhook_secret = await _save_bot_and_get_secret(client, token)
+
+    await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=GROUP_START_UPDATE)
+
+    list_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    user_id = list_response.json()[0]["id"]
+    patch_response = await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={
+            "is_active": True,
+            "notification_types": ["out_of_stock"],
+            "receipt_language": "en",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert patch_response.status_code == 200
+
+    sent_documents: list[int] = []
+
+    async def fake_send_document(bot_token, chat_id, file_bytes, filename, *, caption=None):
+        sent_documents.append(chat_id)
+        return True
+
+    monkeypatch.setattr("app.services.telegram.send_document", fake_send_document)
+
+    async def fake_report(session, company_id):
+        return [{"product_name": "Test", "stock_name": "Main"}]
+
+    monkeypatch.setattr(
+        "app.services.regos_out_of_stock.get_out_of_stock_report",
+        fake_report,
+    )
+    monkeypatch.setattr(
+        "app.services.out_of_stock_excel.generate_out_of_stock_excel",
+        lambda report, lang="en": b"excel",
+    )
+    monkeypatch.setattr(
+        "app.services.out_of_stock_excel.out_of_stock_report_filename",
+        lambda: "out_of_stock.xlsx",
+    )
+
+    callback_update = {
+        "update_id": 103,
+        "callback_query": {
+            "id": "cb1",
+            "from": {"id": 999999, "language_code": "ru"},
+            "message": {
+                "chat": GROUP_START_UPDATE["message"]["chat"],
+            },
+            "data": "oos_excel",
+        },
+    }
+    response = await client.post(
+        f"/api/v1/telegram/webhook/{webhook_secret}",
+        json=callback_update,
+    )
+    assert response.status_code == 200
+    assert sent_documents == [-1001234567890]

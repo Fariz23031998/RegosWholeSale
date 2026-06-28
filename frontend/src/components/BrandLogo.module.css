@@ -1,0 +1,33 @@
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo {
+  display: block;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.sizeSm {
+  width: 28px;
+  height: 28px;
+}
+
+.sizeMd {
+  width: 36px;
+  height: 36px;
+}
+
+.sizeLg {
+  width: 56px;
+  height: 56px;
+}
+
+.name {
+  font-weight: 600;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--color-text);
+}

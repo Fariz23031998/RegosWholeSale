@@ -10,6 +10,11 @@ import {
 
 import { Toaster } from "@/components/ui/sonner";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import {
+  SITE_NAME,
+  SITE_OG_IMAGE_PATH,
+  SITE_THEME_COLOR,
+} from "@/lib/site";
 import { languageService } from "@/services/language";
 import appCss from "../styles.css?url";
 
@@ -93,7 +98,9 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
           "Fast, beautiful point-of-sale for retail. Sell, take payments, track sales.",
         ),
       },
-      { name: "author", content: "Regos Optom" },
+      { name: "author", content: SITE_NAME },
+      { name: "application-name", content: SITE_NAME },
+      { name: "theme-color", content: SITE_THEME_COLOR },
       {
         property: "og:title",
         content: languageService.t("meta.appTitle", "Regos Optom — Modern Point of Sale"),
@@ -103,11 +110,27 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
         content: languageService.t("meta.appOgDescription", "Fast, beautiful point-of-sale for retail."),
       },
       { property: "og:type", content: "website" },
-      { name: "twitter:card", content: "summary" },
-      { name: "twitter:site", content: "@Lovable" },
+      { property: "og:site_name", content: SITE_NAME },
+      { property: "og:image", content: SITE_OG_IMAGE_PATH },
+      { property: "og:image:width", content: "1200" },
+      { property: "og:image:height", content: "630" },
+      { property: "og:image:alt", content: `${SITE_NAME} logo` },
+      { name: "twitter:card", content: "summary_large_image" },
+      { name: "twitter:title", content: languageService.t("meta.appTitle", "Regos Optom — Modern Point of Sale") },
+      {
+        name: "twitter:description",
+        content: languageService.t("meta.appOgDescription", "Fast, beautiful point-of-sale for retail."),
+      },
+      { name: "twitter:image", content: SITE_OG_IMAGE_PATH },
+      { name: "twitter:image:alt", content: `${SITE_NAME} logo` },
     ],
     links: [
       { rel: "stylesheet", href: appCss },
+      { rel: "icon", href: "/favicon.ico", sizes: "any" },
+      { rel: "icon", type: "image/png", sizes: "32x32", href: "/favicon-32x32.png" },
+      { rel: "icon", type: "image/png", sizes: "16x16", href: "/favicon-16x16.png" },
+      { rel: "apple-touch-icon", sizes: "180x180", href: "/apple-touch-icon.png" },
+      { rel: "manifest", href: "/site.webmanifest" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "" },
       {

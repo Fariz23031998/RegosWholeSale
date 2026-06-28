@@ -8,8 +8,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import RegosToken
 from app.services import document_telegram_format as fmt
+from app.services import pos_session_excel as session_excel
+from app.services import pos_session_report as session_report
 from app.services import regos_document_fetch as doc_fetch
+from app.services import regos_out_of_stock as out_of_stock_service
+from app.services import regos_pos_fetch as pos_fetch
 from app.services import telegram as telegram_service
+from app.services.telegram_notifications import (
+    resolve_document_notification_type,
+    resolve_pos_cheque_notification_type,
+    resolve_pos_session_notification_type,
+)
 
 logger = logging.getLogger("regos.backend")
 
@@ -22,6 +31,22 @@ class EventSpec:
     is_cancelled: bool
     is_payment: bool = False
     notification_type: str = ""
+
+
+@dataclass(frozen=True)
+class PosEventSpec:
+    kind: str
+    variant: str
+    notification_type: str
+
+
+POS_EVENT_SPECS: dict[str, PosEventSpec] = {
+    "DocChequeClosed": PosEventSpec("cheque", "closed", "pos_cheque"),
+    "DocChequeCanceled": PosEventSpec("cheque", "canceled", "pos_cheque"),
+    "POSChequePayDebt": PosEventSpec("cheque", "pay_debt", "pos_cheque"),
+    "DocSessionOpened": PosEventSpec("session", "opened", "pos_session"),
+    "DocSessionClosed": PosEventSpec("session", "closed", "pos_session"),
+}
 
 
 EVENT_SPECS: dict[str, EventSpec] = {
@@ -114,6 +139,8 @@ async def _process_operation_document(
     company_id: int,
     document_id: int,
     event_spec: EventSpec,
+    *,
+    event_action: str,
 ) -> bool:
     assert event_spec.spec is not None
     spec = event_spec.spec
@@ -158,12 +185,25 @@ async def _process_operation_document(
             lang=lang,
         )
 
+    leaf_type = resolve_document_notification_type(
+        event_spec.notification_type,
+        is_cancelled=event_spec.is_cancelled,
+    )
     sent = await telegram_service.notify_company_subscribers(
         session,
         company_id,
-        notification_type=event_spec.notification_type,
+        notification_type=leaf_type,
         build_message=build_message,
     )
+
+    await out_of_stock_service.check_and_record_out_of_stock(
+        session,
+        company_id,
+        event_action,
+        document,
+        operations,
+    )
+
     return sent > 0
 
 
@@ -188,11 +228,116 @@ async def _process_payment_document(
         is_cancelled=is_cancelled,
         lang=lang,
     )
+    leaf_type = resolve_document_notification_type(
+        notification_type,
+        is_cancelled=is_cancelled,
+    )
     sent = await telegram_service.notify_company_subscribers(
         session,
         company_id,
-        notification_type=notification_type,
+        notification_type=leaf_type,
         build_message=build_message,
+    )
+    return sent > 0
+
+
+async def _process_pos_cheque(
+    session: AsyncSession,
+    company_id: int,
+    cheque_uuid: str,
+    pos_spec: PosEventSpec,
+) -> bool:
+    cheque = await pos_fetch.fetch_cheque_by_uuid(session, company_id, cheque_uuid)
+    if not cheque:
+        return False
+
+    operations: list[dict[str, Any]] | None = None
+    if pos_spec.variant in ("closed", "canceled"):
+        operations = await pos_fetch.fetch_cheque_operations(session, company_id, cheque_uuid)
+        if not operations:
+            return False
+    elif pos_spec.variant == "pay_debt":
+        operations = await pos_fetch.fetch_cheque_operations(session, company_id, cheque_uuid)
+
+    payments = await pos_fetch.fetch_cheque_payments(session, company_id, cheque_uuid)
+
+    session_code = await pos_fetch.resolve_cheque_session_code(session, company_id, cheque)
+    if session_code:
+        cheque = {**cheque, "session_code": session_code}
+
+    build_message = lambda lang, ch=cheque: fmt.format_pos_cheque_notification(
+        ch,
+        operations,
+        payments,
+        variant=pos_spec.variant,
+        lang=lang,
+    )
+    leaf_type = resolve_pos_cheque_notification_type(pos_spec.variant, cheque)
+    sent = await telegram_service.notify_company_subscribers(
+        session,
+        company_id,
+        notification_type=leaf_type,
+        build_message=build_message,
+        parse_mode="HTML",
+    )
+
+    if pos_spec.variant == "closed" and operations:
+        await out_of_stock_service.check_and_record_out_of_stock_from_cheque(
+            session,
+            company_id,
+            cheque,
+            operations,
+        )
+
+    return sent > 0
+
+
+async def _process_pos_session(
+    session: AsyncSession,
+    company_id: int,
+    session_uuid: str,
+    pos_spec: PosEventSpec,
+) -> bool:
+    cash_session = await pos_fetch.fetch_session_by_uuid(session, company_id, session_uuid)
+    if not cash_session:
+        return False
+
+    report_data = None
+    if pos_spec.variant == "closed":
+        report_data = await session_report.build_session_report_data(
+            session,
+            company_id,
+            session_uuid,
+            cash_session,
+        )
+
+    totals = report_data.totals if report_data else None
+
+    build_message = lambda lang: fmt.format_pos_session_notification(
+        cash_session,
+        variant=pos_spec.variant,
+        lang=lang,
+        totals=totals,
+    )
+
+    build_document = None
+    if report_data is not None:
+        def build_document(lang: str) -> tuple[bytes, str, str | None]:
+            from app.services.telegram_i18n import t
+
+            return (
+                session_excel.generate_session_excel(report_data, lang=lang),
+                session_excel.session_report_filename(report_data.cash_session),
+                t("telegram.receipt.posSessionDownloadExcel", lang),
+            )
+
+    leaf_type = resolve_pos_session_notification_type(pos_spec.variant)
+    sent = await telegram_service.notify_company_subscribers(
+        session,
+        company_id,
+        notification_type=leaf_type,
+        build_message=build_message,
+        build_document=build_document,
     )
     return sent > 0
 
@@ -222,13 +367,30 @@ async def handle_regos_webhook(session: AsyncSession, webhook_data: dict[str, An
     event_action = webhook_data.get("data", {}).get("action", "unknown")
     event_data = webhook_data.get("data", {}).get("data", {})
     document_id = event_data.get("id")
+    resource_uuid = event_data.get("uuid") or (
+        str(document_id) if document_id is not None else None
+    )
 
     logger.info(
-        "REGOS webhook company=%s event=%s document_id=%s",
+        "REGOS webhook company=%s event=%s document_id=%s uuid=%s",
         company_id,
         event_action,
         document_id,
+        resource_uuid,
     )
+
+    pos_spec = POS_EVENT_SPECS.get(event_action)
+    if pos_spec:
+        if not resource_uuid:
+            logger.warning("%s event missing uuid", event_action)
+            return {"ok": True, "message": "Missing uuid", "company_id": company_id}
+
+        if pos_spec.kind == "cheque":
+            await _process_pos_cheque(session, company_id, str(resource_uuid), pos_spec)
+        else:
+            await _process_pos_session(session, company_id, str(resource_uuid), pos_spec)
+
+        return {"ok": True, "message": "Webhook processed", "company_id": company_id}
 
     event_spec = EVENT_SPECS.get(event_action)
     if not event_spec:
@@ -252,6 +414,7 @@ async def handle_regos_webhook(session: AsyncSession, webhook_data: dict[str, An
             company_id,
             int(document_id),
             event_spec,
+            event_action=event_action,
         )
 
     return {"ok": True, "message": "Webhook processed", "company_id": company_id}

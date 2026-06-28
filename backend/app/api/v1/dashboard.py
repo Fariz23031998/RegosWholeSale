@@ -5,10 +5,12 @@ from app.api.deps import CurrentUser, require_permission
 from app.database import get_db
 from app.schemas.dashboard import (
     DashboardOverviewResponse,
+    DashboardOutOfStockResponse,
     DashboardPaymentsResponse,
     DashboardProductsResponse,
     DashboardStatsResponse,
 )
+from app.services import regos_out_of_stock as out_of_stock_service
 from app.services import regos_dashboard as regos_dashboard_service
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
@@ -128,3 +130,19 @@ async def get_dashboard_payments(
         currency_mode=currency_mode,
     )
     return DashboardPaymentsResponse(**data)
+
+
+@router.get("/out-of-stock", response_model=DashboardOutOfStockResponse)
+async def get_dashboard_out_of_stock(
+    stock_ids: list[int] | None = Query(default=None),
+    all_stocks: bool = Query(default=True),
+    current: CurrentUser = Depends(require_permission("dashboard.read")),
+    session: AsyncSession = Depends(get_db),
+) -> DashboardOutOfStockResponse:
+    products = await out_of_stock_service.get_out_of_stock_report(
+        session,
+        current.company_id,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
+    return DashboardOutOfStockResponse(products=products, total=len(products))

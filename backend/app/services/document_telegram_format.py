@@ -1,4 +1,5 @@
 from datetime import datetime
+import re
 from typing import Any
 
 from app.services.telegram_i18n import t
@@ -416,6 +417,376 @@ def format_movement_receipt(
             "─" * 20,
             f"📊 {t('telegram.receipt.totalItems', lang, count=format_number(total_items))}",
             f"💵 *{t('telegram.receipt.total', lang, amount=format_number(total_to_pay))}*",
+        ]
+    )
+    return "\n".join(message_parts)
+
+
+def _user_full_name(user: Any) -> str | None:
+    if not isinstance(user, dict):
+        return None
+    full_name = user.get("full_name")
+    if isinstance(full_name, str) and full_name.strip():
+        return full_name.strip()
+    parts = [
+        part
+        for part in (user.get("first_name"), user.get("last_name"))
+        if isinstance(part, str) and part.strip()
+    ]
+    if parts:
+        return " ".join(parts)
+    return None
+
+
+def _cheque_customer_name(cheque: dict[str, Any]) -> str | None:
+    card = cheque.get("card")
+    if not isinstance(card, dict):
+        return None
+    customer = card.get("customer")
+    if not isinstance(customer, dict):
+        return None
+    return _user_full_name(customer)
+
+
+def _escape_html(text: str) -> str:
+    return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _html_bold(text: str) -> str:
+    return f"<b>{_escape_html(text)}</b>"
+
+
+def _html_text(text: str, *, strikethrough: bool = False) -> str:
+    escaped = _escape_html(text)
+    if strikethrough:
+        return f"<s>{escaped}</s>"
+    return escaped
+
+
+def _payment_type_name(payment: dict[str, Any], lang: str) -> str:
+    payment_type = payment.get("type")
+    if isinstance(payment_type, dict):
+        name = payment_type.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return t("telegram.receipt.unknownPaymentType", lang)
+
+
+def _append_pos_cheque_payments(
+    message_parts: list[str],
+    payments: list[dict[str, Any]],
+    lang: str,
+) -> None:
+    visible_payments = [
+        payment for payment in payments if float(payment.get("value", 0)) >= 0
+    ]
+    if not visible_payments:
+        return
+
+    message_parts.extend(["", f"💳 {_html_bold(t('telegram.receipt.posPayments', lang))}", ""])
+
+    total_paid = 0.0
+    for idx, payment in enumerate(visible_payments, 1):
+        type_name = _payment_type_name(payment, lang)
+        value = float(payment.get("value", 0))
+        has_storno = bool(payment.get("has_storno"))
+        if not has_storno:
+            total_paid += value
+
+        line = t(
+            "telegram.receipt.posPaymentLine",
+            lang,
+            type=type_name,
+            amount=format_number(value),
+        )
+        message_parts.append(_html_text(f"{idx}. {line}", strikethrough=has_storno))
+
+    message_parts.append(
+        f"💵 {_html_bold(t('telegram.receipt.posPaymentsTotal', lang, amount=format_number(total_paid)))}"
+    )
+
+
+def _visible_pos_cheque_operations(
+    operations: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    return [
+        operation
+        for operation in operations
+        if float(operation.get("quantity", 0)) >= 0
+    ]
+
+
+_UUID_PATTERN = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_uuid(value: str) -> bool:
+    return bool(_UUID_PATTERN.match(value.strip()))
+
+
+def _pos_session_code(cheque: dict[str, Any]) -> str:
+    session_code = cheque.get("session_code")
+    if isinstance(session_code, str):
+        text = session_code.strip()
+        if text and not _looks_like_uuid(text):
+            return text
+
+    session = cheque.get("session")
+    if isinstance(session, dict):
+        code = session.get("code")
+        if isinstance(code, str):
+            text = code.strip()
+            if text and not _looks_like_uuid(text):
+                return text
+    return ""
+
+
+def format_pos_cheque_notification(
+    cheque: dict[str, Any],
+    operations: list[dict[str, Any]] | None,
+    payments: list[dict[str, Any]] | None = None,
+    *,
+    variant: str,
+    lang: str = "ru",
+) -> str:
+    doc_code = cheque.get("code", "N/A")
+    formatted_date = _format_date(cheque.get("date", ""))
+    session_code = _pos_session_code(cheque)
+    is_return = bool(cheque.get("is_return"))
+
+    if variant == "canceled":
+        title_key = "telegram.receipt.posChequeCanceled"
+    elif variant == "pay_debt":
+        title_key = "telegram.receipt.posChequePayDebt"
+    elif is_return:
+        title_key = "telegram.receipt.posChequeReturn"
+    else:
+        title_key = "telegram.receipt.posChequeClosed"
+
+    message_parts: list[str] = []
+    if variant == "canceled":
+        message_parts.extend([f"❌ {_html_bold(t('telegram.receipt.cancelled', lang))}", ""])
+
+    message_parts.extend(
+        [
+            f"🧾 {_html_bold(t(title_key, lang))}",
+            f"📄 {_html_bold(t('telegram.receipt.documentNo', lang, code=doc_code))}",
+            f"📅 {_escape_html(t('telegram.receipt.date', lang, date=formatted_date))}",
+        ]
+    )
+
+    if session_code:
+        message_parts.append(
+            f"🕐 {_escape_html(t('telegram.receipt.posSessionCode', lang, code=session_code))}"
+        )
+
+    cashier_name = _user_full_name(cheque.get("cashier"))
+    if cashier_name:
+        message_parts.append(
+            f"🧑‍💼 {_escape_html(t('telegram.receipt.posCashier', lang, name=cashier_name))}"
+        )
+
+    seller_name = _user_full_name(cheque.get("seller"))
+    if seller_name and seller_name != cashier_name:
+        message_parts.append(
+            f"🛒 {_escape_html(t('telegram.receipt.posSeller', lang, name=seller_name))}"
+        )
+
+    customer_name = _cheque_customer_name(cheque)
+    if customer_name:
+        message_parts.append(
+            f"👤 {_escape_html(t('telegram.receipt.posCustomer', lang, name=customer_name))}"
+        )
+
+    if variant == "pay_debt":
+        payments_amount = cheque.get("payments_amount", 0)
+        message_parts.append(
+            f"💵 {_html_bold(t('telegram.receipt.posDebtPaid', lang, amount=format_number(payments_amount)))}"
+        )
+        _append_pos_cheque_payments(message_parts, payments or [], lang)
+    elif operations:
+        visible_operations = _visible_pos_cheque_operations(operations)
+        message_parts.extend(["", f"📦 {_html_bold(t('telegram.receipt.items', lang))}", ""])
+
+        total_items = 0.0
+        total_to_pay = 0.0
+
+        for idx, operation in enumerate(visible_operations, 1):
+            item_name = _item_name(operation.get("item"), lang)
+            quantity = float(operation.get("quantity", 0))
+            price = float(operation.get("price", 0))
+            has_storno = bool(operation.get("has_storno"))
+            item_total = quantity * price
+            if not has_storno:
+                total_items += quantity
+                total_to_pay += item_total
+
+            item_line = f"{idx}. {item_name}"
+            qty_line = (
+                f"   {format_number(quantity)} × {format_number(price)} = "
+                f"{format_number(item_total)}"
+            )
+            message_parts.append(_html_text(item_line, strikethrough=has_storno))
+            message_parts.append(_html_text(qty_line, strikethrough=has_storno))
+            message_parts.append("")
+
+        message_parts.extend(
+            [
+                "─" * 20,
+                f"📊 {_escape_html(t('telegram.receipt.totalItems', lang, count=format_number(total_items)))}",
+                f"💵 {_html_bold(t('telegram.receipt.totalToPay', lang, amount=format_number(total_to_pay)))}",
+            ]
+        )
+        _append_pos_cheque_payments(message_parts, payments or [], lang)
+    else:
+        amount = cheque.get("amount", 0)
+        message_parts.append(
+            f"💵 {_html_bold(t('telegram.receipt.total', lang, amount=format_number(amount)))}"
+        )
+        _append_pos_cheque_payments(message_parts, payments or [], lang)
+
+    return "\n".join(message_parts)
+
+
+def _append_pos_session_totals(
+    message_parts: list[str],
+    totals: Any,
+    lang: str,
+) -> None:
+    message_parts.extend(
+        [
+            "",
+            "─" * 20,
+            f"📊 *{t('telegram.receipt.posSessionTotalsTitle', lang)}*",
+            f"💵 {t('telegram.receipt.posSessionSalesAmount', lang, amount=format_number(totals.sales_amount))}",
+            f"💳 {t('telegram.receipt.posSessionSalesPayments', lang, amount=format_number(totals.sales_payments))}",
+            f"↩️ {t('telegram.receipt.posSessionRefundAmount', lang, amount=format_number(totals.refund_amount))}",
+            f"💸 {t('telegram.receipt.posSessionRefundPayments', lang, amount=format_number(totals.refund_payments))}",
+            f"📈 *{t('telegram.receipt.posSessionNetSales', lang, amount=format_number(totals.net_sales))}*",
+            f"📉 *{t('telegram.receipt.posSessionNetPayments', lang, amount=format_number(totals.net_payments))}*",
+        ]
+    )
+
+    if totals.by_payment_type:
+        message_parts.extend(
+            [
+                "",
+                f"💳 *{t('telegram.receipt.posSessionByPaymentType', lang)}*",
+            ]
+        )
+        for type_name in sorted(totals.by_payment_type):
+            type_totals = totals.by_payment_type[type_name]
+            message_parts.append(
+                t(
+                    "telegram.receipt.posSessionPaymentTypeLine",
+                    lang,
+                    type=type_name,
+                    sales=format_number(type_totals.sales),
+                    refunds=format_number(type_totals.refunds),
+                    net=format_number(type_totals.net),
+                )
+            )
+
+
+def format_pos_session_notification(
+    cash_session: dict[str, Any],
+    *,
+    variant: str,
+    lang: str = "ru",
+    totals: Any | None = None,
+) -> str:
+    doc_code = cash_session.get("code", "N/A")
+    title_key = (
+        "telegram.receipt.posSessionOpened"
+        if variant == "opened"
+        else "telegram.receipt.posSessionClosed"
+    )
+
+    message_parts = [
+        f"🏪 *{t(title_key, lang)}*",
+        f"📄 *{t('telegram.receipt.documentNo', lang, code=doc_code)}*",
+    ]
+
+    operating_cash_id = cash_session.get("operating_cash_id")
+    if operating_cash_id is not None:
+        message_parts.append(
+            f"💰 {t('telegram.receipt.posOperatingCash', lang, id=operating_cash_id)}"
+        )
+
+    start_date = cash_session.get("start_date")
+    if start_date:
+        message_parts.append(
+            f"📅 {t('telegram.receipt.posSessionOpenDate', lang, date=_format_date(start_date))}"
+        )
+
+    start_user_name = _user_full_name(cash_session.get("start_user"))
+    if start_user_name:
+        message_parts.append(
+            f"🧑‍💼 {t('telegram.receipt.posSessionOpenedBy', lang, name=start_user_name)}"
+        )
+
+    start_amount = cash_session.get("start_amount")
+    if start_amount is not None:
+        message_parts.append(
+            f"💵 {t('telegram.receipt.posSessionStartAmount', lang, amount=format_number(start_amount))}"
+        )
+
+    if variant == "closed":
+        close_date = cash_session.get("close_date")
+        if close_date:
+            message_parts.append(
+                f"📅 {t('telegram.receipt.posSessionCloseDate', lang, date=_format_date(close_date))}"
+            )
+
+        close_user_name = _user_full_name(cash_session.get("close_user"))
+        if close_user_name:
+            message_parts.append(
+                f"🧑‍💼 {t('telegram.receipt.posSessionClosedBy', lang, name=close_user_name)}"
+            )
+
+        close_amount = cash_session.get("close_amount")
+        if close_amount is not None:
+            message_parts.append(
+                f"💵 *{t('telegram.receipt.posSessionCloseAmount', lang, amount=format_number(close_amount))}*"
+            )
+
+        if totals is not None:
+            _append_pos_session_totals(message_parts, totals, lang)
+
+    return "\n".join(message_parts)
+
+
+def format_out_of_stock_notification(
+    product_name: str,
+    warehouse_name: str,
+    *,
+    allowed: float,
+    min_quantity: float,
+    code: str = "",
+    barcode: str = "",
+    last_purchase_cost: float | None = None,
+    price: float | None = None,
+    lang: str = "ru",
+) -> str:
+    cost_text = format_number(last_purchase_cost) if last_purchase_cost is not None else "—"
+    price_text = format_number(price) if price is not None else "—"
+    message_parts = [
+        f"⚠️ *{t('telegram.outOfStock.title', lang)}*",
+        "",
+        f"📦 *{product_name}*",
+    ]
+    if code:
+        message_parts.append(f"🔢 {t('telegram.outOfStock.code', lang, code=code)}")
+    if barcode:
+        message_parts.append(f"🏷 {t('telegram.outOfStock.barcode', lang, barcode=barcode)}")
+    message_parts.extend(
+        [
+            f"🏢 {t('telegram.receipt.warehouse', lang, name=warehouse_name)}",
+            f"💰 {t('telegram.outOfStock.costAndPrice', lang, cost=cost_text, price=price_text)}",
+            f"📊 {t('telegram.outOfStock.currentQty', lang, qty=format_number(allowed))}",
+            f"📉 {t('telegram.outOfStock.minQty', lang, qty=format_number(min_quantity))}",
         ]
     )
     return "\n".join(message_parts)

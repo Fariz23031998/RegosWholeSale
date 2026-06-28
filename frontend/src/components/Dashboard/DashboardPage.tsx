@@ -21,8 +21,10 @@ import { formatAuthError, useAuth } from "@/store/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
   buildDashboardCurrencyFilterOptions,
+  buildDashboardStockFilterParams,
   collectDashboardCurrencies,
   currencyFilterKey,
+  fetchDashboardOutOfStock,
   fetchDashboardOverview,
   formatDashboardPeriodLabel,
   getPeriodLabel,
@@ -33,6 +35,7 @@ import {
   serializeDashboardQueryParams,
   type DashboardCustomRange,
   type DashboardCurrencyFilter,
+  type DashboardOutOfStockRow,
   type DashboardPeriodPreset,
   type DashboardPaymentRow,
   type DashboardProductRow,
@@ -55,6 +58,7 @@ import {
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { exportDashboardProductsToExcel } from "@/lib/export-dashboard-products";
 import { exportDashboardPaymentsToExcel } from "@/lib/export-dashboard-payments";
+import { exportDashboardOutOfStockToExcel } from "@/lib/export-dashboard-out-of-stock";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
 import { currencyLabel } from "@/lib/currency-conversion";
 import type { RegosCurrencyOption } from "@/types/settings";
@@ -66,9 +70,9 @@ const TOP_PRODUCT_LABEL_LINE_HEIGHT = 15;
 const TOP_PRODUCT_LABEL_MAX_CHARS = 38;
 
 type PresetPeriod = Exclude<DashboardPeriodPreset, "custom">;
-type DashboardTab = "totals" | "payments" | "products";
+type DashboardTab = "totals" | "payments" | "products" | "outOfStock";
 
-const DASHBOARD_TABS: DashboardTab[] = ["totals", "payments", "products"];
+const DASHBOARD_TABS: DashboardTab[] = ["totals", "payments", "products", "outOfStock"];
 
 function formatPaymentDate(timestamp: number): string {
   if (timestamp <= 0) return "—";
@@ -78,6 +82,21 @@ function formatPaymentDate(timestamp: number): string {
 function formatQty(value: number): string {
   if (Number.isInteger(value)) return String(value);
   return value.toFixed(2);
+}
+
+function outOfStockMatchesSearch(row: DashboardOutOfStockRow, query: string): boolean {
+  if (!query) return true;
+  const haystack = [
+    row.product_name,
+    row.code,
+    row.barcode,
+    String(row.product_id),
+    row.stock_name,
+    String(row.stock_id),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(query);
 }
 
 function formatOptionalCurrency(value: number | null | undefined): string {
@@ -407,6 +426,12 @@ export function DashboardPage() {
   const [exportingPayments, setExportingPayments] = useState(false);
   const [incomePaymentsTotal, setIncomePaymentsTotal] = useState(0);
   const [outcomePaymentsTotal, setOutcomePaymentsTotal] = useState(0);
+  const [outOfStockSearch, setOutOfStockSearch] = useState("");
+  const [exportingOutOfStock, setExportingOutOfStock] = useState(false);
+  const [outOfStockExportError, setOutOfStockExportError] = useState("");
+  const [outOfStockWarehouseModalOpen, setOutOfStockWarehouseModalOpen] = useState(false);
+  const [outOfStockAllStocks, setOutOfStockAllStocks] = useState(true);
+  const [outOfStockSelectedStockIds, setOutOfStockSelectedStockIds] = useState<number[]>([]);
   const [activeTab, setActiveTab] = useState<DashboardTab>("totals");
   const [isNarrow, setIsNarrow] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches,
@@ -451,6 +476,16 @@ export function DashboardPage() {
       currencyFilter?.currencyId,
       currencyFilter?.mode,
     ],
+  );
+
+  const outOfStockStockFilterParams = useMemo(
+    () => buildDashboardStockFilterParams({ allStocks: outOfStockAllStocks, stockIds: outOfStockSelectedStockIds }),
+    [outOfStockAllStocks, outOfStockSelectedStockIds],
+  );
+
+  const outOfStockStockFilterKey = useMemo(
+    () => `${outOfStockAllStocks}:${outOfStockAllStocks ? "" : outOfStockSelectedStockIds.join(",")}`,
+    [outOfStockAllStocks, outOfStockSelectedStockIds],
   );
 
   const currencyFilterOptions = useMemo(
@@ -519,6 +554,9 @@ export function DashboardPage() {
         setSelectedStockIds((current) =>
           current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
         );
+        setOutOfStockSelectedStockIds((current) =>
+          current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
+        );
         setSelectedPartnerIds((current) =>
           current.length > 0 ? current : options.partners.map((partner) => partner.id),
         );
@@ -544,6 +582,24 @@ export function DashboardPage() {
     enabled: Boolean(token) && defaultsReady,
     staleTime: 30_000,
   });
+
+  const outOfStockQuery = useQuery({
+    queryKey: ["dashboard", "out-of-stock", token, outOfStockStockFilterKey],
+    queryFn: async () => fetchDashboardOutOfStock(token!, outOfStockStockFilterParams),
+    enabled: Boolean(token) && defaultsReady && activeTab === "outOfStock",
+    staleTime: 30_000,
+  });
+
+  const outOfStockProducts = outOfStockQuery.data?.products ?? [];
+  const outOfStockSearchQuery = outOfStockSearch.trim().toLowerCase();
+  const filteredOutOfStockProducts = useMemo(
+    () => outOfStockProducts.filter((row) => outOfStockMatchesSearch(row, outOfStockSearchQuery)),
+    [outOfStockProducts, outOfStockSearchQuery],
+  );
+  const outOfStockError = outOfStockQuery.error
+    ? formatAuthError(outOfStockQuery.error, t("dashboard.outOfStock.loadError"))
+    : "";
+  const outOfStockLoading = outOfStockQuery.isPending;
 
   const loading = dashboardDataQuery.isPending;
   const productsLoading = dashboardDataQuery.isPending;
@@ -651,6 +707,25 @@ export function DashboardPage() {
     }
   };
 
+  const exportOutOfStock = () => {
+    if (exportingOutOfStock || outOfStockProducts.length === 0) return;
+
+    setExportingOutOfStock(true);
+    setOutOfStockExportError("");
+
+    try {
+      exportDashboardOutOfStockToExcel(
+        outOfStockProducts,
+        t,
+        formatWarehouseFilterLabel(outOfStockAllStocks, outOfStockSelectedStockIds, warehouses, t),
+      );
+    } catch (err: unknown) {
+      setOutOfStockExportError(formatAuthError(err, t("dashboard.outOfStock.exportError")));
+    } finally {
+      setExportingOutOfStock(false);
+    }
+  };
+
   const topPartners = stats?.top_partners.map((entry) => ({
     name: entry.name,
     value: entry.count,
@@ -664,7 +739,8 @@ export function DashboardPage() {
   const dashboardTabLabel = (tab: DashboardTab) => {
     if (tab === "totals") return t("dashboard.tabs.totals");
     if (tab === "payments") return t("dashboard.tabs.payments");
-    return t("dashboard.tabs.products");
+    if (tab === "products") return t("dashboard.tabs.products");
+    return t("dashboard.tabs.outOfStock");
   };
 
   return (
@@ -789,6 +865,17 @@ export function DashboardPage() {
         onApply={({ allStocks: nextAllStocks, stockIds }) => {
           setAllStocks(nextAllStocks);
           setSelectedStockIds(stockIds);
+        }}
+      />
+      <DashboardWarehousesModal
+        open={outOfStockWarehouseModalOpen}
+        onClose={() => setOutOfStockWarehouseModalOpen(false)}
+        warehouses={warehouses}
+        allStocks={outOfStockAllStocks}
+        selectedStockIds={outOfStockSelectedStockIds}
+        onApply={({ allStocks: nextAllStocks, stockIds }) => {
+          setOutOfStockAllStocks(nextAllStocks);
+          setOutOfStockSelectedStockIds(stockIds);
         }}
       />
 
@@ -1293,6 +1380,110 @@ export function DashboardPage() {
           </div>
         )}
       </div>
+      ) : null}
+
+      {activeTab === "outOfStock" ? (
+        <div
+          id="dashboard-panel-outOfStock"
+          role="tabpanel"
+          aria-labelledby="dashboard-tab-outOfStock"
+          className={clsx(styles.dashboardPanel, styles.card, styles.productsCard)}
+        >
+          <div className={styles.cardTitle}>{t("dashboard.outOfStock.title")}</div>
+          <div className={styles.cardSub}>
+            {outOfStockProducts.length > 0
+              ? outOfStockSearchQuery
+                ? t("dashboard.outOfStock.shown", undefined, {
+                    n: filteredOutOfStockProducts.length,
+                    m: outOfStockProducts.length,
+                  })
+                : String(outOfStockProducts.length)
+              : ""}
+          </div>
+          <div className={styles.productsToolbar}>
+            <button
+              type="button"
+              className={styles.exportButton}
+              onClick={() => setOutOfStockWarehouseModalOpen(true)}
+            >
+              <Warehouse size={14} />
+              {formatWarehouseFilterLabel(outOfStockAllStocks, outOfStockSelectedStockIds, warehouses, t)}
+            </button>
+            {outOfStockProducts.length > 0 && (
+              <div className={styles.productsSearch}>
+                <Search size={16} className={styles.productsSearchIcon} />
+                <input
+                  className={styles.productsSearchInput}
+                  type="search"
+                  placeholder={t("dashboard.outOfStock.searchPlaceholder")}
+                  value={outOfStockSearch}
+                  onChange={(event) => setOutOfStockSearch(event.target.value)}
+                  aria-label={t("dashboard.outOfStock.searchAria")}
+                />
+              </div>
+            )}
+            {outOfStockProducts.length > 0 && (
+              <button
+                type="button"
+                className={styles.exportButton}
+                onClick={exportOutOfStock}
+                disabled={exportingOutOfStock || outOfStockLoading}
+              >
+                <Download size={14} />
+                {exportingOutOfStock
+                  ? t("dashboard.outOfStock.exporting")
+                  : t("dashboard.outOfStock.exportExcel")}
+              </button>
+            )}
+          </div>
+          {(outOfStockError || outOfStockExportError) && (
+            <div className={styles.empty}>{outOfStockError || outOfStockExportError}</div>
+          )}
+          {outOfStockLoading && outOfStockProducts.length === 0 ? (
+            <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
+              {t("dashboard.outOfStock.loading")}
+            </div>
+          ) : filteredOutOfStockProducts.length === 0 && !outOfStockLoading && !outOfStockError ? (
+            <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
+              {outOfStockSearchQuery
+                ? t("dashboard.outOfStock.emptySearch")
+                : t("dashboard.outOfStock.empty")}
+            </div>
+          ) : (
+            <div className={styles.productsTableWrap}>
+              <table className={styles.productsTable}>
+                <thead>
+                  <tr>
+                    <th>{t("dashboard.outOfStock.columns.product")}</th>
+                    <th>{t("dashboard.outOfStock.columns.code")}</th>
+                    <th>{t("dashboard.outOfStock.columns.barcode")}</th>
+                    <th>{t("dashboard.outOfStock.columns.warehouse")}</th>
+                    <th className={styles.num}>{t("dashboard.outOfStock.columns.quantity")}</th>
+                    <th className={styles.num}>{t("dashboard.outOfStock.columns.minQuantity")}</th>
+                    <th className={styles.num}>{t("dashboard.outOfStock.columns.lastPurchaseCost")}</th>
+                    <th className={styles.num}>{t("dashboard.outOfStock.columns.price")}</th>
+                    <th>{t("dashboard.outOfStock.columns.detectedAt")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOutOfStockProducts.map((row) => (
+                    <tr key={`${row.product_id}-${row.stock_id}`}>
+                      <td className={styles.nameCell}>{row.product_name}</td>
+                      <td>{row.code || "—"}</td>
+                      <td>{row.barcode || "—"}</td>
+                      <td>{row.stock_name}</td>
+                      <td className={styles.num}>{formatQty(row.quantity)}</td>
+                      <td className={styles.num}>{formatQty(row.min_quantity)}</td>
+                      <td className={styles.num}>{formatOptionalCurrency(row.last_purchase_cost)}</td>
+                      <td className={styles.num}>{formatCurrency(row.price)}</td>
+                      <td>{formatDateTime(row.detected_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       ) : null}
     </div>
   );

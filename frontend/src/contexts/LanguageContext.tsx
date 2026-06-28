@@ -35,9 +35,19 @@ function getLoadingServerSnapshot(): boolean {
 }
 
 export function LanguageProvider({ children }: LanguageProviderProps) {
+  const currentLanguage = useSyncExternalStore(
+    subscribe,
+    getLanguageSnapshot,
+    getLanguageServerSnapshot,
+  );
+
   useEffect(() => {
     void languageService.initialize();
   }, []);
+
+  useEffect(() => {
+    document.documentElement.lang = currentLanguage;
+  }, [currentLanguage]);
 
   return <>{children}</>;
 }

@@ -32,23 +32,32 @@ def chunk_batch_steps(
     return [steps[index : index + max_steps] for index in range(0, len(steps), max_steps)]
 
 
-def _extract_step_response(step_result: dict[str, Any], *, step_key: str) -> dict[str, Any]:
+def _extract_step_response(
+    step_result: dict[str, Any],
+    *,
+    step_key: str,
+    stop_on_error: bool,
+) -> dict[str, Any] | None:
     response = step_result.get("response")
     if not isinstance(response, dict):
-        raise AppError(
-            502,
-            f"REGOS batch step {step_key} returned an invalid response",
-            "REGOS_BATCH_ERROR",
-        )
+        if stop_on_error:
+            raise AppError(
+                502,
+                f"REGOS batch step {step_key} returned an invalid response",
+                "REGOS_BATCH_ERROR",
+            )
+        return None
     if not response.get("ok"):
-        err_result = response.get("result", {})
-        if isinstance(err_result, dict):
-            error_code = err_result.get("error", "Unknown")
-            error_desc = err_result.get("description", "Unknown error")
-            err_msg = f"REGOS batch step {step_key} failed: {error_code} - {error_desc}"
-        else:
-            err_msg = f"REGOS batch step {step_key} failed"
-        raise AppError(400, err_msg, "REGOS_BATCH_ERROR")
+        if stop_on_error:
+            err_result = response.get("result", {})
+            if isinstance(err_result, dict):
+                error_code = err_result.get("error", "Unknown")
+                error_desc = err_result.get("description", "Unknown error")
+                err_msg = f"REGOS batch step {step_key} failed: {error_code} - {error_desc}"
+            else:
+                err_msg = f"REGOS batch step {step_key} failed"
+            raise AppError(400, err_msg, "REGOS_BATCH_ERROR")
+        return response
     return response
 
 
@@ -94,15 +103,22 @@ async def regos_batch_request_for_company(
         step_key = step_result.get("key")
         if not isinstance(step_key, str) or not step_key:
             continue
-        by_key[step_key] = _extract_step_response(step_result, step_key=step_key)
-
-    missing = [step["key"] for step in steps if step["key"] not in by_key]
-    if missing:
-        raise AppError(
-            502,
-            f"REGOS batch response missing steps: {', '.join(missing)}",
-            "REGOS_BATCH_ERROR",
+        response = _extract_step_response(
+            step_result,
+            step_key=step_key,
+            stop_on_error=stop_on_error,
         )
+        if response is not None:
+            by_key[step_key] = response
+
+    if stop_on_error:
+        missing = [step["key"] for step in steps if step["key"] not in by_key]
+        if missing:
+            raise AppError(
+                502,
+                f"REGOS batch response missing steps: {', '.join(missing)}",
+                "REGOS_BATCH_ERROR",
+            )
     return by_key
 
 

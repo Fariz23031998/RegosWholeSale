@@ -50,7 +50,7 @@ type CellStyle = {
 
 const FONT = "Calibri";
 
-function thinBorder(color = COLORS.border): CellStyle["border"] {
+function thinBorder(color: string = COLORS.border): CellStyle["border"] {
   const side = { style: "thin", color: { rgb: color } };
   return { top: side, bottom: side, left: side, right: side };
 }

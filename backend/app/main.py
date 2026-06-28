@@ -19,16 +19,19 @@ from app.database import async_session_factory, init_db
 from app.services.permissions import seed_permissions
 from app.core.regos_oauth import regos_oauth_configured, regos_oauth_service
 from app.services.verification import clean_verification_data
+from app.services.out_of_stock_products import clean_out_of_stock_products
+from app.services import telegram as telegram_service
 
 logger = logging.getLogger("regos.backend")
 
 
-async def _verification_cleanup_loop() -> None:
+async def _scheduled_cleanup_loop() -> None:
     while True:
         await asyncio.sleep(600)
         try:
             async with async_session_factory() as session:
                 await clean_verification_data(session)
+                await clean_out_of_stock_products(session)
                 await session.commit()
         except Exception:
             pass
@@ -43,12 +46,17 @@ async def lifespan(_app: FastAPI):
 
         await bootstrap_platform_admin(session)
         await session.commit()
+    try:
+        async with async_session_factory() as session:
+            await telegram_service.sync_all_bot_webhooks(session)
+    except Exception:
+        logger.warning("Telegram webhook startup sync failed", exc_info=True)
     if regos_oauth_configured():
         try:
             await regos_oauth_service.acquire_access_token(force=True)
         except Exception:
             logger.warning("Regos OAuth startup token acquisition failed", exc_info=True)
-    cleanup_task = asyncio.create_task(_verification_cleanup_loop())
+    cleanup_task = asyncio.create_task(_scheduled_cleanup_loop())
     yield
     cleanup_task.cancel()
     try:

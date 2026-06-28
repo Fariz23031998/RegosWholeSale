@@ -11,23 +11,40 @@ import {
   type TelegramReceiptLanguage,
 } from "@/lib/telegram-receipt-languages";
 import {
-  TELEGRAM_NOTIFICATION_TYPES,
-  notificationTypeLabelKey,
-  type TelegramNotificationType,
+  ALL_LEAF_NOTIFICATION_TYPES,
+  countEnabledLeafTypes,
 } from "@/lib/telegram-notification-types";
 import { fetchTelegramBotConfig, fetchTelegramUsers, deleteTelegramUser } from "@/lib/telegram-api";
 import type { TelegramUser } from "@/types/telegram";
 import { TelegramUserNotificationsModal } from "./TelegramUserNotificationsModal";
 import styles from "./TelegramUsers.module.css";
 
+function isGroupChat(user: TelegramUser): boolean {
+  return user.chat_type === "group" || user.chat_type === "supergroup";
+}
+
 function displayName(
   user: TelegramUser,
   t: (key: string, fallback?: string, params?: Record<string, string | number>) => string,
 ): string {
+  if (isGroupChat(user) && user.title) return user.title;
   const parts = [user.first_name, user.last_name].filter(Boolean);
   if (parts.length > 0) return parts.join(" ");
   if (user.username) return `@${user.username}`;
+  if (isGroupChat(user)) {
+    return t("telegramUsers.groupFallback", "Group #{{id}}", { id: user.chat_id });
+  }
   return t("telegramUsers.userFallback", "User #{{id}}", { id: user.telegram_user_id });
+}
+
+function chatTypeLabel(
+  user: TelegramUser,
+  t: (key: string, fallback?: string) => string,
+): string {
+  if (isGroupChat(user)) {
+    return t("telegramUsers.chatType.group", "Group");
+  }
+  return t("telegramUsers.chatType.user", "User");
 }
 
 function notificationsSummary(
@@ -37,13 +54,13 @@ function notificationsSummary(
   if (!user.is_active) {
     return t("telegramUsers.notifications.none", "None");
   }
-  const count = user.notification_types.length;
-  if (count === TELEGRAM_NOTIFICATION_TYPES.length) {
+  const count = countEnabledLeafTypes(user.notification_types);
+  if (count === ALL_LEAF_NOTIFICATION_TYPES.length) {
     return t("telegramUsers.notifications.all", "All types");
   }
   return t("telegramUsers.notifications.count", "{{enabled}} of {{total}}", {
     enabled: count,
-    total: TELEGRAM_NOTIFICATION_TYPES.length,
+    total: ALL_LEAF_NOTIFICATION_TYPES.length,
   });
 }
 
@@ -134,11 +151,11 @@ export function TelegramUsersPage() {
       <div className={styles.page}>
         <div className={styles.header}>
           <div>
-            <h1 className={styles.title}>{t("telegramUsers.title", "Telegram users")}</h1>
+            <h1 className={styles.title}>{t("telegramUsers.title", "Telegram subscribers")}</h1>
             <div className={styles.subtitle}>
               {t(
                 "telegramUsers.noPermission",
-                "You do not have permission to view Telegram users.",
+                "You do not have permission to view Telegram subscribers.",
               )}
             </div>
           </div>
@@ -168,7 +185,7 @@ export function TelegramUsersPage() {
     <div className={styles.page}>
       <div className={styles.header}>
         <div>
-          <h1 className={styles.title}>{t("telegramUsers.title", "Telegram users")}</h1>
+          <h1 className={styles.title}>{t("telegramUsers.title", "Telegram subscribers")}</h1>
           <div className={styles.subtitle}>{subtitle}</div>
         </div>
       </div>
@@ -178,7 +195,7 @@ export function TelegramUsersPage() {
       <div className={styles.table}>
         {loading ? (
           <div className={styles.empty}>
-            {t("telegramUsers.loadingList", "Loading Telegram users…")}
+            {t("telegramUsers.loadingList", "Loading Telegram subscribers…")}
           </div>
         ) : !botConfigured ? (
           <div className={styles.empty}>
@@ -191,50 +208,46 @@ export function TelegramUsersPage() {
           <div className={styles.empty}>
             {t(
               "telegramUsers.empty",
-              "No users yet. Share your bot link to get subscribers.",
+              "No subscribers yet. Share your bot link or add the bot to a group and send /start@botname.",
             )}
           </div>
         ) : (
+          <div className={styles.tableScroll}>
           <table className={styles.tbl}>
             <thead>
               <tr>
                 <th>{t("common.name", "Name")}</th>
+                <th>{t("telegramUsers.table.type", "Type")}</th>
                 <th>{t("telegramUsers.table.username", "Username")}</th>
-                <th>{t("telegramUsers.table.telegramId", "Telegram ID")}</th>
+                <th>{t("telegramUsers.table.chatId", "Chat ID")}</th>
                 <th>{t("telegramUsers.table.language", "Language")}</th>
                 <th>{t("telegramUsers.table.notifications", "Notifications")}</th>
                 <th>{t("telegramUsers.receiptLanguage", "Receipt language")}</th>
                 <th>{t("telegramUsers.table.registered", "Registered")}</th>
                 <th>{t("common.status", "Status")}</th>
-                <th />
+                <th>{t("common.actions", "Actions")}</th>
               </tr>
             </thead>
             <tbody>
               {users.map((item) => (
                 <tr key={item.id}>
-                  <td data-label={t("common.name", "Name")}>{displayName(item, t)}</td>
+                  <td className={styles.nameCell} data-label={t("common.name", "Name")}>{displayName(item, t)}</td>
+                  <td data-label={t("telegramUsers.table.type", "Type")}>
+                    <span className={styles.badge}>{chatTypeLabel(item, t)}</span>
+                  </td>
                   <td className={styles.muted} data-label={t("telegramUsers.table.username", "Username")}>
                     {item.username ? `@${item.username}` : "—"}
                   </td>
-                  <td className={styles.id} data-label={t("telegramUsers.table.telegramId", "Telegram ID")}>
-                    {item.telegram_user_id}
+                  <td className={styles.id} data-label={t("telegramUsers.table.chatId", "Chat ID")}>
+                    {item.chat_id}
                   </td>
                   <td className={styles.muted} data-label={t("telegramUsers.table.language", "Language")}>
                     {item.language_code ?? "—"}
                   </td>
-                  <td className={styles.muted} data-label={t("telegramUsers.table.notifications", "Notifications")}>
-                    <div className={styles.notificationSummary}>
-                      <span>{notificationsSummary(item, t)}</span>
-                      {item.is_active && item.notification_types.length > 0 && (
-                        <span className={styles.notificationTags}>
-                          {item.notification_types.map((type) => (
-                            <span key={type} className={styles.notificationTag}>
-                              {t(notificationTypeLabelKey(type as TelegramNotificationType), type)}
-                            </span>
-                          ))}
-                        </span>
-                      )}
-                    </div>
+                  <td className={clsx(styles.muted, styles.notificationsCell)} data-label={t("telegramUsers.table.notifications", "Notifications")}>
+                    <span className={styles.notificationSummary}>
+                      {notificationsSummary(item, t)}
+                    </span>
                   </td>
                   <td className={styles.muted} data-label={t("telegramUsers.receiptLanguage", "Receipt language")}>
                     {t(
@@ -282,6 +295,7 @@ export function TelegramUsersPage() {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

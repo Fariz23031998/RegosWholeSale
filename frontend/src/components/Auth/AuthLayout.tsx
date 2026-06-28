@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { BrandLogo } from "@/components/BrandLogo";
 import styles from "./Auth.module.css";
 
 type Props = {
@@ -14,7 +15,7 @@ export function AuthLayout({ title, subtitle, children, footer, headerAction }: 
     <div className={styles.wrap}>
       {headerAction ? <div className={styles.headerAction}>{headerAction}</div> : null}
       <div className={`${styles.card} ${styles.cardCenter}`}>
-        <div className={styles.brand}>R</div>
+        <BrandLogo size="lg" className={styles.brand} />
         <h1 className={styles.title}>{title}</h1>
         <p className={styles.subtitle}>{subtitle}</p>
         {children}

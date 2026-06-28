@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import clsx from "clsx";
+import { BrandLogo } from "@/components/BrandLogo";
 import { CatalogViewToggle } from "@/components/POS/CatalogViewToggle";
 import { SellContextBar } from "@/components/POS/SellContextBar";
 import { LanguageSelector } from "@/components/LanguageSelector";
@@ -90,7 +91,7 @@ export function Shell() {
       <aside className={clsx(styles.sidebar, sidebarOpen && styles.sidebarOpen)}>
         <div className={styles.sidebarHeader}>
           <div className={styles.brand}>
-            <div className={styles.brandMark}>R</div>
+            <BrandLogo size="md" />
             <div>
               <div className={styles.brandSub}>{user?.company?.name ?? "POS"}</div>
             </div>

@@ -18,6 +18,8 @@ export type TelegramUser = {
   id: number;
   telegram_user_id: number;
   chat_id: number;
+  chat_type: string;
+  title: string | null;
   username: string | null;
   first_name: string | null;
   last_name: string | null;
@@ -38,6 +40,12 @@ export type TelegramReceiptLanguagesResponse = {
   languages: string[];
 };
 
+export type TelegramNotificationCategory = {
+  id: string;
+  subcategories: string[];
+};
+
 export type TelegramNotificationTypesResponse = {
+  categories: TelegramNotificationCategory[];
   types: string[];
 };

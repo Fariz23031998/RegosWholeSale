@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, Field
 
 from app.schemas.settings import RegosCurrencyOption
@@ -122,6 +124,25 @@ class DashboardStatsResponse(BaseModel):
     net_sales_by_currency: list[DashboardCurrencyTotal] = Field(default_factory=list)
     income_payments_by_currency: list[DashboardCurrencyTotal] = Field(default_factory=list)
     outcome_payments_by_currency: list[DashboardCurrencyTotal] = Field(default_factory=list)
+
+
+class DashboardOutOfStockRow(BaseModel):
+    product_id: int
+    product_name: str
+    code: str = ""
+    barcode: str = ""
+    stock_id: int
+    stock_name: str
+    quantity: float
+    min_quantity: float
+    last_purchase_cost: float | None = None
+    price: float = 0.0
+    detected_at: datetime
+
+
+class DashboardOutOfStockResponse(BaseModel):
+    products: list[DashboardOutOfStockRow] = Field(default_factory=list)
+    total: int = 0
 
 
 class DashboardOverviewResponse(BaseModel):

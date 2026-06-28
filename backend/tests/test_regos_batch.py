@@ -71,6 +71,33 @@ async def test_regos_batch_request_raises_on_failed_step(mock_api: AsyncMock) ->
             AsyncMock(spec=AsyncSession),
             1,
             [{"key": "sales", "path": "docwholesale/get", "payload": {}}],
+            stop_on_error=True,
         )
 
     assert exc_info.value.detail["code"] == "REGOS_BATCH_ERROR"
+
+
+@pytest.mark.asyncio
+@patch("app.core.regos_batch.regos_async_api_request_for_company", new_callable=AsyncMock)
+async def test_regos_batch_request_tolerates_failed_step_when_stop_on_error_false(
+    mock_api: AsyncMock,
+) -> None:
+    mock_api.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "key": "sales",
+                "status": 200,
+                "response": {"ok": False, "result": {"error": 400, "description": "Bad request"}},
+            }
+        ],
+    }
+
+    results = await regos_batch_request_for_company(
+        AsyncMock(spec=AsyncSession),
+        1,
+        [{"key": "sales", "path": "docwholesale/get", "payload": {}}],
+        stop_on_error=False,
+    )
+
+    assert results["sales"]["ok"] is False

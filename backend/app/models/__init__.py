@@ -10,6 +10,7 @@ from app.models.regos_token import RegosToken
 from app.models.telegram_bot import TelegramBot
 from app.models.telegram_user import TelegramUser
 from app.models.user_featured_product import UserFeaturedProduct
+from app.models.out_of_stock_product import OutOfStockProduct
 from app.models.verification_code import VerificationCode
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     "LoginSchedule",
     "UserSetting",
     "UserFeaturedProduct",
+    "OutOfStockProduct",
     "VerificationCode",
     "RegosToken",
     "TelegramBot",

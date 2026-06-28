@@ -1,6 +1,6 @@
 .page {
   padding: var(--space-6) var(--space-6) var(--space-10);
-  max-width: 1200px;
+  max-width: 1400px;
   margin: 0 auto;
 }
 .header {
@@ -18,11 +18,15 @@
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow-x: auto;
+}
+.tableScroll {
+  min-width: 960px;
 }
 .tbl {
   width: 100%;
   border-collapse: collapse;
+  table-layout: auto;
 }
 .tbl th {
   text-align: left;
@@ -45,6 +49,38 @@
 
 .id { font-family: "Menlo", monospace; font-size: 12px; color: var(--color-text-muted); }
 .muted { color: var(--color-text-muted); }
+
+.nameCell {
+  min-width: 120px;
+  max-width: 180px;
+  word-break: break-word;
+}
+
+.notificationsCell {
+  min-width: 100px;
+  white-space: nowrap;
+}
+
+.actionsCell {
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  min-width: 200px;
+  background: var(--color-surface);
+  box-shadow: -8px 0 12px -8px rgba(0, 0, 0, 0.12);
+}
+
+.tbl tr:hover .actionsCell {
+  background: var(--color-surface-2);
+}
+
+.tbl th:last-child {
+  position: sticky;
+  right: 0;
+  z-index: 2;
+  min-width: 200px;
+  box-shadow: -8px 0 12px -8px rgba(0, 0, 0, 0.08);
+}
 
 .empty {
   padding: 48px 24px;
@@ -75,28 +111,13 @@
 
 .actions {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-2);
+  justify-content: flex-end;
 }
 
 .notificationSummary {
-  display: grid;
-  gap: 6px;
-}
-
-.notificationTags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.notificationTag {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--color-surface-2);
-  color: var(--color-text-muted);
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .modalBody {
@@ -124,6 +145,38 @@
 .notificationList {
   display: grid;
   gap: var(--space-2);
+}
+
+.notificationCategory {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.notificationCategoryHeader {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: 12px 14px;
+}
+
+.notificationSubList {
+  display: grid;
+  gap: var(--space-1);
+  padding: 0 14px 12px 42px;
+  border-top: 1px solid var(--color-border);
+}
+
+.notificationSubItem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: 8px 0;
+}
+
+.notificationSubLabel {
+  font-size: 14px;
 }
 
 .notificationText {
@@ -197,7 +250,7 @@
     background: transparent;
   }
 
-  .tbl {
+  .tableScroll {
     min-width: 0;
   }
 
@@ -253,8 +306,16 @@
   }
 
   .actionsCell {
+    position: static;
+    box-shadow: none;
+    min-width: 0;
     flex-direction: column;
     align-items: stretch;
+  }
+
+  .tbl th:last-child {
+    position: static;
+    box-shadow: none;
   }
 
   .actionsCell::before {
@@ -264,5 +325,6 @@
   .actions {
     justify-content: flex-end;
     width: 100%;
+    flex-wrap: wrap;
   }
 }

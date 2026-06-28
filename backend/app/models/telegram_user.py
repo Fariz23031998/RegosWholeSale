@@ -8,7 +8,7 @@ from app.models.base import Base, TimestampMixin
 
 class TelegramUser(Base, TimestampMixin):
     __tablename__ = "telegram_users"
-    __table_args__ = (UniqueConstraint("company_id", "telegram_user_id", name="uq_telegram_users_company_user"),)
+    __table_args__ = (UniqueConstraint("company_id", "chat_id", name="uq_telegram_users_company_chat"),)
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     company_id: Mapped[int] = mapped_column(
@@ -16,6 +16,8 @@ class TelegramUser(Base, TimestampMixin):
     )
     telegram_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     chat_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    chat_type: Mapped[str] = mapped_column(String(16), default="private", nullable=False)
+    title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     username: Mapped[str | None] = mapped_column(String(255), nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     last_name: Mapped[str | None] = mapped_column(String(255), nullable=True)

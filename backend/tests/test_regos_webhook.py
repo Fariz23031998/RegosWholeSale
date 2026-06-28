@@ -51,6 +51,48 @@ SAMPLE_MOVEMENT_OPS = [
     }
 ]
 
+CHEQUE_UUID = "f44289c4-6edc-48d0-a40f-63d718f35993"
+SESSION_UUID = "6ab5087b-64fa-4cd2-8bc9-d5099e0fd45c"
+
+SAMPLE_POS_CHEQUE = {
+    "uuid": CHEQUE_UUID,
+    "date": 1607608770,
+    "code": "WEB-0000581",
+    "session_code": "WEB-0000077",
+    "cashier": {"full_name": "John Kennedy"},
+    "amount": 200.0,
+}
+
+SAMPLE_POS_CHEQUE_OPS = [
+    {
+        "quantity": 2,
+        "price": 100,
+        "item": {"name": "Widget"},
+    }
+]
+
+SAMPLE_POS_PAYMENTS = [
+    {
+        "uuid": "bddde1b2-555f-4942-a1ba-270f48b15d11",
+        "has_storno": False,
+        "type": {"name": "Cash"},
+        "value": 200.0,
+    }
+]
+
+SAMPLE_POS_SESSION = {
+    "uuid": SESSION_UUID,
+    "code": "WEB-0000004",
+    "operating_cash_id": 1,
+    "start_date": 1592573622,
+    "start_user": {"full_name": "John Kennedy"},
+    "start_amount": 10000.0,
+    "close_date": 1592577622,
+    "close_user": {"full_name": "John Kennedy"},
+    "close_amount": 15000.0,
+    "closed": True,
+}
+
 
 @pytest.fixture(autouse=True)
 def webhook_env(monkeypatch):
@@ -124,6 +166,19 @@ async def _setup_company(
             },
         )
 
+    users_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    assert users_response.status_code == 200
+    for user in users_response.json():
+        activate = await client.patch(
+            f"/api/v1/telegram/users/{user['id']}",
+            json={"is_active": True},
+            headers={"Authorization": f"Bearer {auth_token}"},
+        )
+        assert activate.status_code == 200
+
     return auth_token
 
 
@@ -140,6 +195,23 @@ def _webhook_payload(
         "data": {
             "action": event_action,
             "data": {"id": document_id},
+        },
+    }
+
+
+def _webhook_payload_pos(
+    event_action: str,
+    resource_uuid: str,
+    *,
+    event_id: str = "evt-pos-1",
+) -> dict:
+    return {
+        "action": "HandleWebhook",
+        "event_id": event_id,
+        "connected_integration_id": INTEGRATION_TOKEN,
+        "data": {
+            "action": event_action,
+            "data": {"uuid": resource_uuid},
         },
     }
 
@@ -453,3 +525,361 @@ async def test_regos_token_config_includes_webhook_url(client):
     )
     assert response.status_code == 200
     assert response.json()["webhook_url"] == "https://example.com/api/v1/regos/webhook"
+
+
+def _fake_pos_regos(endpoint, request_data):
+    if endpoint == "doccheque/get":
+        return {"ok": True, "result": [SAMPLE_POS_CHEQUE]}
+    if endpoint == "doccheque/getshort":
+        return {"ok": True, "result": [SAMPLE_POS_CHEQUE], "total": 1}
+    if endpoint == "chequeitemoperation/get":
+        return {"ok": True, "result": SAMPLE_POS_CHEQUE_OPS}
+    if endpoint == "chequepaymentoperation/get":
+        return {"ok": True, "result": SAMPLE_POS_PAYMENTS}
+    if endpoint == "doccashsession/get":
+        return {"ok": True, "result": [SAMPLE_POS_SESSION]}
+    raise AssertionError(endpoint)
+
+
+async def _fake_session_cheque_batch(session, company_id, steps, **kwargs):
+    return {
+        step["key"]: {
+            "ok": True,
+            "result": (
+                SAMPLE_POS_CHEQUE_OPS
+                if step["key"].startswith("ops:")
+                else SAMPLE_POS_PAYMENTS
+            ),
+        }
+        for step in steps
+    }
+
+
+@pytest.mark.asyncio
+async def test_doc_cheque_closed_notifies_subscribers(client, monkeypatch):
+    await _setup_company(client, monkeypatch, subscriber_count=2)
+
+    send_calls: list[int] = []
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        if method == "sendMessage":
+            send_calls.append(int(payload["chat_id"]))
+            assert payload["parse_mode"] == "HTML"
+            assert "Widget" in payload["text"]
+            assert "Cash: 200" in payload["text"]
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        return _fake_pos_regos(endpoint, request_data)
+
+    monkeypatch.setattr(
+        "app.services.regos_pos_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload_pos("DocChequeClosed", CHEQUE_UUID, event_id="cheque-closed"),
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert len(send_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_doc_cheque_canceled_respects_notification_filter(client, monkeypatch, session_factory):
+    await _setup_company(client, monkeypatch, subscriber_count=2)
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser).order_by(TelegramUser.telegram_user_id))
+        users = list(result.scalars().all())
+        users[0].notification_types = ["pos_cheque"]
+        users[1].notification_types = ["wholesale"]
+        await session.commit()
+
+    send_calls: list[int] = []
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        if method == "sendMessage":
+            send_calls.append(int(payload["chat_id"]))
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        return _fake_pos_regos(endpoint, request_data)
+
+    monkeypatch.setattr(
+        "app.services.regos_pos_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload_pos("DocChequeCanceled", CHEQUE_UUID, event_id="cheque-cancel"),
+    )
+    assert response.status_code == 200
+    assert send_calls == [900000]
+
+
+@pytest.mark.asyncio
+async def test_doc_cheque_closed_respects_granular_filter(client, monkeypatch, session_factory):
+    await _setup_company(client, monkeypatch, subscriber_count=2)
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser).order_by(TelegramUser.telegram_user_id))
+        users = list(result.scalars().all())
+        users[0].notification_types = ["pos_cheque_closed"]
+        users[1].notification_types = ["pos_cheque_cancelled"]
+        await session.commit()
+
+    send_calls: list[int] = []
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        if method == "sendMessage":
+            send_calls.append(int(payload["chat_id"]))
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        return _fake_pos_regos(endpoint, request_data)
+
+    monkeypatch.setattr(
+        "app.services.regos_pos_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload_pos("DocChequeClosed", CHEQUE_UUID, event_id="cheque-closed-filter"),
+    )
+    assert response.status_code == 200
+    assert send_calls == [900000]
+
+
+@pytest.mark.asyncio
+async def test_doc_cheque_return_respects_granular_filter(client, monkeypatch, session_factory):
+    await _setup_company(client, monkeypatch, subscriber_count=2)
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser).order_by(TelegramUser.telegram_user_id))
+        users = list(result.scalars().all())
+        users[0].notification_types = ["pos_cheque_return"]
+        users[1].notification_types = ["pos_cheque_closed"]
+        await session.commit()
+
+    send_calls: list[int] = []
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        if method == "sendMessage":
+            send_calls.append(int(payload["chat_id"]))
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        if endpoint == "doccheque/get":
+            return {"ok": True, "result": [{**SAMPLE_POS_CHEQUE, "is_return": True}]}
+        return _fake_pos_regos(endpoint, request_data)
+
+    monkeypatch.setattr(
+        "app.services.regos_pos_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload_pos("DocChequeClosed", CHEQUE_UUID, event_id="cheque-return-filter"),
+    )
+    assert response.status_code == 200
+    assert send_calls == [900000]
+
+
+@pytest.mark.asyncio
+async def test_pos_cheque_pay_debt_with_any_pos_leaf(client, monkeypatch, session_factory):
+    await _setup_company(client, monkeypatch, subscriber_count=2)
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser).order_by(TelegramUser.telegram_user_id))
+        users = list(result.scalars().all())
+        users[0].notification_types = ["pos_cheque_cancelled"]
+        users[1].notification_types = ["wholesale_performed"]
+        await session.commit()
+
+    send_calls: list[int] = []
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        if method == "sendMessage":
+            send_calls.append(int(payload["chat_id"]))
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        if endpoint == "doccheque/get":
+            return {
+                "ok": True,
+                "result": [{**SAMPLE_POS_CHEQUE, "payments_amount": 500.0}],
+            }
+        if endpoint == "chequeitemoperation/get":
+            return {"ok": True, "result": []}
+        if endpoint == "chequepaymentoperation/get":
+            return {"ok": True, "result": SAMPLE_POS_PAYMENTS}
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(
+        "app.services.regos_pos_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload_pos("POSChequePayDebt", CHEQUE_UUID, event_id="cheque-debt-filter"),
+    )
+    assert response.status_code == 200
+    assert send_calls == [900000]
+
+
+@pytest.mark.asyncio
+async def test_pos_cheque_pay_debt_notifies(client, monkeypatch):
+    await _setup_company(client, monkeypatch, subscriber_count=1)
+
+    send_count = 0
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        nonlocal send_count
+        if method == "sendMessage":
+            send_count += 1
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        if endpoint == "doccheque/get":
+            return {
+                "ok": True,
+                "result": [{**SAMPLE_POS_CHEQUE, "payments_amount": 500.0}],
+            }
+        if endpoint == "chequeitemoperation/get":
+            return {"ok": True, "result": []}
+        if endpoint == "chequepaymentoperation/get":
+            return {"ok": True, "result": SAMPLE_POS_PAYMENTS}
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(
+        "app.services.regos_pos_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload_pos("POSChequePayDebt", CHEQUE_UUID, event_id="cheque-debt"),
+    )
+    assert response.status_code == 200
+    assert send_count == 1
+
+
+@pytest.mark.asyncio
+async def test_doc_session_opened_notifies(client, monkeypatch):
+    await _setup_company(client, monkeypatch, subscriber_count=1)
+
+    send_count = 0
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        nonlocal send_count
+        if method == "sendMessage":
+            send_count += 1
+            assert "WEB-0000004" in payload["text"]
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        return _fake_pos_regos(endpoint, request_data)
+
+    monkeypatch.setattr(
+        "app.services.regos_pos_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload_pos("DocSessionOpened", SESSION_UUID, event_id="session-open"),
+    )
+    assert response.status_code == 200
+    assert send_count == 1
+
+
+@pytest.mark.asyncio
+async def test_doc_session_closed_notifies(client, monkeypatch):
+    await _setup_company(client, monkeypatch, subscriber_count=1)
+
+    send_count = 0
+    sent_payloads: list[dict] = []
+    document_calls: list[dict] = []
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        nonlocal send_count
+        if method == "sendMessage":
+            send_count += 1
+            sent_payloads.append(payload)
+            assert "Итоги смены" in payload["text"]
+            assert "Продажи: 200" in payload["text"]
+            assert "reply_markup" not in payload
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    async def fake_send_document(
+        bot_token: str,
+        chat_id: int,
+        file_bytes: bytes,
+        filename: str,
+        *,
+        caption: str | None = None,
+    ) -> bool:
+        document_calls.append(
+            {
+                "chat_id": chat_id,
+                "filename": filename,
+                "size": len(file_bytes),
+                "caption": caption,
+            }
+        )
+        return True
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+    monkeypatch.setattr("app.services.telegram.send_document", fake_send_document)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        return _fake_pos_regos(endpoint, request_data)
+
+    monkeypatch.setattr(
+        "app.services.regos_pos_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+    monkeypatch.setattr(
+        "app.services.regos_pos_fetch.regos_batch_request_chunks_for_company",
+        _fake_session_cheque_batch,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload_pos("DocSessionClosed", SESSION_UUID, event_id="session-close"),
+    )
+    assert response.status_code == 200
+    assert send_count == 1
+    assert sent_payloads
+    assert len(document_calls) == 1
+    assert document_calls[0]["filename"] == "WEB-0000004-report.xlsx"
+    assert document_calls[0]["size"] > 0
+    assert document_calls[0]["caption"]

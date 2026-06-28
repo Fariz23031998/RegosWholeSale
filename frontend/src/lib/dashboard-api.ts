@@ -124,6 +124,25 @@ export type DashboardPaymentsPage = {
   next_offset: number;
 };
 
+export type DashboardOutOfStockRow = {
+  product_id: number;
+  product_name: string;
+  code: string;
+  barcode: string;
+  stock_id: number;
+  stock_name: string;
+  quantity: number;
+  min_quantity: number;
+  last_purchase_cost: number | null;
+  price: number;
+  detected_at: string;
+};
+
+export type DashboardOutOfStockPage = {
+  products: DashboardOutOfStockRow[];
+  total: number;
+};
+
 export type DashboardOverview = {
   stats: DashboardStats;
   products: DashboardProductRow[];
@@ -161,6 +180,7 @@ const DASHBOARD_STATS_TIMEOUT_MS = 60_000;
 const DASHBOARD_OVERVIEW_TIMEOUT_MS = 120_000;
 const DASHBOARD_PRODUCTS_TIMEOUT_MS = 120_000;
 const DASHBOARD_PAYMENTS_TIMEOUT_MS = 120_000;
+const DASHBOARD_OUT_OF_STOCK_TIMEOUT_MS = 60_000;
 
 export type TranslateFn = (
   key: string,
@@ -472,5 +492,29 @@ export async function fetchDashboardPayments(
   return apiRequest(`/api/v1/dashboard/payments${qs ? `?${qs}` : ""}`, {
     token,
     timeoutMs: DASHBOARD_PAYMENTS_TIMEOUT_MS,
+  });
+}
+
+export function buildDashboardStockFilterParams(filters: {
+  allStocks: boolean;
+  stockIds: number[];
+}): Pick<DashboardQueryParams, "all_stocks" | "stock_ids"> {
+  if (filters.allStocks) {
+    return { all_stocks: true };
+  }
+  return {
+    all_stocks: false,
+    stock_ids: filters.stockIds.length > 0 ? filters.stockIds : undefined,
+  };
+}
+
+export async function fetchDashboardOutOfStock(
+  token: string,
+  params: Pick<DashboardQueryParams, "all_stocks" | "stock_ids"> = {},
+): Promise<DashboardOutOfStockPage> {
+  const qs = buildDashboardSearch(params);
+  return apiRequest(`/api/v1/dashboard/out-of-stock${qs ? `?${qs}` : ""}`, {
+    token,
+    timeoutMs: DASHBOARD_OUT_OF_STOCK_TIMEOUT_MS,
   });
 }
