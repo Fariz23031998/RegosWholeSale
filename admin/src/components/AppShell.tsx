@@ -1,7 +1,11 @@
 import { Link, useNavigate, useRouterState } from "@tanstack/react-router";
-import { useQueryClient } from "@tanstack/react-query";
-import { Building2, CreditCard, LayoutDashboard, LogOut, Users } from "lucide-react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useState } from "react";
+import { Building2, CreditCard, KeyRound, LayoutDashboard, LogOut, Users } from "lucide-react";
 import clsx from "clsx";
+import { ApiError } from "@/lib/api";
+import { ChangePasswordModal } from "@/components/ChangePasswordModal";
+import { changePlatformPassword } from "@/lib/platform-api";
 import { usePlatformAuth } from "@/store/platform-auth";
 
 const NAV = [
@@ -16,7 +20,27 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const queryClient = useQueryClient();
   const logout = usePlatformAuth((s) => s.logout);
   const admin = usePlatformAuth((s) => s.admin);
+  const accessToken = usePlatformAuth((s) => s.accessToken);
+  const setSession = usePlatformAuth((s) => s.setSession);
   const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const [showPasswordModal, setShowPasswordModal] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+
+  const changePasswordMutation = useMutation({
+    mutationFn: ({ currentPassword, newPassword }: { currentPassword: string; newPassword: string }) =>
+      changePlatformPassword(accessToken!, {
+        current_password: currentPassword,
+        new_password: newPassword,
+      }),
+    onSuccess: (updatedAdmin) => {
+      if (accessToken) setSession(accessToken, updatedAdmin);
+      setShowPasswordModal(false);
+      setPasswordError("");
+    },
+    onError: (err) => {
+      setPasswordError(err instanceof ApiError ? err.message : "Failed to update password");
+    },
+  });
 
   const handleLogout = () => {
     logout();
@@ -49,11 +73,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           ))}
         </nav>
         <div className="border-t border-slate-200 p-3">
-          <p className="truncate px-3 text-xs text-slate-500">{admin?.email}</p>
+          <p className="truncate px-3 text-xs font-medium text-slate-700">{admin?.display_name}</p>
+          <p className="truncate px-3 text-xs text-slate-500">{admin?.username ?? admin?.email}</p>
+          <button
+            type="button"
+            onClick={() => {
+              setPasswordError("");
+              setShowPasswordModal(true);
+            }}
+            className="mt-2 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+          >
+            <KeyRound size={16} />
+            Change password
+          </button>
           <button
             type="button"
             onClick={handleLogout}
-            className="mt-2 flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
           >
             <LogOut size={16} />
             Sign out
@@ -61,6 +97,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <main className="flex-1 p-6">{children}</main>
+      <ChangePasswordModal
+        open={showPasswordModal}
+        title="Change your password"
+        requireCurrentPassword
+        loading={changePasswordMutation.isPending}
+        error={passwordError}
+        onClose={() => {
+          setShowPasswordModal(false);
+          setPasswordError("");
+        }}
+        onSubmit={({ currentPassword, newPassword }) =>
+          changePasswordMutation.mutate({ currentPassword, newPassword })
+        }
+      />
     </div>
   );
 }

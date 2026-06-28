@@ -122,6 +122,7 @@ async def seed_platform_admin(session_factory: async_sessionmaker[AsyncSession])
             await create_platform_admin(
                 session,
                 email="platform@test.com",
+                username="platform-admin",
                 password="platform-pass-123",
                 display_name="Test Platform Admin",
             )

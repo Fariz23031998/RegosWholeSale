@@ -17,6 +17,22 @@ from app.services.subscriptions import extend_subscription, set_subscription, st
 from app.services.users import slugify, unique_company_slug
 
 
+def normalize_platform_username(value: str) -> str:
+    return value.strip().lower()
+
+
+async def ensure_username_available(
+    session: AsyncSession, username: str, *, exclude_admin_id: int | None = None
+) -> None:
+    normalized = normalize_platform_username(username)
+    query = select(PlatformAdmin).where(func.lower(PlatformAdmin.username) == normalized)
+    if exclude_admin_id is not None:
+        query = query.where(PlatformAdmin.id != exclude_admin_id)
+    existing = await session.execute(query)
+    if existing.scalar_one_or_none():
+        raise conflict("Username already taken", "USERNAME_EXISTS")
+
+
 async def login_platform_admin(
     session: AsyncSession, *, login: str, password: str
 ) -> tuple[PlatformAdmin, str]:
@@ -26,9 +42,13 @@ async def login_platform_admin(
             select(PlatformAdmin).where(PlatformAdmin.email == normalized.lower())
         )
     else:
+        lookup = normalize_platform_username(normalized)
         result = await session.execute(
             select(PlatformAdmin).where(
-                func.lower(PlatformAdmin.display_name) == normalized.lower()
+                or_(
+                    func.lower(PlatformAdmin.username) == lookup,
+                    func.lower(PlatformAdmin.display_name) == normalized.lower(),
+                )
             )
         )
     admin = result.scalar_one_or_none()
@@ -56,6 +76,7 @@ async def create_platform_admin(
     session: AsyncSession,
     *,
     email: str,
+    username: str,
     password: str,
     display_name: str,
 ) -> PlatformAdmin:
@@ -66,8 +87,11 @@ async def create_platform_admin(
     if existing.scalar_one_or_none():
         raise conflict("Email already registered", "EMAIL_EXISTS")
 
+    await ensure_username_available(session, username)
+
     admin = PlatformAdmin(
         email=normalized,
+        username=normalize_platform_username(username),
         password_hash=hash_password(password),
         display_name=display_name,
         is_active=True,
@@ -82,15 +106,33 @@ async def update_platform_admin(
     admin: PlatformAdmin,
     *,
     display_name: str | None = None,
+    username: str | None = None,
     password: str | None = None,
     is_active: bool | None = None,
 ) -> PlatformAdmin:
     if display_name is not None:
         admin.display_name = display_name
+    if username is not None:
+        await ensure_username_available(session, username, exclude_admin_id=admin.id)
+        admin.username = normalize_platform_username(username)
     if password is not None:
         admin.password_hash = hash_password(password)
     if is_active is not None:
         admin.is_active = is_active
+    await session.flush()
+    return admin
+
+
+async def change_platform_admin_password(
+    session: AsyncSession,
+    admin: PlatformAdmin,
+    *,
+    current_password: str,
+    new_password: str,
+) -> PlatformAdmin:
+    if not verify_password(current_password, admin.password_hash):
+        raise unauthorized("Current password is incorrect", "INVALID_CURRENT_PASSWORD")
+    admin.password_hash = hash_password(new_password)
     await session.flush()
     return admin
 
@@ -109,6 +151,9 @@ async def bootstrap_platform_admin(session: AsyncSession) -> None:
     await create_platform_admin(
         session,
         email=settings.platform_admin_email,
+        username=normalize_platform_username(
+            settings.platform_admin_email.split("@", 1)[0] or "admin"
+        ),
         password=settings.platform_admin_password,
         display_name="Platform Admin",
     )

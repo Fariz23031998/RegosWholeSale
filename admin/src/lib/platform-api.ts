@@ -3,6 +3,7 @@ import { apiRequest } from "./api";
 export type PlatformAdmin = {
   id: number;
   email: string;
+  username: string;
   display_name: string;
   is_active: boolean;
   created_at: string;
@@ -61,6 +62,16 @@ export async function platformLogin(login: string, password: string) {
 
 export async function fetchPlatformMe(token: string) {
   return apiRequest<PlatformAdmin>("/api/v1/platform/auth/me", { token });
+}
+
+export async function changePlatformPassword(
+  token: string,
+  body: { current_password: string; new_password: string },
+) {
+  return apiRequest<PlatformAdmin>("/api/v1/platform/auth/change-password", {
+    token,
+    body,
+  });
 }
 
 export async function fetchStats(token: string) {
@@ -181,7 +192,7 @@ export async function fetchAdmins(token: string) {
 
 export async function createAdmin(
   token: string,
-  body: { email: string; password: string; display_name: string },
+  body: { email: string; username: string; password: string; display_name: string },
 ) {
   return apiRequest<PlatformAdmin>("/api/v1/platform/admins", { token, body });
 }
@@ -189,7 +200,7 @@ export async function createAdmin(
 export async function updateAdmin(
   token: string,
   id: number,
-  body: { display_name?: string; password?: string; is_active?: boolean },
+  body: { display_name?: string; username?: string; password?: string; is_active?: boolean },
 ) {
   return apiRequest<PlatformAdmin>(`/api/v1/platform/admins/${id}`, {
     token,
