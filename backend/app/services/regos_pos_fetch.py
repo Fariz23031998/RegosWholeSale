@@ -81,6 +81,20 @@ def _normalize_uuid(value: str) -> str:
     return value.strip().lower()
 
 
+def pos_cheque_cache_key(company_id: int, cheque_uuid: str) -> str:
+    return f"{company_id}:{_normalize_uuid(cheque_uuid)}"
+
+
+def is_pos_cheque_closed(cheque: dict[str, Any]) -> bool:
+    if cheque.get("closed") is True:
+        return True
+    for key in ("sale_status", "status"):
+        value = cheque.get(key)
+        if isinstance(value, str) and value.strip().lower() == "closed":
+            return True
+    return False
+
+
 async def fetch_cheque_by_uuid(
     session: AsyncSession,
     company_id: int,

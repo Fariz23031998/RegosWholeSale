@@ -23,6 +23,8 @@ from app.services.telegram_notifications import (
 logger = logging.getLogger("regos.backend")
 
 processed_webhook_events: dict[str, datetime] = {}
+notified_pos_cheque_receipts: dict[str, datetime] = {}
+POS_CHEQUE_RECEIPT_DEDUP_WINDOW = timedelta(minutes=5)
 
 
 @dataclass(frozen=True)
@@ -117,6 +119,26 @@ def _cleanup_processed_events() -> None:
     ]
     for event_id in expired:
         del processed_webhook_events[event_id]
+
+
+def _cleanup_notified_pos_cheque_receipts() -> None:
+    current_time = datetime.utcnow()
+    expired = [
+        cache_key
+        for cache_key, timestamp in notified_pos_cheque_receipts.items()
+        if current_time - timestamp > POS_CHEQUE_RECEIPT_DEDUP_WINDOW
+    ]
+    for cache_key in expired:
+        del notified_pos_cheque_receipts[cache_key]
+
+
+def _recent_pos_cheque_receipt_sent(cache_key: str) -> bool:
+    _cleanup_notified_pos_cheque_receipts()
+    return cache_key in notified_pos_cheque_receipts
+
+
+def _mark_pos_cheque_receipt_sent(cache_key: str) -> None:
+    notified_pos_cheque_receipts[cache_key] = datetime.utcnow()
 
 
 async def _resolve_warehouse_name(
@@ -251,12 +273,35 @@ async def _process_pos_cheque(
     if not cheque:
         return False
 
+    receipt_cache_key = pos_fetch.pos_cheque_cache_key(company_id, cheque_uuid)
+    variant = pos_spec.variant
+
+    if variant == "pay_debt":
+        if not pos_fetch.is_pos_cheque_closed(cheque):
+            logger.info(
+                "Skipping POSChequePayDebt for open cheque %s; DocChequeClosed will notify",
+                cheque_uuid,
+            )
+            return False
+        if _recent_pos_cheque_receipt_sent(receipt_cache_key):
+            logger.info(
+                "Skipping duplicate POSChequePayDebt for cheque %s; receipt already sent",
+                cheque_uuid,
+            )
+            return False
+    elif variant == "closed" and _recent_pos_cheque_receipt_sent(receipt_cache_key):
+        logger.info(
+            "Skipping duplicate DocChequeClosed for cheque %s; receipt already sent",
+            cheque_uuid,
+        )
+        return False
+
     operations: list[dict[str, Any]] | None = None
-    if pos_spec.variant in ("closed", "canceled"):
+    if variant in ("closed", "canceled"):
         operations = await pos_fetch.fetch_cheque_operations(session, company_id, cheque_uuid)
         if not operations:
             return False
-    elif pos_spec.variant == "pay_debt":
+    elif variant == "pay_debt":
         operations = await pos_fetch.fetch_cheque_operations(session, company_id, cheque_uuid)
 
     payments = await pos_fetch.fetch_cheque_payments(session, company_id, cheque_uuid)
@@ -269,10 +314,10 @@ async def _process_pos_cheque(
         ch,
         operations,
         payments,
-        variant=pos_spec.variant,
+        variant=variant,
         lang=lang,
     )
-    leaf_type = resolve_pos_cheque_notification_type(pos_spec.variant, cheque)
+    leaf_type = resolve_pos_cheque_notification_type(variant, cheque)
     sent = await telegram_service.notify_company_subscribers(
         session,
         company_id,
@@ -281,7 +326,10 @@ async def _process_pos_cheque(
         parse_mode="HTML",
     )
 
-    if pos_spec.variant == "closed" and operations:
+    if sent > 0 and variant == "closed":
+        _mark_pos_cheque_receipt_sent(receipt_cache_key)
+
+    if variant == "closed" and operations:
         await out_of_stock_service.check_and_record_out_of_stock_from_cheque(
             session,
             company_id,

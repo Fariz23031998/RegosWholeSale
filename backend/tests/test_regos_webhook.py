@@ -76,9 +76,17 @@ SAMPLE_POS_PAYMENTS = [
         "uuid": "bddde1b2-555f-4942-a1ba-270f48b15d11",
         "has_storno": False,
         "type": {"name": "Cash"},
-        "value": 200.0,
-    }
+        "value": 120.0,
+    },
+    {
+        "uuid": "cddde1b2-555f-4942-a1ba-270f48b15d12",
+        "has_storno": False,
+        "type": {"name": "Card"},
+        "value": 80.0,
+    },
 ]
+
+CLOSED_POS_CHEQUE = {**SAMPLE_POS_CHEQUE, "closed": True, "sale_status": "Closed"}
 
 SAMPLE_POS_SESSION = {
     "uuid": SESSION_UUID,
@@ -102,9 +110,11 @@ def webhook_env(monkeypatch):
 
     get_settings.cache_clear()
     regos_webhook_service.processed_webhook_events.clear()
+    regos_webhook_service.notified_pos_cheque_receipts.clear()
     yield
     get_settings.cache_clear()
     regos_webhook_service.processed_webhook_events.clear()
+    regos_webhook_service.notified_pos_cheque_receipts.clear()
 
 
 async def _register_and_login(client: AsyncClient, email: str) -> str:
@@ -566,7 +576,9 @@ async def test_doc_cheque_closed_notifies_subscribers(client, monkeypatch):
             send_calls.append(int(payload["chat_id"]))
             assert payload["parse_mode"] == "HTML"
             assert "Widget" in payload["text"]
-            assert "Cash: 200" in payload["text"]
+            assert "Cash: 120" in payload["text"]
+            assert "Card: 80" in payload["text"]
+            assert "Total paid: 200" in payload["text"]
             return {"ok": True, "result": {"message_id": 1}}
         raise AssertionError(method)
 
@@ -727,7 +739,7 @@ async def test_pos_cheque_pay_debt_with_any_pos_leaf(client, monkeypatch, sessio
         if endpoint == "doccheque/get":
             return {
                 "ok": True,
-                "result": [{**SAMPLE_POS_CHEQUE, "payments_amount": 500.0}],
+                "result": [{**CLOSED_POS_CHEQUE, "payments_amount": 500.0}],
             }
         if endpoint == "chequeitemoperation/get":
             return {"ok": True, "result": []}
@@ -767,7 +779,7 @@ async def test_pos_cheque_pay_debt_notifies(client, monkeypatch):
         if endpoint == "doccheque/get":
             return {
                 "ok": True,
-                "result": [{**SAMPLE_POS_CHEQUE, "payments_amount": 500.0}],
+                "result": [{**CLOSED_POS_CHEQUE, "payments_amount": 500.0}],
             }
         if endpoint == "chequeitemoperation/get":
             return {"ok": True, "result": []}
@@ -786,6 +798,91 @@ async def test_pos_cheque_pay_debt_notifies(client, monkeypatch):
     )
     assert response.status_code == 200
     assert send_count == 1
+
+
+@pytest.mark.asyncio
+async def test_pos_cheque_pay_debt_skipped_while_cheque_open(client, monkeypatch):
+    await _setup_company(client, monkeypatch, subscriber_count=1)
+
+    send_count = 0
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        nonlocal send_count
+        if method == "sendMessage":
+            send_count += 1
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        return _fake_pos_regos(endpoint, request_data)
+
+    monkeypatch.setattr(
+        "app.services.regos_pos_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload_pos("POSChequePayDebt", CHEQUE_UUID, event_id="cheque-debt-open"),
+    )
+    assert response.status_code == 200
+    assert send_count == 0
+
+
+@pytest.mark.asyncio
+async def test_split_payment_checkout_sends_single_closed_receipt(client, monkeypatch):
+    await _setup_company(client, monkeypatch, subscriber_count=1)
+
+    send_count = 0
+    sent_texts: list[str] = []
+    cheque_states = [SAMPLE_POS_CHEQUE, SAMPLE_POS_CHEQUE, CLOSED_POS_CHEQUE]
+    cheque_fetch_index = 0
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        nonlocal send_count
+        if method == "sendMessage":
+            send_count += 1
+            sent_texts.append(payload["text"])
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        nonlocal cheque_fetch_index
+        if endpoint == "doccheque/get":
+            cheque = cheque_states[cheque_fetch_index]
+            cheque_fetch_index += 1
+            return {"ok": True, "result": [cheque]}
+        return _fake_pos_regos(endpoint, request_data)
+
+    monkeypatch.setattr(
+        "app.services.regos_pos_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    for index, event_id in enumerate(
+        ("split-pay-cash", "split-pay-card", "split-pay-closed"),
+        start=1,
+    ):
+        response = await client.post(
+            "/api/v1/regos/webhook",
+            json=_webhook_payload_pos(
+                "POSChequePayDebt" if index < 3 else "DocChequeClosed",
+                CHEQUE_UUID,
+                event_id=event_id,
+            ),
+        )
+        assert response.status_code == 200
+
+    assert send_count == 1
+    assert "Cash: 120" in sent_texts[0]
+    assert "Card: 80" in sent_texts[0]
+    assert "120" in sent_texts[0]
+    assert "80" in sent_texts[0]
+    assert "200" in sent_texts[0]
 
 
 @pytest.mark.asyncio

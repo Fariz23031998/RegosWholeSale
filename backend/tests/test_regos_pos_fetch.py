@@ -25,6 +25,14 @@ async def test_fetch_cheque_payments_uses_doc_sale_uuid(monkeypatch):
     }
 
 
+def test_is_pos_cheque_closed():
+    assert pos_fetch.is_pos_cheque_closed({"closed": True}) is True
+    assert pos_fetch.is_pos_cheque_closed({"sale_status": "Closed"}) is True
+    assert pos_fetch.is_pos_cheque_closed({"status": "closed"}) is True
+    assert pos_fetch.is_pos_cheque_closed({"sale_status": "Open"}) is False
+    assert pos_fetch.is_pos_cheque_closed({}) is False
+
+
 @pytest.mark.asyncio
 async def test_resolve_cheque_session_code_fetches_session_code(monkeypatch):
     async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
