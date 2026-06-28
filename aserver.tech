@@ -2,11 +2,6 @@
 # TELEGRAM_WEBHOOK_BASE_URL=https://aserver.tech
 # ScrapRegosUserBot .env: PUBLIC_BASE_URL=https://aserver.tech
 # CLICK merchant URLs: https://aserver.tech/click/prepare and /click/complete
-#
-# Install:
-#   sudo cp deploy/aserver.tech /etc/nginx/sites-available/aserver.tech
-#   sudo ln -sf /etc/nginx/sites-available/aserver.tech /etc/nginx/sites-enabled/
-#   sudo nginx -t && sudo systemctl reload nginx
 server {
     server_name aserver.tech www.aserver.tech;
 

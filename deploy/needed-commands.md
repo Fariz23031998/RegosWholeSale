@@ -51,3 +51,16 @@ Set in `backend/.env` before first deploy (only used when no platform admins exi
 
 Add admin subdomain to CORS:
 - `CORS_ORIGINS=https://regosoptom.uz,https://www.regosoptom.uz,https://admin.regosoptom.uz`
+
+## aserver.tech (Telegram webhooks + ScrapRegosUserBot payments)
+1. `sudo cp deploy/aserver.tech /etc/nginx/sites-available/aserver.tech`
+2. `sudo ln -sf /etc/nginx/sites-available/aserver.tech /etc/nginx/sites-enabled/`
+3. `sudo nginx -t && sudo systemctl reload nginx`
+
+ScrapRegosUserBot `.env` on server:
+- `PUBLIC_BASE_URL=https://aserver.tech`
+- `CLICK_RETURN_URL=https://aserver.tech/{order-uuid}` (example)
+- CLICK merchant cabinet: `https://aserver.tech/click/prepare` and `/click/complete`
+
+After moving payment routes off `no-thing.uz`, reload Partner Bot nginx:
+- `sudo cp no-thing.uz.conf /etc/nginx/sites-available/no-thing.uz.conf && sudo nginx -t && sudo systemctl reload nginx`
