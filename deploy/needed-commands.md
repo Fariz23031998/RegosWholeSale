@@ -1,11 +1,31 @@
 # Deploy commands
 
-## Tenant frontend (regosoptom.uz)
-1. `cd frontend && VITE_DEPLOY_TARGET=nginx VITE_API_BASE_URL=https://regosoptom.uz npm run build`
+## Tenant frontend (regosoptom.uz + regosoptom.shop)
+Shared static build — both domains serve `frontend/dist/client`.
+
+Build (omit `VITE_API_BASE_URL` so each domain uses its own origin for `/api/`):
+1. `cd frontend && VITE_DEPLOY_TARGET=nginx npm run build`
 2. `sudo nginx -t && sudo systemctl reload nginx`
 3. `sudo systemctl daemon-reload`
 4. `sudo systemctl restart regos-backend`
 5. `cd backend && alembic upgrade head`
+
+Backend CORS (both domains):
+- `CORS_ORIGINS=https://regosoptom.uz,https://www.regosoptom.uz,https://regosoptom.shop,https://www.regosoptom.shop,https://admin.regosoptom.uz`
+
+### regosoptom.uz (direct / no Cloudflare)
+1. `sudo cp deploy/regosoptom.uz.conf /etc/nginx/sites-available/regosoptom.uz.conf`
+2. `sudo ln -sf /etc/nginx/sites-available/regosoptom.uz.conf /etc/nginx/sites-enabled/`
+
+First-time SSL: use `deploy/regosoptom.uz.conf.bootstrap` → certbot → `regosoptom.uz.conf`.
+
+### regosoptom.shop (Cloudflare proxy)
+1. Cloudflare DNS: A/AAAA for `@` and `www` → server IP, **proxied** (orange cloud)
+2. `sudo cp deploy/cloudflare-real-ip.conf /etc/nginx/snippets/cloudflare-real-ip.conf`
+3. First-time SSL: `deploy/regosoptom.shop.conf.bootstrap` → certbot → `regosoptom.shop.conf`
+4. `sudo ln -sf /etc/nginx/sites-available/regosoptom.shop.conf /etc/nginx/sites-enabled/`
+5. Cloudflare SSL/TLS → **Full (strict)** after origin cert exists
+6. `sudo nginx -t && sudo systemctl reload nginx`
 
 ## Platform admin (admin.regosoptom.uz)
 

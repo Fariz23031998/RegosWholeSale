@@ -1,0 +1,40 @@
+# Bootstrap config — use ONLY until Let's Encrypt certificate exists.
+# regosoptom.shop is behind Cloudflare proxy (orange cloud).
+#
+# Cloudflare dashboard (before certbot):
+#   SSL/TLS → Overview → Full (strict) after origin cert exists
+#   During bootstrap you may use Full or temporarily DNS-only for HTTP-01
+#
+#   sudo cp deploy/cloudflare-real-ip.conf /etc/nginx/snippets/cloudflare-real-ip.conf
+#   sudo cp deploy/regosoptom.shop.conf.bootstrap /etc/nginx/sites-available/regosoptom.shop.conf
+#   sudo ln -sf /etc/nginx/sites-available/regosoptom.shop.conf /etc/nginx/sites-enabled/
+#   sudo mkdir -p /var/www/certbot/.well-known/acme-challenge
+#   sudo chown -R www-data:www-data /var/www/certbot
+#   sudo nginx -t && sudo systemctl reload nginx
+#   echo ok | sudo tee /var/www/certbot/.well-known/acme-challenge/test
+#   curl http://regosoptom.shop/.well-known/acme-challenge/test   # must print: ok
+#   sudo certbot certonly --webroot -w /var/www/certbot \
+#     -d regosoptom.shop -d www.regosoptom.shop \
+#     --email you@example.com --agree-tos --no-eff-email
+#   sudo cp deploy/regosoptom.shop.conf /etc/nginx/sites-available/regosoptom.shop.conf
+#   sudo nginx -t && sudo systemctl reload nginx
+#   Cloudflare SSL/TLS → Full (strict)
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name regosoptom.shop www.regosoptom.shop;
+
+    include /etc/nginx/snippets/cloudflare-real-ip.conf;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+        default_type "text/plain";
+        allow all;
+    }
+
+    location / {
+        return 200 'Regos Wholesale — SSL setup in progress';
+        add_header Content-Type text/plain;
+    }
+}
