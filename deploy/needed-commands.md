@@ -8,10 +8,21 @@
 5. `cd backend && alembic upgrade head`
 
 ## Platform admin (admin.regosoptom.uz)
-1. `cd admin && npm ci && VITE_API_BASE_URL=https://regosoptom.uz npm run build`
-2. Copy `deploy/admin.regosoptom.uz.conf` to nginx sites-enabled
-3. `sudo certbot certonly --nginx -d admin.regosoptom.uz` (first time only)
+
+### First-time SSL (cert does not exist yet)
+Do **not** install `admin.regosoptom.uz.conf` first — nginx will fail because cert paths are missing.
+
+1. `sudo cp deploy/admin.regosoptom.uz.conf.bootstrap /etc/nginx/sites-available/admin.regosoptom.uz.conf`
+2. `sudo ln -sf /etc/nginx/sites-available/admin.regosoptom.uz.conf /etc/nginx/sites-enabled/`
+3. `sudo mkdir -p /var/www/certbot/.well-known/acme-challenge && sudo chown -R www-data:www-data /var/www/certbot`
 4. `sudo nginx -t && sudo systemctl reload nginx`
+5. `sudo certbot certonly --webroot -w /var/www/certbot -d admin.regosoptom.uz --email you@example.com --agree-tos --no-eff-email`
+6. `sudo cp deploy/admin.regosoptom.uz.conf /etc/nginx/sites-available/admin.regosoptom.uz.conf`
+7. `sudo nginx -t && sudo systemctl reload nginx`
+
+### Routine deploy (cert already exists)
+1. `cd admin && npm ci && VITE_API_BASE_URL=https://regosoptom.uz npm run build`
+2. `sudo nginx -t && sudo systemctl reload nginx` (only if nginx config changed)
 
 ## Backend env (first platform admin bootstrap)
 Set in `backend/.env` before first deploy (only used when no platform admins exist):
