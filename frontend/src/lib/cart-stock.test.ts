@@ -26,13 +26,14 @@ const product = (stock: number): Product => ({
 describe("maxCartQty", () => {
   it("caps at remaining stock after other tab reservations", () => {
     expect(maxCartQty(35, false, 35)).toBe(0);
-    expect(maxCartQty(35, true, 35)).toBe(0);
     expect(maxCartQty(35, false, 10)).toBe(25);
   });
 
-  it("allows unlimited qty when out-of-stock sales enabled and stock is zero", () => {
+  it("allows unlimited qty when out-of-stock sales enabled", () => {
+    expect(maxCartQty(20, true, 0)).toBeNull();
     expect(maxCartQty(0, true, 0)).toBeNull();
     expect(maxCartQty(-2, true, 0)).toBeNull();
+    expect(maxCartQty(35, true, 35)).toBeNull();
   });
 
   it("blocks sales at zero stock when out-of-stock sales disabled", () => {
@@ -44,7 +45,7 @@ describe("canAddProductToCart", () => {
   it("prevents adding in a second tab when the first tab reserved all stock", () => {
     const p = product(35);
     expect(canAddProductToCart(p, 0, false, 35)).toBe(false);
-    expect(canAddProductToCart(p, 0, true, 35)).toBe(false);
+    expect(canAddProductToCart(p, 0, true, 35)).toBe(true);
   });
 
   it("prevents adding more in the active tab when it already holds all remaining stock", () => {
@@ -69,6 +70,11 @@ describe("clampCartQty", () => {
   it("clamps totals using other-tab reservations", () => {
     expect(clampCartQty(40, 35, false, 1, 35)).toBe(0);
     expect(clampCartQty(20, 35, false, 1, 20)).toBe(15);
+  });
+
+  it("does not clamp when out-of-stock sales enabled", () => {
+    expect(clampCartQty(50, 20, true, 1, 0)).toBe(50);
+    expect(clampCartQty(50, 20, true, 1, 20)).toBe(50);
   });
 });
 

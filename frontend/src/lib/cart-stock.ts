@@ -156,7 +156,7 @@ export function resolveCartUnitType(
 /**
  * Maximum quantity allowed in the active cart line for a product.
  * `reservedInOtherTabs` is the sum of that product's qty in all other open sale tabs.
- * Returns null when no upper bound (unknown stock, or out-of-stock sales past zero stock).
+ * Returns null when no upper bound (unknown stock, or out-of-stock sales enabled).
  */
 export function maxCartQty(
   stock: number | undefined,
@@ -164,7 +164,7 @@ export function maxCartQty(
   reservedInOtherTabs = 0,
 ): number | null {
   if (stock === undefined) return null;
-  if (allowOutOfStock && stock <= 0) return null;
+  if (allowOutOfStock) return null;
   const remaining = stock - reservedInOtherTabs;
   return Math.max(0, remaining);
 }
