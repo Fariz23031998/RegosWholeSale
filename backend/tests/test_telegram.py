@@ -521,6 +521,84 @@ async def test_send_document_returns_false_on_api_error(monkeypatch):
     assert await send_document("token", 1, b"x", "report.xlsx") is False
 
 
+def test_split_telegram_message_returns_single_chunk_when_under_limit():
+    from app.services.telegram import split_telegram_message
+
+    text = "hello\nworld"
+    assert split_telegram_message(text) == [text]
+
+
+def test_split_telegram_message_splits_at_line_boundaries():
+    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, split_telegram_message
+
+    line = "x" * 100
+    lines = [line] * 50
+    text = "\n".join(lines)
+    chunks = split_telegram_message(text)
+
+    assert len(chunks) > 1
+    assert "".join(chunks) == text
+    for chunk in chunks[:-1]:
+        assert chunk.endswith("\n")
+        assert len(chunk) <= TELEGRAM_MESSAGE_MAX_LENGTH
+    assert len(chunks[-1]) <= TELEGRAM_MESSAGE_MAX_LENGTH
+
+
+def test_split_telegram_message_hard_splits_when_line_exceeds_limit():
+    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, split_telegram_message
+
+    text = "a" * (TELEGRAM_MESSAGE_MAX_LENGTH + 100)
+    chunks = split_telegram_message(text)
+
+    assert len(chunks) == 2
+    assert chunks[0] == "a" * TELEGRAM_MESSAGE_MAX_LENGTH
+    assert chunks[1] == "a" * 100
+    assert "".join(chunks) == text
+
+
+@pytest.mark.asyncio
+async def test_send_message_splits_long_text(monkeypatch):
+    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, send_message
+
+    sent_texts: list[str] = []
+
+    async def fake_api_call(bot_token, method, payload=None):
+        assert method == "sendMessage"
+        sent_texts.append(payload["text"])
+        return {"ok": True, "result": {"message_id": len(sent_texts)}}
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_api_call)
+
+    line = "line\n"
+    text = line * (TELEGRAM_MESSAGE_MAX_LENGTH // len(line) + 10)
+    assert await send_message("token", 1, text) is True
+    assert len(sent_texts) > 1
+    assert "".join(sent_texts) == text
+    for chunk in sent_texts[:-1]:
+        assert chunk.endswith("\n")
+        assert len(chunk) <= TELEGRAM_MESSAGE_MAX_LENGTH
+
+
+@pytest.mark.asyncio
+async def test_send_message_reply_markup_only_on_first_chunk(monkeypatch):
+    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, send_message
+
+    payloads: list[dict] = []
+
+    async def fake_api_call(bot_token, method, payload=None):
+        payloads.append(payload)
+        return {"ok": True, "result": {"message_id": len(payloads)}}
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_api_call)
+
+    markup = {"inline_keyboard": [[{"text": "Go", "callback_data": "go"}]]}
+    text = ("x\n" * (TELEGRAM_MESSAGE_MAX_LENGTH // 2)) + "tail"
+    assert await send_message("token", 1, text, reply_markup=markup) is True
+    assert len(payloads) > 1
+    assert payloads[0]["reply_markup"] == markup
+    assert "reply_markup" not in payloads[1]
+
+
 GROUP_START_UPDATE = {
     "update_id": 100,
     "message": {

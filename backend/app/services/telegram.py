@@ -21,6 +21,7 @@ from app.services.telegram_notifications import (
 logger = logging.getLogger("regos.backend")
 
 TELEGRAM_API_BASE = "https://api.telegram.org"
+TELEGRAM_MESSAGE_MAX_LENGTH = 4096
 OUT_OF_STOCK_EXCEL_CALLBACK = "oos_excel"
 WEBHOOK_ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
 GROUP_CHAT_TYPES = frozenset({"group", "supergroup"})
@@ -217,6 +218,32 @@ async def list_telegram_users(session: AsyncSession, company_id: int) -> list[di
     return [telegram_user_to_dict(row) for row in result.scalars().all()]
 
 
+def split_telegram_message(text: str, max_length: int = TELEGRAM_MESSAGE_MAX_LENGTH) -> list[str]:
+    if max_length <= 0:
+        raise ValueError("max_length must be positive")
+    if len(text) <= max_length:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= max_length:
+            chunks.append(remaining)
+            break
+
+        window = remaining[:max_length]
+        split_at = window.rfind("\n")
+        if split_at >= 0:
+            chunk = remaining[: split_at + 1]
+        else:
+            chunk = window
+
+        chunks.append(chunk)
+        remaining = remaining[len(chunk) :]
+
+    return chunks
+
+
 async def send_message(
     bot_token: str,
     chat_id: int,
@@ -224,19 +251,21 @@ async def send_message(
     parse_mode: str = "Markdown",
     reply_markup: dict | None = None,
 ) -> bool:
-    payload: dict[str, Any] = {
-        "chat_id": chat_id,
-        "text": text,
-        "parse_mode": parse_mode,
-    }
-    if reply_markup is not None:
-        payload["reply_markup"] = reply_markup
+    chunks = split_telegram_message(text)
     try:
-        await _telegram_api_call(
-            bot_token,
-            "sendMessage",
-            payload,
-        )
+        for index, chunk in enumerate(chunks):
+            payload: dict[str, Any] = {
+                "chat_id": chat_id,
+                "text": chunk,
+                "parse_mode": parse_mode,
+            }
+            if reply_markup is not None and index == 0:
+                payload["reply_markup"] = reply_markup
+            await _telegram_api_call(
+                bot_token,
+                "sendMessage",
+                payload,
+            )
         return True
     except Exception:
         logger.warning("Failed to send Telegram message to chat %s", chat_id, exc_info=True)
