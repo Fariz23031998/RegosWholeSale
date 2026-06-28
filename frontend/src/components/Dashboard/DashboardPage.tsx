@@ -20,16 +20,10 @@ import {
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
 import {
-  DASHBOARD_PRODUCTS_PAGE_SIZE,
-  DASHBOARD_PAYMENTS_PAGE_SIZE,
   buildDashboardCurrencyFilterOptions,
   collectDashboardCurrencies,
   currencyFilterKey,
   fetchDashboardOverview,
-  fetchDashboardProducts,
-  fetchDashboardPayments,
-  fetchAllDashboardProducts,
-  fetchAllDashboardPayments,
   formatDashboardPeriodLabel,
   getPeriodLabel,
   parseCurrencyFilterKey,
@@ -400,23 +394,19 @@ export function DashboardPage() {
   const [products, setProducts] = useState<DashboardProductRow[]>([]);
   const [productsTotals, setProductsTotals] = useState<DashboardProductTotals | null>(null);
   const [productsTotal, setProductsTotal] = useState(0);
-  const [productsNextOffset, setProductsNextOffset] = useState(0);
-  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
   const [error, setError] = useState("");
   const [productsError, setProductsError] = useState("");
   const [productsSearch, setProductsSearch] = useState("");
   const [exportingProducts, setExportingProducts] = useState(false);
   const [incomePayments, setIncomePayments] = useState<DashboardPaymentRow[]>([]);
   const [outcomePayments, setOutcomePayments] = useState<DashboardPaymentRow[]>([]);
-  const [incomePaymentsCount, setIncomePaymentsCount] = useState(0);
-  const [outcomePaymentsCount, setOutcomePaymentsCount] = useState(0);
   const [incomePaymentCategoryName, setIncomePaymentCategoryName] = useState<string | null>(null);
   const [outcomePaymentCategoryName, setOutcomePaymentCategoryName] = useState<string | null>(null);
-  const [paymentsNextOffset, setPaymentsNextOffset] = useState(0);
-  const [loadingMorePayments, setLoadingMorePayments] = useState(false);
   const [paymentsError, setPaymentsError] = useState("");
   const [paymentsSearch, setPaymentsSearch] = useState("");
   const [exportingPayments, setExportingPayments] = useState(false);
+  const [incomePaymentsTotal, setIncomePaymentsTotal] = useState(0);
+  const [outcomePaymentsTotal, setOutcomePaymentsTotal] = useState(0);
   const [activeTab, setActiveTab] = useState<DashboardTab>("totals");
   const [isNarrow, setIsNarrow] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches,
@@ -499,7 +489,6 @@ export function DashboardPage() {
   );
   const loadedPaymentsCount = incomePayments.length + outcomePayments.length;
   const filteredPaymentsCount = filteredIncomePayments.length + filteredOutcomePayments.length;
-  const totalPaymentsCount = incomePaymentsCount + outcomePaymentsCount;
 
   useEffect(() => {
     if (!token) {
@@ -551,13 +540,7 @@ export function DashboardPage() {
 
   const dashboardDataQuery = useQuery({
     queryKey: ["dashboard", "initial", token, dashboardQueryKey],
-    queryFn: async () => {
-      const [overview, payments] = await Promise.all([
-        fetchDashboardOverview(token!, queryParams),
-        fetchDashboardPayments(token!, queryParams),
-      ]);
-      return { overview, payments };
-    },
+    queryFn: async () => fetchDashboardOverview(token!, queryParams),
     enabled: Boolean(token) && defaultsReady,
     staleTime: 30_000,
   });
@@ -576,14 +559,12 @@ export function DashboardPage() {
     setProducts([]);
     setProductsTotals(null);
     setProductsTotal(0);
-    setProductsNextOffset(0);
     setIncomePayments([]);
     setOutcomePayments([]);
-    setIncomePaymentsCount(0);
-    setOutcomePaymentsCount(0);
     setIncomePaymentCategoryName(null);
     setOutcomePaymentCategoryName(null);
-    setPaymentsNextOffset(0);
+    setIncomePaymentsTotal(0);
+    setOutcomePaymentsTotal(0);
   }, [dashboardQueryKey, defaultsReady, token]);
 
   useEffect(() => {
@@ -592,14 +573,14 @@ export function DashboardPage() {
       setProducts([]);
       setProductsTotals(null);
       setProductsTotal(0);
-      setProductsNextOffset(0);
       setIncomePayments([]);
       setOutcomePayments([]);
       setIncomePaymentsCount(0);
       setOutcomePaymentsCount(0);
       setIncomePaymentCategoryName(null);
       setOutcomePaymentCategoryName(null);
-      setPaymentsNextOffset(0);
+      setIncomePaymentsTotal(0);
+      setOutcomePaymentsTotal(0);
       setError("");
       setProductsError("");
       setPaymentsError("");
@@ -613,141 +594,61 @@ export function DashboardPage() {
     const data = dashboardDataQuery.data;
     if (!data) return;
 
-    const { overview, payments } = data;
-    setStats(overview.stats);
-    setProducts(overview.products);
-    setProductsTotals(overview.totals);
-    setProductsTotal(overview.total);
-    setProductsNextOffset(overview.next_offset);
+    const payments = data.payments;
+    setStats(data.stats);
+    setProducts(data.products);
+    setProductsTotals(data.totals);
+    setProductsTotal(data.total);
     setIncomePayments(payments.income_payments);
     setOutcomePayments(payments.outcome_payments);
-    setIncomePaymentsCount(payments.income_total);
-    setOutcomePaymentsCount(payments.outcome_total);
     setIncomePaymentCategoryName(payments.income_payment_category_name);
     setOutcomePaymentCategoryName(payments.outcome_payment_category_name);
-    setPaymentsNextOffset(payments.next_offset);
+    setIncomePaymentsTotal(payments.income_payments_total);
+    setOutcomePaymentsTotal(payments.outcome_payments_total);
   }, [dashboardDataQuery.data, loadError, token]);
 
-  const loadMoreProducts = () => {
-    if (!token || !productsNextOffset || loadingMoreProducts) return;
-
-    setLoadingMoreProducts(true);
-    setProductsError("");
-
-    void fetchDashboardProducts(token, { ...queryParams, offset: productsNextOffset })
-      .then((res) => {
-        setProducts((current) => {
-          const seen = new Set(current.map((row) => row.item_id));
-          const merged = [...current];
-          for (const row of res.products) {
-            if (!seen.has(row.item_id)) {
-              seen.add(row.item_id);
-              merged.push(row);
-            }
-          }
-          return merged;
-        });
-        setProductsTotal(res.total);
-        setProductsNextOffset(res.next_offset);
-      })
-      .catch((err: unknown) => {
-        setProductsError(formatAuthError(err, t("dashboard.errors.loadMoreProducts")));
-      })
-      .finally(() => {
-        setLoadingMoreProducts(false);
-      });
-  };
-
   const exportProducts = () => {
-    if (!token || exportingProducts) return;
+    if (exportingProducts || !productsTotals) return;
 
     setExportingProducts(true);
     setProductsError("");
 
-    void fetchAllDashboardProducts(token, queryParams)
-      .then(({ products: allProducts, totals }) => {
-        exportDashboardProductsToExcel(
-          allProducts,
-          totals,
-          t,
-          formatDashboardPeriodLabel(periodPreset, customRange, t),
-        );
-      })
-      .catch((err: unknown) => {
-        setProductsError(formatAuthError(err, t("dashboard.products.exportError")));
-      })
-      .finally(() => {
-        setExportingProducts(false);
-      });
-  };
-
-  const loadMorePayments = () => {
-    if (!token || !paymentsNextOffset || loadingMorePayments) return;
-
-    setLoadingMorePayments(true);
-    setPaymentsError("");
-
-    void fetchDashboardPayments(token, { ...queryParams, offset: paymentsNextOffset })
-      .then((res) => {
-        setIncomePayments((current) => {
-          const seen = new Set(current.map((row) => row.id));
-          const merged = [...current];
-          for (const row of res.income_payments) {
-            if (!seen.has(row.id)) {
-              seen.add(row.id);
-              merged.push(row);
-            }
-          }
-          return merged;
-        });
-        setOutcomePayments((current) => {
-          const seen = new Set(current.map((row) => row.id));
-          const merged = [...current];
-          for (const row of res.outcome_payments) {
-            if (!seen.has(row.id)) {
-              seen.add(row.id);
-              merged.push(row);
-            }
-          }
-          return merged;
-        });
-        setIncomePaymentsCount(res.income_total);
-        setOutcomePaymentsCount(res.outcome_total);
-        setPaymentsNextOffset(res.next_offset);
-      })
-      .catch((err: unknown) => {
-        setPaymentsError(formatAuthError(err, t("dashboard.errors.loadMorePayments")));
-      })
-      .finally(() => {
-        setLoadingMorePayments(false);
-      });
+    try {
+      exportDashboardProductsToExcel(
+        products,
+        productsTotals,
+        t,
+        formatDashboardPeriodLabel(periodPreset, customRange, t),
+      );
+    } catch (err: unknown) {
+      setProductsError(formatAuthError(err, t("dashboard.products.exportError")));
+    } finally {
+      setExportingProducts(false);
+    }
   };
 
   const exportPayments = () => {
-    if (!token || exportingPayments) return;
+    if (exportingPayments) return;
 
     setExportingPayments(true);
     setPaymentsError("");
 
-    void fetchAllDashboardPayments(token, queryParams)
-      .then((payments) => {
-        exportDashboardPaymentsToExcel(
-          payments.income_payments,
-          payments.outcome_payments,
-          payments.income_payments_total,
-          payments.outcome_payments_total,
-          payments.income_payment_category_name,
-          payments.outcome_payment_category_name,
-          t,
-          formatDashboardPeriodLabel(periodPreset, customRange, t),
-        );
-      })
-      .catch((err: unknown) => {
-        setPaymentsError(formatAuthError(err, t("dashboard.payments.exportError")));
-      })
-      .finally(() => {
-        setExportingPayments(false);
-      });
+    try {
+      exportDashboardPaymentsToExcel(
+        incomePayments,
+        outcomePayments,
+        incomePaymentsTotal,
+        outcomePaymentsTotal,
+        incomePaymentCategoryName,
+        outcomePaymentCategoryName,
+        t,
+        formatDashboardPeriodLabel(periodPreset, customRange, t),
+      );
+    } catch (err: unknown) {
+      setPaymentsError(formatAuthError(err, t("dashboard.payments.exportError")));
+    } finally {
+      setExportingPayments(false);
+    }
   };
 
   const topPartners = stats?.top_partners.map((entry) => ({
@@ -1177,13 +1078,13 @@ export function DashboardPage() {
           <div className={styles.cardTitle}>{t("dashboard.tabs.payments")}</div>
           <div className={styles.cardSub}>
             {formatDashboardPeriodLabel(periodPreset, customRange, t)}
-            {totalPaymentsCount > 0
+            {loadedPaymentsCount > 0
               ? paymentsSearchQuery
                 ? ` · ${t("dashboard.payments.shown", undefined, {
                     n: filteredPaymentsCount,
                     m: loadedPaymentsCount,
                   })}`
-                : ` · ${loadedPaymentsCount} of ${totalPaymentsCount}`
+                : ` · ${loadedPaymentsCount}`
               : ""}
           </div>
           {loadedPaymentsCount > 0 && (
@@ -1262,20 +1163,6 @@ export function DashboardPage() {
               )}
             </div>
           </div>
-          {paymentsNextOffset > 0 && (
-            <div className={styles.productsFooter}>
-              <button
-                type="button"
-                className={styles.loadMore}
-                onClick={loadMorePayments}
-                disabled={loadingMorePayments}
-              >
-                {loadingMorePayments
-                  ? t("common.loading")
-                  : t("dashboard.payments.loadMore", undefined, { n: DASHBOARD_PAYMENTS_PAGE_SIZE })}
-              </button>
-            </div>
-          )}
         </div>
       ) : null}
 
@@ -1292,7 +1179,7 @@ export function DashboardPage() {
           {productsTotal > 0
             ? productsSearchQuery
               ? ` · ${t("dashboard.products.shown", undefined, { n: filteredProducts.length, m: products.length })}`
-              : ` · ${products.length} of ${productsTotal}`
+              : ` · ${productsTotal}`
             : ""}
         </div>
         {products.length > 0 && (
@@ -1403,20 +1290,6 @@ export function DashboardPage() {
                 )}
               </tbody>
             </table>
-          </div>
-        )}
-        {productsNextOffset > 0 && (
-          <div className={styles.productsFooter}>
-            <button
-              type="button"
-              className={styles.loadMore}
-              onClick={loadMoreProducts}
-              disabled={loadingMoreProducts}
-            >
-              {loadingMoreProducts
-                ? t("common.loading")
-                : t("dashboard.products.loadMore", undefined, { n: DASHBOARD_PRODUCTS_PAGE_SIZE })}
-            </button>
           </div>
         )}
       </div>

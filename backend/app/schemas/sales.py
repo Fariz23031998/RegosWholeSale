@@ -40,6 +40,7 @@ class CheckoutRequest(BaseModel):
     change: float | None = Field(default=None, ge=0)
     description: str | None = None
     wholesale_doc_id: int | None = Field(default=None, ge=1)
+    order_from_partner_doc_id: int | None = Field(default=None, ge=1)
     warehouse_id: int | None = Field(default=None, ge=1)
     price_type_id: int | None = Field(default=None, ge=1)
     partner_id: int | None = Field(default=None, ge=1)
@@ -115,6 +116,7 @@ class WholesaleDocument(BaseModel):
     attached_user_name: str | None = None
     amount: float | None = None
     performed: bool = False
+    status_id: int | None = None
     currency: RegosCurrencyOption | None = None
 
 

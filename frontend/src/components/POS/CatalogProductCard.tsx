@@ -21,6 +21,7 @@ type CatalogProductCardProps = {
   view: CatalogViewMode;
   allowOutOfStock: boolean;
   reservedInOtherTabs: number;
+  bookedOrderContinuation: boolean;
   onAdd: (product: Product) => void;
   onToggleFeatured: (product: Product) => void;
 };
@@ -48,6 +49,7 @@ export const CatalogProductCard = memo(function CatalogProductCard({
   view,
   allowOutOfStock,
   reservedInOtherTabs,
+  bookedOrderContinuation,
   onAdd,
   onToggleFeatured,
 }: CatalogProductCardProps) {
@@ -62,13 +64,15 @@ export const CatalogProductCard = memo(function CatalogProductCard({
     inCartQty,
     allowOutOfStock,
     reservedInOtherTabs,
+    bookedOrderContinuation ? { bookedOrderContinuation: true } : undefined,
   );
-  const out = product.stock <= 0;
-  const low = product.stock > 0 && product.stock < 10;
-  const stockText = Number.isInteger(product.stock)
-    ? t("pos.stockLeft", "{{n}} left", { n: product.stock })
+  const displayStock = product.stock;
+  const out = displayStock <= 0;
+  const low = displayStock > 0 && displayStock < 10;
+  const stockText = Number.isInteger(displayStock)
+    ? t("pos.stockLeft", "{{n}} left", { n: displayStock })
     : t("pos.stockLeft", "{{n}} left", {
-        n: product.stock.toFixed(2).replace(/\.?0+$/, ""),
+        n: displayStock.toFixed(2).replace(/\.?0+$/, ""),
       });
 
   return (

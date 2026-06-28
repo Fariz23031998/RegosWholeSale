@@ -150,23 +150,6 @@ def _find_document_type_id(
     return None
 
 
-def _pick_default_document_status_id(items: list[Any]) -> int | None:
-    parsed: list[tuple[int, int]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        status_id = _parse_regos_id(item.get("id"))
-        if not status_id:
-            continue
-        order = item.get("order")
-        order_val = order if isinstance(order, int) else 0
-        parsed.append((order_val, status_id))
-    if not parsed:
-        return None
-    parsed.sort()
-    return parsed[0][1]
-
-
 async def _fetch_document_types(
     session: AsyncSession,
     company_id: int,
@@ -201,33 +184,6 @@ async def _resolve_document_type_id(
     if option_id is None:
         raise bad_request(not_found_message, not_found_code)
     return option_id
-
-
-async def _infer_order_from_partner_status_id_from_documents(
-    session: AsyncSession,
-    company_id: int,
-) -> int | None:
-    response = await regos_async_api_request_for_company(
-        session,
-        company_id,
-        "docorderfrompartner/get",
-        {
-            "limit": 1,
-            "offset": 0,
-            "deleted_mark": False,
-            "sort_orders": [{"column": "Date", "direction": "desc"}],
-        },
-    )
-    items = response.get("result") or []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        status = item.get("status")
-        if isinstance(status, dict):
-            status_id = _parse_regos_id(status.get("id"))
-            if status_id:
-                return status_id
-    return None
 
 
 async def get_doc_wholesale_document_type_id(
@@ -288,37 +244,6 @@ async def get_doc_order_from_partner_document_type_id(
         name_markers=DOC_ORDER_FROM_PARTNER_TYPE_NAME_MARKERS,
         not_found_message="DocOrderFromPartner document type was not found in Regos.",
         not_found_code="REGOS_DOC_ORDER_FROM_PARTNER_TYPE_NOT_FOUND",
-    )
-
-
-async def get_doc_order_from_partner_default_status_id(
-    session: AsyncSession, company_id: int
-) -> int:
-    document_type_id = await get_doc_order_from_partner_document_type_id(
-        session, company_id
-    )
-    response = await regos_async_api_request_for_company(
-        session,
-        company_id,
-        "documentstatus/get",
-        {"document_type_id": document_type_id},
-    )
-    items = response.get("result") or []
-    status_id = _pick_default_document_status_id(items)
-    if status_id is not None:
-        return status_id
-
-    status_id = await _infer_order_from_partner_status_id_from_documents(
-        session, company_id
-    )
-    if status_id is not None:
-        return status_id
-
-    raise bad_request(
-        "DocOrderFromPartner document status was not found in Regos. "
-        "Configure order document statuses in Regos settings, or create one "
-        "order from partner document manually first.",
-        "REGOS_DOC_ORDER_FROM_PARTNER_STATUS_NOT_FOUND",
     )
 
 

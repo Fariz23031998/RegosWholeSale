@@ -179,6 +179,8 @@ describe("receipt context builder", () => {
         stock: 10,
         image: "",
         sku: "BP-42",
+        code: "BP-42",
+        articul: "ART-42",
         unit_name: "шт",
       },
     ];
@@ -214,6 +216,8 @@ describe("receipt context builder", () => {
         stock: 10,
         image: "",
         sku: "BP-42",
+        code: "BP-42",
+        articul: "ART-42",
         unit_name: "шт",
       },
     ];
@@ -226,5 +230,33 @@ describe("receipt context builder", () => {
     expect(lines[0]?.item_code).toBe("BP-42");
     expect(lines[0]?.item_group_name).toBe("Brakes");
     expect(lines[0]?.item_unit_name).toBe("шт");
+    expect(lines[0]?.item?.articul).toBe("ART-42");
+  });
+
+  it("uses cart item metadata when catalog products are unavailable", () => {
+    const context = buildPrintContextFromCartDraft({
+      items: [
+        {
+          productId: "p1",
+          regosItemId: 42,
+          name: "Brake Pad Set",
+          price: 44950,
+          qty: 2,
+          itemCode: "BP-42",
+          itemArticul: "ART-42",
+          itemGroupId: 9,
+          itemGroupName: "Brakes",
+          itemUnitName: "шт",
+        },
+      ],
+      totals: { subtotal: 89900, discount: 0, total: 89900 },
+      catalogProducts: [],
+      saleCurrency: null,
+    });
+
+    expect(context.operations[0]?.item_code).toBe("BP-42");
+    expect(context.operations[0]?.item_group_name).toBe("Brakes");
+    expect(context.operations[0]?.item?.articul).toBe("ART-42");
+    expect(context.operation_groups[0]?.name).toBe("Brakes");
   });
 });

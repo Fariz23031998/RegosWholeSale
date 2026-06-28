@@ -85,6 +85,26 @@ export function paymentAmountFromSaleAmount(
   );
 }
 
+export function paymentAmountFromSaleAmountCeil(
+  saleAmount: number,
+  saleCurrency: RegosCurrencyOption | null | undefined,
+  paymentCurrency: RegosCurrencyOption | null | undefined,
+): number {
+  if (sameCurrency(saleCurrency, paymentCurrency)) {
+    return saleAmount;
+  }
+  const saleRate = parseExchangeRate(saleCurrency?.exchange_rate);
+  const paymentRate = parseExchangeRate(paymentCurrency?.exchange_rate);
+  let amount = Math.ceil((saleAmount * saleRate) / paymentRate * 100) / 100;
+  while (
+    amount < 1_000_000_000 &&
+    saleAmountFromPaymentAmount(amount, saleCurrency, paymentCurrency) < saleAmount - 0.001
+  ) {
+    amount = Math.round((amount + 0.01) * 100) / 100;
+  }
+  return amount;
+}
+
 export function currencyLabel(currency: RegosCurrencyOption | null | undefined): string {
   if (!currency) return "";
   return currency.code_chr?.trim() || currency.name;

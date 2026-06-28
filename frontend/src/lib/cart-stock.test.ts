@@ -3,7 +3,13 @@ import {
   canAddProductToCart,
   canIncreaseCartQty,
   clampCartQty,
+  computeCheckoutStockAdjustments,
+  computePostponeStockAdjustments,
+  getBookedContinuationCartStock,
+  getCartAvailabilityStock,
+  isBookedOrderFromPartnerContinuation,
   maxCartQty,
+  shouldReserveStockOnPostpone,
 } from "@/lib/cart-stock";
 import type { Product } from "@/types/catalog";
 
@@ -63,5 +69,120 @@ describe("clampCartQty", () => {
   it("clamps totals using other-tab reservations", () => {
     expect(clampCartQty(40, 35, false, 1, 35)).toBe(0);
     expect(clampCartQty(20, 35, false, 1, 20)).toBe(15);
+  });
+});
+
+describe("booked order continuation stock", () => {
+  it("detects booked partner-order continuation", () => {
+    expect(
+      isBookedOrderFromPartnerContinuation(
+        "order_from_partner",
+        1001,
+        "doc_order_from_partner",
+        true,
+      ),
+    ).toBe(true);
+    expect(
+      isBookedOrderFromPartnerContinuation(
+        "order_from_partner",
+        1001,
+        "doc_order_from_partner",
+        false,
+      ),
+    ).toBe(false);
+    expect(
+      isBookedOrderFromPartnerContinuation(
+        "wholesale",
+        1001,
+        "doc_order_from_partner",
+        true,
+      ),
+    ).toBe(false);
+  });
+
+  it("restores cart availability for items already in the continued cart", () => {
+    expect(getBookedContinuationCartStock(90, 10)).toBe(100);
+    expect(getBookedContinuationCartStock(90, 0)).toBe(90);
+    expect(
+      getCartAvailabilityStock(90, 10, { bookedOrderContinuation: true }),
+    ).toBe(100);
+    expect(
+      getCartAvailabilityStock(90, 0, { bookedOrderContinuation: true }),
+    ).toBe(90);
+  });
+
+  it("allows editing continued booked order lines without double-counting stock", () => {
+    const p = product(90);
+    expect(
+      canAddProductToCart(p, 10, false, 0, { bookedOrderContinuation: true }),
+    ).toBe(true);
+    expect(
+      canIncreaseCartQty("1", 10, [p], false, 0, {
+        bookedOrderContinuation: true,
+      }),
+    ).toBe(true);
+    expect(
+      clampCartQty(15, 90, false, 1, 0, { bookedOrderContinuation: true }, 10),
+    ).toBe(15);
+  });
+});
+
+describe("postpone and checkout stock adjustments", () => {
+  it("reserves stock on first booked postpone", () => {
+    expect(
+      computePostponeStockAdjustments(
+        [{ productId: "1", qty: 2 }],
+        false,
+      ),
+    ).toEqual([{ productId: "1", decrement: 2, increment: 0 }]);
+  });
+
+  it("applies only qty delta when updating a postponed doc", () => {
+    expect(
+      computePostponeStockAdjustments(
+        [{ productId: "1", qty: 3, postponedQty: 2 }],
+        true,
+      ),
+    ).toEqual([{ productId: "1", decrement: 1, increment: 0 }]);
+    expect(
+      computePostponeStockAdjustments(
+        [{ productId: "1", qty: 1, postponedQty: 2 }],
+        true,
+      ),
+    ).toEqual([{ productId: "1", decrement: 0, increment: 1 }]);
+  });
+
+  it("skips checkout decrement for unchanged continued booked orders", () => {
+    expect(
+      computeCheckoutStockAdjustments(
+        [{ productId: "1", qty: 2, postponedQty: 2 }],
+        true,
+      ),
+    ).toEqual([{ productId: "1", decrement: 0, increment: 0 }]);
+  });
+
+  it("decrements checkout delta when qty increased during continuation", () => {
+    expect(
+      computeCheckoutStockAdjustments(
+        [{ productId: "1", qty: 3, postponedQty: 2 }],
+        true,
+      ),
+    ).toEqual([{ productId: "1", decrement: 1, increment: 0 }]);
+  });
+
+  it("decrements full qty on normal checkout", () => {
+    expect(
+      computeCheckoutStockAdjustments([{ productId: "1", qty: 2 }], false),
+    ).toEqual([{ productId: "1", decrement: 2, increment: 0 }]);
+  });
+
+  it("detects when postpone should reserve stock", () => {
+    expect(
+      shouldReserveStockOnPostpone("doc_order_from_partner", true),
+    ).toBe(true);
+    expect(
+      shouldReserveStockOnPostpone("doc_order_from_partner", false),
+    ).toBe(false);
+    expect(shouldReserveStockOnPostpone("doc_wholesale", true)).toBe(false);
   });
 });

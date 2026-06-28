@@ -20,7 +20,7 @@ class TelegramUser(Base, TimestampMixin):
     first_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     last_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     language_code: Mapped[str | None] = mapped_column(String(16), nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     notification_types: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     receipt_language: Mapped[str | None] = mapped_column(String(16), nullable=True)
 

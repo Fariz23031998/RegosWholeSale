@@ -11,6 +11,7 @@ import {
 } from "react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useBookedOrderContinuation } from "@/hooks/use-booked-order-continuation";
 import { usePermissions } from "@/hooks/use-permissions";
 import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
 import { canAddProductToCart } from "@/lib/cart-stock";
@@ -116,6 +117,10 @@ export function ProductCatalog() {
   const checkoutTabs = useCheckoutTabs((s) => s.tabs);
   const activeCheckoutTabId = useCheckoutTabs((s) => s.activeTabId);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
+  const bookedOrderContinuation = useBookedOrderContinuation();
+  const catalogStockOptions = bookedOrderContinuation
+    ? { bookedOrderContinuation: true as const }
+    : undefined;
   const internalBarcodeWeightPrefix = usePosConfig((s) => s.internalBarcodeWeightPrefix);
   const internalBarcodePiecePrefix = usePosConfig((s) => s.internalBarcodePiecePrefix);
   const posConfigHydrated = usePosConfig((s) => s.hydrated);
@@ -255,9 +260,10 @@ export function ProductCatalog() {
         inCart,
         allowOutOfStock,
         getReservedInOtherTabs(product.id),
+        catalogStockOptions,
       );
     },
-    [allowOutOfStock, getReservedInOtherTabs],
+    [allowOutOfStock, catalogStockOptions, getReservedInOtherTabs],
   );
 
   const firstAddableProduct = (items: Product[]) =>
@@ -271,6 +277,7 @@ export function ProductCatalog() {
           getInCartQty(product.id),
           allowOutOfStock,
           getReservedInOtherTabs(product.id),
+          catalogStockOptions,
         )
       ) {
         return;
@@ -279,7 +286,7 @@ export function ProductCatalog() {
         add(product);
       });
     },
-    [add, allowOutOfStock, getReservedInOtherTabs],
+    [add, allowOutOfStock, catalogStockOptions, getReservedInOtherTabs],
   );
 
   const catalogFetchParams = useCallback(
@@ -716,11 +723,13 @@ export function ProductCatalog() {
       },
       catalogOverrides,
       allowOutOfStock,
+      bookedOrderContinuation,
       getInCartQty,
       getReservedInOtherTabs,
     }),
     [
       allowOutOfStock,
+      bookedOrderContinuation,
       catalogOverrides,
       getReservedInOtherTabs,
       internalBarcodePiecePrefix,
@@ -921,6 +930,7 @@ export function ProductCatalog() {
                   view={view}
                   allowOutOfStock={allowOutOfStock}
                   reservedInOtherTabs={getReservedInOtherTabs(p.id)}
+                  bookedOrderContinuation={bookedOrderContinuation}
                   onAdd={handleAddToCart}
                   onToggleFeatured={toggleFeatured}
                 />

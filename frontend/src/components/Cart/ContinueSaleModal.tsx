@@ -49,8 +49,15 @@ function operationsToCartItems(
         t("sales.itemFallback", "Item #{{id}}", { id: op.item_id }),
       price: operativeOperationPrice(op.price, op.price2, currency),
       qty: op.quantity,
+      postponedQty: op.quantity,
       image: catalogProduct?.image ?? PRODUCT_FALLBACK_IMAGE,
       unitType: catalogProduct?.unit_type ?? null,
+      itemCode: op.item_code ?? catalogProduct?.code ?? null,
+      itemArticul: op.item?.articul ?? catalogProduct?.articul ?? null,
+      itemGroupId: op.item_group_id ?? catalogProduct?.group_id ?? null,
+      itemGroupName: op.item_group_name ?? catalogProduct?.category ?? null,
+      itemUnitName: op.item_unit_name ?? catalogProduct?.unit_name ?? null,
+      itemBrand: op.item_brand ?? null,
     };
   });
 }
@@ -123,6 +130,7 @@ export function ContinueSaleModal({ open, onClose }: Props) {
     void fetchWholesaleDocuments(accessToken, {
       performed: documentKind === "wholesale" ? false : undefined,
       document_kind: documentKind,
+      continuable_only: documentKind === "order_from_partner",
       limit: 100,
     })
       .then((response) => {

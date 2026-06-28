@@ -16,6 +16,7 @@ type PosConfigState = {
   internalBarcodeWeightPrefix: string;
   internalBarcodePiecePrefix: string;
   postponeDocumentType: PostponeDocumentType;
+  postponeOrderBooked: boolean;
   defaultCategory: DefaultCategorySetting;
   hydrated: boolean;
   hydrate: (token: string | null, options?: HydrateOptions) => Promise<void>;
@@ -33,6 +34,7 @@ export const usePosConfig = create<PosConfigState>((set, get) => ({
   internalBarcodeWeightPrefix: "22",
   internalBarcodePiecePrefix: "23",
   postponeDocumentType: "doc_wholesale",
+  postponeOrderBooked: true,
   defaultCategory: DEFAULT_CATEGORY_ALL,
   hydrated: false,
   hydrate: async (token, options) => {
@@ -51,6 +53,7 @@ export const usePosConfig = create<PosConfigState>((set, get) => ({
         internalBarcodeWeightPrefix: "22",
         internalBarcodePiecePrefix: "23",
         postponeDocumentType: "doc_wholesale",
+        postponeOrderBooked: true,
         defaultCategory: DEFAULT_CATEGORY_ALL,
         hydrated: true,
       });
@@ -84,6 +87,7 @@ export const usePosConfig = create<PosConfigState>((set, get) => ({
             res.settings.internal_barcode_piece_prefix ?? "23",
           postponeDocumentType:
             res.settings.postpone_document_type ?? "doc_wholesale",
+          postponeOrderBooked: res.settings.postpone_order_booked ?? true,
           defaultCategory: res.settings.default_category,
         });
       } catch {
@@ -95,6 +99,7 @@ export const usePosConfig = create<PosConfigState>((set, get) => ({
           internalBarcodeWeightPrefix: "22",
           internalBarcodePiecePrefix: "23",
           postponeDocumentType: "doc_wholesale",
+          postponeOrderBooked: true,
           defaultCategory: DEFAULT_CATEGORY_ALL,
         });
       } finally {

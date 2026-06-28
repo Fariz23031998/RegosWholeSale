@@ -32,6 +32,7 @@ import {
   parseInternalBarcode,
 } from "@/lib/barcode";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
+import { operativeOperationPrice } from "@/lib/currency-conversion";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import {
   fetchWholesaleDocuments,
@@ -97,11 +98,6 @@ export function ReturnModal({ open, onClose }: Props) {
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [selectedSale, setSelectedSale] = useState<WholesaleDocument | null>(null);
 
-  const periodParams = useMemo(
-    () => resolveDashboardPeriodParams(periodPreset, customRange),
-    [customRange, periodPreset],
-  );
-
   const periodModalRange = useMemo(() => {
     if (periodPreset === "custom" && customRange) return customRange;
     if (periodPreset !== "custom") return presetToCustomRange(periodPreset);
@@ -154,7 +150,8 @@ export function ReturnModal({ open, onClose }: Props) {
 
     let cancelled = false;
     setDocumentsLoading(true);
-    void fetchWholesaleDocuments(accessToken, { ...periodParams, performed: true, limit: 100 })
+    const params = resolveDashboardPeriodParams(periodPreset, customRange);
+    void fetchWholesaleDocuments(accessToken, { ...params, performed: true, limit: 100 })
       .then((res) => {
         if (!cancelled) setDocuments(res.documents);
       })
@@ -168,7 +165,7 @@ export function ReturnModal({ open, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, accessToken, sourceMode, periodParams, t]);
+  }, [open, accessToken, sourceMode, periodPreset, customRange, t]);
 
   useEffect(() => {
     if (!open || !accessToken) return;
@@ -258,7 +255,7 @@ export function ReturnModal({ open, onClose }: Props) {
       setLines(
         opsRes.operations
           .filter((op) => op.item_id > 0)
-          .map((op) => mapOperationToLine(op, returnedByItem.get(op.item_id) ?? 0)),
+          .map((op) => mapOperationToLine(op, returnedByItem.get(op.item_id) ?? 0, doc.currency)),
       );
     } catch (err: unknown) {
       setError(formatAuthError(err, t("returns.errors.loadDetails")));
@@ -269,13 +266,14 @@ export function ReturnModal({ open, onClose }: Props) {
   const mapOperationToLine = (
     op: WholesaleOperationLine,
     returnedQty: number,
+    saleCurrency?: WholesaleDocument["currency"],
   ): ReturnLine => {
     const soldQty = op.quantity;
     const remaining = Math.max(0, soldQty - returnedQty);
     return {
       regosItemId: op.item_id,
       name: op.item_name ?? t("sales.itemFallback", undefined, { id: op.item_id }),
-      price: op.price,
+      price: operativeOperationPrice(op.price, op.price2, saleCurrency),
       qty: 0,
       maxQty: remaining,
       soldQty,
@@ -630,7 +628,7 @@ export function ReturnModal({ open, onClose }: Props) {
                                 </div>
                               </div>
                               <div className={styles.saleAmount}>
-                                {formatCurrency(doc.amount ?? 0)}
+                                {formatAmountWithCurrency(doc.amount ?? 0, doc.currency)}
                               </div>
                             </button>
                           ))}
@@ -669,7 +667,7 @@ export function ReturnModal({ open, onClose }: Props) {
                                   )}
                                 </div>
                                 <div className={styles.itemMeta}>
-                                  {formatCurrency(line.price)} {t("returns.modal.ea")} · {t("returns.modal.sold")} {line.soldQty}
+                                  {formatAmountWithCurrency(line.price, returnCurrency)} {t("returns.modal.ea")} · {t("returns.modal.sold")} {line.soldQty}
                                   {(line.returnedQty ?? 0) > 0 &&
                                     ` · ${line.returnedQty} ${t("returns.modal.alreadyReturned")}`}
                                 </div>
@@ -684,7 +682,7 @@ export function ReturnModal({ open, onClose }: Props) {
                               </button>
                               <div className={styles.itemMeta}>/ {max}</div>
                               <div className={styles.amount}>
-                                {formatCurrency(line.price * line.qty)}
+                                {formatAmountWithCurrency(line.price * line.qty, returnCurrency)}
                               </div>
                             </div>
                           );

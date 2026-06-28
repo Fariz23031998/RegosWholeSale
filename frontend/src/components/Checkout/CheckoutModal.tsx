@@ -10,6 +10,11 @@ import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { useCheckoutTabs } from "@/store/checkout-tabs";
+import {
+  applyStockAdjustments,
+  computeCheckoutStockAdjustments,
+  isBookedOrderFromPartnerContinuation,
+} from "@/lib/cart-stock";
 import { extractWholesaleDocIdFromError } from "@/lib/checkout-error";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
 import { checkoutSale } from "@/lib/sales-api";
@@ -21,6 +26,8 @@ import {
   buildCheckoutCartLines,
   buildPrintContextFromCartDraft,
   buildPrintContextFromCheckout,
+  loadPrintContextFromCartDraft,
+  loadPrintContextFromCheckout,
 } from "@/lib/receipt-context-builder";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
@@ -66,14 +73,19 @@ export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
   const partners = useSellContext((s) => s.options.partners);
   const warehouses = useSellContext((s) => s.options.warehouses);
   const postponedWholesaleDocId = useCart((s) => s.postponedWholesaleDocId);
+  const postponedDocType = useCart((s) => s.postponedDocType);
   const decrementStock = useCatalog((s) => s.decrementStock);
+  const incrementStock = useCatalog((s) => s.incrementStock);
   const catalogProducts = useCatalog((s) => s.products);
+  const postponeDocumentType = usePosConfig((s) => s.postponeDocumentType);
+  const postponeOrderBooked = usePosConfig((s) => s.postponeOrderBooked);
   const tenderedQuickAmounts = usePosConfig((s) => s.tenderedQuickAmounts);
 
   const [processing, setProcessing] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [draftPrintContext, setDraftPrintContext] = useState<DocumentPrintContext | null>(null);
   const [completedContext, setCompletedContext] = useState<DocumentPrintContext | null>(null);
+  const [draftPrintLoading, setDraftPrintLoading] = useState(false);
 
   const reset = () => {
     setProcessing(false);
@@ -87,7 +99,7 @@ export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
   };
 
   const openDraftPrint = () => {
-    if (processing || items.length === 0) return;
+    if (processing || draftPrintLoading || items.length === 0) return;
 
     const cartItems = items.filter((item) => item.regosItemId > 0);
     if (cartItems.length !== items.length) {
@@ -97,22 +109,31 @@ export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
 
     const partner = partners.find((entry) => entry.id === partnerId) ?? null;
     const warehouse = warehouses.find((entry) => entry.id === warehouseId) ?? null;
+    const draftInput = {
+      items: cartItems,
+      totals,
+      catalogProducts,
+      saleCurrency,
+      partnerId,
+      partnerName: partner?.name ?? null,
+      stockId: warehouseId,
+      stockName: warehouse?.name ?? null,
+      cashierId: cashier?.id ?? null,
+      cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
+      wholesaleDocId: postponedWholesaleDocId,
+    };
 
-    setDraftPrintContext(
-      buildPrintContextFromCartDraft({
-        items: cartItems,
-        totals,
-        catalogProducts,
-        saleCurrency,
-        partnerId,
-        partnerName: partner?.name ?? null,
-        stockId: warehouseId,
-        stockName: warehouse?.name ?? null,
-        cashierId: cashier?.id ?? null,
-        cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
-        wholesaleDocId: postponedWholesaleDocId,
-      }),
-    );
+    setDraftPrintLoading(true);
+    void loadPrintContextFromCartDraft(accessToken, draftInput)
+      .then((context) => {
+        setDraftPrintContext(context);
+      })
+      .catch(() => {
+        setDraftPrintContext(buildPrintContextFromCartDraft(draftInput));
+      })
+      .finally(() => {
+        setDraftPrintLoading(false);
+      });
   };
 
   const buildSalePaymentLines = (
@@ -179,6 +200,10 @@ export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
       postponedDocType === "wholesale" || postponedDocType == null
         ? postponedWholesaleDocId
         : null;
+    const orderFromPartnerDocId =
+      postponedDocType === "order_from_partner" && postponedWholesaleDocId != null
+        ? postponedWholesaleDocId
+        : null;
 
     try {
       const result = await checkoutSale(accessToken, {
@@ -191,6 +216,9 @@ export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
         total: totals.total,
         description: `POS ${cashier.name}`,
         ...(wholesaleDocId ? { wholesale_doc_id: wholesaleDocId } : {}),
+        ...(orderFromPartnerDocId
+          ? { order_from_partner_doc_id: orderFromPartnerDocId }
+          : {}),
         ...(payload.payments
           ? { payments: payload.payments }
           : {
@@ -257,19 +285,37 @@ export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
         cashierId: cashier?.id ?? null,
         cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
       };
-      cartItems.forEach((item) => decrementStock(item.productId, item.qty));
+      applyStockAdjustments(
+        computeCheckoutStockAdjustments(
+          cartItems,
+          isBookedOrderFromPartnerContinuation(
+            postponedDocType,
+            postponedWholesaleDocId,
+            postponeDocumentType,
+            postponeOrderBooked,
+          ),
+        ),
+        decrementStock,
+        incrementStock,
+      );
       clearCart();
       clearActiveTabAfterCheckout();
-      const printContext = buildPrintContextFromCheckout(
-        {
-          result,
-          sale,
-          cartLines,
-          documentExtras,
-        },
-        [],
-        t("checkout.paymentFallback", "Payment"),
-      );
+      const checkoutPrintInput = {
+        result,
+        sale,
+        cartLines,
+        documentExtras,
+      };
+      const paymentFallback = t("checkout.paymentFallback", "Payment");
+      const printContext = accessToken
+        ? await loadPrintContextFromCheckout(
+            accessToken,
+            checkoutPrintInput,
+            [],
+            paymentFallback,
+            t,
+          )
+        : buildPrintContextFromCheckout(checkoutPrintInput, [], paymentFallback);
       setCompletedContext(printContext);
       reset();
       onClose();
@@ -302,7 +348,7 @@ export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
             type="button"
             className={styles.headerPrintBtn}
             onClick={openDraftPrint}
-            disabled={processing || items.length === 0}
+            disabled={processing || draftPrintLoading || items.length === 0}
             aria-label={t("sales.printModalTitle", "Print sale")}
             title={t("sales.printModalTitle", "Print sale")}
           >

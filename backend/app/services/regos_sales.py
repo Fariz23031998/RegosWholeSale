@@ -11,11 +11,16 @@ from app.core.regos_api import regos_async_api_request_for_company
 from app.core.regos_batch import regos_batch_request_chunks_for_company, regos_batch_request_for_company
 from app.services import pos_settings as pos_settings_service
 from app.services import regos_defaults as regos_defaults_service
-from app.services.regos_defaults import _extract_currency_reference
+from app.services.regos_defaults import _extract_currency_reference, _normalize_option
 from app.services import regos_fields as regos_fields_service
 from app.services import regos_payment_linking as regos_payment_linking_service
 from app.services import regos_payment_types as regos_payment_types_service
 from app.services import regos_products as regos_products_service
+from app.regos.doc_order_from_partner_statuses import (
+    DOC_ORDER_FROM_PARTNER_CONTINUABLE_STATUS_IDS,
+    DOC_ORDER_FROM_PARTNER_DEFAULT_STATUS_ID,
+    DOC_ORDER_FROM_PARTNER_STATUS_FINISHED,
+)
 from app.utils.currency_conversion import convert_between_rates, parse_exchange_rate, same_currency
 
 WHOLESALE_RETURN_SOURCE_PREFIX = "pulse:ws:"
@@ -148,6 +153,16 @@ async def complete_checkout(
                     payment_dates=payment_dates,
                     cross_currency_payment_mode=cross_currency_payment_mode,
                 )
+            )
+
+        order_from_partner_doc_id = payload.get("order_from_partner_doc_id")
+        if (
+            order_from_partner_doc_id is not None
+            and pos_settings.get("postpone_document_type", "doc_wholesale")
+            == "doc_order_from_partner"
+        ):
+            await _finish_order_from_partner_document(
+                session, company_id, int(order_from_partner_doc_id)
             )
 
         wholesale_code = str(doc_id)
@@ -432,6 +447,7 @@ async def list_order_from_partner_documents(
     all_stocks: bool = False,
     offset: int = 0,
     limit: int = 50,
+    continuable_only: bool = False,
 ) -> dict[str, Any]:
     payload = await _build_order_document_list_payload(
         session,
@@ -448,7 +464,16 @@ async def list_order_from_partner_documents(
     )
 
     response = await _regos_call(session, company_id, "docorderfrompartner/get", payload)
-    return _parse_document_list_response(response, _map_order_from_partner_document)
+    data = _parse_document_list_response(response, _map_order_from_partner_document)
+    if continuable_only:
+        documents = [
+            document
+            for document in data["documents"]
+            if document.get("status_id") in DOC_ORDER_FROM_PARTNER_CONTINUABLE_STATUS_IDS
+        ]
+        data["documents"] = documents
+        data["total"] = len(documents)
+    return data
 
 
 async def list_wholesale_operations(
@@ -848,6 +873,58 @@ async def get_wholesale_return_summary(
     return {"wholesale_doc_id": wholesale_doc_id, "items": items}
 
 
+async def _fetch_wholesale_document_by_id(
+    session: AsyncSession,
+    company_id: int,
+    document_id: int,
+) -> dict[str, Any]:
+    response = await _regos_call(session, company_id, "docwholesale/get", {"ids": [document_id]})
+    result = response.get("result")
+    if isinstance(result, list) and result:
+        document = result[0]
+        if isinstance(document, dict):
+            return document
+    if isinstance(result, dict) and result.get("id"):
+        return result
+    raise bad_request(
+        f"Wholesale sale {document_id} was not found.",
+        "WHOLESALE_DOCUMENT_NOT_FOUND",
+    )
+
+
+async def _apply_source_wholesale_document_defaults(
+    session: AsyncSession,
+    company_id: int,
+    defaults: dict[str, Any],
+    source_document: dict[str, Any],
+) -> dict[str, Any]:
+    updated = dict(defaults)
+
+    currency = _extract_currency_reference(source_document, "currency")
+    if currency:
+        updated["currency"] = currency
+
+    price_type = _normalize_option(source_document.get("price_type"))
+    if price_type:
+        updated["price_type"] = price_type
+    elif currency and isinstance(currency.get("id"), int):
+        matched = await regos_defaults_service.find_price_type_for_currency(
+            session,
+            company_id,
+            int(currency["id"]),
+        )
+        if matched:
+            updated["price_type"] = matched
+
+    stock = source_document.get("stock")
+    if isinstance(stock, dict):
+        warehouse = _normalize_option(stock)
+        if warehouse:
+            updated["warehouse"] = warehouse
+
+    return updated
+
+
 async def complete_wholesale_return(
     session: AsyncSession,
     company_id: int,
@@ -950,6 +1027,14 @@ async def complete_wholesale_return(
         if wholesale_doc_id <= 0:
             raise bad_request("Invalid wholesale document id.", "INVALID_DOCUMENT_ID")
 
+        source_document = await _fetch_wholesale_document_by_id(
+            session, company_id, wholesale_doc_id
+        )
+        defaults = await _apply_source_wholesale_document_defaults(
+            session, company_id, defaults, source_document
+        )
+        sale_currency = defaults.get("currency")
+
         sale_ops = await list_wholesale_operations(session, company_id, wholesale_doc_id)
         sold_by_item = {
             int(op["item_id"]): op for op in sale_ops["operations"] if int(op["item_id"]) > 0
@@ -991,7 +1076,7 @@ async def complete_wholesale_return(
             operative_price = operative_operation_price(
                 price,
                 price2,
-                defaults.get("currency"),
+                sale_currency,
             )
             expected_total += qty * operative_price
             lines.append(
@@ -1530,15 +1615,12 @@ async def _add_order_from_partner_document(
     *,
     booked: bool = True,
 ) -> dict[str, Any]:
-    status_id = await regos_defaults_service.get_doc_order_from_partner_default_status_id(
-        session, company_id
-    )
     payload: dict[str, Any] = {
         "date": int(time.time()),
         "partner_id": defaults["partner"]["id"],
         "stock_id": defaults["warehouse"]["id"],
         "currency_id": defaults["currency"]["id"],
-        "status_id": status_id,
+        "status_id": DOC_ORDER_FROM_PARTNER_DEFAULT_STATUS_ID,
         "vat_calculation_type": defaults.get(
             "vat_calculation_type", regos_defaults_service.DEFAULT_VAT_CALCULATION_TYPE
         ),
@@ -1557,6 +1639,25 @@ async def _add_order_from_partner_document(
 
     response = await _regos_call(session, company_id, "docorderfrompartner/add", payload)
     return _extract_new_document(response)
+
+
+async def _finish_order_from_partner_document(
+    session: AsyncSession,
+    company_id: int,
+    doc_id: int,
+) -> None:
+    if doc_id <= 0:
+        raise bad_request("Invalid order document id.", "INVALID_DOCUMENT_ID")
+    await _regos_call(session, company_id, "docorderfrompartner/lock", {"ids": [doc_id]})
+    try:
+        await _regos_call(
+            session,
+            company_id,
+            "docorderfrompartner/edit",
+            {"id": doc_id, "status_id": DOC_ORDER_FROM_PARTNER_STATUS_FINISHED},
+        )
+    finally:
+        await _regos_call(session, company_id, "docorderfrompartner/unlock", {"ids": [doc_id]})
 
 
 async def _add_order_from_partner_operations(
@@ -1595,6 +1696,14 @@ async def _add_wholesale_return_document(
         ),
         "description": description,
     }
+    price_type = defaults.get("price_type")
+    if isinstance(price_type, dict) and price_type.get("id"):
+        payload["price_type_id"] = price_type["id"]
+    currency = defaults.get("currency")
+    if isinstance(currency, dict):
+        exchange_rate = parse_exchange_rate(currency.get("exchange_rate"))
+        if exchange_rate != 1.0:
+            payload["exchange_rate"] = exchange_rate
     attached_user = defaults.get("attached_user")
     if attached_user:
         payload["attached_user_id"] = attached_user["id"]
@@ -1766,6 +1875,9 @@ def _extract_return_overrides(
     is_sale_linked: bool,
 ) -> dict[str, int]:
     overrides = _extract_session_overrides(payload, permissions)
+    if is_sale_linked:
+        overrides.pop("price_type_id", None)
+        overrides.pop("warehouse_id", None)
     if is_sale_linked and payload.get("partner_id") is not None and "pos.change_partner" in permissions:
         overrides["partner_id"] = int(payload["partner_id"])
     return overrides
@@ -2268,9 +2380,24 @@ def _partner_phone_from_row(partner: dict[str, Any]) -> str | None:
     return None
 
 
+def _extract_document_status_id(item: dict[str, Any]) -> int | None:
+    status_id = item.get("status_id")
+    if isinstance(status_id, int) and status_id > 0:
+        return status_id
+    status = item.get("status")
+    if isinstance(status, dict):
+        raw_id = status.get("id")
+        if isinstance(raw_id, int) and raw_id > 0:
+            return raw_id
+    return None
+
+
 def _map_order_from_partner_document(item: dict[str, Any]) -> dict[str, Any]:
     mapped = _map_wholesale_document(item)
     mapped["performed"] = False
+    status_id = _extract_document_status_id(item)
+    if status_id is not None:
+        mapped["status_id"] = status_id
     return mapped
 
 

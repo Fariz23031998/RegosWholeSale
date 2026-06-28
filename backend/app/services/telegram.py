@@ -258,7 +258,6 @@ async def _upsert_telegram_user(
         row.first_name = from_user.get("first_name")
         row.last_name = from_user.get("last_name")
         row.language_code = from_user.get("language_code")
-        row.is_active = True
         if row.notification_types is None:
             row.notification_types = default_notification_types()
         if row.receipt_language is None:
@@ -272,7 +271,7 @@ async def _upsert_telegram_user(
             first_name=from_user.get("first_name"),
             last_name=from_user.get("last_name"),
             language_code=from_user.get("language_code"),
-            is_active=True,
+            is_active=False,
             notification_types=default_notification_types(),
             receipt_language=default_receipt_language(from_user.get("language_code")),
         )
@@ -357,12 +356,13 @@ async def handle_webhook_update(
 
     try:
         lang = resolve_receipt_language(row.receipt_language, row.language_code)
+        message_key = "telegram.welcome" if row.is_active else "telegram.welcomePending"
         await _telegram_api_call(
             bot.bot_token,
             "sendMessage",
             {
                 "chat_id": chat["id"],
-                "text": t("telegram.welcome", lang),
+                "text": t(message_key, lang),
             },
         )
     except Exception:

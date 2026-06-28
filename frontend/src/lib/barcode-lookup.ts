@@ -20,6 +20,7 @@ export type BarcodeLookupOptions = {
   prefixes: InternalBarcodePrefixes;
   catalogOverrides: { warehouseId?: number; priceTypeId?: number };
   allowOutOfStock: boolean;
+  bookedOrderContinuation?: boolean;
   getInCartQty: (productId: string) => number;
   getReservedInOtherTabs: (productId: string) => number;
 };
@@ -34,8 +35,17 @@ export async function lookupProductForBarcode(
     return { ok: false, reason: "not_found" };
   }
 
-  const { prefixes, catalogOverrides, allowOutOfStock, getInCartQty, getReservedInOtherTabs } =
-    options;
+  const {
+    prefixes,
+    catalogOverrides,
+    allowOutOfStock,
+    bookedOrderContinuation = false,
+    getInCartQty,
+    getReservedInOtherTabs,
+  } = options;
+  const catalogStockOptions = bookedOrderContinuation
+    ? { bookedOrderContinuation: true as const }
+    : undefined;
   const parsedInternal = parseInternalBarcode(term, prefixes);
   const fetchParams = {
     offset: 0,
@@ -68,6 +78,8 @@ export async function lookupProductForBarcode(
       allowOutOfStock,
       product.unit_type,
       reservedInOtherTabs,
+      catalogStockOptions,
+      inCart,
     );
     const qtyToAdd = clampedTotal - inCart;
     if (qtyToAdd <= 0) {
@@ -89,6 +101,7 @@ export async function lookupProductForBarcode(
       getInCartQty(product.id),
       allowOutOfStock,
       getReservedInOtherTabs(product.id),
+      catalogStockOptions,
     )
   ) {
     return { ok: false, reason: "not_found" };

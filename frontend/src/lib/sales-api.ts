@@ -25,6 +25,7 @@ export type CheckoutRequest = {
   change?: number;
   description?: string;
   wholesale_doc_id?: number;
+  order_from_partner_doc_id?: number;
   warehouse_id?: number;
   price_type_id?: number;
   partner_id?: number;
@@ -99,6 +100,7 @@ export type WholesaleDocument = {
   attached_user_name: string | null;
   amount: number | null;
   performed: boolean;
+  status_id?: number | null;
   currency?: RegosCurrencyOption | null;
 };
 
@@ -250,6 +252,7 @@ export type WholesaleDocumentsQuery = {
   partner_ids?: number[];
   performed?: boolean;
   document_kind?: PostponedDocumentKind;
+  continuable_only?: boolean;
   offset?: number;
   limit?: number;
 };
@@ -268,6 +271,7 @@ function buildWholesaleDocumentsSearch(params: WholesaleDocumentsQuery): string 
   if (params.all_partners !== undefined) search.set("all_partners", params.all_partners ? "true" : "false");
   if (params.performed !== undefined) search.set("performed", params.performed ? "true" : "false");
   if (params.document_kind !== undefined) search.set("document_kind", params.document_kind);
+  if (params.continuable_only) search.set("continuable_only", "true");
   if (params.stock_ids?.length) {
     for (const stockId of params.stock_ids) {
       search.append("stock_ids", String(stockId));

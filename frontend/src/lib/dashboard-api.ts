@@ -128,8 +128,8 @@ export type DashboardOverview = {
   stats: DashboardStats;
   products: DashboardProductRow[];
   totals: DashboardProductTotals;
-  next_offset: number;
   total: number;
+  payments: DashboardPaymentsPage;
 };
 
 export type DashboardPeriodPreset = "today" | "week" | "month" | "all" | "custom";
@@ -157,13 +157,10 @@ export type DashboardQueryParams = {
   currency_mode?: DashboardCurrencyMode;
 };
 
-export const DASHBOARD_PRODUCTS_PAGE_SIZE = 50;
-export const DASHBOARD_PAYMENTS_PAGE_SIZE = 50;
-
 const DASHBOARD_STATS_TIMEOUT_MS = 60_000;
-const DASHBOARD_OVERVIEW_TIMEOUT_MS = 90_000;
-const DASHBOARD_PRODUCTS_TIMEOUT_MS = 90_000;
-const DASHBOARD_PAYMENTS_TIMEOUT_MS = 90_000;
+const DASHBOARD_OVERVIEW_TIMEOUT_MS = 120_000;
+const DASHBOARD_PRODUCTS_TIMEOUT_MS = 120_000;
+const DASHBOARD_PAYMENTS_TIMEOUT_MS = 120_000;
 
 export type TranslateFn = (
   key: string,
@@ -438,11 +435,8 @@ export async function fetchDashboardOverview(
   token: string,
   params: DashboardQueryParams = {},
 ): Promise<DashboardOverview> {
-  const qs = buildDashboardSearch(params, {
-    offset: 0,
-    limit: DASHBOARD_PRODUCTS_PAGE_SIZE,
-  });
-  return apiRequest(`/api/v1/dashboard/overview?${qs}`, {
+  const qs = buildDashboardSearch(params);
+  return apiRequest(`/api/v1/dashboard/overview${qs ? `?${qs}` : ""}`, {
     token,
     timeoutMs: DASHBOARD_OVERVIEW_TIMEOUT_MS,
   });
@@ -461,123 +455,22 @@ export async function fetchDashboardStats(
 
 export async function fetchDashboardProducts(
   token: string,
-  params: DashboardQueryParams & {
-    offset?: number;
-    limit?: number;
-  } = {},
+  params: DashboardQueryParams = {},
 ): Promise<DashboardProductsPage> {
-  const { offset, limit, ...filters } = params;
-  const qs = buildDashboardSearch(filters, {
-    offset: offset ?? 0,
-    limit: limit ?? DASHBOARD_PRODUCTS_PAGE_SIZE,
-  });
-  return apiRequest(`/api/v1/dashboard/products?${qs}`, {
+  const qs = buildDashboardSearch(params);
+  return apiRequest(`/api/v1/dashboard/products${qs ? `?${qs}` : ""}`, {
     token,
     timeoutMs: DASHBOARD_PRODUCTS_TIMEOUT_MS,
   });
 }
 
-export async function fetchAllDashboardProducts(
-  token: string,
-  params: DashboardQueryParams = {},
-): Promise<{ products: DashboardProductRow[]; totals: DashboardProductTotals }> {
-  const products: DashboardProductRow[] = [];
-  let offset = 0;
-  let totals: DashboardProductTotals | null = null;
-
-  while (true) {
-    const page = await fetchDashboardProducts(token, { ...params, offset });
-    if (!totals) {
-      totals = page.totals;
-    }
-    products.push(...page.products);
-    if (!page.next_offset) {
-      break;
-    }
-    offset = page.next_offset;
-  }
-
-  return {
-    products,
-    totals: totals ?? {
-      sold_quantity: 0,
-      sold_purchase_cost: 0,
-      sold_total: 0,
-      refund_quantity: 0,
-      refund_purchase_cost: 0,
-      refund_total: 0,
-      net_sold_quantity: 0,
-      net_purchase_cost: 0,
-      net_total_sells: 0,
-      net_gross_profit: 0,
-    },
-  };
-}
-
 export async function fetchDashboardPayments(
   token: string,
-  params: DashboardQueryParams & {
-    offset?: number;
-    limit?: number;
-  } = {},
+  params: DashboardQueryParams = {},
 ): Promise<DashboardPaymentsPage> {
-  const { offset, limit, ...filters } = params;
-  const qs = buildDashboardSearch(filters, {
-    offset: offset ?? 0,
-    limit: limit ?? DASHBOARD_PAYMENTS_PAGE_SIZE,
-  });
-  return apiRequest(`/api/v1/dashboard/payments?${qs}`, {
+  const qs = buildDashboardSearch(params);
+  return apiRequest(`/api/v1/dashboard/payments${qs ? `?${qs}` : ""}`, {
     token,
     timeoutMs: DASHBOARD_PAYMENTS_TIMEOUT_MS,
   });
-}
-
-export async function fetchAllDashboardPayments(
-  token: string,
-  params: DashboardQueryParams = {},
-): Promise<DashboardPaymentsPage> {
-  let incomePayments: DashboardPaymentRow[] = [];
-  let outcomePayments: DashboardPaymentRow[] = [];
-  let offset = 0;
-  let snapshot: DashboardPaymentsPage | null = null;
-
-  while (true) {
-    const page = await fetchDashboardPayments(token, { ...params, offset });
-    if (!snapshot) {
-      snapshot = page;
-    }
-    incomePayments = mergePaymentRows(incomePayments, page.income_payments);
-    outcomePayments = mergePaymentRows(outcomePayments, page.outcome_payments);
-    if (!page.next_offset) {
-      break;
-    }
-    offset = page.next_offset;
-  }
-
-  return {
-    income_payments: incomePayments,
-    outcome_payments: outcomePayments,
-    income_payment_category_name: snapshot?.income_payment_category_name ?? null,
-    outcome_payment_category_name: snapshot?.outcome_payment_category_name ?? null,
-    income_payments_total: snapshot?.income_payments_total ?? 0,
-    outcome_payments_total: snapshot?.outcome_payments_total ?? 0,
-    income_total: snapshot?.income_total ?? incomePayments.length,
-    outcome_total: snapshot?.outcome_total ?? outcomePayments.length,
-    next_offset: 0,
-  };
-}
-
-function mergePaymentRows(
-  current: DashboardPaymentRow[],
-  incoming: DashboardPaymentRow[],
-): DashboardPaymentRow[] {
-  const seen = new Set(current.map((row) => row.id));
-  const merged = [...current];
-  for (const row of incoming) {
-    if (!seen.has(row.id)) {
-      seen.add(row.id);
-      merged.push(row);
-    }
-  }
-  return merged;
 }

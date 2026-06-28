@@ -128,5 +128,5 @@ class DashboardOverviewResponse(BaseModel):
     stats: DashboardStatsResponse
     products: list[DashboardProductRow] = Field(default_factory=list)
     totals: DashboardProductTotals = Field(default_factory=DashboardProductTotals)
-    next_offset: int = 0
     total: int = 0
+    payments: DashboardPaymentsResponse = Field(default_factory=DashboardPaymentsResponse)

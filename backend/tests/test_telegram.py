@@ -128,6 +128,7 @@ async def test_webhook_start_creates_user(client, monkeypatch, session_factory):
         assert users[0].telegram_user_id == 999888
         assert users[0].username == "alice"
         assert users[0].first_name == "Alice"
+        assert users[0].is_active is False
 
 
 @pytest.mark.asyncio
@@ -169,6 +170,66 @@ async def test_webhook_start_is_idempotent(client, monkeypatch, session_factory)
         users = list(result.scalars().all())
         assert len(users) == 1
         assert users[0].username == "bob"
+        assert users[0].is_active is False
+
+
+@pytest.mark.asyncio
+async def test_webhook_start_does_not_reactivate_inactive_user(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "reactivate-telegram@test.com")
+
+    save_response = await client.put(
+        "/api/v1/telegram/bot",
+        json={"bot_token": "123456:ABC-DEF"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    webhook_secret = save_response.json()["bot"]["webhook_url"].split("/")[-1]
+
+    update = {
+        "update_id": 7,
+        "message": {
+            "message_id": 14,
+            "from": {
+                "id": 333222,
+                "is_bot": False,
+                "first_name": "Eve",
+                "username": "eve",
+            },
+            "chat": {"id": 333222, "type": "private", "first_name": "Eve"},
+            "text": "/start",
+        },
+    }
+
+    await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=update)
+
+    list_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    user_id = list_response.json()[0]["id"]
+    assert list_response.json()[0]["is_active"] is False
+
+    activate_response = await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"is_active": True},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert activate_response.status_code == 200
+    assert activate_response.json()["is_active"] is True
+
+    deactivate_response = await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"is_active": False},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert deactivate_response.status_code == 200
+
+    await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=update)
+
+    async with session_factory() as session:
+        result = await session.execute(select(TelegramUser))
+        user = result.scalar_one()
+        assert user.is_active is False
 
 
 @pytest.mark.asyncio

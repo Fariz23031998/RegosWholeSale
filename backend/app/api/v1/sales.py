@@ -74,6 +74,7 @@ async def get_wholesale_documents(
     all_stocks: bool = Query(default=True),
     performed: bool | None = Query(default=None),
     document_kind: str | None = Query(default=None),
+    continuable_only: bool = Query(default=False),
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=50, ge=1, le=200),
     current: CurrentUser = Depends(get_current_user),
@@ -101,6 +102,7 @@ async def get_wholesale_documents(
             session,
             current.company_id,
             user_id=current.id,
+            continuable_only=continuable_only,
             **list_kwargs,
         )
     else:

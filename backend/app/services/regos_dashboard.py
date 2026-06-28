@@ -13,9 +13,8 @@ from app.services import regos_sales as regos_sales_service
 from app.utils.currency_conversion import convert_between_rates
 
 DAY_SECONDS = 24 * 60 * 60
-DASHBOARD_PRODUCTS_PAGE_SIZE = 50
-DASHBOARD_PAYMENTS_PAGE_SIZE = 50
 DASHBOARD_STATS_PAYMENTS_PREVIEW_SIZE = 20
+DASHBOARD_CATALOG_IDS_CHUNK_SIZE = 200
 PERIOD_CACHE_TTL_SECONDS = 120
 UNKNOWN_CURRENCY_KEY = 0
 CURRENCY_MODE_ALL = "all"
@@ -319,8 +318,6 @@ async def get_dashboard_products(
     all_partners: bool = True,
     stock_ids: list[int] | None = None,
     all_stocks: bool = True,
-    offset: int = 0,
-    limit: int = DASHBOARD_PRODUCTS_PAGE_SIZE,
     currency_id: int | None = None,
     currency_mode: str = CURRENCY_MODE_ALL,
 ) -> dict[str, Any]:
@@ -346,8 +343,6 @@ async def get_dashboard_products(
         user_id,
         period,
         defaults,
-        offset=offset,
-        limit=limit,
         currency_id=currency_id,
         currency_mode=currency_mode,
     )
@@ -364,8 +359,6 @@ async def get_dashboard_payments(
     all_partners: bool = True,
     stock_ids: list[int] | None = None,
     all_stocks: bool = True,
-    offset: int = 0,
-    limit: int = DASHBOARD_PAYMENTS_PAGE_SIZE,
     currency_id: int | None = None,
     currency_mode: str = CURRENCY_MODE_ALL,
 ) -> dict[str, Any]:
@@ -388,8 +381,6 @@ async def get_dashboard_payments(
     return _build_dashboard_payments(
         period,
         defaults,
-        offset=offset,
-        limit=limit,
         currency_id=currency_id,
         currency_mode=currency_mode,
     )
@@ -406,8 +397,6 @@ async def get_dashboard_overview(
     all_partners: bool = True,
     stock_ids: list[int] | None = None,
     all_stocks: bool = True,
-    offset: int = 0,
-    limit: int = DASHBOARD_PRODUCTS_PAGE_SIZE,
     currency_id: int | None = None,
     currency_mode: str = CURRENCY_MODE_ALL,
 ) -> dict[str, Any]:
@@ -441,8 +430,12 @@ async def get_dashboard_overview(
         user_id,
         period,
         defaults,
-        offset=offset,
-        limit=limit,
+        currency_id=currency_id,
+        currency_mode=currency_mode,
+    )
+    payments = _build_dashboard_payments(
+        period,
+        defaults,
         currency_id=currency_id,
         currency_mode=currency_mode,
     )
@@ -450,8 +443,8 @@ async def get_dashboard_overview(
         "stats": stats,
         "products": products["products"],
         "totals": products["totals"],
-        "next_offset": products["next_offset"],
         "total": products["total"],
+        "payments": payments,
     }
 
 
@@ -561,13 +554,9 @@ def _build_dashboard_payments(
     period: dict[str, Any],
     defaults: dict[str, Any],
     *,
-    offset: int,
-    limit: int,
     currency_id: int | None,
     currency_mode: str,
 ) -> dict[str, Any]:
-    safe_offset = max(0, offset)
-    safe_limit = max(1, min(limit, 200))
     category_context = _payment_category_context(defaults)
     income_payments, outcome_payments, conversion_currency = _resolve_scoped_payment_lists(
         period,
@@ -578,10 +567,6 @@ def _build_dashboard_payments(
 
     income_total = len(income_payments)
     outcome_total = len(outcome_payments)
-    income_page = income_payments[safe_offset : safe_offset + safe_limit]
-    outcome_page = outcome_payments[safe_offset : safe_offset + safe_limit]
-    has_more = (safe_offset + safe_limit < income_total) or (safe_offset + safe_limit < outcome_total)
-    next_offset = safe_offset + safe_limit if has_more else 0
 
     income_payments_by_currency = _sum_by_currency(income_payments)
     outcome_payments_by_currency = _sum_by_currency(outcome_payments)
@@ -597,15 +582,15 @@ def _build_dashboard_payments(
     )
 
     return {
-        "income_payments": income_page,
-        "outcome_payments": outcome_page,
+        "income_payments": income_payments,
+        "outcome_payments": outcome_payments,
         "income_payment_category_name": category_context["income_category_name"],
         "outcome_payment_category_name": category_context["outcome_category_name"],
         "income_payments_total": income_payments_total,
         "outcome_payments_total": outcome_payments_total,
         "income_total": income_total,
         "outcome_total": outcome_total,
-        "next_offset": next_offset,
+        "next_offset": 0,
     }
 
 
@@ -771,14 +756,9 @@ async def _build_dashboard_products(
     period: dict[str, Any],
     defaults: dict[str, Any],
     *,
-    offset: int,
-    limit: int,
     currency_id: int | None,
     currency_mode: str,
 ) -> dict[str, Any]:
-    safe_offset = max(0, offset)
-    safe_limit = max(1, min(limit, 200))
-
     documents = period["documents"]
     return_documents = period["return_documents"]
     operations = period["operations"]
@@ -839,32 +819,54 @@ async def _build_dashboard_products(
         key=lambda item_id: _product_sort_key(item_id, {}, stats_by_id),
     )
     total = len(active_ids)
-    page_ids = active_ids[safe_offset : safe_offset + safe_limit]
-    next_offset = safe_offset + len(page_ids) if safe_offset + len(page_ids) < total else 0
 
     catalog_products: list[dict[str, Any]] = []
-    if page_ids:
-        catalog_products = await regos_products_service.get_products_by_ids(
+    if active_ids:
+        catalog_products = await _fetch_catalog_products_by_ids(
             session,
             company_id,
             user_id,
-            page_ids,
+            active_ids,
         )
 
     rows = _build_product_rows(
         catalog_products,
         operations,
         return_operations,
-        item_ids=page_ids,
+        item_ids=active_ids,
         stats_by_id=stats_by_id,
     )
 
     return {
         "products": rows,
         "totals": _compute_product_totals(stats_by_id),
-        "next_offset": next_offset,
+        "next_offset": 0,
         "total": total,
     }
+
+
+async def _fetch_catalog_products_by_ids(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    product_ids: list[int],
+) -> list[dict[str, Any]]:
+    if not product_ids:
+        return []
+
+    catalog_products: list[dict[str, Any]] = []
+    chunk_size = DASHBOARD_CATALOG_IDS_CHUNK_SIZE
+    for start in range(0, len(product_ids), chunk_size):
+        chunk = product_ids[start : start + chunk_size]
+        catalog_products.extend(
+            await regos_products_service.get_products_by_ids(
+                session,
+                company_id,
+                user_id,
+                chunk,
+            )
+        )
+    return catalog_products
 
 
 async def _load_period_data_cached(

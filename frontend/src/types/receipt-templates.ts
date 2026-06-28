@@ -36,6 +36,13 @@ export type ReceiptLineSortColumn =
   | "item_name"
   | "item_group_name"
   | "item_brand"
+  | "item_fullname"
+  | "item_description"
+  | "item_articul"
+  | "item_color_name"
+  | "item_size_name"
+  | "item_producer_name"
+  | "item_country_name"
   | "item_unit_name"
   | "quantity"
   | "price"
@@ -138,6 +145,13 @@ export function getReceiptLineSortColumnLabels(
     item_name: t("settings.receiptTemplates.sort.itemName", "Item name"),
     item_group_name: t("settings.receiptTemplates.sort.itemGroup", "Product group"),
     item_brand: t("settings.receiptTemplates.sort.itemBrand", "Brand"),
+    item_fullname: t("settings.receiptTemplates.sort.itemFullname", "Full name"),
+    item_description: t("settings.receiptTemplates.sort.itemDescription", "Description"),
+    item_articul: t("settings.receiptTemplates.sort.itemArticul", "Article / SKU"),
+    item_color_name: t("settings.receiptTemplates.sort.itemColorName", "Color"),
+    item_size_name: t("settings.receiptTemplates.sort.itemSizeName", "Size"),
+    item_producer_name: t("settings.receiptTemplates.sort.itemProducerName", "Producer"),
+    item_country_name: t("settings.receiptTemplates.sort.itemCountryName", "Country"),
     item_unit_name: t("settings.receiptTemplates.sort.itemUnit", "Unit"),
     quantity: t("settings.receiptTemplates.sort.quantity", "Quantity"),
     price: t("settings.receiptTemplates.sort.price", "Price"),

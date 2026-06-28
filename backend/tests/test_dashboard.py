@@ -235,7 +235,7 @@ async def test_dashboard_products_page(
     response = await client.get(
         "/api/v1/dashboard/products",
         headers=headers,
-        params={"start_date": 1_716_000_000, "end_date": 1_718_000_000, "offset": 0, "limit": 50},
+        params={"start_date": 1_716_000_000, "end_date": 1_718_000_000},
     )
     assert response.status_code == 200
     data = response.json()
@@ -327,7 +327,7 @@ async def test_dashboard_payments_page(
     response = await client.get(
         "/api/v1/dashboard/payments",
         headers=headers,
-        params={"start_date": 1_716_000_000, "end_date": 1_718_000_000, "offset": 0, "limit": 1},
+        params={"start_date": 1_716_000_000, "end_date": 1_718_000_000},
     )
     assert response.status_code == 200
     data = response.json()
@@ -337,11 +337,11 @@ async def test_dashboard_payments_page(
     assert data["outcome_payments_total"] == 5000
     assert data["income_payment_category_name"] == "Sales income"
     assert data["outcome_payment_category_name"] == "Sales refund"
-    assert len(data["income_payments"]) == 1
+    assert len(data["income_payments"]) == 2
     assert len(data["outcome_payments"]) == 1
     assert data["income_payments"][0]["code"] == "PAY-3001"
     assert data["outcome_payments"][0]["code"] == "PAY-3002"
-    assert data["next_offset"] == 1
+    assert data["next_offset"] == 0
 
 
 @patch("app.services.regos_dashboard.regos_products_service.get_products_by_ids", new_callable=AsyncMock)
@@ -419,7 +419,7 @@ async def test_dashboard_overview_shares_period_data(
     headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
     await _configure_defaults(client, headers)
 
-    params = {"start_date": 1_716_000_000, "end_date": 1_718_000_000, "offset": 0, "limit": 50}
+    params = {"start_date": 1_716_000_000, "end_date": 1_718_000_000}
     response = await client.get("/api/v1/dashboard/overview", headers=headers, params=params)
     assert response.status_code == 200
     data = response.json()
@@ -428,6 +428,8 @@ async def test_dashboard_overview_shares_period_data(
     assert data["total"] == 1
     assert len(data["products"]) == 1
     assert data["products"][0]["code"] == "COLA-101"
+    assert len(data["payments"]["income_payments"]) == 1
+    assert data["payments"]["income_payments"][0]["code"] == "PAY-3001"
     mock_fetch_lists.assert_awaited_once()
     mock_fetch_operations.assert_awaited_once()
 

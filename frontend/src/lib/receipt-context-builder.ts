@@ -21,12 +21,14 @@ import {
   type WholesalePaymentLine,
   type WholesaleReturnDocument,
 } from "@/lib/sales-api";
-import type { CartItem } from "@/store/cart";
+import type { CartItem, CartItemPrintMeta } from "@/store/cart";
 import type { Product } from "@/types/catalog";
 import type { PaymentType } from "@/types/payment";
 import type { RegosCurrencyOption } from "@/types/settings";
 
-export type { DocumentPrintContext, DocumentPrintKind } from "@/lib/receipt-print-context";
+import type { DocumentPrintContext, DocumentPrintKind } from "@/lib/receipt-print-context";
+
+export type { DocumentPrintContext, DocumentPrintKind };
 
 type SaleBuildOptions = {
   t?: TranslateFn;
@@ -188,25 +190,70 @@ export type CheckoutDocumentExtras = {
   cashierName?: string | null;
 };
 
+function findCatalogProduct(
+  catalogProducts: Product[],
+  regosItemId: number,
+  productId: string,
+): Product | undefined {
+  return catalogProducts.find(
+    (entry) => entry.regos_item_id === regosItemId || entry.id === productId,
+  );
+}
+
+type CartLineSource = Pick<
+  CartItem,
+  | "regosItemId"
+  | "name"
+  | "productId"
+  | "itemCode"
+  | "itemArticul"
+  | "itemGroupId"
+  | "itemGroupName"
+  | "itemUnitName"
+  | "itemBrand"
+>;
+
+function resolveCartLinePrintMeta(
+  item: CartLineSource,
+  product?: Product | null,
+): Omit<CheckoutCartLine, "regos_item_id" | "name"> {
+  const itemCode = item.itemCode?.trim() || product?.code?.trim() || null;
+  const itemArticul = item.itemArticul?.trim() || product?.articul?.trim() || null;
+  const itemGroupName = item.itemGroupName?.trim() || product?.category?.trim() || null;
+  const itemUnitName = item.itemUnitName?.trim() || product?.unit_name?.trim() || null;
+
+  const fromCatalog = receiptOperationItemFromCatalogProduct(product);
+  const itemDetails = normalizeReceiptOperationItem({
+    ...fromCatalog,
+    fullname: item.name?.trim() || fromCatalog.fullname,
+    articul: itemArticul || fromCatalog.articul,
+    department: {
+      name: itemGroupName || fromCatalog.department.name,
+    },
+  });
+
+  return {
+    item_code: itemCode,
+    item_group_id: item.itemGroupId ?? product?.group_id ?? null,
+    item_group_name: itemGroupName,
+    item_unit_name: itemUnitName,
+    item_brand: item.itemBrand?.trim() || null,
+    item: itemDetails,
+  };
+}
+
 export function buildCheckoutCartLines(
-  cartItems: Array<Pick<CartItem, "regosItemId" | "name" | "productId">>,
+  cartItems: CartLineSource[],
   catalogProducts: Product[],
 ): CheckoutCartLine[] {
   return cartItems.map((item) => {
-    const product = catalogProducts.find(
-      (entry) =>
-        entry.regos_item_id === item.regosItemId || entry.id === item.productId,
-    );
-    const itemCode = product?.code?.trim() || product?.sku?.trim() || null;
+    const product = findCatalogProduct(catalogProducts, item.regosItemId, item.productId);
+    const meta = resolveCartLinePrintMeta(item, product);
 
     return {
       regos_item_id: item.regosItemId,
       name: item.name,
-      item_code: itemCode,
-      item_group_id: product?.group_id ?? null,
-      item_group_name: product?.category?.trim() || null,
-      item_unit_name: product?.unit_name?.trim() || null,
-      item: receiptOperationItemFromCatalogProduct(product),
+      ...meta,
     };
   });
 }
@@ -306,7 +353,9 @@ function checkoutDocumentFromResult(
 }
 
 export type CartDraftPrintInput = {
-  items: Array<Pick<CartItem, "regosItemId" | "name" | "productId" | "qty" | "price">>;
+  items: Array<
+    Pick<CartItem, "regosItemId" | "name" | "productId" | "qty" | "price"> & CartItemPrintMeta
+  >;
   totals: { subtotal: number; discount: number; total: number };
   catalogProducts: Product[];
   saleCurrency: RegosCurrencyOption | null;
@@ -319,6 +368,61 @@ export type CartDraftPrintInput = {
   wholesaleDocId?: number | null;
 };
 
+function mergeCartItemsWithWholesaleOperations(
+  items: CartDraftPrintInput["items"],
+  operations: WholesaleOperationLine[],
+  catalogProducts: Product[],
+): WholesaleOperationLine[] {
+  const operationsByItemId = new Map(operations.map((operation) => [operation.item_id, operation]));
+  const cartLines = buildCheckoutCartLines(items, catalogProducts);
+  const detailsByItemId = new Map(cartLines.map((line) => [line.regos_item_id, line]));
+
+  return items.map((item, index) => {
+    const fromApi = operationsByItemId.get(item.regosItemId);
+    const details = detailsByItemId.get(item.regosItemId);
+    const product = findCatalogProduct(catalogProducts, item.regosItemId, item.productId);
+
+    if (fromApi) {
+      return withOperationItem(
+        {
+          ...fromApi,
+          id: index + 1,
+          item_name: details?.name ?? fromApi.item_name ?? item.name,
+          item_code: fromApi.item_code ?? details?.item_code ?? null,
+          item_group_id: fromApi.item_group_id ?? details?.item_group_id ?? null,
+          item_group_name: fromApi.item_group_name ?? details?.item_group_name ?? null,
+          item_unit_name: fromApi.item_unit_name ?? details?.item_unit_name ?? null,
+          item_brand: fromApi.item_brand ?? details?.item_brand ?? null,
+          quantity: item.qty,
+          price: item.price,
+          price2: item.price,
+          amount: +(item.qty * item.price).toFixed(2),
+        },
+        normalizeReceiptOperationItem(fromApi.item ?? details?.item),
+      );
+    }
+
+    return withOperationItem(
+      {
+        id: index + 1,
+        document_id: 0,
+        item_id: item.regosItemId,
+        item_code: details?.item_code ?? null,
+        item_name: details?.name ?? item.name,
+        item_group_id: details?.item_group_id ?? null,
+        item_group_name: details?.item_group_name ?? null,
+        item_unit_name: details?.item_unit_name ?? null,
+        item_brand: details?.item_brand ?? null,
+        quantity: item.qty,
+        price: item.price,
+        price2: item.price,
+        amount: +(item.qty * item.price).toFixed(2),
+      },
+      operationItemFromDetails(details, product),
+    );
+  });
+}
+
 export function buildPrintContextFromCartDraft(
   input: CartDraftPrintInput,
 ): DocumentPrintContext {
@@ -330,25 +434,31 @@ export function buildPrintContextFromCartDraft(
 
   const operations: WholesaleOperationLine[] = input.items.map((item, index) => {
     const details = detailsByItemId.get(item.regosItemId);
-    const product = input.catalogProducts.find(
-      (entry) =>
-        entry.regos_item_id === item.regosItemId || entry.id === item.productId,
+    const product = findCatalogProduct(
+      input.catalogProducts,
+      item.regosItemId,
+      item.productId,
     );
-    return withOperationItem({
-      id: index + 1,
-      document_id: docId,
-      item_id: item.regosItemId,
-      item_code: details?.item_code ?? null,
-      item_name: details?.name ?? item.name,
-      item_group_id: details?.item_group_id ?? null,
-      item_group_name: details?.item_group_name ?? null,
-      item_unit_name: details?.item_unit_name ?? null,
-      item_brand: details?.item_brand ?? null,
-      quantity: item.qty,
-      price: item.price,
-      price2: item.price,
-      amount: +(item.qty * item.price).toFixed(2),
-    }, operationItemFromDetails(details, product));
+    const meta = resolveCartLinePrintMeta(item, product);
+
+    return withOperationItem(
+      {
+        id: index + 1,
+        document_id: docId,
+        item_id: item.regosItemId,
+        item_code: meta.item_code,
+        item_name: details?.name ?? item.name,
+        item_group_id: meta.item_group_id,
+        item_group_name: meta.item_group_name,
+        item_unit_name: meta.item_unit_name,
+        item_brand: meta.item_brand,
+        quantity: item.qty,
+        price: item.price,
+        price2: item.price,
+        amount: +(item.qty * item.price).toFixed(2),
+      },
+      operationItemFromDetails(details, product),
+    );
   });
 
   const document: WholesaleDocument = {
@@ -388,6 +498,35 @@ export function buildPrintContextFromCartDraft(
   };
 
   return wrapDocumentContext("sale", document, operations, [], sale);
+}
+
+export async function loadPrintContextFromCartDraft(
+  token: string | null | undefined,
+  input: CartDraftPrintInput,
+): Promise<DocumentPrintContext> {
+  if (token && input.wholesaleDocId != null && input.wholesaleDocId > 0) {
+    try {
+      const operationsRes = await fetchWholesaleOperations(token, input.wholesaleDocId);
+      if (operationsRes.operations.length > 0) {
+        const context = buildPrintContextFromCartDraft(input);
+        const operations = mergeCartItemsWithWholesaleOperations(
+          input.items,
+          operationsRes.operations,
+          input.catalogProducts,
+        );
+        return {
+          ...context,
+          operations,
+          operation_groups: buildOperationGroups(operations),
+          totals: buildOperationTotals(operations),
+        };
+      }
+    } catch {
+      // Fall back to cart metadata when postponed document lines are unavailable.
+    }
+  }
+
+  return buildPrintContextFromCartDraft(input);
 }
 
 export function buildPrintContextFromCheckout(

@@ -1,6 +1,6 @@
 import {
   currencyLabel,
-  paymentAmountFromSaleAmount,
+  paymentAmountFromSaleAmountCeil,
   saleAmountFromPaymentAmount,
   sameCurrency,
 } from "@/lib/currency-conversion";
@@ -69,7 +69,101 @@ export function remainingBalanceInPaymentCurrency(
   if (sameCurrency(saleCurrency, paymentCurrency)) {
     return balanceInSaleCurrency;
   }
-  return paymentAmountFromSaleAmount(balanceInSaleCurrency, saleCurrency, paymentCurrency);
+  return paymentAmountFromSaleAmountCeil(balanceInSaleCurrency, saleCurrency, paymentCurrency);
+}
+
+export function requiredPaymentAmountInPaymentCurrency(
+  saleAmount: number,
+  saleCurrency: RegosCurrencyOption | null,
+  paymentCurrency: RegosCurrencyOption | null | undefined,
+): number {
+  if (saleAmount <= 0.009) return 0;
+  if (sameCurrency(saleCurrency, paymentCurrency)) {
+    return saleAmount;
+  }
+  return paymentAmountFromSaleAmountCeil(saleAmount, saleCurrency, paymentCurrency);
+}
+
+export function cashChangeInPaymentCurrency(
+  tenderedNum: number,
+  coveredSaleAmount: number,
+  saleCurrency: RegosCurrencyOption | null,
+  paymentCurrency: RegosCurrencyOption | null | undefined,
+): number {
+  if (tenderedNum <= 0) return 0;
+  const required = requiredPaymentAmountInPaymentCurrency(
+    coveredSaleAmount,
+    saleCurrency,
+    paymentCurrency,
+  );
+  return Math.max(0, tenderedNum - required);
+}
+
+const SPLIT_PAYMENT_ROUNDING_TOLERANCE_PER_LINE = 100;
+
+export function splitPaymentRoundingTolerance(lineCount: number): number {
+  const lines = Math.max(lineCount, 1);
+  return Math.max(1, lines * SPLIT_PAYMENT_ROUNDING_TOLERANCE_PER_LINE);
+}
+
+export function isSplitPaymentSettled(
+  paidInSaleCurrency: number,
+  total: number,
+  lineCount: number,
+): boolean {
+  if (paidInSaleCurrency <= 0.009) return false;
+  const tolerance = splitPaymentRoundingTolerance(lineCount);
+  return (
+    paidInSaleCurrency >= total - tolerance &&
+    paidInSaleCurrency <= total + tolerance
+  );
+}
+
+export function canSubmitSplitPayment(
+  paidInSaleCurrency: number,
+  total: number,
+  lineCount: number,
+): boolean {
+  if (paidInSaleCurrency <= 0.009) return false;
+  return paidInSaleCurrency <= total + splitPaymentRoundingTolerance(lineCount);
+}
+
+export type SplitPaymentLineInSaleCurrency = {
+  payment_type_id: number;
+  amount_paid: number;
+};
+
+export function capSplitPaymentLinesInSaleCurrency(
+  lines: SplitPaymentLineInSaleCurrency[],
+  total: number,
+): SplitPaymentLineInSaleCurrency[] {
+  const capped = lines.map((line) => ({
+    ...line,
+    amount_paid: Math.round(line.amount_paid * 100) / 100,
+  }));
+  let sum = Math.round(capped.reduce((acc, line) => acc + line.amount_paid, 0) * 100) / 100;
+  if (sum <= total + 0.001) {
+    return capped;
+  }
+
+  let excess = Math.round((sum - total) * 100) / 100;
+  for (let i = capped.length - 1; i >= 0 && excess > 0.001; i--) {
+    const reduction = Math.min(capped[i].amount_paid, excess);
+    capped[i] = {
+      ...capped[i],
+      amount_paid: Math.round((capped[i].amount_paid - reduction) * 100) / 100,
+    };
+    excess = Math.round((excess - reduction) * 100) / 100;
+  }
+  return capped;
+}
+
+export function splitPaymentAmountPaid(
+  lines: SplitPaymentLineInSaleCurrency[],
+  total: number,
+): number {
+  const sum = Math.round(lines.reduce((acc, line) => acc + line.amount_paid, 0) * 100) / 100;
+  return Math.min(sum, total);
 }
 
 export type PaymentPanelMode = "sale" | "return";

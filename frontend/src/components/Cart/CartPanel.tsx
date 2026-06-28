@@ -5,6 +5,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { cartTotals, useCart } from "@/store/cart";
 import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
+import { useBookedOrderContinuation } from "@/hooks/use-booked-order-continuation";
 import { usePermissions } from "@/hooks/use-permissions";
 import { filterCheckoutOverrides } from "@/types/users";
 import { useAuth, formatAuthError } from "@/store/auth";
@@ -12,18 +13,22 @@ import { useSellContext } from "@/store/sell-context";
 import { useCheckoutTabs, getReservedQtyInOtherTabs } from "@/store/checkout-tabs";
 import {
   allowsDecimalQty,
+  applyStockAdjustments,
   clampCartQty,
   canIncreaseCartQty,
+  computePostponeStockAdjustments,
   formatCartQty,
+  getCartAvailabilityStock,
   getProductStock,
   maxCartQty,
   resolveCartUnitType,
+  shouldReserveStockOnPostpone,
 } from "@/lib/cart-stock";
 import { formatCurrency } from "@/lib/format";
 import { toast } from "sonner";
 import { maybeResetSellContextAfterSaleClosed } from "@/lib/sell-context-lifecycle";
 import { postponeSale } from "@/lib/sales-api";
-import { buildPrintContextFromCartDraft } from "@/lib/receipt-context-builder";
+import { buildPrintContextFromCartDraft, loadPrintContextFromCartDraft } from "@/lib/receipt-context-builder";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import { Button } from "@/components/posui/Button";
 import { CheckoutModal } from "@/components/Checkout/CheckoutModal";
@@ -77,7 +82,15 @@ export function CartPanel() {
   const checkoutTabs = useCheckoutTabs((s) => s.tabs);
   const activeCheckoutTabId = useCheckoutTabs((s) => s.activeTabId);
   const catalogProducts = useCatalog((s) => s.products);
+  const decrementStock = useCatalog((s) => s.decrementStock);
+  const incrementStock = useCatalog((s) => s.incrementStock);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
+  const postponeDocumentType = usePosConfig((s) => s.postponeDocumentType);
+  const postponeOrderBooked = usePosConfig((s) => s.postponeOrderBooked);
+  const bookedOrderContinuation = useBookedOrderContinuation();
+  const catalogStockOptions = bookedOrderContinuation
+    ? { bookedOrderContinuation: true as const }
+    : undefined;
   const autoOpenKeypad = usePosConfig((s) => s.autoOpenQtyKeypad);
   const [keypadFor, setKeypadFor] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -90,7 +103,11 @@ export function CartPanel() {
   const keypadQtyAllowsDecimals = allowsDecimalQty(keypadUnitType);
   const keypadMaxQty = keypadItem
     ? maxCartQty(
-        getProductStock(catalogProducts, keypadItem.productId),
+        getCartAvailabilityStock(
+          getProductStock(catalogProducts, keypadItem.productId),
+          keypadItem.qty,
+          catalogStockOptions,
+        ),
         allowOutOfStock,
         getReservedQtyInOtherTabs(
           checkoutTabs,
@@ -107,6 +124,7 @@ export function CartPanel() {
   const [postponeError, setPostponeError] = useState<string | null>(null);
   const [printContext, setPrintContext] = useState<DocumentPrintContext | null>(null);
   const [printError, setPrintError] = useState<string | null>(null);
+  const [printLoading, setPrintLoading] = useState(false);
   const lastAddedId = useCart((s) => s.lastAddedId);
   const lastAddedAt = useCart((s) => s.lastAddedAt);
   const skipKeypadOnLastAdd = useCart((s) => s.skipKeypadOnLastAdd);
@@ -137,7 +155,7 @@ export function CartPanel() {
   ]);
 
   const openDraftPrint = () => {
-    if (items.length === 0 || postponing) return;
+    if (items.length === 0 || postponing || printLoading) return;
 
     const cartItems = items.filter((item) => item.regosItemId > 0);
     if (cartItems.length !== items.length) {
@@ -148,22 +166,31 @@ export function CartPanel() {
     setPrintError(null);
     const partner = partners.find((entry) => entry.id === partnerId) ?? null;
     const warehouse = warehouses.find((entry) => entry.id === warehouseId) ?? null;
+    const draftInput = {
+      items: cartItems,
+      totals,
+      catalogProducts,
+      saleCurrency,
+      partnerId,
+      partnerName: partner?.name ?? null,
+      stockId: warehouseId,
+      stockName: warehouse?.name ?? null,
+      cashierId: cashier?.id ?? null,
+      cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
+      wholesaleDocId: postponedWholesaleDocId,
+    };
 
-    setPrintContext(
-      buildPrintContextFromCartDraft({
-        items: cartItems,
-        totals,
-        catalogProducts,
-        saleCurrency,
-        partnerId,
-        partnerName: partner?.name ?? null,
-        stockId: warehouseId,
-        stockName: warehouse?.name ?? null,
-        cashierId: cashier?.id ?? null,
-        cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
-        wholesaleDocId: postponedWholesaleDocId,
-      }),
-    );
+    setPrintLoading(true);
+    void loadPrintContextFromCartDraft(accessToken, draftInput)
+      .then((context) => {
+        setPrintContext(context);
+      })
+      .catch(() => {
+        setPrintContext(buildPrintContextFromCartDraft(draftInput));
+      })
+      .finally(() => {
+        setPrintLoading(false);
+      });
   };
 
   const handlePostponeSale = async () => {
@@ -193,6 +220,16 @@ export function CartPanel() {
           : {}),
         ...(permittedOverrides()),
       });
+      if (shouldReserveStockOnPostpone(postponeDocumentType, postponeOrderBooked)) {
+        applyStockAdjustments(
+          computePostponeStockAdjustments(
+            cartItems,
+            postponedWholesaleDocId != null,
+          ),
+          decrementStock,
+          incrementStock,
+        );
+      }
       toast.success(t("cart.postponeSuccess", "Sale postponed"));
       clear();
       clearActiveTabAfterCheckout();
@@ -244,7 +281,7 @@ export function CartPanel() {
                   type="button"
                   className={styles.printBtn}
                   onClick={openDraftPrint}
-                  disabled={postponing}
+                  disabled={postponing || printLoading}
                   aria-label={t("sales.printModalTitle", "Print sale")}
                   title={t("sales.printModalTitle", "Print sale")}
                 >
@@ -313,6 +350,7 @@ export function CartPanel() {
               catalogProducts,
               allowOutOfStock,
               reservedInOtherTabs,
+              catalogStockOptions,
             );
             return (
             <div key={i.productId} className={styles.line}>
@@ -521,6 +559,8 @@ export function CartPanel() {
               allowOutOfStock,
               keypadUnitType,
               reservedInOtherTabs,
+              catalogStockOptions,
+              keypadItem.qty,
             ),
             keypadUnitType,
           );

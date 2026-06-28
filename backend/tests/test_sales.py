@@ -83,6 +83,30 @@ USD_PRICE_TYPE = {
     "currency": PAYMENT_TYPE_USD["currency"],
 }
 
+SOURCE_WHOLESALE_DOC_UZS_RESPONSE = {
+    "ok": True,
+    "result": [
+        {
+            "id": 1001,
+            "currency": PAYMENT_TYPE_UZS["currency"],
+            "price_type": FULL_DEFAULTS["price_type"],
+            "stock": FULL_DEFAULTS["warehouse"],
+        }
+    ],
+}
+
+SOURCE_WHOLESALE_DOC_USD_RESPONSE = {
+    "ok": True,
+    "result": [
+        {
+            "id": 1001,
+            "currency": PAYMENT_TYPE_USD["currency"],
+            "price_type": {"id": USD_PRICE_TYPE["id"], "name": USD_PRICE_TYPE["name"]},
+            "stock": FULL_DEFAULTS["warehouse"],
+        }
+    ],
+}
+
 DOC_WHOLESALE_TYPE_ID = 77
 DOC_WHOLESALE_RETURN_TYPE_ID = 88
 
@@ -124,6 +148,8 @@ async def _mock_find_payment_type_for_currency(
 ) -> dict | None:
     if currency_id == PAYMENT_TYPE_UZS["currency"]["id"] and is_cash:
         return PAYMENT_TYPE_UZS
+    if currency_id == PAYMENT_TYPE_USD["currency"]["id"] and is_cash:
+        return PAYMENT_TYPE_USD
     return None
 
 
@@ -223,6 +249,193 @@ async def test_checkout_happy_path(
     assert payment_payload["firm_id"] == 55
     assert payment_payload["category_id"] == 66
     assert payment_payload["document_type_id"] == DOC_WHOLESALE_TYPE_ID
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_finishes_order_from_partner_when_doc_order_from_partner_postpone_setting(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 2001}]},
+        {"ok": True, "result": {}},
+        REGOS_EDIT_OK,
+        {"ok": True, "result": {"code": "WS-1001"}},
+        {"ok": True, "result": {"new_id": 3001}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": {}},
+        REGOS_EDIT_OK,
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(
+        client, email="checkout-finish-order@test.com", company_name="Checkout Finish Order Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={"postpone_document_type": "doc_order_from_partner"},
+    )
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 2, "price": 10000}],
+            "discount": 0,
+            "payment_type_id": 5,
+            "total": 20000,
+            "order_from_partner_doc_id": 5001,
+        },
+    )
+    assert response.status_code == 200
+
+    calls = [call[0][2] for call in mock_regos.call_args_list]
+    perform_index = calls.index("docwholesale/perform")
+    finish_index = calls.index("docorderfrompartner/lock")
+    assert perform_index < finish_index
+    assert calls[finish_index : finish_index + 3] == [
+        "docorderfrompartner/lock",
+        "docorderfrompartner/edit",
+        "docorderfrompartner/unlock",
+    ]
+
+    order_edit_payload = next(
+        call[0][3]
+        for call in mock_regos.call_args_list
+        if call[0][2] == "docorderfrompartner/edit"
+    )
+    assert order_edit_payload == {"id": 5001, "status_id": 4}
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_skips_order_finish_when_doc_wholesale_postpone_setting(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 2001}]},
+        {"ok": True, "result": {}},
+        REGOS_EDIT_OK,
+        {"ok": True, "result": {"code": "WS-1001"}},
+        {"ok": True, "result": {"new_id": 3001}},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(
+        client, email="checkout-skip-finish@test.com", company_name="Checkout Skip Finish Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 2, "price": 10000}],
+            "discount": 0,
+            "payment_type_id": 5,
+            "total": 20000,
+            "order_from_partner_doc_id": 5001,
+        },
+    )
+    assert response.status_code == 200
+
+    calls = [call[0][2] for call in mock_regos.call_args_list]
+    assert "docorderfrompartner/edit" not in calls
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_skips_order_finish_without_order_from_partner_doc_id(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 2001}]},
+        {"ok": True, "result": {}},
+        REGOS_EDIT_OK,
+        {"ok": True, "result": {"code": "WS-1001"}},
+        {"ok": True, "result": {"new_id": 3001}},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(
+        client, email="checkout-no-finish@test.com", company_name="Checkout No Finish Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 2, "price": 10000}],
+            "discount": 0,
+            "payment_type_id": 5,
+            "total": 20000,
+        },
+    )
+    assert response.status_code == 200
+
+    calls = [call[0][2] for call in mock_regos.call_args_list]
+    assert "docorderfrompartner/edit" not in calls
 
 
 @patch("app.services.regos_sales.time.time", return_value=1_700_000_000)
@@ -393,27 +606,15 @@ async def test_postpone_sale_creates_unperformed_document(
     assert "docwholesale/perform" not in calls
 
 
-@patch(
-    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_document_type_id",
-    new_callable=AsyncMock,
-)
-@patch(
-    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_default_status_id",
-    new_callable=AsyncMock,
-)
 @patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
 @patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_postpone_sale_creates_order_from_partner_document(
     mock_regos: AsyncMock,
     mock_enriched: AsyncMock,
-    mock_status_id: AsyncMock,
-    mock_doc_type_id: AsyncMock,
     client: AsyncClient,
 ) -> None:
     mock_enriched.return_value = ENRICHED_DEFAULTS
-    mock_status_id.return_value = 77
-    mock_doc_type_id.return_value = 88
     mock_regos.side_effect = [
         {"ok": True, "result": {"new_id": 3001, "code": "ORD-3001"}},
         {"ok": True, "result": {}},
@@ -457,29 +658,18 @@ async def test_postpone_sale_creates_order_from_partner_document(
     assert "docwholesale/add" not in calls
     add_payload = mock_regos.call_args_list[0][0][3]
     assert add_payload["booked"] is True
+    assert add_payload["status_id"] == 1
 
 
-@patch(
-    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_document_type_id",
-    new_callable=AsyncMock,
-)
-@patch(
-    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_default_status_id",
-    new_callable=AsyncMock,
-)
 @patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
 @patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_postpone_sale_order_from_partner_respects_booked_setting(
     mock_regos: AsyncMock,
     mock_enriched: AsyncMock,
-    mock_status_id: AsyncMock,
-    mock_doc_type_id: AsyncMock,
     client: AsyncClient,
 ) -> None:
     mock_enriched.return_value = ENRICHED_DEFAULTS
-    mock_status_id.return_value = 77
-    mock_doc_type_id.return_value = 88
     mock_regos.side_effect = [
         {"ok": True, "result": {"new_id": 3002, "code": "ORD-3002"}},
         {"ok": True, "result": {}},
@@ -517,27 +707,15 @@ async def test_postpone_sale_order_from_partner_respects_booked_setting(
     assert add_payload["booked"] is False
 
 
-@patch(
-    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_document_type_id",
-    new_callable=AsyncMock,
-)
-@patch(
-    "app.services.regos_sales.regos_defaults_service.get_doc_order_from_partner_default_status_id",
-    new_callable=AsyncMock,
-)
 @patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
 @patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_postpone_sale_updates_existing_order_document(
     mock_regos: AsyncMock,
     mock_enriched: AsyncMock,
-    mock_status_id: AsyncMock,
-    mock_doc_type_id: AsyncMock,
     client: AsyncClient,
 ) -> None:
     mock_enriched.return_value = ENRICHED_DEFAULTS
-    mock_status_id.return_value = 77
-    mock_doc_type_id.return_value = 88
     mock_regos.side_effect = [
         {"ok": True, "result": {}},
         {"ok": True, "result": [{"id": 9101, "document_id": 3001, "item_id": 101, "quantity": 1, "price": 10000}]},
@@ -833,6 +1011,7 @@ async def test_wholesale_return_sets_sale_id_field_on_payment(
         "sale_id_field": {"id": 1, "key": "field_sale_id", "name": "Sale ID", "entity_type": "DocPayment", "data_type": "string"},
     }
     mock_regos.side_effect = [
+        SOURCE_WHOLESALE_DOC_UZS_RESPONSE,
         {
             "ok": True,
             "result": [
@@ -876,7 +1055,7 @@ async def test_wholesale_return_sets_sale_id_field_on_payment(
     )
     assert response.status_code == 200
 
-    payment_payload = mock_regos.call_args_list[8][0][3]
+    payment_payload = mock_regos.call_args_list[9][0][3]
     assert payment_payload["document"] == 2001
     assert payment_payload["fields"] == [{"key": "field_sale_id", "value": "2001"}]
     mock_sale_id_fields.assert_awaited_once()
@@ -1518,6 +1697,7 @@ async def test_list_wholesale_documents_honors_explicit_order_document_kind(
                 "date": 1717000000,
                 "amount": 12000,
                 "performed": False,
+                "status": {"id": 1, "name": "Новый"},
                 "partner": {"id": 33, "name": "Walk-in"},
                 "stock": {"id": 11, "name": "Main warehouse"},
             }
@@ -1540,6 +1720,96 @@ async def test_list_wholesale_documents_honors_explicit_order_document_kind(
     assert response.status_code == 200
     assert response.json()["documents"][0]["code"] == "ORD-2001"
     assert mock_regos.call_args[0][2] == "docorderfrompartner/get"
+
+
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_list_order_from_partner_documents_filters_continuable_statuses(
+    mock_regos: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "id": 2001,
+                "code": "ORD-NEW",
+                "date": 1717000000,
+                "amount": 10000,
+                "status": {"id": 1, "name": "Новый"},
+                "partner": {"id": 33, "name": "Walk-in"},
+                "stock": {"id": 11, "name": "Main warehouse"},
+            },
+            {
+                "id": 2002,
+                "code": "ORD-APPROVED",
+                "date": 1717000001,
+                "amount": 11000,
+                "status": {"id": 2, "name": "Утвержден"},
+                "partner": {"id": 33, "name": "Walk-in"},
+                "stock": {"id": 11, "name": "Main warehouse"},
+            },
+            {
+                "id": 2003,
+                "code": "ORD-PROCESSING",
+                "date": 1717000002,
+                "amount": 12000,
+                "status": {"id": 3, "name": "В обработке"},
+                "partner": {"id": 33, "name": "Walk-in"},
+                "stock": {"id": 11, "name": "Main warehouse"},
+            },
+            {
+                "id": 2004,
+                "code": "ORD-FINISHED",
+                "date": 1717000003,
+                "amount": 13000,
+                "status": {"id": 4, "name": "Завершен"},
+                "partner": {"id": 33, "name": "Walk-in"},
+                "stock": {"id": 11, "name": "Main warehouse"},
+            },
+            {
+                "id": 2005,
+                "code": "ORD-CANCELED",
+                "date": 1717000004,
+                "amount": 14000,
+                "status": {"id": 5, "name": "Отменен"},
+                "partner": {"id": 33, "name": "Walk-in"},
+                "stock": {"id": 11, "name": "Main warehouse"},
+            },
+        ],
+        "next_offset": 0,
+        "total": 5,
+    }
+
+    reg = await register_owner(
+        client,
+        email="sales-list-continuable@test.com",
+        company_name="Sales List Continuable Co",
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.get(
+        "/api/v1/sales/wholesale-documents",
+        headers=headers,
+        params={"document_kind": "order_from_partner", "continuable_only": "true"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert [doc["code"] for doc in data["documents"]] == [
+        "ORD-NEW",
+        "ORD-APPROVED",
+        "ORD-PROCESSING",
+    ]
+    assert data["total"] == 3
+
+    unfiltered = await client.get(
+        "/api/v1/sales/wholesale-documents",
+        headers=headers,
+        params={"document_kind": "order_from_partner"},
+    )
+    assert unfiltered.status_code == 200
+    assert len(unfiltered.json()["documents"]) == 5
 
 
 @patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
@@ -2007,6 +2277,7 @@ async def test_create_wholesale_return(
     mock_return_doc_type_id.return_value = DOC_WHOLESALE_RETURN_TYPE_ID
     mock_payment_type.side_effect = _mock_payment_type_by_id
     mock_regos.side_effect = [
+        SOURCE_WHOLESALE_DOC_UZS_RESPONSE,
         {
             "ok": True,
             "result": [
@@ -2060,6 +2331,7 @@ async def test_create_wholesale_return(
 
     calls = [call[0][2] for call in mock_regos.call_args_list]
     assert calls == [
+        "docwholesale/get",
         "wholesaleoperation/get",
         "docwholesalereturn/get",
         "docwholesalereturn/add",
@@ -2072,10 +2344,12 @@ async def test_create_wholesale_return(
         "docpayment/perform",
     ]
 
-    add_payload = mock_regos.call_args_list[2][0][3]
+    add_payload = mock_regos.call_args_list[3][0][3]
     assert add_payload["description"] == "pulse:ws:1001|Customer changed mind"
+    assert add_payload["currency_id"] == 44
+    assert add_payload["price_type_id"] == 22
 
-    payment_payload = mock_regos.call_args_list[8][0][3]
+    payment_payload = mock_regos.call_args_list[9][0][3]
     assert payment_payload["document"] == 2001
     assert payment_payload["document_type_id"] == DOC_WHOLESALE_RETURN_TYPE_ID
     assert payment_payload["amount"] == 10000
@@ -2109,6 +2383,7 @@ async def test_wholesale_return_sale_currency_transfer_mode(
     mock_payment_type.side_effect = _mock_payment_type_by_id
     mock_find_payment_type.side_effect = _mock_find_payment_type_for_currency
     mock_regos.side_effect = [
+        SOURCE_WHOLESALE_DOC_USD_RESPONSE,
         {
             "ok": True,
             "result": [
@@ -2150,7 +2425,7 @@ async def test_wholesale_return_sale_currency_transfer_mode(
             "items": [{"regos_item_id": 101, "qty": 1}],
             "total": 10000,
             "reason": "Customer changed mind",
-            "payment_type_id": 6,
+            "payment_type_id": 5,
             "amount_paid": 10000,
             "partner_id": 33,
         },
@@ -2164,15 +2439,20 @@ async def test_wholesale_return_sale_currency_transfer_mode(
         "docaccountmovement/perform",
     ]
 
-    payment_payload = mock_regos.call_args_list[8][0][3]
-    assert payment_payload["type_id"] == 5
-    assert payment_payload["amount"] == 10000
-    assert payment_payload["exchange_rate"] == 1
+    add_payload = mock_regos.call_args_list[3][0][3]
+    assert add_payload["currency_id"] == PAYMENT_TYPE_USD["currency"]["id"]
+    assert add_payload["price_type_id"] == USD_PRICE_TYPE["id"]
+    assert add_payload["exchange_rate"] == PAYMENT_TYPE_USD["currency"]["exchange_rate"]
 
-    transfer_payload = mock_regos.call_args_list[10][0][3]
-    assert transfer_payload["account_sender_id"] == 102
-    assert transfer_payload["account_receiver_id"] == 101
-    assert transfer_payload["amount_sended"] == 0.79
+    payment_payload = mock_regos.call_args_list[9][0][3]
+    assert payment_payload["type_id"] == 6
+    assert payment_payload["amount"] == 10000
+    assert payment_payload["exchange_rate"] == PAYMENT_TYPE_USD["currency"]["exchange_rate"]
+
+    transfer_payload = mock_regos.call_args_list[11][0][3]
+    assert transfer_payload["account_sender_id"] == 101
+    assert transfer_payload["account_receiver_id"] == 102
+    assert transfer_payload["amount_sended"] == 126000000
     assert transfer_payload["amount_received"] == 10000
 
 
@@ -2270,6 +2550,7 @@ async def test_create_wholesale_return_deferred_refund(
     mock_return_doc_type_id.return_value = DOC_WHOLESALE_RETURN_TYPE_ID
     mock_payment_type.side_effect = _mock_payment_type_with_debt
     mock_regos.side_effect = [
+        SOURCE_WHOLESALE_DOC_UZS_RESPONSE,
         {
             "ok": True,
             "result": [
@@ -2459,6 +2740,7 @@ async def test_wholesale_return_document_description_mode_links_payments(
     }
     mock_linking_regos.return_value = {"ok": True, "result": {"row_affected": 1}}
     mock_regos.side_effect = [
+        SOURCE_WHOLESALE_DOC_UZS_RESPONSE,
         {
             "ok": True,
             "result": [
