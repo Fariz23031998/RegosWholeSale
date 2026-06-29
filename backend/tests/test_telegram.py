@@ -855,6 +855,61 @@ async def test_notify_company_subscribers_sends_to_active_group(client, monkeypa
         assert sent_chat_ids == [-1001234567890]
 
 
+@pytest.mark.asyncio
+async def test_notify_company_subscribers_skips_inactive_subscription(
+    client, monkeypatch, session_factory
+):
+    from datetime import UTC, datetime, timedelta
+
+    from app.models import Company
+    from app.models.subscription import SubscriptionStatus
+
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "notify-expired-telegram@test.com")
+    webhook_secret = await _save_bot_and_get_secret(client, token)
+
+    await client.post(f"/api/v1/telegram/webhook/{webhook_secret}", json=GROUP_START_UPDATE)
+
+    list_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    user_id = list_response.json()[0]["id"]
+    await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"is_active": True, "notification_types": ["payment_performed"]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+
+    sent_chat_ids: list[int] = []
+
+    async def fake_send_message(bot_token, chat_id, text, parse_mode="Markdown", reply_markup=None):
+        sent_chat_ids.append(chat_id)
+        return True
+
+    monkeypatch.setattr("app.services.telegram.send_message", fake_send_message)
+
+    async with session_factory() as session:
+        from app.services.telegram import notify_company_subscribers
+
+        result = await session.execute(select(TelegramUser))
+        company_id = result.scalar_one().company_id
+        company = await session.get(Company, company_id)
+        assert company is not None
+        company.subscription_status = SubscriptionStatus.expired
+        company.subscription_expires_at = datetime.now(UTC) - timedelta(days=1)
+        await session.commit()
+
+        count = await notify_company_subscribers(
+            session,
+            company_id,
+            notification_type="payment_performed",
+            build_message=lambda lang: "payment alert",
+        )
+        assert count == 0
+        assert sent_chat_ids == []
+
+
 def test_select_notification_recipients_skips_private_when_group_linked():
     from app.models import TelegramUser
     from app.services.telegram import select_notification_recipients

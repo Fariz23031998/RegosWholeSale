@@ -256,7 +256,7 @@ export function TelegramUsersPage() {
                 <th>{t("telegramUsers.table.scope", "Scope")}</th>
                 <th>{t("telegramUsers.receiptLanguage", "Receipt language")}</th>
                 <th>{t("telegramUsers.table.registered", "Registered")}</th>
-                <th>{t("common.status", "Status")}</th>
+                <th className={styles.statusHeader}>{t("common.status", "Status")}</th>
                 <th>{t("common.actions", "Actions")}</th>
               </tr>
             </thead>
@@ -293,7 +293,7 @@ export function TelegramUsersPage() {
                   <td className={styles.muted} data-label={t("telegramUsers.table.registered", "Registered")}>
                     {formatDateTime(item.created_at)}
                   </td>
-                  <td data-label={t("common.status", "Status")}>
+                  <td className={styles.statusCell} data-label={t("common.status", "Status")}>
                     <span
                       className={clsx(
                         styles.badge,

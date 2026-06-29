@@ -938,6 +938,129 @@ async def test_split_payment_checkout_sends_single_closed_receipt(client, monkey
 
 
 @pytest.mark.asyncio
+async def test_pos_session_scheduled_in_background(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.services import regos_webhook as regos_webhook_service
+
+    monkeypatch.setattr(
+        regos_webhook_service,
+        "_resolve_company_id",
+        AsyncMock(return_value=1),
+    )
+
+    background_tasks = MagicMock()
+    scheduled: list[tuple] = []
+    background_tasks.add_task.side_effect = lambda func, *args: scheduled.append((func, args))
+
+    result = await regos_webhook_service.handle_regos_webhook(
+        AsyncMock(),
+        {
+            "event_id": "session-bg-1",
+            "connected_integration_id": INTEGRATION_TOKEN,
+            "data": {
+                "action": "DocSessionOpened",
+                "data": {"uuid": SESSION_UUID},
+            },
+        },
+        background_tasks=background_tasks,
+    )
+
+    assert result["ok"] is True
+    assert len(scheduled) == 1
+    func, args = scheduled[0]
+    assert func.__name__ == "process_pos_session"
+    assert args == (1, SESSION_UUID, "opened")
+
+
+@pytest.mark.asyncio
+async def test_wholesale_document_scheduled_in_background(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.services import regos_webhook as regos_webhook_service
+
+    monkeypatch.setattr(
+        regos_webhook_service,
+        "_resolve_company_id",
+        AsyncMock(return_value=1),
+    )
+
+    background_tasks = MagicMock()
+    scheduled: list[tuple] = []
+    background_tasks.add_task.side_effect = lambda func, *args: scheduled.append((func, args))
+
+    result = await regos_webhook_service.handle_regos_webhook(
+        AsyncMock(),
+        _webhook_payload("DocWholeSalePerformed", 1, event_id="wholesale-bg-1"),
+        background_tasks=background_tasks,
+    )
+
+    assert result["ok"] is True
+    assert len(scheduled) == 1
+    func, args = scheduled[0]
+    assert func.__name__ == "process_operation_document"
+    assert args == (1, 1, "DocWholeSalePerformed")
+
+
+@pytest.mark.asyncio
+async def test_payment_document_scheduled_in_background(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.services import regos_webhook as regos_webhook_service
+
+    monkeypatch.setattr(
+        regos_webhook_service,
+        "_resolve_company_id",
+        AsyncMock(return_value=1),
+    )
+
+    background_tasks = MagicMock()
+    scheduled: list[tuple] = []
+    background_tasks.add_task.side_effect = lambda func, *args: scheduled.append((func, args))
+
+    result = await regos_webhook_service.handle_regos_webhook(
+        AsyncMock(),
+        _webhook_payload("DocPaymentPerformed", 2, event_id="payment-bg-1"),
+        background_tasks=background_tasks,
+    )
+
+    assert result["ok"] is True
+    assert len(scheduled) == 1
+    func, args = scheduled[0]
+    assert func.__name__ == "process_payment_document"
+    assert args == (1, 2, "DocPaymentPerformed")
+
+
+@pytest.mark.asyncio
+async def test_pos_cheque_scheduled_in_background(monkeypatch):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from app.services import regos_webhook as regos_webhook_service
+
+    monkeypatch.setattr(
+        regos_webhook_service,
+        "_resolve_company_id",
+        AsyncMock(return_value=1),
+    )
+
+    background_tasks = MagicMock()
+    scheduled: list[tuple] = []
+    background_tasks.add_task.side_effect = lambda func, *args: scheduled.append((func, args))
+
+    result = await regos_webhook_service.handle_regos_webhook(
+        AsyncMock(),
+        _webhook_payload_pos("DocChequeClosed", CHEQUE_UUID, event_id="cheque-bg-1"),
+        background_tasks=background_tasks,
+    )
+
+    assert result["ok"] is True
+    assert len(scheduled) == 1
+    func, args = scheduled[0]
+    assert func.__name__ == "process_pos_cheque"
+    assert args == (1, CHEQUE_UUID, "DocChequeClosed")
+
+
+@pytest.mark.asyncio
 async def test_doc_session_opened_notifies(client, monkeypatch):
     await _setup_company(client, monkeypatch, subscriber_count=1)
 

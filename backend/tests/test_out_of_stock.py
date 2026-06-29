@@ -622,45 +622,85 @@ async def test_wholesale_webhook_triggers_out_of_stock_notification(client, monk
 
 
 @pytest.mark.asyncio
-async def test_operation_document_schedules_out_of_stock_in_background(monkeypatch):
+async def test_operation_document_checks_out_of_stock_inline(monkeypatch):
     from unittest.mock import MagicMock
 
     from app.services import regos_webhook as regos_webhook_service
+    from app.services import regos_webhook_background as webhook_background
 
     background_tasks = MagicMock()
     scheduled: list[tuple] = []
     background_tasks.add_task.side_effect = lambda func, *args: scheduled.append((func, args))
 
     monkeypatch.setattr(
-        regos_webhook_service.doc_fetch,
+        regos_webhook_service,
+        "_resolve_company_id",
+        AsyncMock(return_value=1),
+    )
+
+    result = await regos_webhook_service.handle_regos_webhook(
+        AsyncMock(),
+        {
+            "event_id": "oos-bg-1",
+            "connected_integration_id": INTEGRATION_TOKEN,
+            "data": {
+                "action": "DocWholeSalePerformed",
+                "data": {"id": 1},
+            },
+        },
+        background_tasks=background_tasks,
+    )
+
+    assert result["ok"] is True
+    assert len(scheduled) == 1
+    func, args = scheduled[0]
+    assert func.__name__ == "process_operation_document"
+    assert args == (1, 1, "DocWholeSalePerformed")
+
+    oos_called = False
+
+    async def fake_check_and_record(session, company_id, event_action, document, operations):
+        nonlocal oos_called
+        oos_called = True
+        assert company_id == 1
+        assert event_action == "DocWholeSalePerformed"
+        assert document == SAMPLE_WHOLESALE_DOC
+        assert operations == SAMPLE_WHOLESALE_OPS
+
+    monkeypatch.setattr(
+        webhook_background.doc_fetch,
         "fetch_document",
         AsyncMock(return_value=SAMPLE_WHOLESALE_DOC),
     )
     monkeypatch.setattr(
-        regos_webhook_service.doc_fetch,
+        webhook_background.doc_fetch,
         "fetch_operations",
         AsyncMock(return_value=SAMPLE_WHOLESALE_OPS),
     )
     monkeypatch.setattr(
-        regos_webhook_service.telegram_service,
+        webhook_background.telegram_service,
         "notify_company_subscribers",
         AsyncMock(return_value=1),
     )
-
-    event_spec = regos_webhook_service.EVENT_SPECS["DocWholeSalePerformed"]
-    await regos_webhook_service._process_operation_document(
-        AsyncMock(),
-        company_id=1,
-        document_id=1,
-        event_spec=event_spec,
-        event_action="DocWholeSalePerformed",
-        background_tasks=background_tasks,
+    monkeypatch.setattr(
+        webhook_background.out_of_stock_service,
+        "check_and_record_out_of_stock",
+        fake_check_and_record,
+    )
+    monkeypatch.setattr(
+        webhook_background.out_of_stock_service,
+        "is_stock_decrease_event",
+        lambda event_action, document: True,
+    )
+    monkeypatch.setattr(
+        webhook_background.doc_fetch,
+        "item_ids_from_operations",
+        lambda operations: [101],
     )
 
-    assert len(scheduled) == 1
-    func, args = scheduled[0]
-    assert func.__name__ == "process_out_of_stock_for_document"
-    assert args == (1, "DocWholeSalePerformed", SAMPLE_WHOLESALE_DOC, SAMPLE_WHOLESALE_OPS)
+    await webhook_background.process_operation_document(1, 1, "DocWholeSalePerformed")
+
+    assert oos_called
 
 
 @pytest.mark.asyncio

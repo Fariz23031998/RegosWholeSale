@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.exceptions import bad_request, not_found
 from app.models import TelegramBot, TelegramUser
+from app.services.subscriptions import is_subscription_active
 from app.services.telegram_i18n import t
 from app.services.telegram_languages import default_receipt_language, resolve_receipt_language
 from app.services.telegram_notifications import (
@@ -111,6 +112,25 @@ async def _get_bot_by_secret(session: AsyncSession, webhook_secret: str) -> Tele
 async def _get_bot_by_company(session: AsyncSession, company_id: int) -> TelegramBot | None:
     result = await session.execute(select(TelegramBot).where(TelegramBot.company_id == company_id))
     return result.scalar_one_or_none()
+
+
+async def _company_subscription_allows_notifications(
+    session: AsyncSession,
+    company_id: int,
+) -> bool:
+    from app.models import Company
+
+    company = await session.get(Company, company_id)
+    if company is None:
+        return False
+    if not is_subscription_active(company):
+        logger.info(
+            "Skipping Telegram notifications for company %s (subscription inactive: %s)",
+            company_id,
+            company.subscription_status.value,
+        )
+        return False
+    return True
 
 
 def _is_start_command(text: str | None, bot_username: str | None) -> bool:
@@ -393,6 +413,9 @@ async def send_out_of_stock_excel_prompt(
     *,
     scope: NotificationScope | None = None,
 ) -> int:
+    if not await _company_subscription_allows_notifications(session, company_id):
+        return 0
+
     bot = await _get_bot_by_company(session, company_id)
     if not bot:
         return 0
@@ -546,6 +569,9 @@ async def notify_company_subscribers(
     build_document: Callable[[str], tuple[bytes, str, str | None] | None] | None = None,
     scope: NotificationScope | None = None,
 ) -> int:
+    if not await _company_subscription_allows_notifications(session, company_id):
+        return 0
+
     bot = await _get_bot_by_company(session, company_id)
     if not bot:
         logger.info("No Telegram bot configured for company %s", company_id)
