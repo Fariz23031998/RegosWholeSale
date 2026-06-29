@@ -12,6 +12,7 @@ import {
   type DashboardCustomRange,
 } from "@/lib/dashboard-api";
 import { formatCurrency, formatDateTime } from "@/lib/format";
+import { compareOperationsDesc, groupRowsByCurrency } from "@/lib/partner-balance";
 import { fetchFirms, fetchPartnerBalance } from "@/lib/partners-api";
 import { fetchRegosDefaults } from "@/lib/settings-api";
 import { formatAuthError } from "@/store/auth";
@@ -25,15 +26,6 @@ type Props = {
   token: string;
   partnerId: number;
   partnerName: string;
-};
-
-type CurrencyGroup = {
-  key: string;
-  currency: RegosCurrencyOption | null;
-  rows: PartnerBalanceRow[];
-  debitTotal: number;
-  creditTotal: number;
-  closingTotal: number;
 };
 
 function currentYearRange(): DashboardCustomRange {
@@ -52,50 +44,6 @@ function formatUnixDateTime(ts: number): string {
 function formatAmount(value: number): string {
   if (!value) return "";
   return formatCurrency(value);
-}
-
-function compareOperationsDesc(a: PartnerBalanceRow, b: PartnerBalanceRow): number {
-  if (b.date !== a.date) {
-    return b.date - a.date;
-  }
-  return b.id - a.id;
-}
-
-function groupRowsByCurrency(rows: PartnerBalanceRow[]): CurrencyGroup[] {
-  const groups = new Map<string, CurrencyGroup>();
-
-  for (const row of rows) {
-    const currency = row.currency;
-    const key = currency ? String(currency.id) : "none";
-    const existing = groups.get(key);
-    if (existing) {
-      existing.rows.push(row);
-      existing.debitTotal += row.debit;
-      existing.creditTotal += row.credit;
-      continue;
-    }
-    groups.set(key, {
-      key,
-      currency,
-      rows: [row],
-      debitTotal: row.debit,
-      creditTotal: row.credit,
-      closingTotal: 0,
-    });
-  }
-
-  for (const group of groups.values()) {
-    group.rows.sort(compareOperationsDesc);
-    group.closingTotal = group.debitTotal - group.creditTotal;
-  }
-
-  return Array.from(groups.values()).sort((left, right) => {
-    const leftRow = left.rows[0];
-    const rightRow = right.rows[0];
-    if (!leftRow) return 1;
-    if (!rightRow) return -1;
-    return compareOperationsDesc(rightRow, leftRow);
-  });
 }
 
 function collectOptions<T extends { id: number; name: string }>(
