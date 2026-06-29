@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -10,6 +11,7 @@ import {
   type TelegramReceiptLanguage,
 } from "@/lib/telegram-receipt-languages";
 import { updateTelegramUser } from "@/lib/telegram-api";
+import { fetchRegosReferenceOptions } from "@/lib/settings-api";
 import {
   ALL_LEAF_NOTIFICATION_TYPES,
   TELEGRAM_NOTIFICATION_CATEGORIES,
@@ -21,6 +23,7 @@ import {
   subcategoryLabelKey,
   type TelegramNotificationLeaf,
 } from "@/lib/telegram-notification-types";
+import type { RegosDefaultOption } from "@/types/settings";
 import type { TelegramUser } from "@/types/telegram";
 import styles from "./TelegramUsers.module.css";
 
@@ -31,6 +34,97 @@ type Props = {
   onClose: () => void;
   onSaved: (user: TelegramUser) => void;
 };
+
+type ScopePickerProps = {
+  title: string;
+  hint: string;
+  allLabel: string;
+  emptyLabel: string;
+  options: RegosDefaultOption[];
+  allSelected: boolean;
+  selectedIds: number[];
+  disabled: boolean;
+  onChange: (value: { allSelected: boolean; selectedIds: number[] }) => void;
+};
+
+function ScopePicker({
+  title,
+  hint,
+  allLabel,
+  emptyLabel,
+  options,
+  allSelected,
+  selectedIds,
+  disabled,
+  onChange,
+}: ScopePickerProps) {
+  const toggleOption = (optionId: number) => {
+    if (allSelected) {
+      onChange({
+        allSelected: false,
+        selectedIds: options.map((item) => item.id).filter((id) => id !== optionId),
+      });
+      return;
+    }
+    const nextIds = selectedIds.includes(optionId)
+      ? selectedIds.filter((id) => id !== optionId)
+      : [...selectedIds, optionId];
+    const everySelected = nextIds.length === options.length && options.length > 0;
+    onChange({
+      allSelected: everySelected,
+      selectedIds: everySelected ? options.map((item) => item.id) : nextIds,
+    });
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      onChange({
+        allSelected: true,
+        selectedIds: options.map((item) => item.id),
+      });
+    } else {
+      onChange({ allSelected: false, selectedIds: [] });
+    }
+  };
+
+  return (
+    <div className={styles.scopeSection}>
+      <div className={styles.field}>
+        <span className={styles.fieldLabel}>{title}</span>
+        <span className={styles.fieldHint}>{hint}</span>
+      </div>
+      <label className={styles.scopeAllRow}>
+        <Checkbox
+          checked={allSelected}
+          disabled={disabled}
+          onCheckedChange={(value) => handleSelectAll(value === true)}
+        />
+        <span>{allLabel}</span>
+      </label>
+      <div className={styles.scopeList}>
+        {options.map((option) => (
+          <label key={option.id} className={styles.scopeItem}>
+            <Checkbox
+              checked={allSelected || selectedIds.includes(option.id)}
+              disabled={disabled}
+              onCheckedChange={() => toggleOption(option.id)}
+            />
+            <span>{option.name}</span>
+          </label>
+        ))}
+        {options.length === 0 && <div className={styles.scopeEmpty}>{emptyLabel}</div>}
+      </div>
+    </div>
+  );
+}
+
+function isAllScopeIds(selectedIds: number[], options: RegosDefaultOption[]): boolean {
+  return selectedIds.length === 0 || (options.length > 0 && selectedIds.length === options.length);
+}
+
+function scopeIdsForSave(allSelected: boolean, selectedIds: number[]): number[] {
+  return allSelected ? [] : selectedIds;
+}
 
 export function TelegramUserNotificationsModal({
   open,
@@ -43,16 +137,56 @@ export function TelegramUserNotificationsModal({
   const [selectedLeaves, setSelectedLeaves] = useState<Set<TelegramNotificationLeaf>>(new Set());
   const [receiptLanguage, setReceiptLanguage] = useState<TelegramReceiptLanguage>("ru");
   const [isActive, setIsActive] = useState(true);
+  const [allStocks, setAllStocks] = useState(true);
+  const [selectedStockIds, setSelectedStockIds] = useState<number[]>([]);
+  const [allCashiers, setAllCashiers] = useState(true);
+  const [selectedCashierIds, setSelectedCashierIds] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const referenceOptionsQuery = useQuery({
+    queryKey: ["regos", "reference-options", token],
+    queryFn: () => fetchRegosReferenceOptions(token),
+    enabled: open && Boolean(token),
+    staleTime: 60_000,
+  });
+
+  const warehouses = referenceOptionsQuery.data?.warehouses ?? [];
+  const cashiers = referenceOptionsQuery.data?.attached_users ?? [];
 
   useEffect(() => {
     if (!open || !user) return;
     setSelectedLeaves(new Set(expandLegacyNotificationTypes(user.notification_types)));
     setReceiptLanguage(user.receipt_language as TelegramReceiptLanguage);
     setIsActive(user.is_active);
+    const stockIds = user.stock_ids ?? [];
+    const cashierIds = user.cashier_ids ?? [];
+    setAllStocks(stockIds.length === 0);
+    setSelectedStockIds(stockIds);
+    setAllCashiers(cashierIds.length === 0);
+    setSelectedCashierIds(cashierIds);
     setError("");
   }, [open, user]);
+
+  useEffect(() => {
+    if (!open || !user || warehouses.length === 0) return;
+    if (user.stock_ids.length === 0) {
+      setAllStocks(true);
+      setSelectedStockIds(warehouses.map((item) => item.id));
+      return;
+    }
+    setAllStocks(isAllScopeIds(user.stock_ids, warehouses));
+  }, [open, user, warehouses]);
+
+  useEffect(() => {
+    if (!open || !user || cashiers.length === 0) return;
+    if (user.cashier_ids.length === 0) {
+      setAllCashiers(true);
+      setSelectedCashierIds(cashiers.map((item) => item.id));
+      return;
+    }
+    setAllCashiers(isAllScopeIds(user.cashier_ids, cashiers));
+  }, [open, user, cashiers]);
 
   const toggleLeaf = (leaf: TelegramNotificationLeaf, checked: boolean) => {
     setSelectedLeaves((current) => {
@@ -91,6 +225,26 @@ export function TelegramUserNotificationsModal({
       return;
     }
 
+    if (!allStocks && selectedStockIds.length === 0) {
+      setError(
+        t(
+          "telegramUsers.scope.selectWarehouseOrAll",
+          "Select at least one warehouse or choose all warehouses.",
+        ),
+      );
+      return;
+    }
+
+    if (!allCashiers && selectedCashierIds.length === 0) {
+      setError(
+        t(
+          "telegramUsers.scope.selectCashierOrAll",
+          "Select at least one cashier or choose all cashiers.",
+        ),
+      );
+      return;
+    }
+
     setSaving(true);
     setError("");
     try {
@@ -100,6 +254,8 @@ export function TelegramUserNotificationsModal({
         ),
         is_active: isActive,
         receipt_language: receiptLanguage,
+        stock_ids: scopeIdsForSave(allStocks, selectedStockIds),
+        cashier_ids: scopeIdsForSave(allCashiers, selectedCashierIds),
       });
       onSaved(updated);
       onClose();
@@ -158,6 +314,42 @@ export function TelegramUserNotificationsModal({
             ))}
           </select>
         </label>
+
+        <ScopePicker
+          title={t("telegramUsers.scope.warehouses", "Warehouses")}
+          hint={t(
+            "telegramUsers.scope.warehousesHint",
+            "Limit notifications to selected warehouses. Leave all selected to receive every warehouse.",
+          )}
+          allLabel={t("telegramUsers.scope.allWarehouses", "All warehouses")}
+          emptyLabel={t("telegramUsers.scope.noWarehouses", "No warehouses available.")}
+          options={warehouses}
+          allSelected={allStocks}
+          selectedIds={selectedStockIds}
+          disabled={!isActive}
+          onChange={({ allSelected, selectedIds }) => {
+            setAllStocks(allSelected);
+            setSelectedStockIds(selectedIds);
+          }}
+        />
+
+        <ScopePicker
+          title={t("telegramUsers.scope.cashiers", "Cashiers")}
+          hint={t(
+            "telegramUsers.scope.cashiersHint",
+            "Limit POS and attached-user notifications to selected cashiers. Leave all selected to receive every cashier.",
+          )}
+          allLabel={t("telegramUsers.scope.allCashiers", "All cashiers")}
+          emptyLabel={t("telegramUsers.scope.noCashiers", "No cashiers available.")}
+          options={cashiers}
+          allSelected={allCashiers}
+          selectedIds={selectedCashierIds}
+          disabled={!isActive}
+          onChange={({ allSelected, selectedIds }) => {
+            setAllCashiers(allSelected);
+            setSelectedCashierIds(selectedIds);
+          }}
+        />
 
         <div className={styles.notificationList}>
           {TELEGRAM_NOTIFICATION_CATEGORIES.map((category) => {

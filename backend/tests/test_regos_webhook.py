@@ -263,6 +263,58 @@ async def test_wholesale_performed_notifies_all_subscribers(client, monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_wholesale_performed_respects_subscriber_stock_scope(client, monkeypatch):
+    auth_token = await _setup_company(client, monkeypatch, subscriber_count=2)
+
+    users_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    users = users_response.json()
+    assert len(users) == 2
+
+    await client.patch(
+        f"/api/v1/telegram/users/{users[0]['id']}",
+        json={"stock_ids": [10]},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+    await client.patch(
+        f"/api/v1/telegram/users/{users[1]['id']}",
+        json={"stock_ids": [99]},
+        headers={"Authorization": f"Bearer {auth_token}"},
+    )
+
+    send_calls: list[int] = []
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        if method == "sendMessage":
+            send_calls.append(int(payload["chat_id"]))
+            return {"ok": True, "result": {"message_id": 1}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        if endpoint == "DocWholeSale/Get":
+            return {"ok": True, "result": [SAMPLE_WHOLESALE_DOC]}
+        if endpoint == "WholesaleOperation/Get":
+            return {"ok": True, "result": SAMPLE_WHOLESALE_OPS}
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(
+        "app.services.regos_document_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload("DocWholeSalePerformed", 1, event_id="scope-evt"),
+    )
+    assert response.status_code == 200
+    assert send_calls == [900000]
+
+
+@pytest.mark.asyncio
 async def test_unknown_integration_returns_error(client):
     response = await client.post(
         "/api/v1/regos/webhook",

@@ -64,6 +64,37 @@ function notificationsSummary(
   });
 }
 
+function scopeSummary(
+  user: TelegramUser,
+  t: (key: string, fallback?: string, params?: Record<string, string | number>) => string,
+): string {
+  const stockCount = user.stock_ids?.length ?? 0;
+  const cashierCount = user.cashier_ids?.length ?? 0;
+  if (stockCount === 0 && cashierCount === 0) {
+    return t("telegramUsers.scope.all", "All");
+  }
+  const parts: string[] = [];
+  if (stockCount === 0) {
+    parts.push(t("telegramUsers.scope.allWarehousesShort", "All warehouses"));
+  } else if (stockCount === 1) {
+    parts.push(t("telegramUsers.scope.oneWarehouse", "1 warehouse"));
+  } else {
+    parts.push(
+      t("telegramUsers.scope.warehouseCount", "{{count}} warehouses", { count: stockCount }),
+    );
+  }
+  if (cashierCount === 0) {
+    parts.push(t("telegramUsers.scope.allCashiersShort", "All cashiers"));
+  } else if (cashierCount === 1) {
+    parts.push(t("telegramUsers.scope.oneCashier", "1 cashier"));
+  } else {
+    parts.push(
+      t("telegramUsers.scope.cashierCount", "{{count}} cashiers", { count: cashierCount }),
+    );
+  }
+  return parts.join(" · ");
+}
+
 type TelegramUsersPageData = {
   users: TelegramUser[];
   botConfigured: boolean;
@@ -222,6 +253,7 @@ export function TelegramUsersPage() {
                 <th>{t("telegramUsers.table.chatId", "Chat ID")}</th>
                 <th>{t("telegramUsers.table.language", "Language")}</th>
                 <th>{t("telegramUsers.table.notifications", "Notifications")}</th>
+                <th>{t("telegramUsers.table.scope", "Scope")}</th>
                 <th>{t("telegramUsers.receiptLanguage", "Receipt language")}</th>
                 <th>{t("telegramUsers.table.registered", "Registered")}</th>
                 <th>{t("common.status", "Status")}</th>
@@ -248,6 +280,9 @@ export function TelegramUsersPage() {
                     <span className={styles.notificationSummary}>
                       {notificationsSummary(item, t)}
                     </span>
+                  </td>
+                  <td className={clsx(styles.muted, styles.scopeCell)} data-label={t("telegramUsers.table.scope", "Scope")}>
+                    {item.is_active ? scopeSummary(item, t) : "—"}
                   </td>
                   <td className={styles.muted} data-label={t("telegramUsers.receiptLanguage", "Receipt language")}>
                     {t(

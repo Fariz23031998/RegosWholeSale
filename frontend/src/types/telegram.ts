@@ -27,6 +27,8 @@ export type TelegramUser = {
   is_active: boolean;
   notification_types: string[];
   receipt_language: string;
+  stock_ids: number[];
+  cashier_ids: number[];
   created_at: string;
 };
 
@@ -34,6 +36,8 @@ export type TelegramUserUpdateRequest = {
   notification_types?: string[];
   is_active?: boolean;
   receipt_language?: string;
+  stock_ids?: number[];
+  cashier_ids?: number[];
 };
 
 export type TelegramReceiptLanguagesResponse = {

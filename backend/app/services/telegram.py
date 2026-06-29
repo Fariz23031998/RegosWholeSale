@@ -17,6 +17,12 @@ from app.services.telegram_notifications import (
     normalize_notification_types,
     user_receives_notification,
 )
+from app.services.telegram_notification_scope import (
+    NotificationScope,
+    normalize_scope_ids,
+    subscriber_configured_stock_ids,
+    subscriber_matches_scope,
+)
 
 logger = logging.getLogger("regos.backend")
 
@@ -206,6 +212,8 @@ def telegram_user_to_dict(row: TelegramUser) -> dict:
         "is_active": row.is_active,
         "notification_types": sorted(normalize_notification_types(row.notification_types)),
         "receipt_language": resolve_receipt_language(row.receipt_language, row.language_code),
+        "stock_ids": normalize_scope_ids(row.stock_ids),
+        "cashier_ids": normalize_scope_ids(row.cashier_ids),
         "created_at": row.created_at,
     }
 
@@ -226,6 +234,7 @@ def _is_group_subscriber(subscriber: TelegramUser) -> bool:
 def select_notification_recipients(
     subscribers: list[TelegramUser],
     notification_type: str,
+    scope: NotificationScope | None = None,
 ) -> list[TelegramUser]:
     """Pick who receives a broadcast without duplicate delivery.
 
@@ -237,6 +246,7 @@ def select_notification_recipients(
         subscriber
         for subscriber in subscribers
         if user_receives_notification(subscriber.notification_types, notification_type)
+        and subscriber_matches_scope(subscriber, scope)
     ]
     if not eligible:
         return []
@@ -380,6 +390,8 @@ def out_of_stock_excel_reply_markup(lang: str) -> dict[str, Any]:
 async def send_out_of_stock_excel_prompt(
     session: AsyncSession,
     company_id: int,
+    *,
+    scope: NotificationScope | None = None,
 ) -> int:
     bot = await _get_bot_by_company(session, company_id)
     if not bot:
@@ -398,7 +410,7 @@ async def send_out_of_stock_excel_prompt(
         return 0
 
     sent = 0
-    recipients = select_notification_recipients(users, "out_of_stock")
+    recipients = select_notification_recipients(users, "out_of_stock", scope=scope)
     for user in recipients:
         lang = resolve_receipt_language(user.receipt_language, user.language_code)
         if await send_message(
@@ -477,7 +489,12 @@ async def _handle_out_of_stock_excel_callback(
         from app.services import out_of_stock_excel as oos_excel
         from app.services import regos_out_of_stock as oos_service
 
-        report = await oos_service.get_out_of_stock_report(session, bot.company_id)
+        report = await oos_service.get_out_of_stock_report(
+            session,
+            bot.company_id,
+            stock_ids=subscriber_configured_stock_ids(row) or None,
+            all_stocks=not subscriber_configured_stock_ids(row),
+        )
         if not report:
             await answer_callback(
                 text=t("telegram.outOfStock.excelEmpty", lang),
@@ -527,6 +544,7 @@ async def notify_company_subscribers(
     build_message: Callable[[str], str],
     parse_mode: str = "Markdown",
     build_document: Callable[[str], tuple[bytes, str, str | None] | None] | None = None,
+    scope: NotificationScope | None = None,
 ) -> int:
     bot = await _get_bot_by_company(session, company_id)
     if not bot:
@@ -545,7 +563,7 @@ async def notify_company_subscribers(
         return 0
 
     sent = 0
-    recipients = select_notification_recipients(users, notification_type)
+    recipients = select_notification_recipients(users, notification_type, scope=scope)
     for user in recipients:
         lang = resolve_receipt_language(user.receipt_language, user.language_code)
         if await send_message(
@@ -757,6 +775,8 @@ async def update_telegram_user(
     notification_types: list[str] | None = None,
     is_active: bool | None = None,
     receipt_language: str | None = None,
+    stock_ids: list[int] | None = None,
+    cashier_ids: list[int] | None = None,
 ) -> dict | None:
     result = await session.execute(
         select(TelegramUser).where(
@@ -774,6 +794,10 @@ async def update_telegram_user(
         row.is_active = is_active
     if receipt_language is not None:
         row.receipt_language = receipt_language
+    if stock_ids is not None:
+        row.stock_ids = normalize_scope_ids(stock_ids)
+    if cashier_ids is not None:
+        row.cashier_ids = normalize_scope_ids(cashier_ids)
 
     await session.flush()
     return telegram_user_to_dict(row)

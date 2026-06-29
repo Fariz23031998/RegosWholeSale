@@ -8,6 +8,19 @@ from app.services.telegram_notifications import (
     validate_notification_types,
 )
 from app.services.telegram_languages import SUPPORTED_RECEIPT_LANGUAGES, validate_receipt_language
+from app.services.telegram_notification_scope import normalize_scope_ids
+
+
+def _validate_scope_ids(value: list[int] | None) -> list[int] | None:
+    if value is None:
+        return None
+    normalized = normalize_scope_ids(value)
+    if len(normalized) != len(value):
+        raise ValueError("Scope IDs must be unique positive integers")
+    for item in value:
+        if not isinstance(item, int) or item < 1:
+            raise ValueError("Scope IDs must be unique positive integers")
+    return normalized
 
 
 class TelegramBotSaveRequest(BaseModel):
@@ -53,6 +66,8 @@ class TelegramUserResponse(BaseModel):
     is_active: bool
     notification_types: list[str]
     receipt_language: str
+    stock_ids: list[int]
+    cashier_ids: list[int]
     created_at: datetime
 
 
@@ -60,6 +75,8 @@ class TelegramUserUpdateRequest(BaseModel):
     notification_types: list[str] | None = None
     is_active: bool | None = None
     receipt_language: str | None = None
+    stock_ids: list[int] | None = None
+    cashier_ids: list[int] | None = None
 
     @field_validator("notification_types")
     @classmethod
@@ -74,6 +91,11 @@ class TelegramUserUpdateRequest(BaseModel):
         if value is None:
             return None
         return validate_receipt_language(value)
+
+    @field_validator("stock_ids", "cashier_ids")
+    @classmethod
+    def validate_scope_ids(cls, value: list[int] | None) -> list[int] | None:
+        return _validate_scope_ids(value)
 
 
 def all_notification_types_response() -> TelegramNotificationTypesResponse:

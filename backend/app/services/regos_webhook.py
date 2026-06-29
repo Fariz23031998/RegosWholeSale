@@ -16,6 +16,12 @@ from app.services import regos_out_of_stock as out_of_stock_service
 from app.services import regos_pos_fetch as pos_fetch
 from app.services import regos_webhook_background as webhook_background
 from app.services import telegram as telegram_service
+from app.services.telegram_notification_scope import (
+    scope_from_cheque,
+    scope_from_document,
+    scope_from_session,
+    scope_from_stock,
+)
 from app.services.telegram_notifications import (
     resolve_document_notification_type,
     resolve_pos_cheque_notification_type,
@@ -259,6 +265,7 @@ async def _process_operation_document(
         company_id,
         notification_type=leaf_type,
         build_message=build_message,
+        scope=scope_from_document(document),
     )
 
     _schedule_out_of_stock_for_document(
@@ -302,6 +309,7 @@ async def _process_payment_document(
         company_id,
         notification_type=leaf_type,
         build_message=build_message,
+        scope=scope_from_document(document),
     )
     return sent > 0
 
@@ -369,6 +377,7 @@ async def _process_pos_cheque(
         notification_type=leaf_type,
         build_message=build_message,
         parse_mode="HTML",
+        scope=scope_from_cheque(cheque, operations),
     )
 
     if sent > 0 and variant == "closed":
@@ -431,6 +440,7 @@ async def _process_pos_session(
         notification_type=leaf_type,
         build_message=build_message,
         build_document=build_document,
+        scope=scope_from_session(cash_session, variant=pos_spec.variant),
     )
     return sent > 0
 

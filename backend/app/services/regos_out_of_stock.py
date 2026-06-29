@@ -11,6 +11,7 @@ from app.services import out_of_stock_products as out_of_stock_products_service
 from app.services import regos_document_fetch as doc_fetch
 from app.services import telegram as telegram_service
 from app.services.regos_defaults import get_stored_regos_defaults
+from app.services.telegram_notification_scope import NotificationScope, scope_from_stock
 
 logger = logging.getLogger("regos.backend")
 
@@ -297,6 +298,7 @@ async def _notify_out_of_stock_items(
             company_id,
             notification_type="out_of_stock",
             build_message=build_message,
+            scope=scope_from_stock(stock_id),
         )
         if sent > 0:
             notified += 1
@@ -331,7 +333,11 @@ async def check_and_record_out_of_stock(
         stock_name=stock_name,
     )
     if notified > 0:
-        await telegram_service.send_out_of_stock_excel_prompt(session, company_id)
+        await telegram_service.send_out_of_stock_excel_prompt(
+            session,
+            company_id,
+            scope=scope_from_stock(stock_id),
+        )
     return notified
 
 
@@ -349,17 +355,28 @@ async def check_and_record_out_of_stock_from_cheque(
         return 0
 
     notified = 0
+    affected_stock_ids: set[int] = set()
     for stock_id, item_ids in items_by_stock.items():
         stock_name = await doc_fetch.fetch_stock_name(session, company_id, stock_id)
-        notified += await _notify_out_of_stock_items(
+        stock_notified = await _notify_out_of_stock_items(
             session,
             company_id,
             stock_id,
             item_ids,
             stock_name=stock_name,
         )
+        if stock_notified > 0:
+            affected_stock_ids.add(stock_id)
+        notified += stock_notified
     if notified > 0:
-        await telegram_service.send_out_of_stock_excel_prompt(session, company_id)
+        scope = NotificationScope(
+            stock_ids=frozenset(affected_stock_ids) if affected_stock_ids else None
+        )
+        await telegram_service.send_out_of_stock_excel_prompt(
+            session,
+            company_id,
+            scope=scope,
+        )
     return notified
 
 

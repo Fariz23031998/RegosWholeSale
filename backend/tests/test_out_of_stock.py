@@ -316,7 +316,9 @@ async def test_check_and_record_out_of_stock_notifies_and_persists(session_facto
     assert notified == 1
     notify_mock.assert_awaited_once()
     assert notify_mock.await_args.kwargs["notification_type"] == "out_of_stock"
+    assert notify_mock.await_args.kwargs["scope"].stock_ids == frozenset({10})
     excel_prompt_mock.assert_awaited_once()
+    assert excel_prompt_mock.await_args.kwargs["scope"].stock_ids == frozenset({10})
 
     async with session_factory() as session:
         rows = (

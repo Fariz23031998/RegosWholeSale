@@ -429,6 +429,58 @@ async def test_update_telegram_user_notification_types(client, monkeypatch, sess
 
 
 @pytest.mark.asyncio
+async def test_update_telegram_user_scope_filters(client, monkeypatch):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "scope-user-telegram@test.com")
+
+    save_response = await client.put(
+        "/api/v1/telegram/bot",
+        json={"bot_token": "123456:ABC-DEF"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    webhook_secret = save_response.json()["bot"]["webhook_url"].split("/")[-1]
+
+    await client.post(
+        f"/api/v1/telegram/webhook/{webhook_secret}",
+        json={
+            "update_id": 50,
+            "message": {
+                "message_id": 50,
+                "from": {"id": 777666, "is_bot": False, "first_name": "Scope"},
+                "chat": {"id": 777666, "type": "private"},
+                "text": "/start",
+            },
+        },
+    )
+
+    list_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    user_id = list_response.json()[0]["id"]
+    assert list_response.json()[0]["stock_ids"] == []
+    assert list_response.json()[0]["cashier_ids"] == []
+
+    update_response = await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"stock_ids": [10, 11], "cashier_ids": [5]},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["stock_ids"] == [10, 11]
+    assert update_response.json()["cashier_ids"] == [5]
+
+    clear_response = await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"stock_ids": [], "cashier_ids": []},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert clear_response.status_code == 200
+    assert clear_response.json()["stock_ids"] == []
+    assert clear_response.json()["cashier_ids"] == []
+
+
+@pytest.mark.asyncio
 async def test_delete_telegram_user(client, monkeypatch, session_factory):
     _mock_telegram_api(monkeypatch)
     token = await _register_and_login(client, "delete-user-telegram@test.com")
@@ -956,7 +1008,7 @@ async def test_out_of_stock_excel_callback_authorizes_by_chat_id_in_group(
 
     monkeypatch.setattr("app.services.telegram.send_document", fake_send_document)
 
-    async def fake_report(session, company_id):
+    async def fake_report(session, company_id, *, stock_ids=None, all_stocks=True):
         return [{"product_name": "Test", "stock_name": "Main"}]
 
     monkeypatch.setattr(
