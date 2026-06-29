@@ -9,6 +9,8 @@ from app.core.regos_api import regos_async_api_request_for_company
 
 logger = logging.getLogger("regos.backend")
 
+OPERATIONS_PAGE_SIZE = 1000
+
 
 def _first_result_item(result: Any) -> dict[str, Any] | None:
     if not result:
@@ -65,13 +67,27 @@ async def fetch_operations(
     document_id: int,
 ) -> list[dict[str, Any]] | None:
     try:
-        response = await regos_async_api_request_for_company(
-            session,
-            company_id,
-            endpoint,
-            {"document_ids": [document_id]},
-        )
-        operations = _result_list(response.get("result"))
+        operations: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            response = await regos_async_api_request_for_company(
+                session,
+                company_id,
+                endpoint,
+                {
+                    "document_ids": [document_id],
+                    "limit": OPERATIONS_PAGE_SIZE,
+                    "offset": offset,
+                },
+            )
+            page = _result_list(response.get("result"))
+            if not page:
+                break
+            operations.extend(page)
+            if len(page) < OPERATIONS_PAGE_SIZE:
+                break
+            offset += OPERATIONS_PAGE_SIZE
+
         if not operations:
             logger.warning("No operations found at %s for document %s", endpoint, document_id)
             return None

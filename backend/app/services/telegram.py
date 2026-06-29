@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import uuid
 from collections.abc import Callable
@@ -8,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.exceptions import bad_request, not_found
+from app.core.exceptions import AppError, bad_request, not_found
 from app.models import TelegramBot, TelegramUser
 from app.services.subscriptions import is_subscription_active
 from app.services.telegram_i18n import t
@@ -29,6 +30,9 @@ logger = logging.getLogger("regos.backend")
 
 TELEGRAM_API_BASE = "https://api.telegram.org"
 TELEGRAM_MESSAGE_MAX_LENGTH = 4096
+TELEGRAM_MAX_FORMATTING_ENTITIES = 100
+TELEGRAM_SAFE_FORMATTING_ENTITIES = 90
+TELEGRAM_CHUNK_SEND_DELAY_SECONDS = 0.05
 OUT_OF_STOCK_EXCEL_CALLBACK = "oos_excel"
 WEBHOOK_ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
 GROUP_CHAT_TYPES = frozenset({"group", "supergroup"})
@@ -302,30 +306,161 @@ def select_notification_recipients(
     return selected
 
 
+def telegram_text_units(text: str) -> int:
+    """Telegram counts message length in UTF-16 code units."""
+    return len(text.encode("utf-16-le")) // 2
+
+
+def _estimate_markdown_entities(text: str) -> int:
+    count = 0
+    index = 0
+    length = len(text)
+    while index < length:
+        if text[index] != "*":
+            index += 1
+            continue
+        end = text.find("*", index + 1)
+        if end == -1:
+            break
+        count += 1
+        index = end + 1
+    return count
+
+
+def _fit_chunk_entity_limit(chunk: str, max_entities: int) -> str:
+    candidate = chunk
+    while _estimate_markdown_entities(candidate) > max_entities:
+        split_at = candidate.rfind("\n", 0, max(0, len(candidate) - 1))
+        if split_at < 0:
+            return candidate[:1] if candidate else candidate
+        next_candidate = candidate[: split_at + 1]
+        if next_candidate == candidate:
+            return candidate[:1] if candidate else candidate
+        candidate = next_candidate
+    return candidate
+
+
+def _largest_prefix_within_units(text: str, max_units: int) -> int:
+    if telegram_text_units(text) <= max_units:
+        return len(text)
+
+    lo, hi = 1, len(text)
+    best = 0
+    while lo <= hi:
+        mid = (lo + hi) // 2
+        if telegram_text_units(text[:mid]) <= max_units:
+            best = mid
+            lo = mid + 1
+        else:
+            hi = mid - 1
+
+    return best if best > 0 else 1
+
+
 def split_telegram_message(text: str, max_length: int = TELEGRAM_MESSAGE_MAX_LENGTH) -> list[str]:
     if max_length <= 0:
         raise ValueError("max_length must be positive")
-    if len(text) <= max_length:
-        return [text]
 
     chunks: list[str] = []
     remaining = text
     while remaining:
-        if len(remaining) <= max_length:
+        if (
+            telegram_text_units(remaining) <= max_length
+            and _estimate_markdown_entities(remaining) <= TELEGRAM_SAFE_FORMATTING_ENTITIES
+        ):
             chunks.append(remaining)
             break
 
-        window = remaining[:max_length]
-        split_at = window.rfind("\n")
-        if split_at >= 0:
-            chunk = remaining[: split_at + 1]
+        if telegram_text_units(remaining) <= max_length:
+            chunk = _fit_chunk_entity_limit(remaining, TELEGRAM_SAFE_FORMATTING_ENTITIES)
+            if chunk == remaining or not chunk:
+                chunk = remaining[:1]
         else:
-            chunk = window
+            split_idx = _largest_prefix_within_units(remaining, max_length)
+            window = remaining[:split_idx]
+            split_at = window.rfind("\n")
+            if split_at >= 0:
+                chunk = remaining[: split_at + 1]
+            else:
+                chunk = window
+            if not chunk:
+                chunk = remaining[:1]
+            chunk = _fit_chunk_entity_limit(chunk, TELEGRAM_SAFE_FORMATTING_ENTITIES)
+            if not chunk:
+                chunk = remaining[:1]
 
         chunks.append(chunk)
         remaining = remaining[len(chunk) :]
 
     return chunks
+
+
+def _telegram_error_detail(exc: AppError) -> str:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        return str(detail.get("detail", detail))
+    return str(detail)
+
+
+def _telegram_flood_retry_seconds(description: str) -> float | None:
+    lowered = description.lower()
+    if "retry after" not in lowered and "flood" not in lowered:
+        return None
+    digits = "".join(ch if ch.isdigit() else " " for ch in description).split()
+    if not digits:
+        return 1.0
+    try:
+        return max(float(digits[0]), 1.0)
+    except ValueError:
+        return 1.0
+
+
+async def _send_message_chunk(
+    bot_token: str,
+    payload: dict[str, Any],
+    parse_mode: str | None,
+) -> None:
+    chunk_payload = dict(payload)
+    if parse_mode:
+        chunk_payload["parse_mode"] = parse_mode
+    await _telegram_api_call(bot_token, "sendMessage", chunk_payload)
+
+
+async def _send_chunk_with_retries(
+    bot_token: str,
+    payload: dict[str, Any],
+    parse_mode: str | None,
+    *,
+    chat_id: int,
+    chunk_index: int,
+    chunk_count: int,
+) -> None:
+    modes: list[str | None] = [parse_mode, None] if parse_mode else [None]
+    last_error: AppError | None = None
+
+    for mode in modes:
+        for flood_attempt in range(2):
+            try:
+                await _send_message_chunk(bot_token, payload, mode)
+                return
+            except AppError as exc:
+                last_error = exc
+                description = _telegram_error_detail(exc)
+                logger.warning(
+                    "Telegram sendMessage failed for chat %s chunk %s/%s: %s",
+                    chat_id,
+                    chunk_index,
+                    chunk_count,
+                    description,
+                )
+                flood_delay = _telegram_flood_retry_seconds(description)
+                if flood_delay is not None and flood_attempt == 0:
+                    await asyncio.sleep(flood_delay)
+                    continue
+                break
+
+    if last_error is not None:
+        raise last_error
 
 
 async def send_message(
@@ -338,17 +473,23 @@ async def send_message(
     chunks = split_telegram_message(text)
     try:
         for index, chunk in enumerate(chunks):
+            if index > 0 and TELEGRAM_CHUNK_SEND_DELAY_SECONDS > 0:
+                await asyncio.sleep(TELEGRAM_CHUNK_SEND_DELAY_SECONDS)
+
             payload: dict[str, Any] = {
                 "chat_id": chat_id,
                 "text": chunk,
-                "parse_mode": parse_mode,
             }
             if reply_markup is not None and index == 0:
                 payload["reply_markup"] = reply_markup
-            await _telegram_api_call(
+
+            await _send_chunk_with_retries(
                 bot_token,
-                "sendMessage",
                 payload,
+                parse_mode,
+                chat_id=chat_id,
+                chunk_index=index + 1,
+                chunk_count=len(chunks),
             )
         return True
     except Exception:

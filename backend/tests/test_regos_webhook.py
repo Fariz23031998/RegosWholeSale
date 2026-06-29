@@ -23,6 +23,39 @@ SAMPLE_WHOLESALE_OPS = [
     }
 ]
 
+SAMPLE_PURCHASE_DOC = {
+    "id": 5,
+    "code": "PUR-00123",
+    "date": 1700000000,
+    "stock": {"id": 10, "name": "Main warehouse"},
+    "partner": {"name": "ООО Торговый дом", "phone": "+998901234567"},
+    "currency": {"name": "UZS"},
+    "exchange_rate": 12650.25,
+    "attached_user": {"full_name": "Иванов Иван"},
+}
+
+PURCHASE_LONG_ITEM_NAME = (
+    "Консервированные овощи марка Premium Quality 500г упаковка 24шт арт. ABC-12345"
+)
+PURCHASE_ITEM_NOTE = "Партия № 2024/15, срок годности до 12.2026"
+
+
+def _sample_purchase_ops(count: int) -> list[dict]:
+    return [
+        {
+            "id": index,
+            "quantity": 1234.56,
+            "cost": 12500.5,
+            "item": {"name": f"{PURCHASE_LONG_ITEM_NAME} #{index}"},
+            "description": PURCHASE_ITEM_NOTE,
+        }
+        for index in range(1, count + 1)
+    ]
+
+
+SAMPLE_PURCHASE_OPS_23 = _sample_purchase_ops(23)
+SAMPLE_PURCHASE_OPS_91 = _sample_purchase_ops(91)
+
 SAMPLE_PAYMENT_DOC = {
     "id": 2,
     "code": "PAY-001",
@@ -260,6 +293,97 @@ async def test_wholesale_performed_notifies_all_subscribers(client, monkeypatch)
     assert response.json()["ok"] is True
     assert len(send_calls) == 2
     assert send_calls == [900000, 900001]
+
+
+@pytest.mark.asyncio
+async def test_purchase_performed_with_23_operations_splits_message(client, monkeypatch):
+    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, telegram_text_units
+
+    await _setup_company(client, monkeypatch, subscriber_count=1)
+
+    sent_payloads: list[dict] = []
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        if method == "sendMessage":
+            sent_payloads.append(dict(payload or {}))
+            return {"ok": True, "result": {"message_id": len(sent_payloads)}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        if endpoint == "DocPurchase/Get":
+            return {"ok": True, "result": [SAMPLE_PURCHASE_DOC]}
+        if endpoint == "PurchaseOperation/Get":
+            return {"ok": True, "result": SAMPLE_PURCHASE_OPS_23}
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(
+        "app.services.regos_document_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload("DocPurchasePerformed", 5, event_id="purchase-23-evt"),
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert len(sent_payloads) > 1
+    assert "".join(payload["text"] for payload in sent_payloads).count(PURCHASE_LONG_ITEM_NAME) == 23
+    for payload in sent_payloads:
+        assert telegram_text_units(payload["text"]) <= TELEGRAM_MESSAGE_MAX_LENGTH
+
+
+@pytest.mark.asyncio
+async def test_purchase_performed_with_91_operations_splits_message(client, monkeypatch):
+    from app.services.telegram import (
+        TELEGRAM_MESSAGE_MAX_LENGTH,
+        TELEGRAM_SAFE_FORMATTING_ENTITIES,
+        _estimate_markdown_entities,
+        telegram_text_units,
+    )
+
+    await _setup_company(client, monkeypatch, subscriber_count=1)
+
+    sent_payloads: list[dict] = []
+    purchase_requests: list[dict] = []
+
+    async def fake_telegram(bot_token: str, method: str, payload: dict | None = None) -> dict:
+        if method == "sendMessage":
+            sent_payloads.append(dict(payload or {}))
+            return {"ok": True, "result": {"message_id": len(sent_payloads)}}
+        raise AssertionError(method)
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_telegram)
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        if endpoint == "DocPurchase/Get":
+            return {"ok": True, "result": [SAMPLE_PURCHASE_DOC]}
+        if endpoint == "PurchaseOperation/Get":
+            purchase_requests.append(dict(request_data))
+            return {"ok": True, "result": SAMPLE_PURCHASE_OPS_91}
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(
+        "app.services.regos_document_fetch.regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    response = await client.post(
+        "/api/v1/regos/webhook",
+        json=_webhook_payload("DocPurchasePerformed", 5, event_id="purchase-91-evt"),
+    )
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert purchase_requests == [
+        {"document_ids": [5], "limit": 1000, "offset": 0},
+    ]
+    assert len(sent_payloads) > 1
+    assert "".join(payload["text"] for payload in sent_payloads).count(PURCHASE_LONG_ITEM_NAME) == 91
+    for payload in sent_payloads:
+        assert telegram_text_units(payload["text"]) <= TELEGRAM_MESSAGE_MAX_LENGTH
+        assert _estimate_markdown_entities(payload["text"]) <= TELEGRAM_SAFE_FORMATTING_ENTITIES
 
 
 @pytest.mark.asyncio

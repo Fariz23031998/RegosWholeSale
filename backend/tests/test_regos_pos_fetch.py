@@ -58,8 +58,9 @@ async def test_resolve_cheque_session_code_fetches_session_code(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_fetch_session_cheque_details_batch_uses_correct_payloads(monkeypatch):
+async def test_fetch_session_cheque_details_batches_ops_only(monkeypatch):
     captured_steps: list[dict] = []
+    payment_calls: list[str] = []
 
     async def fake_batch(session, company_id, steps, **kwargs):
         captured_steps.extend(steps)
@@ -68,14 +69,23 @@ async def test_fetch_session_cheque_details_batch_uses_correct_payloads(monkeypa
             for step in steps
         }
 
+    async def fake_payments(session, company_id, cheque_uuid):
+        payment_calls.append(cheque_uuid)
+        return [{"value": 100}]
+
     monkeypatch.setattr(
         pos_fetch,
         "regos_batch_request_chunks_for_company",
         fake_batch,
     )
+    monkeypatch.setattr(pos_fetch, "fetch_cheque_payments", fake_payments)
 
     cheque_uuid = "f44289c4-6edc-48d0-a40f-63d718f35993"
-    await pos_fetch.fetch_session_cheque_details(None, 1, [cheque_uuid])
+    operations_by_cheque, payments_by_cheque = await pos_fetch.fetch_session_cheque_details(
+        None,
+        1,
+        [cheque_uuid],
+    )
 
     assert captured_steps == [
         {
@@ -83,9 +93,7 @@ async def test_fetch_session_cheque_details_batch_uses_correct_payloads(monkeypa
             "path": "chequeitemoperation/get",
             "payload": {"doc_sale_uuid": cheque_uuid},
         },
-        {
-            "key": f"pay:{cheque_uuid}",
-            "path": "chequepaymentoperation/get",
-            "payload": {"doc_sale_uuid": cheque_uuid},
-        },
     ]
+    assert payment_calls == [cheque_uuid]
+    assert operations_by_cheque[cheque_uuid] == []
+    assert payments_by_cheque[cheque_uuid] == [{"value": 100}]

@@ -263,22 +263,19 @@ async def fetch_session_cheques(
     return cheques
 
 
-async def _fetch_session_cheque_details_sequential(
+async def _fetch_session_cheque_payments(
     session: AsyncSession,
     company_id: int,
     normalized_uuids: list[str],
-) -> tuple[dict[str, list[dict[str, Any]]], dict[str, list[dict[str, Any]]]]:
-    operations_by_cheque: dict[str, list[dict[str, Any]]] = {}
+) -> dict[str, list[dict[str, Any]]]:
     payments_by_cheque: dict[str, list[dict[str, Any]]] = {}
     for cheque_uuid in normalized_uuids:
-        operations = await fetch_cheque_operations(session, company_id, cheque_uuid)
-        operations_by_cheque[cheque_uuid] = operations or []
         payments_by_cheque[cheque_uuid] = await fetch_cheque_payments(
             session,
             company_id,
             cheque_uuid,
         )
-    return operations_by_cheque, payments_by_cheque
+    return payments_by_cheque
 
 
 async def fetch_session_cheque_details(
@@ -290,22 +287,19 @@ async def fetch_session_cheque_details(
     if not normalized_uuids:
         return {}, {}
 
-    steps: list[BatchStep] = []
-    for cheque_uuid in normalized_uuids:
-        steps.append(
-            {
-                "key": f"ops:{cheque_uuid}",
-                "path": CHEQUE_OPS_ENDPOINT,
-                "payload": _cheque_operations_payload(cheque_uuid),
-            }
-        )
-        steps.append(
-            {
-                "key": f"pay:{cheque_uuid}",
-                "path": CHEQUE_PAYMENTS_ENDPOINT,
-                "payload": _cheque_operations_payload(cheque_uuid),
-            }
-        )
+    # Batch only item operations. Payment batch steps route through POS logic and
+    # require an active cash session, which is unavailable after DocSessionClosed.
+    steps: list[BatchStep] = [
+        {
+            "key": f"ops:{cheque_uuid}",
+            "path": CHEQUE_OPS_ENDPOINT,
+            "payload": _cheque_operations_payload(cheque_uuid),
+        }
+        for cheque_uuid in normalized_uuids
+    ]
+
+    operations_by_cheque: dict[str, list[dict[str, Any]]] = {}
+    failed_ops_uuids: list[str] = []
 
     try:
         batch_results = await regos_batch_request_chunks_for_company(
@@ -316,63 +310,39 @@ async def fetch_session_cheque_details(
         )
     except AppError as exc:
         logger.warning(
-            "Failed to batch fetch session cheque details, falling back to sequential fetch: %s",
+            "Failed to batch fetch session cheque operations, falling back to sequential fetch: %s",
             exc.detail,
         )
-        return await _fetch_session_cheque_details_sequential(
-            session,
-            company_id,
-            normalized_uuids,
-        )
+        failed_ops_uuids = list(normalized_uuids)
     except Exception:
         logger.warning(
-            "Failed to batch fetch session cheque details, falling back to sequential fetch",
+            "Failed to batch fetch session cheque operations, falling back to sequential fetch",
             exc_info=True,
         )
-        return await _fetch_session_cheque_details_sequential(
-            session,
-            company_id,
-            normalized_uuids,
-        )
+        failed_ops_uuids = list(normalized_uuids)
+    else:
+        for cheque_uuid in normalized_uuids:
+            ops_response = batch_results.get(f"ops:{cheque_uuid}", {})
+            if ops_response.get("ok"):
+                operations_by_cheque[cheque_uuid] = _result_list(ops_response.get("result"))
+            else:
+                operations_by_cheque[cheque_uuid] = []
+                failed_ops_uuids.append(cheque_uuid)
+                logger.warning(
+                    "Batch ops fetch failed for cheque %s: %s",
+                    cheque_uuid,
+                    ops_response.get("result"),
+                )
 
-    operations_by_cheque: dict[str, list[dict[str, Any]]] = {}
-    payments_by_cheque: dict[str, list[dict[str, Any]]] = {}
-    failed_cheque_uuids: set[str] = set()
-    for cheque_uuid in normalized_uuids:
-        ops_response = batch_results.get(f"ops:{cheque_uuid}", {})
-        pay_response = batch_results.get(f"pay:{cheque_uuid}", {})
-        if ops_response.get("ok"):
-            operations_by_cheque[cheque_uuid] = _result_list(ops_response.get("result"))
-        else:
-            operations_by_cheque[cheque_uuid] = []
-            failed_cheque_uuids.add(cheque_uuid)
-            logger.warning(
-                "Batch ops fetch failed for cheque %s: %s",
-                cheque_uuid,
-                ops_response.get("result"),
-            )
-        if pay_response.get("ok"):
-            payments_by_cheque[cheque_uuid] = _result_list(pay_response.get("result"))
-        else:
-            payments_by_cheque[cheque_uuid] = []
-            failed_cheque_uuids.add(cheque_uuid)
-            logger.warning(
-                "Batch payment fetch failed for cheque %s: %s",
-                cheque_uuid,
-                pay_response.get("result"),
-            )
+    for cheque_uuid in failed_ops_uuids:
+        operations = await fetch_cheque_operations(session, company_id, cheque_uuid)
+        operations_by_cheque[cheque_uuid] = operations or []
 
-    if failed_cheque_uuids:
-        sequential_ops, sequential_payments = await _fetch_session_cheque_details_sequential(
-            session,
-            company_id,
-            sorted(failed_cheque_uuids),
-        )
-        for cheque_uuid in failed_cheque_uuids:
-            if cheque_uuid in sequential_ops:
-                operations_by_cheque[cheque_uuid] = sequential_ops[cheque_uuid]
-            if cheque_uuid in sequential_payments:
-                payments_by_cheque[cheque_uuid] = sequential_payments[cheque_uuid]
+    payments_by_cheque = await _fetch_session_cheque_payments(
+        session,
+        company_id,
+        normalized_uuids,
+    )
 
     return operations_by_cheque, payments_by_cheque
 

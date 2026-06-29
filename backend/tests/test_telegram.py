@@ -574,14 +574,15 @@ async def test_send_document_returns_false_on_api_error(monkeypatch):
 
 
 def test_split_telegram_message_returns_single_chunk_when_under_limit():
-    from app.services.telegram import split_telegram_message
+    from app.services.telegram import split_telegram_message, telegram_text_units
 
     text = "hello\nworld"
     assert split_telegram_message(text) == [text]
+    assert telegram_text_units(text) <= 4096
 
 
 def test_split_telegram_message_splits_at_line_boundaries():
-    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, split_telegram_message
+    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, split_telegram_message, telegram_text_units
 
     line = "x" * 100
     lines = [line] * 50
@@ -593,11 +594,13 @@ def test_split_telegram_message_splits_at_line_boundaries():
     for chunk in chunks[:-1]:
         assert chunk.endswith("\n")
         assert len(chunk) <= TELEGRAM_MESSAGE_MAX_LENGTH
+        assert telegram_text_units(chunk) <= TELEGRAM_MESSAGE_MAX_LENGTH
     assert len(chunks[-1]) <= TELEGRAM_MESSAGE_MAX_LENGTH
+    assert telegram_text_units(chunks[-1]) <= TELEGRAM_MESSAGE_MAX_LENGTH
 
 
 def test_split_telegram_message_hard_splits_when_line_exceeds_limit():
-    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, split_telegram_message
+    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, split_telegram_message, telegram_text_units
 
     text = "a" * (TELEGRAM_MESSAGE_MAX_LENGTH + 100)
     chunks = split_telegram_message(text)
@@ -606,11 +609,103 @@ def test_split_telegram_message_hard_splits_when_line_exceeds_limit():
     assert chunks[0] == "a" * TELEGRAM_MESSAGE_MAX_LENGTH
     assert chunks[1] == "a" * 100
     assert "".join(chunks) == text
+    for chunk in chunks:
+        assert telegram_text_units(chunk) <= TELEGRAM_MESSAGE_MAX_LENGTH
+
+
+def test_split_telegram_message_respects_utf16_units():
+    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, split_telegram_message, telegram_text_units
+
+    # One emoji is 1 Python character but 2 UTF-16 code units.
+    text = "🧾" + ("x" * 4095)
+    assert len(text) == TELEGRAM_MESSAGE_MAX_LENGTH
+    assert telegram_text_units(text) == TELEGRAM_MESSAGE_MAX_LENGTH + 1
+
+    chunks = split_telegram_message(text)
+    assert len(chunks) == 2
+    assert "".join(chunks) == text
+    for chunk in chunks:
+        assert telegram_text_units(chunk) <= TELEGRAM_MESSAGE_MAX_LENGTH
+
+
+def test_split_telegram_message_23_item_receipt():
+    from app.services.document_telegram_format import format_partner_receipt
+    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, split_telegram_message, telegram_text_units
+
+    doc = {
+        "code": "PUR-00123",
+        "date": 1700000000,
+        "partner": {"name": "ООО Торговый дом", "phone": "+998901234567"},
+        "currency": {"name": "UZS"},
+        "exchange_rate": 12650.25,
+        "attached_user": {"full_name": "Иванов Иван"},
+    }
+    long_name = "Консервированные овощи марка Premium Quality 500г упаковка 24шт арт. ABC-12345"
+    note = "Партия № 2024/15, срок годности до 12.2026"
+    operations = [
+        {
+            "quantity": 1234.56,
+            "cost": 12500.5,
+            "item": {"name": f"{long_name} #{index}"},
+            "description": note,
+        }
+        for index in range(1, 24)
+    ]
+
+    message = format_partner_receipt(
+        doc,
+        operations,
+        "Склад основной",
+        use_cost=True,
+        lang="ru",
+    )
+    chunks = split_telegram_message(message)
+
+    assert len(chunks) > 1
+    assert "".join(chunks) == message
+    for chunk in chunks:
+        assert telegram_text_units(chunk) <= TELEGRAM_MESSAGE_MAX_LENGTH
+
+
+def test_split_telegram_message_91_short_item_receipt_respects_entity_limit():
+    from app.services.document_telegram_format import format_partner_receipt
+    from app.services.telegram import (
+        TELEGRAM_MESSAGE_MAX_LENGTH,
+        TELEGRAM_SAFE_FORMATTING_ENTITIES,
+        _estimate_markdown_entities,
+        split_telegram_message,
+        telegram_text_units,
+    )
+
+    doc = {
+        "code": "PUR-00091",
+        "date": 1700000000,
+        "partner": {"name": "Supplier"},
+        "currency": {"name": "UZS"},
+    }
+    operations = [
+        {"quantity": 1, "cost": 100, "item": {"name": f"Item {index}"}}
+        for index in range(1, 92)
+    ]
+    message = format_partner_receipt(
+        doc,
+        operations,
+        "Main warehouse",
+        use_cost=True,
+        lang="en",
+    )
+    chunks = split_telegram_message(message)
+
+    assert len(chunks) > 1
+    assert "".join(chunks) == message
+    for chunk in chunks:
+        assert telegram_text_units(chunk) <= TELEGRAM_MESSAGE_MAX_LENGTH
+        assert _estimate_markdown_entities(chunk) <= TELEGRAM_SAFE_FORMATTING_ENTITIES
 
 
 @pytest.mark.asyncio
 async def test_send_message_splits_long_text(monkeypatch):
-    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, send_message
+    from app.services.telegram import TELEGRAM_MESSAGE_MAX_LENGTH, send_message, telegram_text_units
 
     sent_texts: list[str] = []
 
@@ -629,6 +724,30 @@ async def test_send_message_splits_long_text(monkeypatch):
     for chunk in sent_texts[:-1]:
         assert chunk.endswith("\n")
         assert len(chunk) <= TELEGRAM_MESSAGE_MAX_LENGTH
+        assert telegram_text_units(chunk) <= TELEGRAM_MESSAGE_MAX_LENGTH
+
+
+@pytest.mark.asyncio
+async def test_send_message_retries_without_parse_mode_on_failure(monkeypatch):
+    from app.core.exceptions import bad_request
+    from app.services.telegram import send_message
+
+    payloads: list[dict] = []
+
+    async def fake_api_call(bot_token, method, payload=None):
+        assert method == "sendMessage"
+        payloads.append(dict(payload or {}))
+        if "parse_mode" in payload:
+            raise bad_request("Can't parse entities", "TELEGRAM_API_ERROR")
+        return {"ok": True, "result": {"message_id": len(payloads)}}
+
+    monkeypatch.setattr("app.services.telegram._telegram_api_call", fake_api_call)
+
+    assert await send_message("token", 1, "hello *world*") is True
+    assert len(payloads) == 2
+    assert payloads[0]["parse_mode"] == "Markdown"
+    assert "parse_mode" not in payloads[1]
+    assert payloads[1]["text"] == "hello *world*"
 
 
 @pytest.mark.asyncio
