@@ -53,6 +53,7 @@ export type RegosReferenceOptionsResponse = {
   payment_categories: RegosDefaultOption[];
   refund_payment_categories: RegosDefaultOption[];
   attached_users: RegosDefaultOption[];
+  firms: RegosDefaultOption[];
 };
 
 export type RegosTokenConfig = {

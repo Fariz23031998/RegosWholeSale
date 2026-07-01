@@ -26,6 +26,14 @@ from app.utils.currency_conversion import convert_between_rates, parse_exchange_
 WHOLESALE_RETURN_SOURCE_PREFIX = "pulse:ws:"
 WHOLESALE_RETURN_MANUAL_PREFIX = "pulse:manual"
 
+_EMPTY_DOCUMENT_LIST: dict[str, Any] = {"documents": [], "next_offset": 0, "total": 0}
+
+_DOCUMENT_STOCK_REGOS_PATHS = {
+    "wholesale": "docwholesale/get",
+    "order_from_partner": "docorderfrompartner/get",
+    "wholesale_return": "docwholesalereturn/get",
+}
+
 
 async def complete_checkout(
     session: AsyncSession,
@@ -264,6 +272,24 @@ async def postpone_sale(
         raise
 
 
+def _apply_stock_filter_to_payload(
+    payload: dict[str, Any],
+    *,
+    stock_ids: list[int] | None,
+    all_stocks: bool,
+    warehouse: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if stock_ids:
+        payload["stock_ids"] = stock_ids
+        return payload
+    if all_stocks:
+        return payload
+    if warehouse and warehouse.get("id"):
+        payload["stock_ids"] = [warehouse["id"]]
+        return payload
+    return None
+
+
 async def _build_filtered_document_list_payload(
     session: AsyncSession,
     company_id: int,
@@ -278,7 +304,7 @@ async def _build_filtered_document_list_payload(
     performed: bool | None = None,
     offset: int = 0,
     limit: int = 50,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     defaults = await regos_defaults_service.get_regos_defaults(
         session, company_id, user_id=user_id
     )
@@ -300,11 +326,12 @@ async def _build_filtered_document_list_payload(
         payload["partner_ids"] = partner_ids
     elif not all_partners and partner:
         payload["partner_ids"] = [partner["id"]]
-    if stock_ids:
-        payload["stock_ids"] = stock_ids
-    elif not all_stocks and warehouse:
-        payload["stock_ids"] = [warehouse["id"]]
-    return payload
+    return _apply_stock_filter_to_payload(
+        payload,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+        warehouse=warehouse,
+    )
 
 
 async def _build_order_document_list_payload(
@@ -320,7 +347,7 @@ async def _build_order_document_list_payload(
     all_stocks: bool = False,
     offset: int = 0,
     limit: int = 50,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     defaults = await regos_defaults_service.get_regos_defaults(
         session, company_id, user_id=user_id
     )
@@ -341,11 +368,12 @@ async def _build_order_document_list_payload(
         payload["partner_ids"] = partner_ids
     elif not all_partners and partner:
         payload["partner_ids"] = [partner["id"]]
-    if stock_ids:
-        payload["stock_ids"] = stock_ids
-    elif not all_stocks and warehouse:
-        payload["stock_ids"] = [warehouse["id"]]
-    return payload
+    return _apply_stock_filter_to_payload(
+        payload,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+        warehouse=warehouse,
+    )
 
 
 def _parse_document_list_response(
@@ -384,6 +412,9 @@ async def fetch_period_document_lists_batch(
         all_stocks=all_stocks,
         limit=limit,
     )
+    if payload is None:
+        empty = dict(_EMPTY_DOCUMENT_LIST)
+        return empty, dict(empty), dict(empty)
     responses = await regos_batch_request_for_company(
         session,
         company_id,
@@ -429,6 +460,8 @@ async def list_wholesale_documents(
         offset=offset,
         limit=limit,
     )
+    if payload is None:
+        return dict(_EMPTY_DOCUMENT_LIST)
 
     response = await _regos_call(session, company_id, "docwholesale/get", payload)
     return _parse_document_list_response(response, _map_wholesale_document)
@@ -462,6 +495,8 @@ async def list_order_from_partner_documents(
         offset=offset,
         limit=limit,
     )
+    if payload is None:
+        return dict(_EMPTY_DOCUMENT_LIST)
 
     response = await _regos_call(session, company_id, "docorderfrompartner/get", payload)
     data = _parse_document_list_response(response, _map_order_from_partner_document)
@@ -662,6 +697,8 @@ async def list_payment_documents(
         offset=offset,
         limit=limit,
     )
+    if payload is None:
+        return dict(_EMPTY_DOCUMENT_LIST)
 
     response = await _regos_call(session, company_id, "docpayment/get", payload)
     return _parse_document_list_response(response, _map_payment_document)
@@ -695,6 +732,8 @@ async def list_wholesale_return_documents(
         offset=offset,
         limit=limit,
     )
+    if payload is None:
+        return dict(_EMPTY_DOCUMENT_LIST)
 
     response = await _regos_call(session, company_id, "docwholesalereturn/get", payload)
     return _parse_document_list_response(response, _map_wholesale_return_document)
@@ -878,7 +917,26 @@ async def _fetch_wholesale_document_by_id(
     company_id: int,
     document_id: int,
 ) -> dict[str, Any]:
-    response = await _regos_call(session, company_id, "docwholesale/get", {"ids": [document_id]})
+    return await _fetch_regos_document_by_id(
+        session,
+        company_id,
+        document_id,
+        regos_path="docwholesale/get",
+        not_found_message=f"Wholesale sale {document_id} was not found.",
+        not_found_code="WHOLESALE_DOCUMENT_NOT_FOUND",
+    )
+
+
+async def _fetch_regos_document_by_id(
+    session: AsyncSession,
+    company_id: int,
+    document_id: int,
+    *,
+    regos_path: str,
+    not_found_message: str,
+    not_found_code: str,
+) -> dict[str, Any]:
+    response = await _regos_call(session, company_id, regos_path, {"ids": [document_id]})
     result = response.get("result")
     if isinstance(result, list) and result:
         document = result[0]
@@ -886,10 +944,53 @@ async def _fetch_wholesale_document_by_id(
             return document
     if isinstance(result, dict) and result.get("id"):
         return result
-    raise bad_request(
-        f"Wholesale sale {document_id} was not found.",
-        "WHOLESALE_DOCUMENT_NOT_FOUND",
+    raise bad_request(not_found_message, not_found_code)
+
+
+def _document_stock_id(document: dict[str, Any]) -> int | None:
+    stock = document.get("stock")
+    if isinstance(stock, dict):
+        stock_id = stock.get("id")
+        if isinstance(stock_id, int):
+            return stock_id
+    return None
+
+
+async def assert_document_stock_access(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    permissions: set[str],
+    document_id: int,
+    *,
+    document_kind: str = "wholesale",
+) -> None:
+    if "pos.change_warehouse" in permissions:
+        return
+
+    defaults = await regos_defaults_service.get_regos_defaults(
+        session, company_id, user_id=user_id
     )
+    warehouse = defaults.get("warehouse")
+    allowed_stock_id = warehouse.get("id") if isinstance(warehouse, dict) else None
+    if not isinstance(allowed_stock_id, int):
+        raise forbidden("Document is not accessible for your warehouse scope.", "FORBIDDEN")
+
+    regos_path = _DOCUMENT_STOCK_REGOS_PATHS.get(document_kind)
+    if regos_path is None:
+        raise bad_request(f"Unsupported document kind: {document_kind}", "INVALID_DOCUMENT_KIND")
+
+    document = await _fetch_regos_document_by_id(
+        session,
+        company_id,
+        document_id,
+        regos_path=regos_path,
+        not_found_message=f"Document {document_id} was not found.",
+        not_found_code="DOCUMENT_NOT_FOUND",
+    )
+    doc_stock_id = _document_stock_id(document)
+    if doc_stock_id != allowed_stock_id:
+        raise forbidden("Document is not accessible for your warehouse scope.", "FORBIDDEN")
 
 
 async def _apply_source_wholesale_document_defaults(

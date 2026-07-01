@@ -18,12 +18,30 @@ from app.schemas.sales import (
     WholesaleReturnSummaryResponse,
 )
 from app.services import regos_sales as regos_sales_service
+from app.services import regos_defaults as regos_defaults_service
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
 
 def _permission_set(current: CurrentUser) -> set[str]:
     return set(current.permissions)
+
+
+async def _scoped_stock_params(
+    session: AsyncSession,
+    current: CurrentUser,
+    *,
+    stock_ids: list[int] | None,
+    all_stocks: bool,
+) -> tuple[list[int] | None, bool]:
+    return await regos_defaults_service.resolve_stock_filter_scope(
+        session,
+        current.company_id,
+        current.id,
+        _permission_set(current),
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
 
 
 def _resolve_document_kind(document_kind: str | None) -> str:
@@ -86,14 +104,21 @@ async def get_wholesale_documents(
     elif "sales.read" not in current.permissions:
         raise forbidden("Missing permission: sales.read", "FORBIDDEN")
 
+    scoped_stock_ids, scoped_all_stocks = await _scoped_stock_params(
+        session,
+        current,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
+
     resolved_kind = _resolve_document_kind(document_kind)
     list_kwargs = dict(
         start_date=start_date,
         end_date=end_date,
         partner_ids=partner_ids,
         all_partners=all_partners,
-        stock_ids=stock_ids,
-        all_stocks=all_stocks,
+        stock_ids=scoped_stock_ids,
+        all_stocks=scoped_all_stocks,
         offset=offset,
         limit=limit,
     )
@@ -155,12 +180,28 @@ async def get_wholesale_operations(
 ) -> WholesaleOperationsResponse:
     resolved_kind = _resolve_document_kind(document_kind)
     if resolved_kind == "order_from_partner":
+        await regos_sales_service.assert_document_stock_access(
+            session,
+            current.company_id,
+            current.id,
+            _permission_set(current),
+            document_id,
+            document_kind="order_from_partner",
+        )
         data = await regos_sales_service.list_order_from_partner_operations(
             session,
             current.company_id,
             document_id,
         )
     else:
+        await regos_sales_service.assert_document_stock_access(
+            session,
+            current.company_id,
+            current.id,
+            _permission_set(current),
+            document_id,
+            document_kind="wholesale",
+        )
         data = await regos_sales_service.list_wholesale_operations(
             session,
             current.company_id,
@@ -178,6 +219,14 @@ async def get_wholesale_document_payments(
     current: CurrentUser = Depends(require_permission("sales.read")),
     session: AsyncSession = Depends(get_db),
 ) -> WholesalePaymentsResponse:
+    await regos_sales_service.assert_document_stock_access(
+        session,
+        current.company_id,
+        current.id,
+        _permission_set(current),
+        document_id,
+        document_kind="wholesale",
+    )
     data = await regos_sales_service.list_wholesale_document_payments(
         session,
         current.company_id,
@@ -199,6 +248,12 @@ async def get_wholesale_return_documents(
     current: CurrentUser = Depends(require_permission("returns.manage")),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleReturnDocumentsResponse:
+    scoped_stock_ids, scoped_all_stocks = await _scoped_stock_params(
+        session,
+        current,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
     data = await regos_sales_service.list_wholesale_return_documents(
         session,
         current.company_id,
@@ -207,8 +262,8 @@ async def get_wholesale_return_documents(
         end_date=end_date,
         partner_ids=partner_ids,
         all_partners=all_partners,
-        stock_ids=stock_ids,
-        all_stocks=all_stocks,
+        stock_ids=scoped_stock_ids,
+        all_stocks=scoped_all_stocks,
         offset=offset,
         limit=limit,
     )
@@ -224,6 +279,14 @@ async def get_wholesale_return_operations(
     current: CurrentUser = Depends(require_permission("returns.manage")),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleOperationsResponse:
+    await regos_sales_service.assert_document_stock_access(
+        session,
+        current.company_id,
+        current.id,
+        _permission_set(current),
+        document_id,
+        document_kind="wholesale_return",
+    )
     data = await regos_sales_service.list_wholesale_return_operations(
         session,
         current.company_id,
@@ -241,6 +304,14 @@ async def get_wholesale_return_document_payments(
     current: CurrentUser = Depends(require_permission("returns.manage")),
     session: AsyncSession = Depends(get_db),
 ) -> WholesalePaymentsResponse:
+    await regos_sales_service.assert_document_stock_access(
+        session,
+        current.company_id,
+        current.id,
+        _permission_set(current),
+        document_id,
+        document_kind="wholesale_return",
+    )
     data = await regos_sales_service.list_wholesale_return_document_payments(
         session,
         current.company_id,
@@ -258,6 +329,14 @@ async def get_wholesale_return_summary(
     current: CurrentUser = Depends(require_any_permission("sales.read", "returns.manage")),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleReturnSummaryResponse:
+    await regos_sales_service.assert_document_stock_access(
+        session,
+        current.company_id,
+        current.id,
+        _permission_set(current),
+        document_id,
+        document_kind="wholesale",
+    )
     data = await regos_sales_service.get_wholesale_return_summary(
         session,
         current.company_id,

@@ -27,5 +27,6 @@ class TelegramUser(Base, TimestampMixin):
     receipt_language: Mapped[str | None] = mapped_column(String(16), nullable=True)
     stock_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
     cashier_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
+    firm_ids: Mapped[list[int] | None] = mapped_column(JSON, nullable=True)
 
     company: Mapped["Company"] = relationship("Company", back_populates="telegram_users")

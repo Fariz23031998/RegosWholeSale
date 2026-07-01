@@ -66,3 +66,4 @@ class RegosReferenceOptionsResponse(BaseModel):
     payment_categories: list[RegosDefaultOption] = Field(default_factory=list)
     refund_payment_categories: list[RegosDefaultOption] = Field(default_factory=list)
     attached_users: list[RegosDefaultOption] = Field(default_factory=list)
+    firms: list[RegosDefaultOption] = Field(default_factory=list)

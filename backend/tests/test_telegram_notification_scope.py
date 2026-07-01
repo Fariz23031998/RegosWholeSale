@@ -5,9 +5,11 @@ from app.services.telegram_notification_scope import (
     attached_user_id_from_document,
     cashier_ids_from_cheque,
     cashier_ids_from_session,
+    firm_id_from_document,
     normalize_scope_ids,
     scope_from_cheque,
     scope_from_document,
+    scope_from_payment_document,
     scope_from_stock,
     stock_ids_from_cheque_operations,
     stock_ids_from_document,
@@ -134,6 +136,44 @@ def test_subscriber_with_cashier_filter_rejects_event_without_cashier():
     )
     assert subscriber_matches_scope(subscriber, NotificationScope(cashier_ids=None)) is True
     assert subscriber_matches_scope(subscriber, NotificationScope(cashier_ids=frozenset())) is False
+
+
+def test_firm_id_from_document_prefers_firm_object():
+    assert firm_id_from_document({"firm": {"id": 4, "name": "REGOS"}}) == 4
+    assert firm_id_from_document({"firm_id": 5}) == 5
+
+
+def test_scope_from_payment_document_builds_firm_and_cashier_sets():
+    scope = scope_from_payment_document(
+        {
+            "firm": {"id": 4, "name": "REGOS"},
+            "attached_user": {"id": 5, "full_name": "Alice"},
+        }
+    )
+    assert scope.firm_ids == frozenset({4})
+    assert scope.cashier_ids == frozenset({5})
+    assert scope.stock_ids is None
+
+
+def test_subscriber_matches_scope_firm_filter():
+    subscriber = TelegramUser(
+        company_id=1,
+        telegram_user_id=1,
+        chat_id=1,
+        firm_ids=[4, 5],
+    )
+    assert subscriber_matches_scope(subscriber, NotificationScope(firm_ids=frozenset({4}))) is True
+    assert subscriber_matches_scope(subscriber, NotificationScope(firm_ids=frozenset({99}))) is False
+
+
+def test_subscriber_with_firm_filter_ignores_non_payment_scope():
+    subscriber = TelegramUser(
+        company_id=1,
+        telegram_user_id=1,
+        chat_id=1,
+        firm_ids=[4],
+    )
+    assert subscriber_matches_scope(subscriber, scope_from_stock(10)) is True
 
 
 def test_select_notification_recipients_applies_scope():

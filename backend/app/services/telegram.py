@@ -238,6 +238,7 @@ def telegram_user_to_dict(row: TelegramUser) -> dict:
         "receipt_language": resolve_receipt_language(row.receipt_language, row.language_code),
         "stock_ids": normalize_scope_ids(row.stock_ids),
         "cashier_ids": normalize_scope_ids(row.cashier_ids),
+        "firm_ids": normalize_scope_ids(row.firm_ids),
         "created_at": row.created_at,
     }
 
@@ -944,6 +945,7 @@ async def update_telegram_user(
     receipt_language: str | None = None,
     stock_ids: list[int] | None = None,
     cashier_ids: list[int] | None = None,
+    firm_ids: list[int] | None = None,
 ) -> dict | None:
     result = await session.execute(
         select(TelegramUser).where(
@@ -965,6 +967,8 @@ async def update_telegram_user(
         row.stock_ids = normalize_scope_ids(stock_ids)
     if cashier_ids is not None:
         row.cashier_ids = normalize_scope_ids(cashier_ids)
+    if firm_ids is not None:
+        row.firm_ids = normalize_scope_ids(firm_ids)
 
     await session.flush()
     return telegram_user_to_dict(row)

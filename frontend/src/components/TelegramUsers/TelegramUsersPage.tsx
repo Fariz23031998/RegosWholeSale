@@ -70,7 +70,8 @@ function scopeSummary(
 ): string {
   const stockCount = user.stock_ids?.length ?? 0;
   const cashierCount = user.cashier_ids?.length ?? 0;
-  if (stockCount === 0 && cashierCount === 0) {
+  const firmCount = user.firm_ids?.length ?? 0;
+  if (stockCount === 0 && cashierCount === 0 && firmCount === 0) {
     return t("telegramUsers.scope.all", "All");
   }
   const parts: string[] = [];
@@ -91,6 +92,13 @@ function scopeSummary(
     parts.push(
       t("telegramUsers.scope.cashierCount", "{{count}} cashiers", { count: cashierCount }),
     );
+  }
+  if (firmCount === 0) {
+    parts.push(t("telegramUsers.scope.allFirmsShort", "All firms"));
+  } else if (firmCount === 1) {
+    parts.push(t("telegramUsers.scope.oneFirm", "1 firm"));
+  } else {
+    parts.push(t("telegramUsers.scope.firmCount", "{{count}} firms", { count: firmCount }));
   }
   return parts.join(" · ");
 }

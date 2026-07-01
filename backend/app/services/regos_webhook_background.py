@@ -14,6 +14,7 @@ from app.services.telegram_i18n import t
 from app.services.telegram_notification_scope import (
     scope_from_cheque,
     scope_from_document,
+    scope_from_payment_document,
     scope_from_session,
 )
 from app.services.telegram_notifications import (
@@ -206,10 +207,8 @@ async def process_payment_document(
             if not document:
                 return
 
-            warehouse_name = await _resolve_warehouse_name(session, company_id, document)
             build_message = lambda lang: fmt.format_payment_notification(
                 document,
-                warehouse_name,
                 is_cancelled=event_spec.is_cancelled,
                 lang=lang,
             )
@@ -222,7 +221,7 @@ async def process_payment_document(
                 company_id,
                 notification_type=leaf_type,
                 build_message=build_message,
-                scope=scope_from_document(document),
+                scope=scope_from_payment_document(document),
             )
 
         await _run_with_session(run)

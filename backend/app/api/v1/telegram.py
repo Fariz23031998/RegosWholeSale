@@ -109,6 +109,7 @@ async def update_telegram_user(
         and body.receipt_language is None
         and body.stock_ids is None
         and body.cashier_ids is None
+        and body.firm_ids is None
     ):
         raise bad_request("At least one field must be provided", "TELEGRAM_USER_UPDATE_EMPTY")
 
@@ -121,6 +122,7 @@ async def update_telegram_user(
         receipt_language=body.receipt_language,
         stock_ids=body.stock_ids,
         cashier_ids=body.cashier_ids,
+        firm_ids=body.firm_ids,
     )
     if not updated:
         raise not_found("Telegram user not found", "TELEGRAM_USER_NOT_FOUND")

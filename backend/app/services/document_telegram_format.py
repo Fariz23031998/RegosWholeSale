@@ -228,7 +228,6 @@ def format_partner_receipt(
 
 def format_payment_notification(
     document: dict[str, Any],
-    warehouse_name: str | None = None,
     *,
     is_cancelled: bool = False,
     lang: str = "ru",
@@ -242,6 +241,16 @@ def format_payment_notification(
         if isinstance(payment_type, dict)
         else t("telegram.receipt.unknownPaymentType", lang)
     )
+
+    partner = document.get("partner", {})
+    if not isinstance(partner, dict):
+        partner = {}
+    partner_name = partner.get("name")
+    if not isinstance(partner_name, str) or not partner_name.strip():
+        partner_name = t("telegram.receipt.unknownPartner", lang)
+
+    firm = document.get("firm", {})
+    firm_name = firm.get("name", "") if isinstance(firm, dict) else ""
 
     currency = document.get("currency", {})
     currency_name = currency.get("name", "") if isinstance(currency, dict) else ""
@@ -257,6 +266,7 @@ def format_payment_notification(
 
     category = document.get("category", {})
     category_positive = category.get("positive", False) if isinstance(category, dict) else False
+    category_name = category.get("name", "") if isinstance(category, dict) else ""
 
     message_parts: list[str] = []
     if is_cancelled:
@@ -275,16 +285,20 @@ def format_payment_notification(
         ]
     )
 
-    warehouse = warehouse_name or t("telegram.receipt.warehouseDefault", lang)
-    message_parts.append(f"🏢 {t('telegram.receipt.warehouse', lang, name=warehouse)}")
     _append_attached_user(message_parts, document, lang)
+    message_parts.append(f"👤 {t('telegram.receipt.partner', lang, name=partner_name)}")
+    if firm_name:
+        message_parts.append(f"🏛 {t('telegram.receipt.firm', lang, name=firm_name)}")
+    if category_name:
+        message_parts.append(f"📂 {t('telegram.receipt.category', lang, name=category_name)}")
+    if currency_name:
+        message_parts.append(f"💰 {t('telegram.receipt.currency', lang, name=currency_name)}")
 
     message_parts.extend(["", f"💳 {t('telegram.receipt.paymentType', lang, name=payment_type_name)}"])
 
-    amount_text = format_number(amount)
-    if currency_name:
-        amount_text = f"{amount_text} {currency_name}"
-    message_parts.append(f"💵 {t('telegram.receipt.amount', lang, amount=amount_text)}")
+    message_parts.append(
+        f"💵 {t('telegram.receipt.amount', lang, amount=format_number(amount))}"
+    )
 
     if exchange_rate != 1.0:
         message_parts.append(

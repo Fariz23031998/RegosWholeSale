@@ -174,10 +174,37 @@ def test_format_payment_notification_includes_attached_user():
             "category": {"positive": False},
             **ATTACHED_USER_DOC,
         },
-        "Main",
         lang="en",
     )
-    assert "Attached user: Cashier One" in message
+    assert "User: Cashier One" in message
+    assert "Warehouse:" not in message
+    assert "Currency: UZS" in message
+    assert "Amount: 1 000" in message
+    assert "1 000 UZS" not in message
+
+
+def test_format_payment_notification_includes_partner_firm_category():
+    message = format_payment_notification(
+        {
+            "code": "PAY-2",
+            "date": 1700000000,
+            "amount": 280.01,
+            "exchange_rate": 160.53,
+            "type": {"name": "Rubl"},
+            "currency": {"name": "USD"},
+            "partner": {"name": "Acme LLC"},
+            "firm": {"name": "My Firm"},
+            "category": {"positive": True, "name": "Supplier payment"},
+            **ATTACHED_USER_DOC,
+        },
+        lang="en",
+    )
+    assert "Partner: Acme LLC" in message
+    assert "Firm: My Firm" in message
+    assert "Category: Supplier payment" in message
+    assert "Currency: USD" in message
+    assert "Paid out" in message
+    assert "Exchange rate: 160.53" in message
 
 
 def test_format_inout_receipt_includes_attached_user():

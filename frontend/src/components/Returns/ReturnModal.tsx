@@ -19,6 +19,7 @@ import {
   type DashboardPeriodPreset,
 } from "@/lib/dashboard-api";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useWarehouseScope } from "@/hooks/use-warehouse-scope";
 import { filterCheckoutOverrides } from "@/types/users";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
@@ -73,6 +74,7 @@ export function ReturnModal({ open, onClose }: Props) {
   const accessToken = useAuth((s) => s.accessToken);
   const { canChangePartner } = usePermissions();
   const canChangePartnerPerm = canChangePartner();
+  const { ready: warehouseScopeReady, scopedStockQueryParams } = useWarehouseScope();
   const posSaleCurrency = useSellContext((s) => s.saleCurrency);
   const partnerId = useSellContext((s) => s.partnerId);
   const checkoutOverrides = useSellContext((s) => s.checkoutOverrides);
@@ -146,12 +148,17 @@ export function ReturnModal({ open, onClose }: Props) {
   };
 
   useEffect(() => {
-    if (!open || !accessToken || sourceMode !== "sale") return;
+    if (!open || !accessToken || sourceMode !== "sale" || !warehouseScopeReady) return;
 
     let cancelled = false;
     setDocumentsLoading(true);
     const params = resolveDashboardPeriodParams(periodPreset, customRange);
-    void fetchWholesaleDocuments(accessToken, { ...params, performed: true, limit: 100 })
+    void fetchWholesaleDocuments(accessToken, {
+      ...params,
+      performed: true,
+      limit: 100,
+      ...scopedStockQueryParams({ allStocks: true, stockIds: [] }),
+    })
       .then((res) => {
         if (!cancelled) setDocuments(res.documents);
       })
@@ -165,7 +172,7 @@ export function ReturnModal({ open, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, accessToken, sourceMode, periodPreset, customRange, t]);
+  }, [open, accessToken, sourceMode, periodPreset, customRange, scopedStockQueryParams, t, warehouseScopeReady]);
 
   useEffect(() => {
     if (!open || !accessToken) return;

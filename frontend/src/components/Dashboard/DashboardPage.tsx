@@ -19,6 +19,7 @@ import {
 } from "recharts";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useWarehouseScope } from "@/hooks/use-warehouse-scope";
 import {
   buildDashboardCurrencyFilterOptions,
   buildDashboardStockFilterParams,
@@ -398,6 +399,13 @@ function BestSellersSection({
 export function DashboardPage() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
+  const {
+    canChangeWarehouse,
+    defaultWarehouse,
+    ready: warehouseScopeReady,
+    scopedStockFilters,
+    warehousesForLabel,
+  } = useWarehouseScope();
   const [periodPreset, setPeriodPreset] = useState<DashboardPeriodPreset>("week");
   const [customRange, setCustomRange] = useState<DashboardCustomRange | null>(null);
   const [periodModalOpen, setPeriodModalOpen] = useState(false);
@@ -445,22 +453,42 @@ export function DashboardPage() {
     [customRange, periodPreset],
   );
 
+  const effectiveStockFilters = useMemo(
+    () => scopedStockFilters({ allStocks, stockIds: selectedStockIds }),
+    [allStocks, scopedStockFilters, selectedStockIds],
+  );
+
+  const effectiveOutOfStockFilters = useMemo(
+    () =>
+      scopedStockFilters({
+        allStocks: outOfStockAllStocks,
+        stockIds: outOfStockSelectedStockIds,
+      }),
+    [outOfStockAllStocks, outOfStockSelectedStockIds, scopedStockFilters],
+  );
+
+  const warehouseLabelWarehouses = canChangeWarehouse ? warehouses : warehousesForLabel;
+  const warehouseLabelFilters = canChangeWarehouse
+    ? { allStocks, stockIds: selectedStockIds }
+    : effectiveStockFilters;
+  const outOfStockLabelFilters = canChangeWarehouse
+    ? { allStocks: outOfStockAllStocks, stockIds: outOfStockSelectedStockIds }
+    : effectiveOutOfStockFilters;
+
   const queryParams = useMemo(
     () =>
       resolveDashboardQueryParams(periodParams, {
-        allStocks,
-        stockIds: selectedStockIds,
+        ...effectiveStockFilters,
         allPartners,
         partnerIds: selectedPartnerIds,
         currencyFilter,
       }),
     [
       allPartners,
-      allStocks,
       currencyFilter,
+      effectiveStockFilters,
       periodParams,
       allPartners ? undefined : selectedPartnerIds,
-      allStocks ? undefined : selectedStockIds,
     ],
   );
 
@@ -468,24 +496,26 @@ export function DashboardPage() {
     () => serializeDashboardQueryParams(queryParams),
     [
       allPartners,
-      allStocks,
+      effectiveStockFilters.allStocks,
       periodParams.start_date,
       periodParams.end_date,
       allPartners ? "" : selectedPartnerIds.join(","),
-      allStocks ? "" : selectedStockIds.join(","),
+      effectiveStockFilters.allStocks ? "" : effectiveStockFilters.stockIds.join(","),
       currencyFilter?.currencyId,
       currencyFilter?.mode,
+      warehouseScopeReady,
     ],
   );
 
   const outOfStockStockFilterParams = useMemo(
-    () => buildDashboardStockFilterParams({ allStocks: outOfStockAllStocks, stockIds: outOfStockSelectedStockIds }),
-    [outOfStockAllStocks, outOfStockSelectedStockIds],
+    () => buildDashboardStockFilterParams(effectiveOutOfStockFilters),
+    [effectiveOutOfStockFilters],
   );
 
   const outOfStockStockFilterKey = useMemo(
-    () => `${outOfStockAllStocks}:${outOfStockAllStocks ? "" : outOfStockSelectedStockIds.join(",")}`,
-    [outOfStockAllStocks, outOfStockSelectedStockIds],
+    () =>
+      `${effectiveOutOfStockFilters.allStocks}:${effectiveOutOfStockFilters.allStocks ? "" : effectiveOutOfStockFilters.stockIds.join(",")}`,
+    [effectiveOutOfStockFilters],
   );
 
   const currencyFilterOptions = useMemo(
@@ -538,8 +568,19 @@ export function DashboardPage() {
     void Promise.all([fetchRegosReferenceOptions(token), fetchRegosDefaults(token)])
       .then(([options, defaultsResponse]) => {
         if (cancelled) return;
-        setWarehouses(options.warehouses);
         setPartners(options.partners);
+        if (canChangeWarehouse) {
+          setWarehouses(options.warehouses);
+          setSelectedStockIds((current) =>
+            current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
+          );
+          setOutOfStockSelectedStockIds((current) =>
+            current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
+          );
+        }
+        setSelectedPartnerIds((current) =>
+          current.length > 0 ? current : options.partners.map((partner) => partner.id),
+        );
         const currencies = collectDashboardCurrencies(
           options.price_types,
           defaultsResponse.defaults.currency,
@@ -551,15 +592,6 @@ export function DashboardPage() {
           if (!defaultCurrency?.id) return null;
           return { currencyId: defaultCurrency.id, mode: "all" };
         });
-        setSelectedStockIds((current) =>
-          current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
-        );
-        setOutOfStockSelectedStockIds((current) =>
-          current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
-        );
-        setSelectedPartnerIds((current) =>
-          current.length > 0 ? current : options.partners.map((partner) => partner.id),
-        );
       })
       .catch(() => {
         if (!cancelled) {
@@ -574,19 +606,31 @@ export function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [canChangeWarehouse, token]);
+
+  useEffect(() => {
+    if (!warehouseScopeReady || canChangeWarehouse) return;
+    if (defaultWarehouse?.id) {
+      setAllStocks(false);
+      setSelectedStockIds([defaultWarehouse.id]);
+      setOutOfStockAllStocks(false);
+      setOutOfStockSelectedStockIds([defaultWarehouse.id]);
+    }
+  }, [canChangeWarehouse, defaultWarehouse, warehouseScopeReady]);
+
+  const filtersReady = defaultsReady && warehouseScopeReady;
 
   const dashboardDataQuery = useQuery({
     queryKey: ["dashboard", "initial", token, dashboardQueryKey],
     queryFn: async () => fetchDashboardOverview(token!, queryParams),
-    enabled: Boolean(token) && defaultsReady,
+    enabled: Boolean(token) && filtersReady,
     staleTime: 30_000,
   });
 
   const outOfStockQuery = useQuery({
     queryKey: ["dashboard", "out-of-stock", token, outOfStockStockFilterKey],
     queryFn: async () => fetchDashboardOutOfStock(token!, outOfStockStockFilterParams),
-    enabled: Boolean(token) && defaultsReady && activeTab === "outOfStock",
+    enabled: Boolean(token) && filtersReady && activeTab === "outOfStock",
     staleTime: 30_000,
   });
 
@@ -609,7 +653,7 @@ export function DashboardPage() {
     : "";
 
   useEffect(() => {
-    if (!token || !defaultsReady) return;
+    if (!token || !filtersReady) return;
 
     setStats(null);
     setProducts([]);
@@ -621,7 +665,7 @@ export function DashboardPage() {
     setOutcomePaymentCategoryName(null);
     setIncomePaymentsTotal(0);
     setOutcomePaymentsTotal(0);
-  }, [dashboardQueryKey, defaultsReady, token]);
+  }, [dashboardQueryKey, filtersReady, token]);
 
   useEffect(() => {
     if (!token) {
@@ -717,7 +761,12 @@ export function DashboardPage() {
       exportDashboardOutOfStockToExcel(
         outOfStockProducts,
         t,
-        formatWarehouseFilterLabel(outOfStockAllStocks, outOfStockSelectedStockIds, warehouses, t),
+        formatWarehouseFilterLabel(
+          outOfStockLabelFilters.allStocks,
+          outOfStockLabelFilters.stockIds,
+          warehouseLabelWarehouses,
+          t,
+        ),
       );
     } catch (err: unknown) {
       setOutOfStockExportError(formatAuthError(err, t("dashboard.outOfStock.exportError")));
@@ -751,7 +800,7 @@ export function DashboardPage() {
           <div className={styles.subtitle}>
             {loading
               ? t("common.loadingFromRegos")
-              : `${formatDashboardPeriodLabel(periodPreset, customRange, t)} · ${formatPartnerFilterLabel(allPartners, selectedPartnerIds, partners, t)} · ${formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}`}
+              : `${formatDashboardPeriodLabel(periodPreset, customRange, t)} · ${formatPartnerFilterLabel(allPartners, selectedPartnerIds, partners, t)} · ${formatWarehouseFilterLabel(warehouseLabelFilters.allStocks, warehouseLabelFilters.stockIds, warehouseLabelWarehouses, t)}`}
           </div>
         </div>
         <div className={styles.filters}>
@@ -788,14 +837,26 @@ export function DashboardPage() {
             <Users size={14} />
             {formatPartnerFilterLabel(allPartners, selectedPartnerIds, partners, t)}
           </button>
-          <button
-            type="button"
-            className={clsx(styles.filter, styles.filterMenu)}
-            onClick={() => setWarehouseModalOpen(true)}
-          >
-            <Warehouse size={14} />
-            {formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}
-          </button>
+          {canChangeWarehouse ? (
+            <button
+              type="button"
+              className={clsx(styles.filter, styles.filterMenu)}
+              onClick={() => setWarehouseModalOpen(true)}
+            >
+              <Warehouse size={14} />
+              {formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}
+            </button>
+          ) : (
+            <span className={clsx(styles.filter, styles.filterMenu)}>
+              <Warehouse size={14} />
+              {formatWarehouseFilterLabel(
+                warehouseLabelFilters.allStocks,
+                warehouseLabelFilters.stockIds,
+                warehouseLabelWarehouses,
+                t,
+              )}
+            </span>
+          )}
           {currencyFilterOptions.length > 0 && (
             <label className={clsx(styles.filter, styles.filterMenu, styles.currencyFilter)}>
               <Coins size={14} />
@@ -856,28 +917,32 @@ export function DashboardPage() {
           setSelectedPartnerIds(partnerIds);
         }}
       />
-      <DashboardWarehousesModal
-        open={warehouseModalOpen}
-        onClose={() => setWarehouseModalOpen(false)}
-        warehouses={warehouses}
-        allStocks={allStocks}
-        selectedStockIds={selectedStockIds}
-        onApply={({ allStocks: nextAllStocks, stockIds }) => {
-          setAllStocks(nextAllStocks);
-          setSelectedStockIds(stockIds);
-        }}
-      />
-      <DashboardWarehousesModal
-        open={outOfStockWarehouseModalOpen}
-        onClose={() => setOutOfStockWarehouseModalOpen(false)}
-        warehouses={warehouses}
-        allStocks={outOfStockAllStocks}
-        selectedStockIds={outOfStockSelectedStockIds}
-        onApply={({ allStocks: nextAllStocks, stockIds }) => {
-          setOutOfStockAllStocks(nextAllStocks);
-          setOutOfStockSelectedStockIds(stockIds);
-        }}
-      />
+      {canChangeWarehouse ? (
+        <>
+          <DashboardWarehousesModal
+            open={warehouseModalOpen}
+            onClose={() => setWarehouseModalOpen(false)}
+            warehouses={warehouses}
+            allStocks={allStocks}
+            selectedStockIds={selectedStockIds}
+            onApply={({ allStocks: nextAllStocks, stockIds }) => {
+              setAllStocks(nextAllStocks);
+              setSelectedStockIds(stockIds);
+            }}
+          />
+          <DashboardWarehousesModal
+            open={outOfStockWarehouseModalOpen}
+            onClose={() => setOutOfStockWarehouseModalOpen(false)}
+            warehouses={warehouses}
+            allStocks={outOfStockAllStocks}
+            selectedStockIds={outOfStockSelectedStockIds}
+            onApply={({ allStocks: nextAllStocks, stockIds }) => {
+              setOutOfStockAllStocks(nextAllStocks);
+              setOutOfStockSelectedStockIds(stockIds);
+            }}
+          />
+        </>
+      ) : null}
 
       {error && <div className={styles.empty}>{error}</div>}
 
@@ -1401,14 +1466,31 @@ export function DashboardPage() {
               : ""}
           </div>
           <div className={styles.productsToolbar}>
-            <button
-              type="button"
-              className={styles.exportButton}
-              onClick={() => setOutOfStockWarehouseModalOpen(true)}
-            >
-              <Warehouse size={14} />
-              {formatWarehouseFilterLabel(outOfStockAllStocks, outOfStockSelectedStockIds, warehouses, t)}
-            </button>
+            {canChangeWarehouse ? (
+              <button
+                type="button"
+                className={styles.exportButton}
+                onClick={() => setOutOfStockWarehouseModalOpen(true)}
+              >
+                <Warehouse size={14} />
+                {formatWarehouseFilterLabel(
+                  outOfStockAllStocks,
+                  outOfStockSelectedStockIds,
+                  warehouses,
+                  t,
+                )}
+              </button>
+            ) : (
+              <span className={styles.exportButton}>
+                <Warehouse size={14} />
+                {formatWarehouseFilterLabel(
+                  outOfStockLabelFilters.allStocks,
+                  outOfStockLabelFilters.stockIds,
+                  warehouseLabelWarehouses,
+                  t,
+                )}
+              </span>
+            )}
             {outOfStockProducts.length > 0 && (
               <div className={styles.productsSearch}>
                 <Search size={16} className={styles.productsSearchIcon} />

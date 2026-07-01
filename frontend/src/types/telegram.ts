@@ -29,6 +29,7 @@ export type TelegramUser = {
   receipt_language: string;
   stock_ids: number[];
   cashier_ids: number[];
+  firm_ids: number[];
   created_at: string;
 };
 
@@ -38,6 +39,7 @@ export type TelegramUserUpdateRequest = {
   receipt_language?: string;
   stock_ids?: number[];
   cashier_ids?: number[];
+  firm_ids?: number[];
 };
 
 export type TelegramReceiptLanguagesResponse = {

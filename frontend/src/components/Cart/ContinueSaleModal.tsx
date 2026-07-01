@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useWarehouseScope } from "@/hooks/use-warehouse-scope";
 import { Modal } from "@/components/posui/Modal";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useCart, type CartItem, type DiscountMode } from "@/store/cart";
@@ -89,6 +90,7 @@ function discountFromOperations(
 export function ContinueSaleModal({ open, onClose }: Props) {
   const { t } = useLanguage();
   const accessToken = useAuth((s) => s.accessToken);
+  const { ready: warehouseScopeReady, scopedStockQueryParams } = useWarehouseScope();
   const restore = useCart((s) => s.restore);
   const setPostponedWholesaleDocId = useCart((s) => s.setPostponedWholesaleDocId);
   const setPostponedDocType = useCart((s) => s.setPostponedDocType);
@@ -121,7 +123,7 @@ export function ContinueSaleModal({ open, onClose }: Props) {
   };
 
   useEffect(() => {
-    if (!open || !accessToken) return;
+    if (!open || !accessToken || !warehouseScopeReady) return;
 
     let cancelled = false;
     setLoading(true);
@@ -132,6 +134,7 @@ export function ContinueSaleModal({ open, onClose }: Props) {
       document_kind: documentKind,
       continuable_only: documentKind === "order_from_partner",
       limit: 100,
+      ...scopedStockQueryParams({ allStocks: true, stockIds: [] }),
     })
       .then((response) => {
         if (!cancelled) setDocuments(response.documents);
@@ -148,7 +151,7 @@ export function ContinueSaleModal({ open, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, accessToken, documentKind]);
+  }, [open, accessToken, documentKind, scopedStockQueryParams, warehouseScopeReady]);
 
   const filteredDocuments = useMemo(() => {
     const query = search.trim().toLowerCase();

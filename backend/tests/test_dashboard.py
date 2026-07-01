@@ -808,3 +808,62 @@ def test_map_payment_document_currency_from_type_account() -> None:
     assert mapped["category_name"] == "Sales income"
     assert mapped["partner_name"] == "Walk-in"
     assert mapped["attached_user_name"] == "Cashier One"
+
+
+async def _employee_headers(
+    client: AsyncClient,
+    owner_headers: dict,
+    *,
+    login: str = "dashboard-scoped",
+) -> dict:
+    await client.post(
+        "/api/v1/users",
+        headers=owner_headers,
+        json={
+            "login": login,
+            "password": "employee123",
+            "display_name": "Dashboard Scoped",
+            "role": "employee",
+            "permission_rules": [{"code": "dashboard.read", "effect": "allow"}],
+        },
+    )
+    emp_login = await client.post(
+        "/api/v1/auth/login",
+        json={"login": login, "password": "employee123"},
+    )
+    return {"Authorization": f"Bearer {emp_login.json()['access_token']}"}
+
+
+@patch("app.services.regos_dashboard.regos_sales_service.fetch_period_operations_batch", new_callable=AsyncMock)
+@patch(
+    "app.services.regos_dashboard.regos_sales_service.fetch_period_document_lists_batch",
+    new_callable=AsyncMock,
+)
+@pytest.mark.asyncio
+async def test_dashboard_stats_scoped_to_default_warehouse_without_change_permission(
+    mock_fetch_lists: AsyncMock,
+    mock_fetch_operations: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_fetch_lists.return_value = (
+        {"documents": [], "next_offset": 0, "total": 0},
+        {"documents": [], "next_offset": 0, "total": 0},
+        {"documents": [], "next_offset": 0, "total": 0},
+    )
+    mock_fetch_operations.return_value = ([], [])
+
+    reg = await register_owner(
+        client, email="dashboard-scoped@test.com", company_name="Dashboard Scoped Co"
+    )
+    owner_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_defaults(client, owner_headers)
+    emp_headers = await _employee_headers(client, owner_headers)
+
+    response = await client.get(
+        "/api/v1/dashboard/stats",
+        headers=emp_headers,
+        params={"all_stocks": "true"},
+    )
+    assert response.status_code == 200
+    assert mock_fetch_lists.await_args.kwargs["stock_ids"] == [11]
+    assert mock_fetch_lists.await_args.kwargs["all_stocks"] is False

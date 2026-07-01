@@ -2859,3 +2859,143 @@ async def test_list_wholesale_document_payments_by_description_ids(
 
     payment_payload = mock_regos.call_args[0][3]
     assert payment_payload["ids"] == [3001, 3002]
+
+
+async def _employee_headers(
+    client: AsyncClient,
+    owner_headers: dict,
+    *,
+    login: str = "scoped-cashier",
+    permission_rules: list[dict] | None = None,
+) -> dict:
+    body: dict = {
+        "login": login,
+        "password": "employee123",
+        "display_name": "Scoped Cashier",
+        "role": "employee",
+    }
+    if permission_rules is not None:
+        body["permission_rules"] = permission_rules
+    await client.post("/api/v1/users", headers=owner_headers, json=body)
+    emp_login = await client.post(
+        "/api/v1/auth/login",
+        json={"login": login, "password": "employee123"},
+    )
+    return {"Authorization": f"Bearer {emp_login.json()['access_token']}"}
+
+
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_wholesale_documents_scoped_to_default_warehouse_without_change_permission(
+    mock_regos: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_regos.return_value = {"ok": True, "result": [], "next_offset": 0, "total": 0}
+
+    reg = await register_owner(client, email="scoped-list@test.com", company_name="Scoped List Co")
+    owner_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, owner_headers)
+    emp_headers = await _employee_headers(client, owner_headers)
+
+    response = await client.get(
+        "/api/v1/sales/wholesale-documents",
+        headers=emp_headers,
+        params={"all_stocks": "true"},
+    )
+    assert response.status_code == 200
+
+    payload = mock_regos.call_args[0][3]
+    assert payload["stock_ids"] == [11]
+    assert "all_stocks" not in payload
+
+
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_wholesale_documents_ignore_foreign_stock_ids_without_change_permission(
+    mock_regos: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_regos.return_value = {"ok": True, "result": [], "next_offset": 0, "total": 0}
+
+    reg = await register_owner(client, email="scoped-override@test.com", company_name="Scoped Override Co")
+    owner_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, owner_headers)
+    emp_headers = await _employee_headers(client, owner_headers, login="override-cashier")
+
+    response = await client.get(
+        "/api/v1/sales/wholesale-documents",
+        headers=emp_headers,
+        params={"all_stocks": "false", "stock_ids": [99]},
+    )
+    assert response.status_code == 200
+
+    payload = mock_regos.call_args[0][3]
+    assert payload["stock_ids"] == [11]
+
+
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_wholesale_documents_owner_with_change_permission_keeps_all_stocks(
+    mock_regos: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_regos.return_value = {"ok": True, "result": [], "next_offset": 0, "total": 0}
+
+    reg = await register_owner(client, email="owner-all-stocks@test.com", company_name="Owner All Stocks Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.get(
+        "/api/v1/sales/wholesale-documents",
+        headers=headers,
+        params={"all_stocks": "true"},
+    )
+    assert response.status_code == 200
+
+    payload = mock_regos.call_args[0][3]
+    assert "stock_ids" not in payload
+
+
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_wholesale_documents_empty_when_no_default_warehouse_without_change_permission(
+    mock_regos: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    reg = await register_owner(
+        client, email="scoped-no-default@test.com", company_name="Scoped No Default Co"
+    )
+    owner_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    emp_headers = await _employee_headers(client, owner_headers, login="no-default-cashier")
+
+    response = await client.get(
+        "/api/v1/sales/wholesale-documents",
+        headers=emp_headers,
+        params={"all_stocks": "true"},
+    )
+    assert response.status_code == 200
+    assert response.json()["documents"] == []
+    mock_regos.assert_not_called()
+
+
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_wholesale_document_operations_forbidden_for_foreign_warehouse(
+    mock_regos: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [{"id": 1001, "stock": {"id": 99, "name": "Other warehouse"}}],
+    }
+
+    reg = await register_owner(client, email="scoped-detail@test.com", company_name="Scoped Detail Co")
+    owner_headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, owner_headers)
+    emp_headers = await _employee_headers(client, owner_headers, login="detail-cashier")
+
+    response = await client.get(
+        "/api/v1/sales/wholesale-documents/1001/operations",
+        headers=emp_headers,
+    )
+    assert response.status_code == 403

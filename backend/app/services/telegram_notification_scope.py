@@ -23,6 +23,15 @@ def _user_id_from_object(user: Any) -> int | None:
     return _positive_int(user.get("id"))
 
 
+def firm_id_from_document(document: dict[str, Any]) -> int | None:
+    firm = document.get("firm")
+    if isinstance(firm, dict):
+        firm_id = _positive_int(firm.get("id"))
+        if firm_id is not None:
+            return firm_id
+    return _positive_int(document.get("firm_id"))
+
+
 def attached_user_id_from_document(document: dict[str, Any]) -> int | None:
     attached_user = document.get("attached_user")
     if not isinstance(attached_user, dict):
@@ -98,6 +107,14 @@ def scope_from_document(document: dict[str, Any]) -> NotificationScope:
     return NotificationScope(stock_ids=stock_ids, cashier_ids=cashier_ids)
 
 
+def scope_from_payment_document(document: dict[str, Any]) -> NotificationScope:
+    firm_id = firm_id_from_document(document)
+    firm_ids = frozenset({firm_id}) if firm_id is not None else None
+    cashier_id = attached_user_id_from_document(document)
+    cashier_ids = frozenset({cashier_id}) if cashier_id is not None else None
+    return NotificationScope(firm_ids=firm_ids, cashier_ids=cashier_ids)
+
+
 def scope_from_cheque(
     cheque: dict[str, Any],
     operations: list[dict[str, Any]] | None,
@@ -133,6 +150,7 @@ def normalize_scope_ids(value: list[int] | None) -> list[int]:
 class NotificationScope:
     stock_ids: frozenset[int] | None = None
     cashier_ids: frozenset[int] | None = None
+    firm_ids: frozenset[int] | None = None
 
 
 def subscriber_configured_stock_ids(subscriber: TelegramUser) -> list[int]:
@@ -141,6 +159,10 @@ def subscriber_configured_stock_ids(subscriber: TelegramUser) -> list[int]:
 
 def subscriber_configured_cashier_ids(subscriber: TelegramUser) -> list[int]:
     return normalize_scope_ids(subscriber.cashier_ids)
+
+
+def subscriber_configured_firm_ids(subscriber: TelegramUser) -> list[int]:
+    return normalize_scope_ids(subscriber.firm_ids)
 
 
 def subscriber_matches_scope(subscriber: TelegramUser, scope: NotificationScope | None) -> bool:
@@ -155,6 +177,11 @@ def subscriber_matches_scope(subscriber: TelegramUser, scope: NotificationScope 
     configured_cashiers = subscriber_configured_cashier_ids(subscriber)
     if configured_cashiers and scope.cashier_ids is not None:
         if not (set(configured_cashiers) & scope.cashier_ids):
+            return False
+
+    configured_firms = subscriber_configured_firm_ids(subscriber)
+    if configured_firms and scope.firm_ids is not None:
+        if not (set(configured_firms) & scope.firm_ids):
             return False
 
     return True

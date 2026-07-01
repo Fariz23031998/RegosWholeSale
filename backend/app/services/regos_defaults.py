@@ -6,6 +6,7 @@ from app.core.exceptions import bad_request, not_found
 from app.core.regos_api import regos_async_api_request_for_company
 from app.models import Company, User
 from app.services import settings as settings_service
+from app.services import regos_firms as regos_firms_service
 
 REGOS_DEFAULTS_KEY = "regos_defaults"
 USER_REGOS_DEFAULTS_KEY = "regos_defaults"
@@ -255,6 +256,24 @@ async def get_regos_defaults(
     return await get_effective_stored_regos_defaults(session, user_id, company_id)
 
 
+async def resolve_stock_filter_scope(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    permissions: set[str] | list[str],
+    *,
+    stock_ids: list[int] | None,
+    all_stocks: bool,
+) -> tuple[list[int] | None, bool]:
+    if "pos.change_warehouse" in permissions:
+        return stock_ids, all_stocks
+    defaults = await get_regos_defaults(session, company_id, user_id=user_id)
+    warehouse = defaults.get("warehouse")
+    if warehouse and warehouse.get("id"):
+        return [int(warehouse["id"])], False
+    return [], False
+
+
 async def get_effective_stored_regos_defaults(
     session: AsyncSession, user_id: int, company_id: int
 ) -> dict[str, Any]:
@@ -361,6 +380,7 @@ async def list_reference_options(session: AsyncSession, company_id: int) -> dict
         session, company_id, "refund_payment_category"
     )
     attached_users = await _fetch_reference_options(session, company_id, "attached_user")
+    firms_data = await regos_firms_service.list_firms(session, company_id)
     return {
         "warehouses": warehouses,
         "price_types": price_types,
@@ -368,6 +388,7 @@ async def list_reference_options(session: AsyncSession, company_id: int) -> dict
         "payment_categories": payment_categories,
         "refund_payment_categories": refund_payment_categories,
         "attached_users": attached_users,
+        "firms": firms_data["firms"],
     }
 
 

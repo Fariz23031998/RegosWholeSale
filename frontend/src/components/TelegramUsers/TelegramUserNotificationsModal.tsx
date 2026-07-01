@@ -141,6 +141,8 @@ export function TelegramUserNotificationsModal({
   const [selectedStockIds, setSelectedStockIds] = useState<number[]>([]);
   const [allCashiers, setAllCashiers] = useState(true);
   const [selectedCashierIds, setSelectedCashierIds] = useState<number[]>([]);
+  const [allFirms, setAllFirms] = useState(true);
+  const [selectedFirmIds, setSelectedFirmIds] = useState<number[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -153,6 +155,7 @@ export function TelegramUserNotificationsModal({
 
   const warehouses = referenceOptionsQuery.data?.warehouses ?? [];
   const cashiers = referenceOptionsQuery.data?.attached_users ?? [];
+  const firms = referenceOptionsQuery.data?.firms ?? [];
 
   useEffect(() => {
     if (!open || !user) return;
@@ -161,10 +164,13 @@ export function TelegramUserNotificationsModal({
     setIsActive(user.is_active);
     const stockIds = user.stock_ids ?? [];
     const cashierIds = user.cashier_ids ?? [];
+    const firmIds = user.firm_ids ?? [];
     setAllStocks(stockIds.length === 0);
     setSelectedStockIds(stockIds);
     setAllCashiers(cashierIds.length === 0);
     setSelectedCashierIds(cashierIds);
+    setAllFirms(firmIds.length === 0);
+    setSelectedFirmIds(firmIds);
     setError("");
   }, [open, user]);
 
@@ -187,6 +193,16 @@ export function TelegramUserNotificationsModal({
     }
     setAllCashiers(isAllScopeIds(user.cashier_ids, cashiers));
   }, [open, user, cashiers]);
+
+  useEffect(() => {
+    if (!open || !user || firms.length === 0) return;
+    if (user.firm_ids.length === 0) {
+      setAllFirms(true);
+      setSelectedFirmIds(firms.map((item) => item.id));
+      return;
+    }
+    setAllFirms(isAllScopeIds(user.firm_ids, firms));
+  }, [open, user, firms]);
 
   const toggleLeaf = (leaf: TelegramNotificationLeaf, checked: boolean) => {
     setSelectedLeaves((current) => {
@@ -245,6 +261,16 @@ export function TelegramUserNotificationsModal({
       return;
     }
 
+    if (!allFirms && selectedFirmIds.length === 0) {
+      setError(
+        t(
+          "telegramUsers.scope.selectFirmOrAll",
+          "Select at least one firm or choose all firms.",
+        ),
+      );
+      return;
+    }
+
     setSaving(true);
     setError("");
     try {
@@ -256,6 +282,7 @@ export function TelegramUserNotificationsModal({
         receipt_language: receiptLanguage,
         stock_ids: scopeIdsForSave(allStocks, selectedStockIds),
         cashier_ids: scopeIdsForSave(allCashiers, selectedCashierIds),
+        firm_ids: scopeIdsForSave(allFirms, selectedFirmIds),
       });
       onSaved(updated);
       onClose();
@@ -348,6 +375,24 @@ export function TelegramUserNotificationsModal({
           onChange={({ allSelected, selectedIds }) => {
             setAllCashiers(allSelected);
             setSelectedCashierIds(selectedIds);
+          }}
+        />
+
+        <ScopePicker
+          title={t("telegramUsers.scope.firms", "Firms")}
+          hint={t(
+            "telegramUsers.scope.firmsHint",
+            "Limit payment notifications to selected firms. Leave all selected to receive every firm.",
+          )}
+          allLabel={t("telegramUsers.scope.allFirms", "All firms")}
+          emptyLabel={t("telegramUsers.scope.noFirms", "No firms available.")}
+          options={firms}
+          allSelected={allFirms}
+          selectedIds={selectedFirmIds}
+          disabled={!isActive}
+          onChange={({ allSelected, selectedIds }) => {
+            setAllFirms(allSelected);
+            setSelectedFirmIds(selectedIds);
           }}
         />
 

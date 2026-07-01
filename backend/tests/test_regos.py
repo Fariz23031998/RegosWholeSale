@@ -1202,11 +1202,14 @@ def test_doc_order_from_partner_status_constants() -> None:
     assert DOC_ORDER_FROM_PARTNER_CONTINUABLE_STATUS_IDS == frozenset({1, 2, 3})
 
 
+@patch("app.services.regos_defaults.regos_firms_service.list_firms", new_callable=AsyncMock)
 @patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_attached_user_reference_request_uses_valid_user_get_fields(
     mock_regos: AsyncMock,
+    mock_firms: AsyncMock,
 ) -> None:
+    mock_firms.return_value = {"firms": [{"id": 4, "name": "REGOS"}]}
     mock_regos.side_effect = [
         {"ok": True, "result": []},
         {"ok": True, "result": []},
@@ -1219,6 +1222,7 @@ async def test_attached_user_reference_request_uses_valid_user_get_fields(
     options = await regos_defaults_service.list_reference_options(None, 1)
 
     assert options["attached_users"][0]["name"] == "Cashier One"
+    assert options["firms"][0]["name"] == "REGOS"
     user_call = next(
         call for call in mock_regos.call_args_list if call[0][2] == "user/get"
     )
@@ -1240,6 +1244,7 @@ async def test_get_regos_reference_options_requires_settings_manage(
         "payment_categories": [{"id": 4, "name": "Sales"}],
         "refund_payment_categories": [{"id": 6, "name": "Refund"}],
         "attached_users": [{"id": 5, "name": "Cashier"}],
+        "firms": [{"id": 4, "name": "REGOS"}],
     }
 
     reg = await register_owner(client, email="opts@test.com", company_name="Opts Co")

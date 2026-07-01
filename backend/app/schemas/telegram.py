@@ -68,6 +68,7 @@ class TelegramUserResponse(BaseModel):
     receipt_language: str
     stock_ids: list[int]
     cashier_ids: list[int]
+    firm_ids: list[int]
     created_at: datetime
 
 
@@ -77,6 +78,7 @@ class TelegramUserUpdateRequest(BaseModel):
     receipt_language: str | None = None
     stock_ids: list[int] | None = None
     cashier_ids: list[int] | None = None
+    firm_ids: list[int] | None = None
 
     @field_validator("notification_types")
     @classmethod
@@ -92,7 +94,7 @@ class TelegramUserUpdateRequest(BaseModel):
             return None
         return validate_receipt_language(value)
 
-    @field_validator("stock_ids", "cashier_ids")
+    @field_validator("stock_ids", "cashier_ids", "firm_ids")
     @classmethod
     def validate_scope_ids(cls, value: list[int] | None) -> list[int] | None:
         return _validate_scope_ids(value)

@@ -460,24 +460,27 @@ async def test_update_telegram_user_scope_filters(client, monkeypatch):
     user_id = list_response.json()[0]["id"]
     assert list_response.json()[0]["stock_ids"] == []
     assert list_response.json()[0]["cashier_ids"] == []
+    assert list_response.json()[0]["firm_ids"] == []
 
     update_response = await client.patch(
         f"/api/v1/telegram/users/{user_id}",
-        json={"stock_ids": [10, 11], "cashier_ids": [5]},
+        json={"stock_ids": [10, 11], "cashier_ids": [5], "firm_ids": [4]},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert update_response.status_code == 200
     assert update_response.json()["stock_ids"] == [10, 11]
     assert update_response.json()["cashier_ids"] == [5]
+    assert update_response.json()["firm_ids"] == [4]
 
     clear_response = await client.patch(
         f"/api/v1/telegram/users/{user_id}",
-        json={"stock_ids": [], "cashier_ids": []},
+        json={"stock_ids": [], "cashier_ids": [], "firm_ids": []},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert clear_response.status_code == 200
     assert clear_response.json()["stock_ids"] == []
     assert clear_response.json()["cashier_ids"] == []
+    assert clear_response.json()["firm_ids"] == []
 
 
 @pytest.mark.asyncio
