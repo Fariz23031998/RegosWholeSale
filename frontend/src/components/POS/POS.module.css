@@ -828,7 +828,7 @@
   flex-shrink: 0;
   transition: all 0.15s;
 }
-.chip:hover { color: var(--color-text); }
+.chip:not(.chipActive):hover { color: var(--color-text); }
 .chipActive {
   background: var(--color-filter-active-bg);
   border-color: var(--color-filter-active-border);
