@@ -1,12 +1,14 @@
 .printArea80mm {
   width: 80mm;
   max-width: 80mm;
+  box-sizing: border-box;
 }
 
 .printAreaA4 {
   width: 210mm;
   max-width: 210mm;
   padding: 15mm;
+  box-sizing: border-box;
 }
 
 .printPreview.printAreaA4,

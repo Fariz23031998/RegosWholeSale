@@ -145,6 +145,7 @@ export function HtmlReceiptLayout({
     >
       <iframe
         ref={frameRef}
+        data-receipt-preview
         className={clsx(
           styles.htmlFramePreview,
           previewPane && styles.htmlFramePreviewPane,
@@ -155,7 +156,7 @@ export function HtmlReceiptLayout({
         scrolling={previewPane || previewFill ? "auto" : "no"}
         srcDoc={srcDoc}
       />
-      <div className={styles.htmlBodyPrint}>
+      <div data-receipt-print-body className={styles.htmlBodyPrint}>
         {safeCss ? <style>{safeCss}</style> : null}
         <div dangerouslySetInnerHTML={{ __html: html }} />
       </div>

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Printer } from "lucide-react";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
@@ -33,10 +33,7 @@ export function ReceiptModal({
   const token = useAuth((s) => s.accessToken);
   const { templates, defaultTemplateId } = useReceiptTemplates(token);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
-  const [printRoot, setPrintRoot] = useState<HTMLDivElement | null>(null);
-  const printRootRef = useCallback((node: HTMLDivElement | null) => {
-    setPrintRoot(node);
-  }, []);
+  const printRootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!context) return;
@@ -50,17 +47,13 @@ export function ReceiptModal({
 
   const shareSession = useReceiptShareSession({
     accessToken: token,
-    printRoot,
-    format: selectedTemplate?.format ?? null,
+    template: selectedTemplate,
+    context,
     documentCode: context?.sale.id ?? context?.document_code ?? "receipt",
     templateName: selectedTemplate?.name ?? "",
-    generateErrorMessage: t(
-      "receipt.share.errors.generate",
-      "Could not create PDF. Try Print instead.",
-    ),
     uploadErrorMessage: t(
       "receipt.share.errors.upload",
-      "Failed to upload receipt for sharing.",
+      "Failed to create share link.",
     ),
   });
 
@@ -100,10 +93,8 @@ export function ReceiptModal({
           <div className={styles.receiptShareColumn}>
             <ReceiptSharePanel
               disabled={shareDisabled}
-              documentCode={context.sale.id ?? context.document_code ?? "receipt"}
               session={shareSession.session}
               linkExpired={shareSession.linkExpired}
-              getPdfBlob={shareSession.getPdfBlob}
               ensureShareUrl={shareSession.ensureShareUrl}
               onRegenerate={shareSession.reset}
             />

@@ -1,6 +1,7 @@
 from datetime import datetime
+from typing import Any
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, TimestampMixin
@@ -21,9 +22,12 @@ class ReceiptShare(Base, TimestampMixin):
     created_by_user_id: Mapped[int | None] = mapped_column(
         Integer, ForeignKey("users.id"), nullable=True
     )
-    storage_path: Mapped[str] = mapped_column(String(512), nullable=False)
-    filename: Mapped[str] = mapped_column(String(255), nullable=False)
-    file_size: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    template_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    render_context: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    storage_path: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    file_size: Mapped[int | None] = mapped_column(Integer, nullable=True)
     document_code: Mapped[str | None] = mapped_column(String(120), nullable=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     download_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

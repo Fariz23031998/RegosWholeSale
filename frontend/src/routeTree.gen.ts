@@ -21,6 +21,7 @@ import { Route as AppSalesRouteImport } from './routes/_app.sales'
 import { Route as AppReturnsRouteImport } from './routes/_app.returns'
 import { Route as AppReceiptTemplatesRouteImport } from './routes/_app.receipt-templates'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
+import { Route as PublicTemplatesTokenRouteImport } from './routes/public.templates.$token'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
@@ -81,6 +82,11 @@ const AppDashboardRoute = AppDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
+const PublicTemplatesTokenRoute = PublicTemplatesTokenRouteImport.update({
+  id: '/public/templates/$token',
+  path: '/public/templates/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
@@ -94,6 +100,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AppSettingsRoute
   '/telegram-users': typeof AppTelegramUsersRoute
   '/users': typeof AppUsersRoute
+  '/public/templates/$token': typeof PublicTemplatesTokenRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByTo {
   '/telegram-users': typeof AppTelegramUsersRoute
   '/users': typeof AppUsersRoute
   '/': typeof AppIndexRoute
+  '/public/templates/$token': typeof PublicTemplatesTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -122,6 +130,7 @@ export interface FileRoutesById {
   '/_app/telegram-users': typeof AppTelegramUsersRoute
   '/_app/users': typeof AppUsersRoute
   '/_app/': typeof AppIndexRoute
+  '/public/templates/$token': typeof PublicTemplatesTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -137,6 +146,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/telegram-users'
     | '/users'
+    | '/public/templates/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
@@ -150,6 +160,7 @@ export interface FileRouteTypes {
     | '/telegram-users'
     | '/users'
     | '/'
+    | '/public/templates/$token'
   id:
     | '__root__'
     | '/_app'
@@ -164,6 +175,7 @@ export interface FileRouteTypes {
     | '/_app/telegram-users'
     | '/_app/users'
     | '/_app/'
+    | '/public/templates/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -171,6 +183,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  PublicTemplatesTokenRoute: typeof PublicTemplatesTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -259,6 +272,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
+    '/public/templates/$token': {
+      id: '/public/templates/$token'
+      path: '/public/templates/$token'
+      fullPath: '/public/templates/$token'
+      preLoaderRoute: typeof PublicTemplatesTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -291,6 +311,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  PublicTemplatesTokenRoute: PublicTemplatesTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

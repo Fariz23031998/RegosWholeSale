@@ -1,33 +1,59 @@
-import { apiUpload } from "@/lib/api";
+import { apiRequest } from "@/lib/api";
+import type { DocumentPrintContext } from "@/lib/receipt-print-context";
+import type { ReceiptTemplate } from "@/types/receipt-templates";
 
-export type ReceiptShareCreateResponse = {
-  share_id: string;
+export type PublicTemplateShareCreateResponse = {
+  public_token: string;
   url: string;
-  expires_at: string;
-  filename: string;
+  public_expires_at: string;
+  is_public: boolean;
 };
 
-export type ReceiptShareUploadMetadata = {
-  filename: string;
+export type PublicTemplateShareResponse = {
+  public_token: string;
+  public_expires_at: string;
+  is_public: boolean;
+  template: ReceiptTemplate;
+  context: DocumentPrintContext;
+  document_code: string | null;
+};
+
+export type PublicTemplateShareMetadata = {
   documentCode?: string;
-  templateName?: string;
 };
 
-export async function uploadReceiptShare(
+export async function createPublicTemplateShare(
   token: string,
-  pdfBlob: Blob,
-  metadata: ReceiptShareUploadMetadata,
-): Promise<ReceiptShareCreateResponse> {
-  const formData = new FormData();
-  formData.append("file", pdfBlob, metadata.filename);
-  if (metadata.documentCode) {
-    formData.append("document_code", metadata.documentCode);
-  }
-  if (metadata.templateName) {
-    formData.append("template_name", metadata.templateName);
-  }
-  return apiUpload<ReceiptShareCreateResponse>("/api/v1/receipts/share", formData, {
+  payload: {
+    template: ReceiptTemplate;
+    context: DocumentPrintContext;
+    documentCode?: string;
+  },
+): Promise<PublicTemplateShareCreateResponse> {
+  return apiRequest<PublicTemplateShareCreateResponse>("/api/v1/receipts/share", {
+    method: "POST",
     token,
+    body: {
+      template: payload.template,
+      context: payload.context,
+      document_code: payload.documentCode,
+    },
     timeoutMs: 60_000,
   });
+}
+
+export async function fetchPublicTemplateShare(
+  publicToken: string,
+): Promise<PublicTemplateShareResponse> {
+  return apiRequest<PublicTemplateShareResponse>(
+    `/api/v1/public/templates/${encodeURIComponent(publicToken)}`,
+    { timeoutMs: 30_000 },
+  );
+}
+
+export function buildPublicTemplateUrl(publicToken: string): string {
+  if (typeof globalThis.location !== "undefined") {
+    return `${globalThis.location.origin}/public/templates/${publicToken}`;
+  }
+  return `/public/templates/${publicToken}`;
 }

@@ -1,68 +1,45 @@
+import json
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
+from typing import Any
 from uuid import uuid4
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
-from app.core.exceptions import bad_request, not_found
+from app.core.exceptions import bad_request, forbidden, gone, not_found
 from app.models.receipt_share import ReceiptShare
-
-PDF_MAGIC = b"%PDF-"
-
-
-def validate_pdf_bytes(data: bytes, *, max_bytes: int) -> None:
-    if len(data) == 0:
-        raise bad_request("Empty file", "EMPTY_FILE")
-    if len(data) > max_bytes:
-        raise bad_request("File too large", "FILE_TOO_LARGE")
-    if not data.startswith(PDF_MAGIC):
-        raise bad_request("File must be a PDF", "INVALID_PDF")
+from app.schemas.receipt_templates import ReceiptTemplate
 
 
-def storage_root() -> Path:
-    settings = get_settings()
-    root = Path(settings.receipt_share_storage_dir)
-    if not root.is_absolute():
-        root = Path.cwd() / root
-    return root
-
-
-def absolute_storage_path(relative_path: str) -> Path:
-    return storage_root() / relative_path
-
-
-def write_pdf_atomically(company_id: int, token: str, data: bytes) -> str:
-    relative_dir = f"{company_id}"
-    relative_path = f"{relative_dir}/{token}.pdf"
-    dest_dir = storage_root() / relative_dir
-    dest_dir.mkdir(parents=True, exist_ok=True)
-    temp_path = dest_dir / f".{token}.tmp"
-    final_path = dest_dir / f"{token}.pdf"
-    temp_path.write_bytes(data)
-    temp_path.replace(final_path)
-    return relative_path
-
-
-def delete_storage_file(relative_path: str) -> None:
-    path = absolute_storage_path(relative_path)
-    if path.is_file():
-        path.unlink(missing_ok=True)
-
-
-def build_share_url(token: str) -> str:
+def build_public_template_url(public_token: str) -> str:
     settings = get_settings()
     base = settings.public_base_url
-    path = f"/api/v1/receipts/share/{token}"
+    path = f"/public/templates/{public_token}"
     if base:
         return f"{base}{path}"
     return path
 
 
-def sanitize_filename(filename: str) -> str:
-    cleaned = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in filename.strip())
-    return cleaned[:200] or "receipt.pdf"
+def validate_share_payload(
+    template: ReceiptTemplate,
+    context: dict[str, Any],
+    *,
+    max_bytes: int,
+) -> None:
+    if not context:
+        raise bad_request("Receipt context is required", "EMPTY_CONTEXT")
+    try:
+        payload_size = len(
+            json.dumps(
+                {"template": template.model_dump(), "context": context},
+                ensure_ascii=False,
+            ).encode("utf-8")
+        )
+    except (TypeError, ValueError) as exc:
+        raise bad_request("Invalid receipt payload", "INVALID_PAYLOAD") from exc
+    if payload_size > max_bytes:
+        raise bad_request("Receipt payload too large", "PAYLOAD_TOO_LARGE")
 
 
 async def count_recent_uploads(session: AsyncSession, company_id: int, *, hours: int = 1) -> int:
@@ -75,33 +52,35 @@ async def count_recent_uploads(session: AsyncSession, company_id: int, *, hours:
     return int(result or 0)
 
 
-async def create_receipt_share(
+async def create_public_template_share(
     session: AsyncSession,
     *,
     company_id: int,
     created_by_user_id: int | None,
-    pdf_bytes: bytes,
-    filename: str,
+    template: ReceiptTemplate,
+    context: dict[str, Any],
     document_code: str | None,
 ) -> ReceiptShare:
     settings = get_settings()
-    validate_pdf_bytes(pdf_bytes, max_bytes=settings.receipt_share_max_bytes)
+    validate_share_payload(template, context, max_bytes=settings.receipt_share_max_bytes)
 
     recent = await count_recent_uploads(session, company_id)
     if recent >= settings.receipt_share_hourly_upload_limit:
         raise bad_request("Upload rate limit exceeded", "RATE_LIMIT_EXCEEDED")
 
-    token = str(uuid4())
-    relative_path = write_pdf_atomically(company_id, token, pdf_bytes)
+    public_token = str(uuid4())
     expires_at = datetime.now(UTC) + timedelta(hours=settings.receipt_share_ttl_hours)
 
     share = ReceiptShare(
-        token=token,
+        token=public_token,
         company_id=company_id,
         created_by_user_id=created_by_user_id,
-        storage_path=relative_path,
-        filename=sanitize_filename(filename),
-        file_size=len(pdf_bytes),
+        is_public=True,
+        template_snapshot=template.model_dump(),
+        render_context=context,
+        storage_path=None,
+        filename=None,
+        file_size=None,
         document_code=document_code,
         expires_at=expires_at,
         download_count=0,
@@ -124,26 +103,30 @@ def is_share_expired(share: ReceiptShare, *, now: datetime | None = None) -> boo
     return current >= expires
 
 
-async def get_share_file_path(share: ReceiptShare) -> Path:
-    path = absolute_storage_path(share.storage_path)
-    if not path.is_file():
-        raise not_found("Receipt file not found", "RECEIPT_FILE_NOT_FOUND")
-    return path
+async def get_public_template_share(
+    session: AsyncSession,
+    public_token: str,
+) -> tuple[ReceiptShare, ReceiptTemplate, dict[str, Any]]:
+    share = await get_receipt_share_by_token(session, public_token)
+    if share is None:
+        raise not_found("Public template not found", "PUBLIC_TEMPLATE_NOT_FOUND")
+    if not share.is_public:
+        raise forbidden("This template link is private", "PUBLIC_TEMPLATE_PRIVATE")
+    if is_share_expired(share):
+        raise gone("This template link has expired", "PUBLIC_TEMPLATE_EXPIRED")
+    if not share.template_snapshot or not share.render_context:
+        raise not_found("Public template not found", "PUBLIC_TEMPLATE_NOT_FOUND")
+
+    template = ReceiptTemplate.model_validate(share.template_snapshot)
+    return share, template, share.render_context
 
 
-async def increment_download_count(session: AsyncSession, share: ReceiptShare) -> None:
+async def increment_view_count(session: AsyncSession, share: ReceiptShare) -> None:
     share.download_count += 1
     await session.flush()
 
 
 async def clean_expired_receipt_shares(session: AsyncSession) -> int:
-    result = await session.execute(select(ReceiptShare))
-    shares = list(result.scalars().all())
-    expired = [share for share in shares if is_share_expired(share)]
-    for share in expired:
-        delete_storage_file(share.storage_path)
-    if not expired:
-        return 0
-    tokens = [share.token for share in expired]
-    await session.execute(delete(ReceiptShare).where(ReceiptShare.token.in_(tokens)))
-    return len(expired)
+    now = datetime.now(UTC)
+    result = await session.execute(delete(ReceiptShare).where(ReceiptShare.expires_at < now))
+    return int(result.rowcount or 0)

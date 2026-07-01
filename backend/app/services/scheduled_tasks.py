@@ -13,27 +13,49 @@ TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
 OUT_OF_STOCK_CLEANUP_HOUR = 3
 OUT_OF_STOCK_CLEANUP_MINUTE = 0
 OUT_OF_STOCK_RETENTION_DAYS = 7
-RECEIPT_SHARE_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
+RECEIPT_SHARE_CLEANUP_HOUR = 3
+RECEIPT_SHARE_CLEANUP_MINUTE = 30
+
+
+def seconds_until_next_daily_run(
+    *,
+    hour: int,
+    minute: int,
+    tz: ZoneInfo = TASHKENT_TZ,
+    now: datetime | None = None,
+) -> float:
+    current = now or datetime.now(tz)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=tz)
+    else:
+        current = current.astimezone(tz)
+
+    next_run = datetime.combine(current.date(), time(hour, minute), tzinfo=tz)
+    if current >= next_run:
+        next_run += timedelta(days=1)
+    return (next_run - current).total_seconds()
 
 
 def seconds_until_next_out_of_stock_cleanup(
     *,
     now: datetime | None = None,
 ) -> float:
-    current = now or datetime.now(TASHKENT_TZ)
-    if current.tzinfo is None:
-        current = current.replace(tzinfo=TASHKENT_TZ)
-    else:
-        current = current.astimezone(TASHKENT_TZ)
-
-    next_run = datetime.combine(
-        current.date(),
-        time(OUT_OF_STOCK_CLEANUP_HOUR, OUT_OF_STOCK_CLEANUP_MINUTE),
-        tzinfo=TASHKENT_TZ,
+    return seconds_until_next_daily_run(
+        hour=OUT_OF_STOCK_CLEANUP_HOUR,
+        minute=OUT_OF_STOCK_CLEANUP_MINUTE,
+        now=now,
     )
-    if current >= next_run:
-        next_run += timedelta(days=1)
-    return (next_run - current).total_seconds()
+
+
+def seconds_until_next_receipt_share_cleanup(
+    *,
+    now: datetime | None = None,
+) -> float:
+    return seconds_until_next_daily_run(
+        hour=RECEIPT_SHARE_CLEANUP_HOUR,
+        minute=RECEIPT_SHARE_CLEANUP_MINUTE,
+        now=now,
+    )
 
 
 async def run_out_of_stock_cleanup() -> int:
@@ -75,7 +97,13 @@ async def run_receipt_share_cleanup() -> int:
 
 async def receipt_share_cleanup_loop() -> None:
     while True:
-        await asyncio.sleep(RECEIPT_SHARE_CLEANUP_INTERVAL_SECONDS)
+        delay = seconds_until_next_receipt_share_cleanup()
+        logger.info(
+            "Next receipt-share cleanup in %.0f seconds (03:30 %s)",
+            delay,
+            TASHKENT_TZ,
+        )
+        await asyncio.sleep(delay)
         try:
             deleted = await run_receipt_share_cleanup()
             if deleted:

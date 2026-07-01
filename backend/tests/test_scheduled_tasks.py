@@ -27,6 +27,24 @@ def test_seconds_until_next_out_of_stock_cleanup_after_run_time():
     assert delay == 17 * 60 * 60
 
 
+def test_seconds_until_next_receipt_share_cleanup_before_run_time():
+    now = datetime(2026, 6, 29, 2, 0, tzinfo=TASHKENT)
+    delay = scheduled_tasks.seconds_until_next_receipt_share_cleanup(now=now)
+    assert delay == 90 * 60
+
+
+def test_seconds_until_next_receipt_share_cleanup_at_run_time():
+    now = datetime(2026, 6, 29, 3, 30, tzinfo=TASHKENT)
+    delay = scheduled_tasks.seconds_until_next_receipt_share_cleanup(now=now)
+    assert delay == 24 * 60 * 60
+
+
+def test_seconds_until_next_receipt_share_cleanup_after_run_time():
+    now = datetime(2026, 6, 29, 4, 0, tzinfo=TASHKENT)
+    delay = scheduled_tasks.seconds_until_next_receipt_share_cleanup(now=now)
+    assert delay == 23 * 60 * 60 + 30 * 60
+
+
 @pytest.mark.asyncio
 async def test_run_out_of_stock_cleanup_deletes_expired_records(session_factory):
     from datetime import UTC, timedelta
