@@ -5,6 +5,7 @@ from zoneinfo import ZoneInfo
 
 from app.database import async_session_factory
 from app.services.out_of_stock_products import clean_out_of_stock_products
+from app.services.receipt_shares import clean_expired_receipt_shares
 
 logger = logging.getLogger("regos.backend")
 
@@ -12,6 +13,7 @@ TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
 OUT_OF_STOCK_CLEANUP_HOUR = 3
 OUT_OF_STOCK_CLEANUP_MINUTE = 0
 OUT_OF_STOCK_RETENTION_DAYS = 7
+RECEIPT_SHARE_CLEANUP_INTERVAL_SECONDS = 6 * 60 * 60
 
 
 def seconds_until_next_out_of_stock_cleanup(
@@ -62,3 +64,21 @@ async def out_of_stock_cleanup_loop() -> None:
             )
         except Exception:
             logger.error("Out-of-stock cleanup failed", exc_info=True)
+
+
+async def run_receipt_share_cleanup() -> int:
+    async with async_session_factory() as session:
+        deleted = await clean_expired_receipt_shares(session)
+        await session.commit()
+    return deleted
+
+
+async def receipt_share_cleanup_loop() -> None:
+    while True:
+        await asyncio.sleep(RECEIPT_SHARE_CLEANUP_INTERVAL_SECONDS)
+        try:
+            deleted = await run_receipt_share_cleanup()
+            if deleted:
+                logger.info("Deleted %s expired receipt share records", deleted)
+        except Exception:
+            logger.error("Receipt share cleanup failed", exc_info=True)

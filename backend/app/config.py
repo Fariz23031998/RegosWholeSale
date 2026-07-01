@@ -19,6 +19,11 @@ class Settings(BaseSettings):
     regos_client_secret: str = ""
     # Public base URL for Telegram bot webhooks and REGOS integration HandleWebhook
     telegram_webhook_base_url: str = ""
+    public_app_base_url: str = ""
+    receipt_share_ttl_hours: int = 24
+    receipt_share_max_bytes: int = 2_097_152
+    receipt_share_storage_dir: str = "./data/receipt-shares"
+    receipt_share_hourly_upload_limit: int = 50
     registration_trial_days: int = 7
     subscription_days_per_month: int = 30
     platform_admin_email: str = ""
@@ -27,6 +32,13 @@ class Settings(BaseSettings):
     @property
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    @property
+    def public_base_url(self) -> str:
+        base = self.public_app_base_url.strip().rstrip("/")
+        if base:
+            return base
+        return self.telegram_webhook_base_url.strip().rstrip("/")
 
     @property
     def regos_webhook_url(self) -> str | None:

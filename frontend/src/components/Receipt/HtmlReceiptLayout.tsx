@@ -10,13 +10,35 @@ type Props = {
   template: ReceiptTemplate;
   context: DocumentPrintContext;
   preview?: boolean;
+  /** When true, preview stretches to fill a tall editor pane. Keep false in print modals. */
+  previewFill?: boolean;
 };
 
 function buildSandboxedReceiptDocument(html: string, css: string, preview: boolean): string {
   const previewCss = preview
-    ? "html,body{margin:0;padding:0;overflow-x:hidden;background:#fff;}body{min-height:100%;}"
+    ? "html,body{margin:0;padding:0;overflow-x:hidden;background:#fff;}"
     : "";
   return `<!DOCTYPE html><html><head><meta charset="utf-8"><style>${previewCss}${css}</style></head><body>${html}</body></html>`;
+}
+
+function measureFrameContentHeight(doc: Document): number {
+  const body = doc.body;
+  const html = doc.documentElement;
+  if (!body || !html) return 0;
+
+  let bottom = 0;
+  for (const child of body.children) {
+    if (!(child instanceof HTMLElement)) continue;
+    bottom = Math.max(bottom, child.offsetTop + child.offsetHeight);
+  }
+
+  if (bottom > 0) {
+    const bodyStyle = doc.defaultView?.getComputedStyle(body);
+    const paddingBottom = parseFloat(bodyStyle?.paddingBottom ?? "0") || 0;
+    return Math.ceil(bottom + paddingBottom);
+  }
+
+  return Math.ceil(body.scrollHeight);
 }
 
 function resolveSafeCss(css: string): string {
@@ -44,7 +66,12 @@ function safeRenderReceiptTemplate(
   }
 }
 
-export function HtmlReceiptLayout({ template, context, preview = false }: Props) {
+export function HtmlReceiptLayout({
+  template,
+  context,
+  preview = false,
+  previewFill = false,
+}: Props) {
   const frameRef = useRef<HTMLIFrameElement>(null);
   const { html, css, error } = useMemo(
     () => safeRenderReceiptTemplate(template, context),
@@ -57,7 +84,7 @@ export function HtmlReceiptLayout({ template, context, preview = false }: Props)
   }, [error, html, preview, safeCss]);
 
   useEffect(() => {
-    if (error) return;
+    if (error || !previewFill) return;
 
     const frame = frameRef.current;
     if (!frame) return;
@@ -67,13 +94,12 @@ export function HtmlReceiptLayout({ template, context, preview = false }: Props)
     const resize = () => {
       const doc = frame.contentDocument;
       if (!doc) return;
-      const height = Math.max(
-        doc.body?.scrollHeight ?? 0,
-        doc.documentElement?.scrollHeight ?? 0,
-      );
-      if (height > 0) {
-        frame.style.height = `${height}px`;
-      }
+
+      // Collapse before measuring so scrollHeight is not inflated by the iframe viewport.
+      const previousHeight = frame.style.height;
+      frame.style.height = "0px";
+      const height = measureFrameContentHeight(doc);
+      frame.style.height = height > 0 ? `${height}px` : previousHeight;
     };
 
     const onLoad = () => {
@@ -94,7 +120,9 @@ export function HtmlReceiptLayout({ template, context, preview = false }: Props)
       frame.removeEventListener("load", onLoad);
       observer?.disconnect();
     };
-  }, [error, preview, srcDoc]);
+  }, [error, previewFill, srcDoc]);
+
+  const previewPane = preview && !previewFill;
 
   if (error) {
     return (
@@ -107,12 +135,24 @@ export function HtmlReceiptLayout({ template, context, preview = false }: Props)
   }
 
   return (
-    <div className={clsx(styles.htmlReceipt, preview && styles.htmlReceiptPreview)}>
+    <div
+      className={clsx(
+        styles.htmlReceipt,
+        preview && styles.htmlReceiptPreview,
+        previewPane && styles.htmlReceiptPreviewPane,
+        previewFill && styles.htmlReceiptPreviewFill,
+      )}
+    >
       <iframe
         ref={frameRef}
-        className={clsx(styles.htmlFramePreview, preview && styles.htmlFramePreviewEditor)}
+        className={clsx(
+          styles.htmlFramePreview,
+          previewPane && styles.htmlFramePreviewPane,
+          previewFill && styles.htmlFramePreviewFill,
+        )}
         title={template.name}
         sandbox=""
+        scrolling={previewPane || previewFill ? "auto" : "no"}
         srcDoc={srcDoc}
       />
       <div className={styles.htmlBodyPrint}>

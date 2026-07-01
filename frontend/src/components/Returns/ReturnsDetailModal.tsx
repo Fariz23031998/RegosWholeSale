@@ -86,11 +86,19 @@ export function ReturnsDetailModal({
               <tbody>
                 {operations.map((op) => (
                   <tr key={op.id}>
-                    <td className={styles.id}>{op.item_code || "—"}</td>
-                    <td>{op.item_name ?? t("sales.itemFallback", undefined, { id: op.item_id })}</td>
-                    <td className={styles.right}>{op.quantity}</td>
-                    <td className={styles.right}>{formatCurrency(op.price)}</td>
-                    <td className={styles.right}>
+                    <td className={styles.id} data-label={t("sales.detail.table.code")}>
+                      {op.item_code || "—"}
+                    </td>
+                    <td data-label={t("sales.detail.table.product")}>
+                      {op.item_name ?? t("sales.itemFallback", undefined, { id: op.item_id })}
+                    </td>
+                    <td className={styles.right} data-label={t("sales.detail.table.qty")}>
+                      {op.quantity}
+                    </td>
+                    <td className={styles.right} data-label={t("sales.detail.table.price")}>
+                      {formatCurrency(op.price)}
+                    </td>
+                    <td className={styles.right} data-label={t("common.amount")}>
                       {formatCurrency(op.amount ?? op.price * op.quantity)}
                     </td>
                   </tr>
@@ -121,14 +129,18 @@ export function ReturnsDetailModal({
               <tbody>
                 {payments.map((payment) => (
                   <tr key={payment.id}>
-                    <td className={styles.id}>#{payment.code || payment.id}</td>
-                    <td>
+                    <td className={styles.id} data-label={t("sales.table.receipt")}>
+                      #{payment.code || payment.id}
+                    </td>
+                    <td data-label={t("common.date")}>
                       {payment.date > 0
                         ? formatDateTime(new Date(payment.date * 1000).toISOString())
                         : "—"}
                     </td>
-                    <td>{payment.payment_type_name ?? "—"}</td>
-                    <td className={styles.right}>{formatCurrency(payment.amount ?? 0)}</td>
+                    <td data-label={t("common.type")}>{payment.payment_type_name ?? "—"}</td>
+                    <td className={styles.right} data-label={t("common.amount")}>
+                      {formatCurrency(payment.amount ?? 0)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
