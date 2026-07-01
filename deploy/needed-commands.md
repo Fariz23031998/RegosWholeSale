@@ -52,10 +52,14 @@ Set in `backend/.env` before first deploy (only used when no platform admins exi
 Add admin subdomain to CORS:
 - `CORS_ORIGINS=https://regosoptom.uz,https://www.regosoptom.uz,https://admin.regosoptom.uz`
 
-## aserver.tech (Telegram webhooks + ScrapRegosUserBot payments)
+## aserver.tech (Telegram webhooks + ScrapRegosUserBot payments + public shared documents)
 1. `sudo cp deploy/aserver.tech /etc/nginx/sites-available/aserver.tech`
 2. `sudo ln -sf /etc/nginx/sites-available/aserver.tech /etc/nginx/sites-enabled/`
 3. `sudo nginx -t && sudo systemctl reload nginx`
+
+Backend `backend/.env`:
+- `PUBLIC_APP_BASE_URL=https://aserver.tech`
+- Add `https://aserver.tech` to `CORS_ORIGINS`
 
 ScrapRegosUserBot `.env` on server:
 - `PUBLIC_BASE_URL=https://aserver.tech`
