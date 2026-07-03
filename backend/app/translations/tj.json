@@ -1,6 +1,6 @@
 {
-  "version": "1.1.5",
-  "last_updated": "2026-07-01",
+  "version": "1.1.6",
+  "last_updated": "2026-07-03",
   "translations": {
     "common.loading": "Бор карда истодааст...",
     "common.save": "Нигоҳ доштан",
@@ -967,6 +967,8 @@
     "settings.receiptTemplates.readOnlyNotice": "Шумо метавонед шаблонҳоро дар ин ҷо бинед. Барои таҳрир ба маъмур муроҷиат кунед.",
     "meta.receiptTemplatesTitle": "Шаблонҳои чек · Regos Optom",
     "meta.receiptTemplatesDescription": "Танзими шаблонҳои чопи чек ва ҳисобнома.",
+    "meta.publicDocumentTitle": "Ҳуҷҷати мубодилашуда · Regos Optom",
+    "meta.publicDocumentDescription": "Тафсилоти фурӯш ё бозгаштро бинед ва расидро чоп кунед.",
     "settings.receiptTemplates.newNakladnaya": "Шаблони нави HTML (A4)",
     "settings.receiptTemplates.newHtml80mm": "Чеки нави HTML",
     "settings.receiptTemplates.descExtendedHtml": "Макетҳои дарунсохти 80mm/A4 ё шаблонҳои HTML-и фармоиширо танзим кунед. Шаблонҳоро ба JSON ворид ва содир кунед.",
@@ -998,7 +1000,7 @@
     "receipt.print": "Чоп",
     "receipt.share.action": "Мубодила",
     "receipt.share.title": "Мубодилаи расид",
-    "receipt.share.preparing": "Омодасозии PDF…",
+    "receipt.share.preparing": "Эҷоди пайванд…",
     "receipt.share.uploading": "Боркунӣ…",
     "receipt.share.shareToApps": "Ба барномаҳо мубодила",
     "receipt.share.downloadPdf": "Боргирии PDF",
@@ -1009,7 +1011,7 @@
     "receipt.share.expired": "Пайванд ба охир расид — барои эҷод кардан пахш кунед",
     "receipt.share.manualCopy": "Пайвандро дастӣ нусха кунед",
     "receipt.share.errors.generate": "PDF эҷод нашуд. Чопро санҷед.",
-    "receipt.share.errors.upload": "Боркунии расид барои мубодила ноком шуд.",
+    "receipt.share.errors.upload": "Пайванди мубодила эҷод нашуд.",
     "receipt.share.errors.clipboard": "Пайвандро нусха кардан мумкин нест.",
     "receipt.share.errors.shareUnavailable": "Дар ин дастгоҳ мубодила дастнорас аст.",
     "receipt.template": "Шаблон",
@@ -1050,6 +1052,17 @@
     "receipt.sections.tendered_change": "Гирифташуда ва қайтим",
     "receipt.sections.balance_due": "Пардохтшуда ва боқимонда",
     "receipt.sections.closed_without_payment": "Бе пардохт пӯшида шуд",
-    "receipt.sections.footer": "Паёми поёнӣ"
+    "receipt.sections.footer": "Паёми поёнӣ",
+    "publicDocument.loading": "Тафсилоти ҳуҷҷат бор карда мешавад…",
+    "publicDocument.notFound.title": "Ҳуҷҷат ёфт нашуд",
+    "publicDocument.notFound.description": "Ин пайванд нодуруст аст ё ҳуҷҷат дигар дастрас нест.",
+    "publicDocument.expired.title": "Пайванд ба охир расид",
+    "publicDocument.expired.description": "Ин пайванд ба охир расидааст. Аз фиристанда пайванди нав бигиред.",
+    "publicDocument.private.title": "Ҳуҷҷати хусусӣ",
+    "publicDocument.private.description": "Ин ҳуҷҷат барои намоиши оммавӣ дастрас нест.",
+    "publicDocument.error.title": "Ҳуҷҷатро бор кардан мумкин нашуд",
+    "publicDocument.errors.load": "Тафсилоти ҳуҷҷатро бор кардан мумкин нашуд.",
+    "publicSale.subtitle": "Тафсилоти фурӯши мубодилашуда",
+    "publicReturn.subtitle": "Тафсилоти бозгашти мубодилашуда"
   }
 }

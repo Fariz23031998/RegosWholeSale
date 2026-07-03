@@ -1,6 +1,6 @@
 {
-  "version": "1.1.5",
-  "last_updated": "2026-07-01",
+  "version": "1.1.6",
+  "last_updated": "2026-07-03",
   "translations": {
     "common.loading": "Загрузка...",
     "common.save": "Сохранить",
@@ -1014,6 +1014,8 @@
     "settings.receiptTemplates.readOnlyNotice": "Вы можете просматривать шаблоны здесь. Для редактирования обратитесь к администратору.",
     "meta.receiptTemplatesTitle": "Шаблоны чеков · Regos Optom",
     "meta.receiptTemplatesDescription": "Настройка шаблонов печати чеков и счетов.",
+    "meta.publicDocumentTitle": "Общий документ · Regos Optom",
+    "meta.publicDocumentDescription": "Просмотр деталей продажи или возврата и печать чека.",
     "settings.receiptTemplates.newNakladnaya": "Новый HTML-шаблон (A4)",
     "settings.receiptTemplates.newHtml80mm": "Новый HTML-чек",
     "settings.receiptTemplates.descExtendedHtml": "Настройте встроенные макеты 80mm/A4 или пользовательские HTML-шаблоны. Импорт и экспорт шаблонов в JSON.",
@@ -1045,7 +1047,7 @@
     "receipt.print": "Печать",
     "receipt.share.action": "Поделиться",
     "receipt.share.title": "Поделиться чеком",
-    "receipt.share.preparing": "Подготовка PDF…",
+    "receipt.share.preparing": "Создание ссылки…",
     "receipt.share.uploading": "Загрузка…",
     "receipt.share.shareToApps": "Отправить в приложения",
     "receipt.share.downloadPdf": "Скачать PDF",
@@ -1056,7 +1058,7 @@
     "receipt.share.expired": "Ссылка истекла — нажмите, чтобы создать новую",
     "receipt.share.manualCopy": "Скопируйте ссылку вручную",
     "receipt.share.errors.generate": "Не удалось создать PDF. Попробуйте печать.",
-    "receipt.share.errors.upload": "Не удалось загрузить чек для отправки.",
+    "receipt.share.errors.upload": "Не удалось создать ссылку для отправки.",
     "receipt.share.errors.clipboard": "Не удалось скопировать ссылку.",
     "receipt.share.errors.shareUnavailable": "Отправка недоступна на этом устройстве.",
     "receipt.template": "Шаблон",
@@ -1097,6 +1099,17 @@
     "receipt.sections.tendered_change": "Получено и сдача",
     "receipt.sections.balance_due": "Оплачено и остаток",
     "receipt.sections.closed_without_payment": "Закрыто без оплаты",
-    "receipt.sections.footer": "Сообщение в подвале"
+    "receipt.sections.footer": "Сообщение в подвале",
+    "publicDocument.loading": "Загрузка данных документа…",
+    "publicDocument.notFound.title": "Документ не найден",
+    "publicDocument.notFound.description": "Ссылка недействительна или документ больше недоступен.",
+    "publicDocument.expired.title": "Ссылка истекла",
+    "publicDocument.expired.description": "Срок действия ссылки истёк. Попросите отправителя новую ссылку.",
+    "publicDocument.private.title": "Приватный документ",
+    "publicDocument.private.description": "Этот документ недоступен для публичного просмотра.",
+    "publicDocument.error.title": "Не удалось загрузить документ",
+    "publicDocument.errors.load": "Не удалось загрузить данные документа.",
+    "publicSale.subtitle": "Общие данные продажи",
+    "publicReturn.subtitle": "Общие данные возврата"
   }
 }

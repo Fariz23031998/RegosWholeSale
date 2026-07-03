@@ -1,6 +1,6 @@
 {
-  "version": "1.1.5",
-  "last_updated": "2026-07-01",
+  "version": "1.1.6",
+  "last_updated": "2026-07-03",
   "translations": {
     "common.loading": "Loading...",
     "common.save": "Save",
@@ -999,6 +999,8 @@
     "settings.receiptTemplates.readOnlyNotice": "You can preview templates here. Ask an administrator to edit receipt templates.",
     "meta.receiptTemplatesTitle": "Receipt templates · Regos Optom",
     "meta.receiptTemplatesDescription": "Configure receipt and invoice print templates.",
+    "meta.publicDocumentTitle": "Shared document · Regos Optom",
+    "meta.publicDocumentDescription": "View shared sale or return details and print the receipt.",
     "settings.receiptTemplates.newNakladnaya": "New HTML template (A4)",
     "settings.receiptTemplates.newHtml80mm": "New HTML receipt",
     "settings.receiptTemplates.descExtendedHtml": "Configure built-in 80mm/A4 layouts or custom HTML templates. Import and export templates as JSON.",
@@ -1046,7 +1048,7 @@
     "receipt.print": "Print",
     "receipt.share.action": "Share",
     "receipt.share.title": "Share receipt",
-    "receipt.share.preparing": "Preparing PDF…",
+    "receipt.share.preparing": "Creating link…",
     "receipt.share.uploading": "Uploading…",
     "receipt.share.shareToApps": "Share to apps",
     "receipt.share.downloadPdf": "Download PDF",
@@ -1057,7 +1059,7 @@
     "receipt.share.expired": "Link expired — tap to regenerate",
     "receipt.share.manualCopy": "Copy link manually",
     "receipt.share.errors.generate": "Could not create PDF. Try Print instead.",
-    "receipt.share.errors.upload": "Failed to upload receipt for sharing.",
+    "receipt.share.errors.upload": "Failed to create share link.",
     "receipt.share.errors.clipboard": "Could not copy link.",
     "receipt.share.errors.shareUnavailable": "Sharing is not available on this device.",
     "receipt.template": "Template",
@@ -1098,6 +1100,17 @@
     "receipt.sections.tendered_change": "Tendered & change",
     "receipt.sections.balance_due": "Paid & balance due",
     "receipt.sections.closed_without_payment": "Closed without payment",
-    "receipt.sections.footer": "Footer message"
+    "receipt.sections.footer": "Footer message",
+    "publicDocument.loading": "Loading document details…",
+    "publicDocument.notFound.title": "Document not found",
+    "publicDocument.notFound.description": "This link is invalid or the document is no longer available.",
+    "publicDocument.expired.title": "Link expired",
+    "publicDocument.expired.description": "This link has expired. Ask the sender for a new link.",
+    "publicDocument.private.title": "Private document",
+    "publicDocument.private.description": "This document is not available for public viewing.",
+    "publicDocument.error.title": "Could not load document",
+    "publicDocument.errors.load": "Failed to load document details.",
+    "publicSale.subtitle": "Shared sale details",
+    "publicReturn.subtitle": "Shared return details"
   }
 }

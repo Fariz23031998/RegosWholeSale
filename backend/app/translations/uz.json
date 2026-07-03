@@ -1,6 +1,6 @@
 {
-  "version": "1.1.5",
-  "last_updated": "2026-07-01",
+  "version": "1.1.6",
+  "last_updated": "2026-07-03",
   "translations": {
     "common.loading": "Yuklanmoqda...",
     "common.save": "Saqlash",
@@ -994,6 +994,8 @@
     "settings.receiptTemplates.readOnlyNotice": "Bu yerda shablonlarni ko'rishingiz mumkin. Tahrirlash uchun administratorga murojaat qiling.",
     "meta.receiptTemplatesTitle": "Chek shablonlari · Regos Optom",
     "meta.receiptTemplatesDescription": "Chek va hisob-faktura chop etish shablonlarini sozlash.",
+    "meta.publicDocumentTitle": "Ulashilgan hujjat · Regos Optom",
+    "meta.publicDocumentDescription": "Ulashilgan sotuv yoki qaytarish tafsilotlarini ko'ring va chekni chop eting.",
     "settings.receiptTemplates.newNakladnaya": "Yangi HTML shablon (A4)",
     "settings.receiptTemplates.newHtml80mm": "Yangi HTML chek",
     "settings.receiptTemplates.descExtendedHtml": "O'rnatilgan 80mm/A4 maketlari yoki maxsus HTML shablonlarni sozlang. Shablonlarni JSON formatida import va eksport qiling.",
@@ -1025,7 +1027,7 @@
     "receipt.print": "Chop etish",
     "receipt.share.action": "Ulashish",
     "receipt.share.title": "Chekni ulashish",
-    "receipt.share.preparing": "PDF tayyorlanmoqda…",
+    "receipt.share.preparing": "Havola yaratilmoqda…",
     "receipt.share.uploading": "Yuklanmoqda…",
     "receipt.share.shareToApps": "Ilovalarga ulashish",
     "receipt.share.downloadPdf": "PDF yuklab olish",
@@ -1036,7 +1038,7 @@
     "receipt.share.expired": "Havola muddati tugagan — qayta yaratish uchun bosing",
     "receipt.share.manualCopy": "Havolani qo'lda nusxalang",
     "receipt.share.errors.generate": "PDF yaratib bo'lmadi. Chop etishni sinab ko'ring.",
-    "receipt.share.errors.upload": "Ulashish uchun chekni yuklab bo'lmadi.",
+    "receipt.share.errors.upload": "Ulashish havolasini yaratib bo'lmadi.",
     "receipt.share.errors.clipboard": "Havolani nusxalab bo'lmadi.",
     "receipt.share.errors.shareUnavailable": "Ushbu qurilmada ulashish mavjud emas.",
     "receipt.template": "Shablon",
@@ -1077,6 +1079,17 @@
     "receipt.sections.tendered_change": "Olingan va qaytim",
     "receipt.sections.balance_due": "To'langan va qolgan",
     "receipt.sections.closed_without_payment": "To'lovsiz yopildi",
-    "receipt.sections.footer": "Pastki xabar"
+    "receipt.sections.footer": "Pastki xabar",
+    "publicDocument.loading": "Hujjat tafsilotlari yuklanmoqda…",
+    "publicDocument.notFound.title": "Hujjat topilmadi",
+    "publicDocument.notFound.description": "Bu havola yaroqsiz yoki hujjat endi mavjud emas.",
+    "publicDocument.expired.title": "Havola muddati tugagan",
+    "publicDocument.expired.description": "Bu havolaning muddati tugagan. Yuboruvchidan yangi havola so'rang.",
+    "publicDocument.private.title": "Shaxsiy hujjat",
+    "publicDocument.private.description": "Bu hujjat ochiq ko'rish uchun mavjud emas.",
+    "publicDocument.error.title": "Hujjatni yuklab bo'lmadi",
+    "publicDocument.errors.load": "Hujjat tafsilotlarini yuklab bo'lmadi.",
+    "publicSale.subtitle": "Ulashilgan sotuv tafsilotlari",
+    "publicReturn.subtitle": "Ulashilgan qaytarish tafsilotlari"
   }
 }
