@@ -1,6 +1,6 @@
 {
-  "version": "1.1.6",
-  "last_updated": "2026-07-03",
+  "version": "1.1.7",
+  "last_updated": "2026-07-04",
   "translations": {
     "common.loading": "Загрузка...",
     "common.save": "Сохранить",
@@ -894,6 +894,9 @@
     "settings.regos.tokenLength": "Токен интеграции должен содержать ровно 32 символа.",
     "settings.regos.tokenSavedWebhook": "Токен сохранён. URL REGOS HandleWebhook: {{url}}",
     "settings.regos.tokenSavedNoWebhookUrl": "Токен сохранён. Установите TELEGRAM_WEBHOOK_BASE_URL на сервере для отображения URL вебхука REGOS.",
+    "settings.regos.updateIntegration": "Обновить интеграцию",
+    "settings.regos.updateIntegrationDesc": "Синхронизировать название интеграции, endpoint вебхука и список событий в Regos.",
+    "settings.regos.updateIntegrationSuccess": "Интеграция Regos успешно обновлена.",
     "settings.paymentLinking.title": "Связь платежей",
     "settings.paymentLinking.longDesc": "Выберите, как платежи при оформлении и возврате связываются с документами опта или возврата при последующем просмотре платежей.",
     "settings.paymentLinking.mode": "Режим связи",

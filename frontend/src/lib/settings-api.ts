@@ -52,6 +52,13 @@ export async function deleteRegosToken(token: string): Promise<RegosTokenMessage
   });
 }
 
+export async function updateRegosIntegration(token: string): Promise<RegosTokenMessage> {
+  return apiRequest("/api/v1/regos/tokens/update-integration", {
+    method: "POST",
+    token,
+  });
+}
+
 const REGOS_DEFAULTS_CACHE_TTL_MS = 5 * 60 * 1000;
 const SETTINGS_CACHE_TTL_MS = 5 * 60 * 1000;
 

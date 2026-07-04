@@ -1,6 +1,6 @@
 {
-  "version": "1.1.6",
-  "last_updated": "2026-07-03",
+  "version": "1.1.7",
+  "last_updated": "2026-07-04",
   "translations": {
     "common.loading": "Loading...",
     "common.save": "Save",
@@ -895,6 +895,9 @@
     "settings.regos.tokenLength": "Integration token must be exactly 32 characters.",
     "settings.regos.tokenSavedWebhook": "Token {{masked}} saved. REGOS HandleWebhook URL: {{url}}",
     "settings.regos.tokenSavedNoWebhookUrl": "Token {{masked}} saved. Set TELEGRAM_WEBHOOK_BASE_URL on the server to show the REGOS webhook URL.",
+    "settings.regos.updateIntegration": "Update integration",
+    "settings.regos.updateIntegrationDesc": "Sync the integration name, webhook endpoint, and required event list in Regos.",
+    "settings.regos.updateIntegrationSuccess": "Regos integration updated successfully.",
     "settings.paymentLinking.title": "Payment linking",
     "settings.paymentLinking.longDesc": "Choose how checkout and return payments are linked to their wholesale or return documents when listing payments later.",
     "settings.paymentLinking.mode": "Linking mode",

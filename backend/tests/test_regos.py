@@ -4,7 +4,10 @@ import pytest
 from httpx import AsyncClient
 
 from helpers import TEST_VERIFICATION_CODE, register_owner
+from app.config import get_settings
 from app.services import regos_defaults as regos_defaults_service
+from app.services import regos_tokens as regos_tokens_service
+from app.services.regos_webhook import EVENT_SPECS, POS_EVENT_SPECS
 
 REGOS_TOKEN = "a" * 32
 
@@ -1109,6 +1112,171 @@ async def test_delete_regos_token(client: AsyncClient) -> None:
 
     status = await client.get("/api/v1/regos/tokens/status", headers=headers)
     assert status.json()["configured"] is False
+
+
+def test_required_integration_webhooks_match_handlers() -> None:
+    handler_events = set(POS_EVENT_SPECS) | set(EVENT_SPECS)
+    assert set(regos_tokens_service.REQUIRED_INTEGRATION_WEBHOOKS) == handler_events
+
+
+@patch("app.services.regos_tokens.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_update_regos_integration_success(
+    mock_regos: AsyncMock,
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_BASE_URL", "https://regosoptom.uz")
+    get_settings.cache_clear()
+    reg = await register_owner(client, email="update-int@test.com", company_name="Update Int Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    await client.put(
+        "/api/v1/regos/tokens",
+        headers=headers,
+        json={"token": REGOS_TOKEN, "is_replicable": False},
+    )
+
+    mock_regos.side_effect = [
+        {
+            "ok": True,
+            "result": [
+                {
+                    "key": "293a7d83198d4bae9af186b1f8f41234",
+                    "connected_integration_id": REGOS_TOKEN,
+                    "name": "Old name",
+                }
+            ],
+        },
+        {"ok": True, "result": None},
+    ]
+
+    response = await client.post(
+        "/api/v1/regos/tokens/update-integration",
+        headers=headers,
+    )
+    assert response.status_code == 200
+    assert response.json()["message"] == "Regos integration updated successfully"
+
+    assert mock_regos.await_count == 2
+    get_call = mock_regos.call_args_list[0]
+    assert get_call[0][2] == "connectedintegration/get"
+    assert get_call[0][3] == {"is_public": False}
+
+    edit_call = mock_regos.call_args_list[1]
+    assert edit_call[0][2] == "integration/edit"
+    assert edit_call[0][3] == {
+        "key": "293a7d83198d4bae9af186b1f8f41234",
+        "name": "Regos Optom",
+        "endpoint": "https://regosoptom.uz/api/v1/regos/webhook",
+        "webhooks": regos_tokens_service.REQUIRED_INTEGRATION_WEBHOOKS,
+    }
+
+
+@pytest.mark.asyncio
+async def test_update_regos_integration_requires_token(client: AsyncClient) -> None:
+    reg = await register_owner(client, email="update-no-token@test.com", company_name="No Token Co")
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    response = await client.post(
+        "/api/v1/regos/tokens/update-integration",
+        headers=headers,
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "REGOS_TOKEN_NOT_CONFIGURED"
+
+
+@pytest.mark.asyncio
+async def test_update_regos_integration_rejects_replicable(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client,
+        email="update-repl@test.com",
+        company_name="Replicable Co",
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    await client.put(
+        "/api/v1/regos/tokens",
+        headers=headers,
+        json={"token": REGOS_TOKEN, "is_replicable": True},
+    )
+
+    response = await client.post(
+        "/api/v1/regos/tokens/update-integration",
+        headers=headers,
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "REGOS_INTEGRATION_NOT_LOCAL"
+
+
+@pytest.mark.asyncio
+async def test_update_regos_integration_requires_webhook_url(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("TELEGRAM_WEBHOOK_BASE_URL", raising=False)
+    get_settings.cache_clear()
+    monkeypatch.setattr(regos_tokens_service, "regos_webhook_url", lambda: None)
+
+    reg = await register_owner(
+        client,
+        email="update-no-webhook@test.com",
+        company_name="No Webhook Co",
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    await client.put(
+        "/api/v1/regos/tokens",
+        headers=headers,
+        json={"token": REGOS_TOKEN, "is_replicable": False},
+    )
+
+    response = await client.post(
+        "/api/v1/regos/tokens/update-integration",
+        headers=headers,
+    )
+    assert response.status_code == 400
+    assert response.json()["code"] == "REGOS_WEBHOOK_URL_NOT_CONFIGURED"
+
+
+@patch("app.services.regos_tokens.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_update_regos_integration_not_found_in_connected_list(
+    mock_regos: AsyncMock,
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("TELEGRAM_WEBHOOK_BASE_URL", "https://regosoptom.uz")
+    get_settings.cache_clear()
+    reg = await register_owner(
+        client,
+        email="update-missing@test.com",
+        company_name="Missing Int Co",
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+
+    await client.put(
+        "/api/v1/regos/tokens",
+        headers=headers,
+        json={"token": REGOS_TOKEN, "is_replicable": False},
+    )
+
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "key": "other-key",
+                "connected_integration_id": "b" * 32,
+            }
+        ],
+    }
+
+    response = await client.post(
+        "/api/v1/regos/tokens/update-integration",
+        headers=headers,
+    )
+    assert response.status_code == 404
+    assert response.json()["code"] == "REGOS_CONNECTED_INTEGRATION_NOT_FOUND"
 
 
 @patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)

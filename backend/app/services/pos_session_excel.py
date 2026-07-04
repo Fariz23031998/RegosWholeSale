@@ -9,6 +9,7 @@ from openpyxl.utils import get_column_letter
 
 from app.services.document_telegram_format import (
     _format_date,
+    _is_change_payment,
     _item_name,
     _payment_type_name,
     _visible_pos_cheque_operations,
@@ -206,7 +207,7 @@ def generate_session_excel(report: SessionReportData, *, lang: str = "ru") -> by
             if bool(payment.get("has_storno")):
                 continue
             value = float(payment.get("value", 0))
-            if value < 0:
+            if value < 0 and not _is_change_payment(payment):
                 continue
             payments_sheet.append(
                 [

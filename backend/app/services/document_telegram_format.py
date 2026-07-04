@@ -486,13 +486,24 @@ def _payment_type_name(payment: dict[str, Any], lang: str) -> str:
     return t("telegram.receipt.unknownPaymentType", lang)
 
 
+def _is_change_payment(payment: dict[str, Any]) -> bool:
+    change_uuid = payment.get("change_uuid")
+    if change_uuid is None:
+        return False
+    if isinstance(change_uuid, str):
+        return bool(change_uuid.strip())
+    return bool(change_uuid)
+
+
 def _append_pos_cheque_payments(
     message_parts: list[str],
     payments: list[dict[str, Any]],
     lang: str,
 ) -> None:
     visible_payments = [
-        payment for payment in payments if float(payment.get("value", 0)) >= 0
+        payment
+        for payment in payments
+        if float(payment.get("value", 0)) >= 0 or _is_change_payment(payment)
     ]
     if not visible_payments:
         return

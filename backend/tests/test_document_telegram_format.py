@@ -404,6 +404,55 @@ def test_format_pos_cheque_notification_hides_negative_storno_reversal():
     assert "Итого оплачено: 12 000" in message
 
 
+def test_format_pos_cheque_notification_includes_change_payment():
+    tender_uuid = "142d7b1d-bc9b-49a2-949c-ad18283f75f9"
+    message = format_pos_cheque_notification(
+        {
+            **SAMPLE_POS_CHEQUE,
+            "code": "17-0000160",
+            "session_code": "17-0000030",
+            "cashier": {"full_name": "Fariz Xuramov"},
+        },
+        [
+            {
+                "quantity": 1,
+                "price": 12000,
+                "item": {"name": "Детские бутылки стеклянные (20068)"},
+            }
+        ],
+        [
+            {
+                "uuid": tender_uuid,
+                "has_storno": False,
+                "has_change": True,
+                "change_uuid": None,
+                "type": {"name": "Наличные"},
+                "value": 100000.0,
+            },
+            {
+                "uuid": "6ca7ff10-dc6e-4c75-bbf7-49e6d077d893",
+                "has_storno": False,
+                "has_change": False,
+                "change_uuid": tender_uuid,
+                "type": {"name": "Наличные"},
+                "value": -88000.0,
+            },
+            {
+                "has_storno": False,
+                "type": {"name": "Наличные"},
+                "value": -10.0,
+            },
+        ],
+        variant="closed",
+        lang="ru",
+    )
+    assert "Итого к оплате: 12 000" in message
+    assert "Наличные: 100 000" in message
+    assert "Наличные: -88 000" in message
+    assert "Итого оплачено: 12 000" in message
+    assert "-10" not in message
+
+
 def test_format_pos_cheque_notification_pay_debt():
     message = format_pos_cheque_notification(
         SAMPLE_POS_CHEQUE,

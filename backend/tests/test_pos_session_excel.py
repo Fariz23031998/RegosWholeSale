@@ -79,3 +79,64 @@ def test_generate_session_excel_applies_header_and_number_styling():
     payments_sheet = workbook["Payments"]
     payment_amount_cell = payments_sheet["D2"]
     assert payment_amount_cell.number_format == "#,##0.00"
+
+
+def test_generate_session_excel_includes_change_payments():
+    tender_uuid = "142d7b1d-bc9b-49a2-949c-ad18283f75f9"
+    report = SessionReportData(
+        cash_session={"code": "17-0000030"},
+        cheques=[
+            {
+                "uuid": SALE_CHEQUE_UUID,
+                "code": "17-0000160",
+                "date": 1607608770,
+                "is_return": False,
+            },
+        ],
+        operations_by_cheque={
+            SALE_CHEQUE_UUID: [
+                {
+                    "quantity": 1,
+                    "price": 12000,
+                    "item": {"name": "Bottles"},
+                    "has_storno": False,
+                },
+            ],
+        },
+        payments_by_cheque={
+            SALE_CHEQUE_UUID: [
+                {
+                    "uuid": tender_uuid,
+                    "has_storno": False,
+                    "has_change": True,
+                    "change_uuid": None,
+                    "type": {"name": "Cash"},
+                    "value": 100000.0,
+                },
+                {
+                    "uuid": "6ca7ff10-dc6e-4c75-bbf7-49e6d077d893",
+                    "has_storno": False,
+                    "has_change": False,
+                    "change_uuid": tender_uuid,
+                    "type": {"name": "Cash"},
+                    "value": -88000.0,
+                },
+                {
+                    "has_storno": False,
+                    "type": {"name": "Cash"},
+                    "value": -10.0,
+                },
+            ],
+        },
+        totals=SessionTotals(
+            sales_amount=12000.0,
+            sales_payments=12000.0,
+        ),
+    )
+
+    workbook = load_workbook(io.BytesIO(generate_session_excel(report, lang="en")))
+    payments_sheet = workbook["Payments"]
+
+    assert payments_sheet.max_row == 3
+    assert payments_sheet["D2"].value == 100000.0
+    assert payments_sheet["D3"].value == -88000.0

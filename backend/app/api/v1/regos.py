@@ -97,6 +97,15 @@ async def delete_regos_token(
     return RegosTokenMessage(message="Regos token deleted successfully")
 
 
+@router.post("/tokens/update-integration", response_model=RegosTokenMessage)
+async def update_regos_integration(
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> RegosTokenMessage:
+    data = await regos_tokens_service.update_integration(session, current.company_id)
+    return RegosTokenMessage(**data)
+
+
 @router.get("/reference-options", response_model=RegosReferenceOptionsResponse)
 async def get_regos_reference_options(
     current: CurrentUser = Depends(require_any_permission(*_POS_CONTEXT_OR_SETTINGS)),

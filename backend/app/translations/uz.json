@@ -1,6 +1,6 @@
 {
-  "version": "1.1.6",
-  "last_updated": "2026-07-03",
+  "version": "1.1.7",
+  "last_updated": "2026-07-04",
   "translations": {
     "common.loading": "Yuklanmoqda...",
     "common.save": "Saqlash",
@@ -874,6 +874,9 @@
     "settings.regos.tokenLength": "Integratsiya tokeni aynan 32 belgidan iborat bo'lishi kerak.",
     "settings.regos.tokenSavedWebhook": "Token saqlandi. REGOS HandleWebhook URL: {{url}}",
     "settings.regos.tokenSavedNoWebhookUrl": "Token saqlandi. REGOS webhook URL ko'rsatish uchun serverda TELEGRAM_WEBHOOK_BASE_URL ni o'rnating.",
+    "settings.regos.updateIntegration": "Integratsiyani yangilash",
+    "settings.regos.updateIntegrationDesc": "Regos'da integratsiya nomi, webhook endpoint va kerakli hodisalar ro'yxatini sinxronlashtirish.",
+    "settings.regos.updateIntegrationSuccess": "Regos integratsiyasi muvaffaqiyatli yangilandi.",
     "settings.paymentLinking.title": "To'lovlarni bog'lash",
     "settings.paymentLinking.longDesc": "To'lov va qaytarishda to'lovlar keyinroq ko'rishda ulgurji yoki qaytarish hujjatlariga qanday bog'lanishini tanlang.",
     "settings.paymentLinking.mode": "Bog'lash rejimi",

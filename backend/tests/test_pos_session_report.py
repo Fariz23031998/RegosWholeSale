@@ -78,6 +78,52 @@ def test_compute_session_totals_ignores_negative_payment_values():
     assert totals.sales_payments == 100.0
 
 
+def test_compute_session_totals_includes_change_payments():
+    tender_uuid = "142d7b1d-bc9b-49a2-949c-ad18283f75f9"
+    cheques = [{"uuid": SALE_CHEQUE_UUID, "is_return": False}]
+    operations_by_cheque = {
+        SALE_CHEQUE_UUID: [
+            {"quantity": 1, "price": 12000, "item": {"name": "Bottles"}, "has_storno": False},
+        ],
+    }
+    payments_by_cheque = {
+        SALE_CHEQUE_UUID: [
+            {
+                "uuid": tender_uuid,
+                "has_storno": False,
+                "has_change": True,
+                "change_uuid": None,
+                "type": {"name": "Cash"},
+                "value": 100000.0,
+            },
+            {
+                "uuid": "6ca7ff10-dc6e-4c75-bbf7-49e6d077d893",
+                "has_storno": False,
+                "has_change": False,
+                "change_uuid": tender_uuid,
+                "type": {"name": "Cash"},
+                "value": -88000.0,
+            },
+            {
+                "has_storno": False,
+                "type": {"name": "Cash"},
+                "value": -10.0,
+            },
+        ],
+    }
+
+    totals = compute_session_totals(
+        cheques,
+        operations_by_cheque,
+        payments_by_cheque,
+        lang="en",
+    )
+
+    assert totals.sales_amount == 12000.0
+    assert totals.sales_payments == 12000.0
+    assert totals.by_payment_type["Cash"] == PaymentTypeTotals(sales=12000.0, refunds=0.0)
+
+
 def test_session_totals_net_properties():
     totals = SessionTotals(
         sales_amount=300.0,

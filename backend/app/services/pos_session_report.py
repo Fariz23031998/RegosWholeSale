@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services import regos_pos_fetch as pos_fetch
 from app.services.document_telegram_format import (
+    _is_change_payment,
     _payment_type_name,
     _visible_pos_cheque_operations,
 )
@@ -93,7 +94,7 @@ def compute_session_totals(
             if bool(payment.get("has_storno")):
                 continue
             value = float(payment.get("value", 0))
-            if value < 0:
+            if value < 0 and not _is_change_payment(payment):
                 continue
 
             type_name = _payment_type_name(payment, lang)

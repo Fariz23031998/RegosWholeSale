@@ -14,7 +14,9 @@ def format_number(value, max_decimals: int = 2) -> str:
         return "0"
 
     rounded = round(num, max_decimals)
-    parts = str(rounded).split(".")
+    sign = "-" if rounded < 0 else ""
+    abs_rounded = abs(rounded)
+    parts = str(abs_rounded).split(".")
     integer_part = parts[0]
     decimal_part = parts[1] if len(parts) > 1 else ""
 
@@ -26,6 +28,6 @@ def format_number(value, max_decimals: int = 2) -> str:
     if decimal_part:
         trimmed_decimal = decimal_part.rstrip("0")
         if trimmed_decimal:
-            return f"{formatted_integer}.{trimmed_decimal}"
+            return f"{sign}{formatted_integer}.{trimmed_decimal}"
 
-    return formatted_integer
+    return f"{sign}{formatted_integer}"

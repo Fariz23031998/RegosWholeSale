@@ -1,0 +1,8 @@
+{
+    "key": "293a7d83198d4bae9af186b1f8f41234",
+    "name": "Regos Optom",
+    "endpoint": "https://regosoptom.uz/v1/regos/webhook",
+    "webhooks": [
+        "DocWholeSalePerformed"
+    ]
+}

@@ -16,6 +16,7 @@ import {
   patchPosSettings,
   patchRegosDefaults,
   saveRegosToken,
+  updateRegosIntegration,
 } from "@/lib/settings-api";
 import {
   deleteTelegramBot,
@@ -102,6 +103,7 @@ function SettingsPage() {
   const [savingPosSettings, setSavingPosSettings] = useState(false);
   const [posSettingsError, setPosSettingsError] = useState("");
   const [savingToken, setSavingToken] = useState(false);
+  const [updatingIntegration, setUpdatingIntegration] = useState(false);
   const [savingRegosDefaults, setSavingRegosDefaults] = useState(false);
   const [tokenError, setTokenError] = useState("");
   const [tokenInfo, setTokenInfo] = useState("");
@@ -441,6 +443,28 @@ function SettingsPage() {
       setTokenError(formatAuthError(err));
     } finally {
       setSavingToken(false);
+    }
+  };
+
+  const handleUpdateIntegration = async () => {
+    if (!token) return;
+
+    setUpdatingIntegration(true);
+    setTokenError("");
+    setTokenInfo("");
+
+    try {
+      await updateRegosIntegration(token);
+      setTokenInfo(
+        t(
+          "settings.regos.updateIntegrationSuccess",
+          "Regos integration updated successfully.",
+        ),
+      );
+    } catch (err) {
+      setTokenError(formatAuthError(err));
+    } finally {
+      setUpdatingIntegration(false);
     }
   };
 
@@ -1082,6 +1106,36 @@ function SettingsPage() {
                   <span className={styles.slider} />
                 </span>
               </label>
+
+              {!isReplicable ? (
+                <div className={styles.subsection}>
+                  <div className={styles.rowTitle}>
+                    {t("settings.regos.updateIntegration", "Update integration")}
+                  </div>
+                  <p className={styles.rowDesc}>
+                    {t(
+                      "settings.regos.updateIntegrationDesc",
+                      "Sync the integration name, webhook endpoint, and required event list in Regos.",
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    className={styles.btnSecondary}
+                    disabled={
+                      loadingToken ||
+                      savingToken ||
+                      updatingIntegration ||
+                      !tokenConfigured ||
+                      !regosWebhookUrl
+                    }
+                    onClick={() => void handleUpdateIntegration()}
+                  >
+                    {updatingIntegration
+                      ? t("common.saving", "Saving…")
+                      : t("settings.regos.updateIntegration", "Update integration")}
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             <div className={styles.actions}>

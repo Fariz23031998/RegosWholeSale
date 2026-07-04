@@ -81,3 +81,25 @@ async def test_regos_api_raises_after_rate_limit_retries_exhausted(mock_post: As
                     await regos_async_api_request("item/get", {}, "integration-token")
 
     assert exc_info.value.detail["code"] == "REGOS_API_RATE_LIMIT"
+
+
+@pytest.mark.asyncio
+@patch("app.core.regos_api._post_regos_api", new_callable=AsyncMock)
+async def test_regos_api_accepts_null_result(mock_post: AsyncMock) -> None:
+    mock_post.return_value = {"ok": True, "result": None}
+
+    with patch.object(regos_rate_limiter, "acquire", new_callable=AsyncMock):
+        result = await regos_async_api_request("integration/edit", {}, "integration-token")
+
+    assert result == {"ok": True, "result": None}
+
+
+@pytest.mark.asyncio
+@patch("app.core.regos_api._post_regos_api", new_callable=AsyncMock)
+async def test_regos_api_accepts_success_without_result_key(mock_post: AsyncMock) -> None:
+    mock_post.return_value = {"ok": True}
+
+    with patch.object(regos_rate_limiter, "acquire", new_callable=AsyncMock):
+        result = await regos_async_api_request("integration/edit", {}, "integration-token")
+
+    assert result == {"ok": True}

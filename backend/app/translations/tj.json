@@ -1,6 +1,6 @@
 {
-  "version": "1.1.6",
-  "last_updated": "2026-07-03",
+  "version": "1.1.7",
+  "last_updated": "2026-07-04",
   "translations": {
     "common.loading": "Бор карда истодааст...",
     "common.save": "Нигоҳ доштан",
@@ -847,6 +847,9 @@
     "settings.regos.tokenLength": "Токени интегратсия бояд айнан 32 аломат дошта бошад.",
     "settings.regos.tokenSavedWebhook": "Токен нигоҳ дошта шуд. URL-и REGOS HandleWebhook: {{url}}",
     "settings.regos.tokenSavedNoWebhookUrl": "Токен нигоҳ дошта шуд. Барои намоиши URL-и webhook-и REGOS TELEGRAM_WEBHOOK_BASE_URL-ро дар сервер гузоред.",
+    "settings.regos.updateIntegration": "Навсозии интегратсия",
+    "settings.regos.updateIntegrationDesc": "Ном, endpoint-и webhook ва рӯйхати рӯйдодҳои зарурро дар Regos синхрон кунед.",
+    "settings.regos.updateIntegrationSuccess": "Интегратсияи Regos бомуваффақият навсозӣ шуд.",
     "settings.paymentLinking.title": "Пайванди пардохт",
     "settings.paymentLinking.longDesc": "Интихоб кунед, ки пардохтҳои расмият ва бозгашт чӣ гуна ба ҳуҷҷатҳои опт ё бозгашт барои намоиши баъдӣ пайваст мешаванд.",
     "settings.paymentLinking.mode": "Реҷаи пайванд",

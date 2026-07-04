@@ -46,12 +46,12 @@ async def _post_regos_api(
                 logger.error(err_msg)
                 raise AppError(400, err_msg, "REGOS_API_ERROR")
 
-            result = data.get("result", "There is no result in response")
-            if not isinstance(result, (dict, list)):
-                raise AppError(
-                    502, f"Invalid response from REGOS API: {result}", "REGOS_API_ERROR"
-                )
-            return data
+            result = data.get("result")
+            if "result" not in data or result is None or isinstance(result, (dict, list)):
+                return data
+            raise AppError(
+                502, f"Invalid response from REGOS API: {result}", "REGOS_API_ERROR"
+            )
 
 
 async def regos_async_api_request(
