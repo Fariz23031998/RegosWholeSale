@@ -34,7 +34,8 @@ REQUIRED_INTEGRATION_WEBHOOKS: list[str] = [
 
 
 def regos_webhook_url() -> str | None:
-    return get_settings().regos_webhook_url
+    url = get_settings().regos_webhook_url.strip()
+    return url or None
 
 
 def _mask_token(token: str) -> str:
@@ -151,7 +152,7 @@ async def update_integration(session: AsyncSession, company_id: int) -> dict[str
     endpoint = regos_webhook_url()
     if not endpoint:
         raise bad_request(
-            "REGOS webhook URL is not configured on the server (TELEGRAM_WEBHOOK_BASE_URL)",
+            "REGOS webhook URL is not configured on the server (REGOS_WEBHOOK_URL)",
             "REGOS_WEBHOOK_URL_NOT_CONFIGURED",
         )
 

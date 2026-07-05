@@ -1126,7 +1126,7 @@ async def test_update_regos_integration_success(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TELEGRAM_WEBHOOK_BASE_URL", "https://regosoptom.uz")
+    monkeypatch.setenv("REGOS_WEBHOOK_URL", "https://regosoptom.uz/api/v1/regos/webhook")
     get_settings.cache_clear()
     reg = await register_owner(client, email="update-int@test.com", company_name="Update Int Co")
     headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
@@ -1214,7 +1214,7 @@ async def test_update_regos_integration_requires_webhook_url(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.delenv("TELEGRAM_WEBHOOK_BASE_URL", raising=False)
+    monkeypatch.delenv("REGOS_WEBHOOK_URL", raising=False)
     get_settings.cache_clear()
     monkeypatch.setattr(regos_tokens_service, "regos_webhook_url", lambda: None)
 
@@ -1246,7 +1246,7 @@ async def test_update_regos_integration_not_found_in_connected_list(
     client: AsyncClient,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setenv("TELEGRAM_WEBHOOK_BASE_URL", "https://regosoptom.uz")
+    monkeypatch.setenv("REGOS_WEBHOOK_URL", "https://regosoptom.uz/api/v1/regos/webhook")
     get_settings.cache_clear()
     reg = await register_owner(
         client,

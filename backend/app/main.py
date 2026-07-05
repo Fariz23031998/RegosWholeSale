@@ -18,7 +18,11 @@ from app.core.exceptions import AppError
 from app.database import async_session_factory, init_db
 from app.services.permissions import seed_permissions
 from app.core.regos_oauth import regos_oauth_configured, regos_oauth_service
-from app.services.scheduled_tasks import out_of_stock_cleanup_loop, receipt_share_cleanup_loop
+from app.services.scheduled_tasks import (
+    exchange_rate_sync_loop,
+    out_of_stock_cleanup_loop,
+    receipt_share_cleanup_loop,
+)
 from app.services.verification import clean_verification_data
 from app.services import telegram as telegram_service
 
@@ -58,11 +62,18 @@ async def lifespan(_app: FastAPI):
     verification_cleanup_task = asyncio.create_task(_verification_cleanup_loop())
     out_of_stock_cleanup_task = asyncio.create_task(out_of_stock_cleanup_loop())
     receipt_share_cleanup_task = asyncio.create_task(receipt_share_cleanup_loop())
+    exchange_rate_sync_task = asyncio.create_task(exchange_rate_sync_loop())
     yield
     verification_cleanup_task.cancel()
     out_of_stock_cleanup_task.cancel()
     receipt_share_cleanup_task.cancel()
-    for task in (verification_cleanup_task, out_of_stock_cleanup_task, receipt_share_cleanup_task):
+    exchange_rate_sync_task.cancel()
+    for task in (
+        verification_cleanup_task,
+        out_of_stock_cleanup_task,
+        receipt_share_cleanup_task,
+        exchange_rate_sync_task,
+    ):
         try:
             await task
         except asyncio.CancelledError:

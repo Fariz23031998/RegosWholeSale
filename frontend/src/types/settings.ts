@@ -99,6 +99,55 @@ export type RegosPaymentLinkingPatchRequest = {
   mode: PaymentLinkingMode;
 };
 
+export type ExchangeRateSyncRule = {
+  currency_id: number;
+  currency_code: string;
+  formula: string;
+  enabled: boolean;
+};
+
+export type ExchangeRateSyncRunStatus = "success" | "partial" | "failed" | "skipped";
+
+export type ExchangeRateSyncSettings = {
+  enabled: boolean;
+  rules: ExchangeRateSyncRule[];
+  last_run_at?: string | null;
+  last_run_status?: ExchangeRateSyncRunStatus | null;
+  last_run_results?: Array<Record<string, unknown>>;
+  last_run_trigger?: string | null;
+  last_run_message?: string | null;
+};
+
+export type ExchangeRateSyncResponse = {
+  settings: ExchangeRateSyncSettings;
+};
+
+export type ExchangeRateSyncPatchRequest = {
+  enabled?: boolean;
+  rules?: ExchangeRateSyncRule[];
+};
+
+export type ExchangeRateSyncRunResponse = {
+  company_id: number;
+  trigger: string;
+  status: ExchangeRateSyncRunStatus;
+  message?: string | null;
+  results: Array<Record<string, unknown>>;
+};
+
+export type ExchangeRateFormulaPreviewRequest = {
+  formula: string;
+  currency_code?: string | null;
+  sample_rate?: number | null;
+};
+
+export type ExchangeRateFormulaPreviewResponse = {
+  formula: string;
+  currency_code?: string | null;
+  official_rate: number;
+  calculated_rate: number;
+};
+
 export type CrossCurrencyPaymentMode = "payment_currency" | "sale_currency_transfer";
 export type PostponeDocumentType = "doc_wholesale" | "doc_order_from_partner";
 

@@ -714,6 +714,10 @@ def _map_currency_item(raw: dict[str, Any]) -> dict[str, Any] | None:
                 currency["exchange_rate"] = rate
         except (TypeError, ValueError):
             pass
+    if "is_base" in raw:
+        currency["is_base"] = bool(raw.get("is_base"))
+    if "deleted" in raw:
+        currency["deleted"] = bool(raw.get("deleted"))
     return currency
 
 

@@ -139,6 +139,7 @@ SAMPLE_POS_SESSION = {
 @pytest.fixture(autouse=True)
 def webhook_env(monkeypatch):
     monkeypatch.setenv("TELEGRAM_WEBHOOK_BASE_URL", "https://example.com")
+    monkeypatch.setenv("REGOS_WEBHOOK_URL", "https://example.com/api/v1/regos/webhook")
     from app.config import get_settings
     from app.services import regos_webhook as regos_webhook_service
 

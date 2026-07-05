@@ -29,3 +29,7 @@ def conflict(detail: str, code: str = "CONFLICT") -> AppError:
 
 def gone(detail: str, code: str = "GONE") -> AppError:
     return AppError(status.HTTP_410_GONE, detail, code)
+
+
+def too_many_requests(detail: str, code: str = "RATE_LIMITED") -> AppError:
+    return AppError(status.HTTP_429_TOO_MANY_REQUESTS, detail, code)

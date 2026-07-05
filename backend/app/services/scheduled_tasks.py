@@ -4,6 +4,13 @@ from datetime import datetime, time, timedelta
 from zoneinfo import ZoneInfo
 
 from app.database import async_session_factory
+from app.services.cbu_exchange_rates import (
+    format_cbu_daily_fetch_time,
+    get_cbu_daily_fetch_time,
+    maybe_refresh_cbu_rates_if_stale,
+    refresh_cbu_rates_cache,
+)
+from app.services.exchange_rate_sync import sync_exchange_rates_for_all_companies
 from app.services.out_of_stock_products import clean_out_of_stock_products
 from app.services.receipt_shares import clean_expired_receipt_shares
 
@@ -54,6 +61,18 @@ def seconds_until_next_receipt_share_cleanup(
     return seconds_until_next_daily_run(
         hour=RECEIPT_SHARE_CLEANUP_HOUR,
         minute=RECEIPT_SHARE_CLEANUP_MINUTE,
+        now=now,
+    )
+
+
+def seconds_until_next_exchange_rate_fetch(
+    *,
+    now: datetime | None = None,
+) -> float:
+    fetch_hour, fetch_minute = get_cbu_daily_fetch_time()
+    return seconds_until_next_daily_run(
+        hour=fetch_hour,
+        minute=fetch_minute,
         now=now,
     )
 
@@ -110,3 +129,39 @@ async def receipt_share_cleanup_loop() -> None:
                 logger.info("Deleted %s expired receipt share records", deleted)
         except Exception:
             logger.error("Receipt share cleanup failed", exc_info=True)
+
+
+async def run_daily_exchange_rate_sync() -> list[dict]:
+    await refresh_cbu_rates_cache()
+    async with async_session_factory() as session:
+        results = await sync_exchange_rates_for_all_companies(
+            session,
+            trigger="scheduled",
+        )
+    return results
+
+
+async def exchange_rate_sync_loop() -> None:
+    try:
+        refreshed = await maybe_refresh_cbu_rates_if_stale()
+        if refreshed:
+            logger.info("Refreshed CBU exchange rates on startup")
+    except Exception:
+        logger.error("Failed to refresh CBU exchange rates on startup", exc_info=True)
+
+    while True:
+        delay = seconds_until_next_exchange_rate_fetch()
+        fetch_time = format_cbu_daily_fetch_time()
+        logger.info(
+            "Next CBU exchange rate fetch in %.0f seconds (%s %s)",
+            delay,
+            fetch_time,
+            TASHKENT_TZ,
+        )
+        await asyncio.sleep(delay)
+        try:
+            results = await run_daily_exchange_rate_sync()
+            if results:
+                logger.info("Exchange rate sync completed for %s companies", len(results))
+        except Exception:
+            logger.error("Daily exchange rate sync failed", exc_info=True)

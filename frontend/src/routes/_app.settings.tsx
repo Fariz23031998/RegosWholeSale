@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { ExchangeRateSyncSection } from "@/components/Settings/ExchangeRateSyncSection";
 import { ThemeSelector } from "@/components/ThemeSelector";
 import {
   createDocPaymentSaleIdField,
@@ -1171,7 +1172,7 @@ function SettingsPage() {
                         )
                       : t(
                           "settings.regos.tokenSavedNoWebhookUrl",
-                          "Token {{masked}} saved. Set TELEGRAM_WEBHOOK_BASE_URL on the server to show the REGOS webhook URL.",
+                          "Token {{masked}} saved. Set REGOS_WEBHOOK_URL on the server to show the REGOS webhook URL.",
                           { masked: regosTokenMasked },
                         )
                     : t("settings.regos.noToken", "No integration token saved yet.")}
@@ -1669,6 +1670,24 @@ function SettingsPage() {
                       )}
               </p>
             </div>
+          </section>
+
+          <section className={styles.section}>
+            <ExchangeRateSyncSection
+              token={token ?? ""}
+              tokenConfigured={tokenConfigured}
+              priceTypes={options.price_types}
+              defaultCurrency={
+                derivedCurrency
+                  ? {
+                      id: derivedCurrency.id,
+                      name: derivedCurrency.name,
+                      code_chr: "code_chr" in derivedCurrency ? derivedCurrency.code_chr : null,
+                    }
+                  : null
+              }
+              disabled={!settingsEnabled || loadingRegos || loadingToken}
+            />
           </section>
         </>
       ) : null}

@@ -1,15 +1,22 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { Printer } from "lucide-react";
 import { ApiError } from "@/lib/api";
+import {
+  collectKnownCurrencies,
+  currencyLabel,
+  currencyWithExchangeRate,
+} from "@/lib/currency-conversion";
 import { fetchPublicTemplateShare } from "@/lib/receipt-share-api";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import type { WholesaleReturnDocument } from "@/lib/sales-api";
 import type { ReceiptTemplate } from "@/types/receipt-templates";
+import type { RegosCurrencyOption } from "@/types/settings";
 import { Button } from "@/components/posui/Button";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ReturnsDetailContent } from "@/components/Returns/ReturnsDetailContent";
 import { SalesDetailContent } from "@/components/Sales/SalesDetailContent";
+import salesStyles from "@/components/Sales/Sales.module.css";
 import { PrintAreaPortal } from "./PrintAreaPortal";
 import { TemplatedReceiptView } from "./TemplatedReceiptView";
 import styles from "./PublicTemplatePage.module.css";
@@ -30,6 +37,151 @@ type PageState =
 type Props = {
   publicToken: string;
 };
+
+function formatNonUnityExchangeRate(value: number | null | undefined): string | null {
+  if (value == null || value === 1) return null;
+  return Number.isInteger(value) ? String(value) : value.toFixed(4).replace(/\.?0+$/, "");
+}
+
+function formatCurrencyName(currency: RegosCurrencyOption | null | undefined): string {
+  if (!currency) return "—";
+  return currencyLabel(currency) || currency.name || "—";
+}
+
+type PaymentCurrencyEntry = {
+  key: string;
+  currency: RegosCurrencyOption;
+  exchangeRate: number | null;
+  paymentTypeName?: string | null;
+};
+
+function resolvePaymentCurrencyEntries(context: DocumentPrintContext): PaymentCurrencyEntry[] {
+  const knownCurrencies = collectKnownCurrencies(
+    [context.document.currency, context.sale.saleCurrency],
+    context.payments.map((payment) => payment.currency),
+    context.sale.payments?.map((payment) => payment.paymentCurrency) ?? [],
+    [context.sale.paymentCurrency],
+  );
+  const entries: PaymentCurrencyEntry[] = [];
+  const seen = new Set<number>();
+
+  const addEntry = (
+    currency: RegosCurrencyOption | null | undefined,
+    exchangeRate: number | null | undefined,
+    paymentTypeName?: string | null,
+    keySuffix = "",
+  ) => {
+    const resolved = currencyWithExchangeRate(currency, knownCurrencies);
+    if (!resolved?.id || seen.has(resolved.id)) return;
+    seen.add(resolved.id);
+    entries.push({
+      key: `${resolved.id}${keySuffix}`,
+      currency: resolved,
+      exchangeRate: exchangeRate ?? resolved.exchange_rate ?? null,
+      paymentTypeName,
+    });
+  };
+
+  for (const payment of context.payments) {
+    addEntry(
+      payment.currency,
+      payment.exchange_rate,
+      payment.payment_type_name,
+      `:${payment.id}`,
+    );
+  }
+
+  if (entries.length === 0 && context.sale.paymentCurrency) {
+    addEntry(context.sale.paymentCurrency, context.sale.paymentCurrency.exchange_rate);
+  }
+
+  if (entries.length === 0 && context.sale.payments?.length) {
+    for (const [index, payment] of context.sale.payments.entries()) {
+      addEntry(
+        payment.paymentCurrency,
+        payment.paymentCurrency?.exchange_rate,
+        payment.paymentTypeName,
+        `:sale:${index}`,
+      );
+    }
+  }
+
+  return entries;
+}
+
+function PublicDocumentCurrencyMeta({ context }: { context: DocumentPrintContext }) {
+  const { t } = useLanguage();
+  const knownCurrencies = collectKnownCurrencies(
+    [context.document.currency, context.sale.saleCurrency],
+    context.payments.map((payment) => payment.currency),
+    context.sale.payments?.map((payment) => payment.paymentCurrency) ?? [],
+    [context.sale.paymentCurrency],
+  );
+  const saleCurrency = currencyWithExchangeRate(
+    context.document.currency ?? context.sale.saleCurrency,
+    knownCurrencies,
+  );
+  const paymentEntries = resolvePaymentCurrencyEntries(context);
+  const saleExchangeRate = formatNonUnityExchangeRate(saleCurrency?.exchange_rate);
+
+  if (!saleCurrency && paymentEntries.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={salesStyles.detailMeta}>
+      {saleCurrency ? (
+        <div>
+          <span className={salesStyles.detailLabel}>
+            {t("publicDocument.saleCurrency", "Sale currency")}
+          </span>
+          <span>{formatCurrencyName(saleCurrency)}</span>
+        </div>
+      ) : null}
+      {saleExchangeRate ? (
+        <div>
+          <span className={salesStyles.detailLabel}>
+            {t("publicDocument.saleExchangeRate", "Sale exchange rate")}
+          </span>
+          <span>{saleExchangeRate}</span>
+        </div>
+      ) : null}
+      {paymentEntries.flatMap((entry) => {
+        const paymentExchangeRate = formatNonUnityExchangeRate(entry.exchangeRate);
+        const paymentLabel = entry.paymentTypeName
+          ? t(
+              "publicDocument.paymentCurrencyWithType",
+              "Payment currency ({{type}})",
+              { type: entry.paymentTypeName },
+            )
+          : t("publicDocument.paymentCurrency", "Payment currency");
+        const cells = [
+          <div key={`${entry.key}-currency`}>
+            <span className={salesStyles.detailLabel}>{paymentLabel}</span>
+            <span>{formatCurrencyName(entry.currency)}</span>
+          </div>,
+        ];
+        if (paymentExchangeRate) {
+          cells.push(
+            <div key={`${entry.key}-rate`}>
+              <span className={salesStyles.detailLabel}>
+                {entry.paymentTypeName
+                  ? t(
+                      "publicDocument.paymentExchangeRateWithType",
+                      "Payment exchange rate ({{type}})",
+                      { type: entry.paymentTypeName },
+                    )
+                  : t("publicDocument.paymentExchangeRate", "Payment exchange rate")}
+              </span>
+              <span>{paymentExchangeRate}</span>
+            </div>,
+          );
+        }
+        return cells;
+      })}
+    </div>
+  );
+}
 
 function PublicPageShell({ children }: { children: ReactNode }) {
   return (
@@ -189,6 +341,7 @@ export function PublicTemplatePage({ publicToken }: Props) {
         </header>
 
         <section className={styles.detailsCard}>
+          <PublicDocumentCurrencyMeta context={context} />
           {isReturn ? (
             <ReturnsDetailContent
               document={context.document as WholesaleReturnDocument}

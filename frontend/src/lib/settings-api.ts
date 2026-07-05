@@ -1,5 +1,10 @@
 import { apiRequest } from "@/lib/api";
 import type {
+  ExchangeRateFormulaPreviewRequest,
+  ExchangeRateFormulaPreviewResponse,
+  ExchangeRateSyncPatchRequest,
+  ExchangeRateSyncResponse,
+  ExchangeRateSyncRunResponse,
   PosSettingsPatchRequest,
   PosSettingsResponse,
   RegosDefaultsPatchRequest,
@@ -322,4 +327,37 @@ export async function patchUserPosSettings(
   });
   invalidateUserPosSettingsCache(token);
   return response;
+}
+
+export async function fetchExchangeRateSync(token: string): Promise<ExchangeRateSyncResponse> {
+  return apiRequest("/api/v1/company/settings/exchange-rate-sync", { token });
+}
+
+export async function patchExchangeRateSync(
+  token: string,
+  body: ExchangeRateSyncPatchRequest,
+): Promise<ExchangeRateSyncResponse> {
+  return apiRequest("/api/v1/company/settings/exchange-rate-sync", {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
+export async function runExchangeRateSync(token: string): Promise<ExchangeRateSyncRunResponse> {
+  return apiRequest("/api/v1/company/settings/exchange-rate-sync/run", {
+    method: "POST",
+    token,
+  });
+}
+
+export async function previewExchangeRateFormula(
+  token: string,
+  body: ExchangeRateFormulaPreviewRequest,
+): Promise<ExchangeRateFormulaPreviewResponse> {
+  return apiRequest("/api/v1/company/settings/exchange-rate-sync/preview", {
+    method: "POST",
+    token,
+    body,
+  });
 }
