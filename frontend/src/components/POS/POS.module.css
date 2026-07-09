@@ -961,16 +961,12 @@
 .cardMedia {
   position: relative;
   flex-shrink: 0;
-  height: 180px;
   background: var(--color-surface-2);
   overflow: hidden;
 }
 .cardImg {
   width: 100%;
-  height: 100%;
-  flex-shrink: 0;
-  object-fit: cover;
-  object-position: center;
+  height: auto;
   display: block;
 }
 .featureBtn {
@@ -1214,15 +1210,13 @@
   .gridSingle .cardMedia,
   .gridDouble .cardMedia {
     height: auto;
-    aspect-ratio: 4 / 3;
-    min-height: 120px;
+    min-height: 0;
   }
 
   .gridSingle .cardImg,
   .gridDouble .cardImg {
     width: 100%;
-    height: 100%;
-    object-fit: cover;
+    height: auto;
   }
 
   .gridList .card {
