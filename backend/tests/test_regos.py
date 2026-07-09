@@ -209,6 +209,61 @@ async def test_products_use_default_warehouse_and_price_type(
     assert call_args[0][3]["zero_price"] is False
 
 
+@patch("app.services.regos_products.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_products_route_passes_sort_orders(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "item": {
+                    "id": 101,
+                    "name": "Cola",
+                    "articul": "SKU-101",
+                    "code": "COLA-101",
+                    "base_barcode": "4601234567890",
+                    "unit": {"name": "piece", "type": "pcs"},
+                    "group": {"name": "Beverages"},
+                },
+                "quantity": {"allowed": 7},
+                "price": 22000,
+            }
+        ],
+        "next_offset": 0,
+        "total": 1,
+    }
+
+    reg = await register_owner(client, email="sort-products@test.com", company_name="Sort Products Co")
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    patch = await client.patch(
+        "/api/v1/company/settings",
+        headers=headers,
+        json={
+            "settings": {
+                "regos_defaults": {
+                    "warehouse": {"id": 11, "name": "Main warehouse"},
+                    "price_type": {"id": 22, "name": "Retail"},
+                }
+            }
+        },
+    )
+    assert patch.status_code == 200
+
+    response = await client.get(
+        "/api/v1/regos/products",
+        headers=headers,
+        params={"sort_column": "code", "sort_direction": "desc"},
+    )
+    assert response.status_code == 200
+
+    sort_orders = mock_regos.call_args[0][3]["sort_orders"]
+    assert sort_orders == [{"column": "Code", "direction": "DESC"}]
+
+
 @patch("app.services.regos_groups.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_product_groups_route_returns_regos_groups(

@@ -1,4 +1,4 @@
-import { Camera, ImageOff, Search, Undo2 } from "lucide-react";
+import { ArrowUpDown, Camera, ImageOff, Search, Undo2 } from "lucide-react";
 import {
   lazy,
   startTransition,
@@ -17,6 +17,10 @@ import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
 import { canAddProductToCart } from "@/lib/cart-stock";
 import { isBarcodeInput } from "@/lib/barcode";
 import {
+  isShortNumericCodeSearch,
+  prioritizeCatalogProductsByCode,
+} from "@/lib/catalog-search";
+import {
   lookupProductForBarcode,
   type BarcodeLookupFailureReason,
 } from "@/lib/barcode-lookup";
@@ -32,6 +36,11 @@ import { useCart } from "@/store/cart";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { applyDefaultCategory } from "@/lib/default-category";
+import {
+  catalogSortFromOptionId,
+  catalogSortToOptionId,
+  CATALOG_SORT_OPTIONS,
+} from "@/lib/catalog-sort";
 import {
   catalogCanLoadMore,
   catalogEffectiveNextOffset,
@@ -143,7 +152,11 @@ export function ProductCatalog() {
   const [featuredOnly, setFeaturedOnly] = useState(false);
   const hideCardImages = useCatalog((s) => s.hideCardImages);
   const setHideCardImages = useCatalog((s) => s.setHideCardImages);
+  const catalogSort = useCatalog((s) => s.catalogSort);
+  const setCatalogSort = useCatalog((s) => s.setCatalogSort);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [categoryReady, setCategoryReady] = useState(false);
   const [featuredIds, setFeaturedIds] = useState<Set<number>>(() => new Set());
@@ -161,11 +174,36 @@ export function ProductCatalog() {
   const isPreparing = Boolean(token && (!categoryReady || !sellContextHydrated || !posConfigHydrated));
   const isBarcodeMode = isBarcodeInput(q);
 
+  const displayProducts = useMemo(() => {
+    if (!isShortNumericCodeSearch(search)) return products;
+    return prioritizeCatalogProductsByCode(products, search);
+  }, [products, search]);
+
   useEffect(() => {
     if (isBarcodeMode) return;
     const timer = window.setTimeout(() => setSearch(q.trim()), 250);
     return () => window.clearTimeout(timer);
   }, [isBarcodeMode, q]);
+
+  useEffect(() => {
+    if (!sortOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (sortMenuRef.current?.contains(event.target as Node)) return;
+      setSortOpen(false);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSortOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [sortOpen]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
@@ -296,9 +334,10 @@ export function ProductCatalog() {
       search,
       groupId: isGlobalSearch ? null : selectedGroupId,
       featuredOnly: isGlobalSearch ? false : featuredOnly,
+      sort: catalogSort,
       ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
     }),
-    [catalogOverrides, featuredOnly, isGlobalSearch, search, selectedGroupId],
+    [catalogOverrides, catalogSort, featuredOnly, isGlobalSearch, search, selectedGroupId],
   );
 
   const catalogQueryKey = useMemo(
@@ -309,9 +348,10 @@ export function ProductCatalog() {
         featuredOnly ? "1" : "0",
         warehouseId ?? "",
         priceTypeId ?? "",
+        `${catalogSort.column}:${catalogSort.direction}`,
         refreshNonce,
       ].join("|"),
-    [featuredOnly, priceTypeId, refreshNonce, search, selectedGroupId, warehouseId],
+    [catalogSort.column, catalogSort.direction, featuredOnly, priceTypeId, refreshNonce, search, selectedGroupId, warehouseId],
   );
 
   const catalogCursorRef = useRef(0);
@@ -692,7 +732,9 @@ export function ProductCatalog() {
     let firstProduct: Product | undefined;
 
     if (search === term && !loading) {
-      firstProduct = firstAddableProduct(products);
+      firstProduct = firstAddableProduct(
+        prioritizeCatalogProductsByCode(products, term),
+      );
     } else {
       try {
         const res = await fetchCatalogProducts(token, {
@@ -703,7 +745,9 @@ export function ProductCatalog() {
           featuredOnly: false,
           ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
         });
-        firstProduct = firstAddableProduct(res.products);
+        firstProduct = firstAddableProduct(
+          prioritizeCatalogProductsByCode(res.products, term),
+        );
       } catch (err) {
         setError(formatAuthError(err));
         return;
@@ -829,6 +873,51 @@ export function ProductCatalog() {
               <Camera size={24} />
             </button>
           </div>
+          <div ref={sortMenuRef} className={styles.sortMenuWrap}>
+            <button
+              type="button"
+              className={clsx(
+                styles.catalogFilterBtn,
+                (catalogSort.column !== "name" || catalogSort.direction !== "asc") &&
+                  styles.catalogFilterBtnActive,
+              )}
+              aria-label={t("pos.sortAria", "Sort products")}
+              aria-haspopup="menu"
+              aria-expanded={sortOpen}
+              title={t("pos.sort", "Sort")}
+              onClick={(event) => {
+                event.stopPropagation();
+                setSortOpen((open) => !open);
+              }}
+            >
+              <ArrowUpDown size={16} />
+              <span className={styles.catalogFilterBtnLabel}>{t("pos.sort", "Sort")}</span>
+            </button>
+            {sortOpen ? (
+              <div className={styles.sortMenu} role="menu" aria-label={t("pos.sortBy", "Sort by")}>
+                <div className={styles.sortMenuLabel}>{t("pos.sortBy", "Sort by")}</div>
+                {CATALOG_SORT_OPTIONS.map((option) => {
+                  const isActive = catalogSortToOptionId(catalogSort) === option.id;
+                  return (
+                    <button
+                      key={option.id}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={isActive}
+                      className={clsx(styles.sortMenuItem, isActive && styles.sortMenuItemActive)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        setCatalogSort(catalogSortFromOptionId(option.id));
+                        setSortOpen(false);
+                      }}
+                    >
+                      {t(option.labelKey, option.fallback)}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
             className={clsx(
@@ -919,7 +1008,7 @@ export function ProductCatalog() {
                 isMobile && view === "list" && styles.gridList,
               )}
             >
-              {products.map((p) => (
+              {displayProducts.map((p) => (
                 <CatalogProductCard
                   key={p.id}
                   product={p}

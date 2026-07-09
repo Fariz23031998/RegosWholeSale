@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/api";
+import type { CatalogSort } from "@/lib/catalog-sort";
 import type { CatalogGroupsResponse, CatalogProductsResponse } from "@/types/catalog";
 
 type CatalogQuery = {
@@ -9,6 +10,7 @@ type CatalogQuery = {
   featuredOnly?: boolean;
   warehouseId?: number;
   priceTypeId?: number;
+  sort?: CatalogSort;
 };
 
 export async function fetchCatalogProducts(
@@ -32,6 +34,10 @@ export async function fetchCatalogProducts(
   }
   if (query.priceTypeId) {
     params.set("price_type_id", String(query.priceTypeId));
+  }
+  if (query.sort) {
+    params.set("sort_column", query.sort.column);
+    params.set("sort_direction", query.sort.direction);
   }
 
   return apiRequest(`/api/v1/regos/products?${params.toString()}`, { token });

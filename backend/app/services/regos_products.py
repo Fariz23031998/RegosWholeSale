@@ -11,6 +11,27 @@ from app.services import regos_defaults as regos_defaults_service
 # Regos cursor in next_offset so the client can continue.
 MAX_REGOS_PAGES_PER_REQUEST = 100
 
+_CATALOG_SORT_COLUMNS = {
+    "name": "Name",
+    "articul": "Articul",
+    "code": "Code",
+    "brand.name": "brand.name",
+    "unit.name": "unit.name",
+    "department.name": "department.name",
+}
+_CATALOG_SORT_DIRECTIONS = {"asc": "ASC", "desc": "DESC"}
+
+
+def _catalog_sort_orders(
+    sort_column: str | None = None,
+    sort_direction: str | None = None,
+) -> list[dict[str, str]]:
+    column_key = (sort_column or "name").strip().lower()
+    direction_key = (sort_direction or "asc").strip().lower()
+    regos_column = _CATALOG_SORT_COLUMNS.get(column_key, "Name")
+    regos_direction = _CATALOG_SORT_DIRECTIONS.get(direction_key, "ASC")
+    return [{"column": regos_column, "direction": regos_direction}]
+
 
 def _regos_page_size(client_limit: int) -> int:
     """Fetch more rows per Regos hop so filtered catalogs fill client pages faster."""
@@ -161,6 +182,8 @@ async def list_products(
     price_type_id: int | None = None,
     include_zero_quantity: bool | None = None,
     include_zero_price: bool | None = None,
+    sort_column: str | None = None,
+    sort_direction: str | None = None,
 ) -> dict[str, Any]:
     search_term = search.strip() if search and search.strip() else None
     global_search = search_term is not None
@@ -216,7 +239,7 @@ async def list_products(
     payload: dict[str, Any] = {
         "stock_id": warehouse["id"],
         "price_type_id": price_type["id"],
-        "sort_orders": [{"column": "Name", "direction": "ASC"}],
+        "sort_orders": _catalog_sort_orders(sort_column, sort_direction),
         "zero_quantity": include_zero_quantity,
         "zero_price": include_zero_price,
         "image_size": "Medium",

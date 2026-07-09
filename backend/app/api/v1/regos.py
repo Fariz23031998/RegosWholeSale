@@ -199,6 +199,8 @@ async def get_regos_products(
     featured_only: bool = Query(default=False),
     warehouse_id: int | None = Query(default=None, ge=1),
     price_type_id: int | None = Query(default=None, ge=1),
+    sort_column: str | None = Query(default=None, max_length=64),
+    sort_direction: str | None = Query(default=None, max_length=8),
     current: CurrentUser = Depends(require_permission("pos.access")),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogProductsResponse:
@@ -218,6 +220,8 @@ async def get_regos_products(
         user_id=current.id,
         warehouse_id=warehouse_id,
         price_type_id=price_type_id,
+        sort_column=sort_column,
+        sort_direction=sort_direction,
     )
     return CatalogProductsResponse(**data)
 

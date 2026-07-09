@@ -1,4 +1,6 @@
 import type { CatalogViewMode } from "@/store/catalog";
+import type { CatalogSort } from "@/lib/catalog-sort";
+import { DEFAULT_CATALOG_SORT, normalizeCatalogSort } from "@/lib/catalog-sort";
 import {
   CATALOG_UI_STORE,
   openPulsePosDb,
@@ -9,11 +11,13 @@ const PREFERENCES_KEY = "preferences";
 export type CatalogUiPreferences = {
   hideCardImages: boolean;
   mobileViewMode: CatalogViewMode;
+  catalogSort: CatalogSort;
 };
 
 const DEFAULT_PREFERENCES: CatalogUiPreferences = {
   hideCardImages: false,
   mobileViewMode: "double",
+  catalogSort: { ...DEFAULT_CATALOG_SORT },
 };
 
 const VALID_VIEW_MODES = new Set<CatalogViewMode>(["single", "double", "list"]);
@@ -28,6 +32,7 @@ function normalizePreferences(value: unknown): CatalogUiPreferences {
       record.mobileViewMode && VALID_VIEW_MODES.has(record.mobileViewMode)
         ? record.mobileViewMode
         : DEFAULT_PREFERENCES.mobileViewMode,
+    catalogSort: normalizeCatalogSort(record.catalogSort),
   };
 }
 
