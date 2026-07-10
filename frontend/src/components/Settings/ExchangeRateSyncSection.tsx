@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { collectDashboardCurrencies } from "@/lib/dashboard-api";
 import {
@@ -7,6 +7,7 @@ import {
   previewExchangeRateFormula,
   runExchangeRateSync,
 } from "@/lib/settings-api";
+import { subscribeSettingsEvents } from "@/lib/settings-events";
 import { formatAuthError } from "@/store/auth";
 import type {
   ExchangeRateSyncRule,
@@ -18,6 +19,7 @@ import styles from "@/routes/settings.module.css";
 
 type ExchangeRateSyncSectionProps = {
   token: string;
+  companyId?: number;
   tokenConfigured: boolean;
   priceTypes: RegosPriceTypeOption[];
   defaultCurrency: RegosCurrencyOption | null;
@@ -45,6 +47,7 @@ function formatRate(value: unknown): string {
 
 export function ExchangeRateSyncSection({
   token,
+  companyId,
   tokenConfigured,
   priceTypes,
   defaultCurrency,
@@ -74,6 +77,13 @@ export function ExchangeRateSyncSection({
     [currencyOptions],
   );
 
+  const cacheScope = useMemo(
+    () => (companyId != null ? { companyId } : undefined),
+    [companyId],
+  );
+
+  const reloadSettingsRef = useRef<() => void>(() => undefined);
+
   useEffect(() => {
     if (!token || !tokenConfigured) {
       setSettings(null);
@@ -85,27 +95,39 @@ export function ExchangeRateSyncSection({
     setLoading(true);
     setError("");
 
-    void fetchExchangeRateSync(token)
-      .then((response) => {
-        if (!cancelled) {
-          setSettings(response.settings);
-        }
-      })
-      .catch((reason) => {
-        if (!cancelled) {
-          setError(formatAuthError(reason));
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
+    const reload = () => {
+      void fetchExchangeRateSync(token, { force: true, cacheScope })
+        .then((response) => {
+          if (!cancelled) {
+            setSettings(response.settings);
+          }
+        })
+        .catch((reason) => {
+          if (!cancelled) {
+            setError(formatAuthError(reason));
+          }
+        })
+        .finally(() => {
+          if (!cancelled) {
+            setLoading(false);
+          }
+        });
+    };
+
+    reloadSettingsRef.current = reload;
+    reload();
 
     return () => {
       cancelled = true;
     };
-  }, [token, tokenConfigured]);
+  }, [cacheScope, token, tokenConfigured]);
+
+  useEffect(() => {
+    return subscribeSettingsEvents((event) => {
+      if (event.scope !== "company" || event.namespace !== "exchange_rate_sync") return;
+      reloadSettingsRef.current();
+    });
+  }, []);
 
   const updateSettings = (patch: Partial<ExchangeRateSyncSettings>) => {
     setSettings((current) => (current ? { ...current, ...patch } : current));
@@ -160,10 +182,14 @@ export function ExchangeRateSyncSection({
     setError("");
     setInfo("");
     try {
-      const response = await patchExchangeRateSync(token, {
-        enabled: settings.enabled,
-        rules: settings.rules,
-      });
+      const response = await patchExchangeRateSync(
+        token,
+        {
+          enabled: settings.enabled,
+          rules: settings.rules,
+        },
+        cacheScope,
+      );
       setSettings(response.settings);
       setInfo(t("settings.exchangeRateSync.saved", "Exchange rate sync settings saved."));
     } catch (reason) {
@@ -180,7 +206,7 @@ export function ExchangeRateSyncSection({
     setInfo("");
     try {
       const response = await runExchangeRateSync(token);
-      const refreshed = await fetchExchangeRateSync(token);
+      const refreshed = await fetchExchangeRateSync(token, { cacheScope });
       setSettings(refreshed.settings);
       setInfo(
         t(

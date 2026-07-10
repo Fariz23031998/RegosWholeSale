@@ -32,6 +32,7 @@ from app.schemas.partners import (
     PartnersListResponse,
 )
 from app.schemas.settings import RegosReferenceOptionsResponse
+from app.services import catalog_events as catalog_events_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services import regos_fields as regos_fields_service
 from app.services import regos_groups as regos_groups_service
@@ -42,6 +43,7 @@ from app.services import regos_payment_linking as regos_payment_linking_service
 from app.services import regos_payment_types as regos_payment_types_service
 from app.services import regos_products as regos_products_service
 from app.services import regos_tokens as regos_tokens_service
+from app.services.settings_events import publish_settings_updated
 from app.services.permissions import POS_CONTEXT_CHANGE_PERMISSIONS
 
 router = APIRouter(prefix="/regos", tags=["regos"])
@@ -80,6 +82,11 @@ async def upsert_regos_token(
         body.token,
         body.is_replicable,
     )
+    publish_settings_updated(
+        current.company_id,
+        scope="company",
+        namespace="regos_token",
+    )
     return RegosTokenMessage(
         message="Regos token saved successfully",
         is_replicable=body.is_replicable,
@@ -92,6 +99,11 @@ async def delete_regos_token(
     session: AsyncSession = Depends(get_db),
 ) -> RegosTokenMessage:
     deleted = await regos_tokens_service.delete_token(session, current.company_id)
+    publish_settings_updated(
+        current.company_id,
+        scope="company",
+        namespace="regos_token",
+    )
     if not deleted:
         return RegosTokenMessage(message="No Regos token configured")
     return RegosTokenMessage(message="Regos token deleted successfully")
@@ -103,6 +115,11 @@ async def update_regos_integration(
     session: AsyncSession = Depends(get_db),
 ) -> RegosTokenMessage:
     data = await regos_tokens_service.update_integration(session, current.company_id)
+    publish_settings_updated(
+        current.company_id,
+        scope="company",
+        namespace="regos_token",
+    )
     return RegosTokenMessage(**data)
 
 
@@ -145,6 +162,11 @@ async def create_doc_payment_sale_id_field(
     data = await regos_fields_service.ensure_doc_payment_sale_id_field(
         session, current.company_id
     )
+    publish_settings_updated(
+        current.company_id,
+        scope="company",
+        namespace="doc_payment_sale_id",
+    )
     field = data.get("field")
     return RegosDocPaymentSaleIdFieldResponse(
         configured=bool(data.get("configured")),
@@ -179,6 +201,11 @@ async def patch_payment_linking_settings(
 ) -> RegosPaymentLinkingResponse:
     data = await regos_payment_linking_service.set_payment_linking_mode(
         session, current.company_id, body.mode
+    )
+    publish_settings_updated(
+        current.company_id,
+        scope="company",
+        namespace="payment_linking",
     )
     sale_id_field = data.get("sale_id_field")
     return RegosPaymentLinkingResponse(
@@ -224,6 +251,49 @@ async def get_regos_products(
         sort_direction=sort_direction,
     )
     return CatalogProductsResponse(**data)
+
+
+@router.get("/products/by-ids", response_model=CatalogProductsResponse)
+async def get_regos_products_by_ids(
+    ids: str = Query(..., min_length=1, max_length=4000),
+    warehouse_id: int | None = Query(default=None, ge=1),
+    price_type_id: int | None = Query(default=None, ge=1),
+    current: CurrentUser = Depends(require_permission("pos.access")),
+    session: AsyncSession = Depends(get_db),
+) -> CatalogProductsResponse:
+    if warehouse_id is not None and "pos.change_warehouse" not in current.permissions:
+        raise forbidden("Missing permission: pos.change_warehouse", "FORBIDDEN")
+    if price_type_id is not None and "pos.change_price_type" not in current.permissions:
+        raise forbidden("Missing permission: pos.change_price_type", "FORBIDDEN")
+
+    parsed_ids: list[int] = []
+    seen: set[int] = set()
+    for part in ids.split(","):
+        trimmed = part.strip()
+        if not trimmed:
+            continue
+        try:
+            parsed = int(trimmed)
+        except ValueError:
+            continue
+        if parsed <= 0 or parsed in seen:
+            continue
+        seen.add(parsed)
+        parsed_ids.append(parsed)
+
+    products = await regos_products_service.get_products_by_ids(
+        session,
+        current.company_id,
+        current.id,
+        parsed_ids,
+        warehouse_id=warehouse_id,
+        price_type_id=price_type_id,
+    )
+    return CatalogProductsResponse(
+        products=products,
+        next_offset=0,
+        total=len(products),
+    )
 
 
 @router.get("/product-groups", response_model=CatalogGroupsResponse)
@@ -296,6 +366,11 @@ async def create_regos_partner(
         current.company_id,
         body.model_dump(exclude_unset=True),
     )
+    catalog_events_service.publish_reference_options_invalidated(
+        current.company_id,
+        kinds=["partner"],
+        source_action="PartnerAdded",
+    )
     return PartnerCreateResponse(**data)
 
 
@@ -311,6 +386,11 @@ async def update_regos_partner(
         current.company_id,
         partner_id,
         body.model_dump(exclude_unset=True),
+    )
+    catalog_events_service.publish_reference_options_invalidated(
+        current.company_id,
+        kinds=["partner"],
+        source_action="PartnerEdited",
     )
     return PartnerMutationResponse(**data)
 
@@ -358,6 +438,11 @@ async def delete_mark_regos_partner(
         session,
         current.company_id,
         partner_id,
+    )
+    catalog_events_service.publish_reference_options_invalidated(
+        current.company_id,
+        kinds=["partner"],
+        source_action="PartnerDeleted",
     )
     return PartnerMutationResponse(**data)
 

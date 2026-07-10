@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import RegosToken
+from app.services import catalog_events as catalog_events_service
 from app.services import regos_document_fetch as doc_fetch
 from app.services import regos_webhook_background as webhook_background
 
@@ -32,7 +33,6 @@ class PosEventSpec:
     variant: str
     notification_type: str
 
-
 POS_EVENT_SPECS: dict[str, PosEventSpec] = {
     "DocChequeClosed": PosEventSpec("cheque", "closed", "pos_cheque"),
     "DocChequeCanceled": PosEventSpec("cheque", "canceled", "pos_cheque"),
@@ -40,6 +40,30 @@ POS_EVENT_SPECS: dict[str, PosEventSpec] = {
     "DocSessionOpened": PosEventSpec("session", "opened", "pos_session"),
     "DocSessionClosed": PosEventSpec("session", "closed", "pos_session"),
 }
+
+ITEM_UPDATED_EVENTS = frozenset({"ItemAdded", "ItemEdited"})
+ITEM_REMOVED_EVENTS = frozenset({"ItemDeleted", "ItemDeleteMarked"})
+ITEM_GROUP_EVENTS = frozenset({"ItemGroupAdded", "ItemGroupEdited", "ItemGroupDeleted"})
+PAYMENT_TYPE_UPDATED_EVENTS = frozenset({"PaymentTypeAdded", "PaymentTypeEdited"})
+PAYMENT_TYPE_REMOVED_EVENTS = frozenset({"PaymentTypeDeleted"})
+STOCK_REFERENCE_OPTION_EVENTS = frozenset(
+    {"StockAdded", "StockEdited", "StockDeleted", "StockDeleteMarked"}
+)
+PARTNER_REFERENCE_OPTION_EVENTS = frozenset(
+    {"PartnerAdded", "PartnerEdited", "PartnerDeleted", "PartnerDeleteMarked"}
+)
+PRICE_TYPE_REFERENCE_OPTION_EVENTS = frozenset(
+    {"PriceTypeAdded", "PriceTypeEdited", "PriceTypeDeleted"}
+)
+REFERENCE_OPTIONS_WEBHOOK_EVENTS = (
+    STOCK_REFERENCE_OPTION_EVENTS
+    | PARTNER_REFERENCE_OPTION_EVENTS
+    | PRICE_TYPE_REFERENCE_OPTION_EVENTS
+)
+SET_PRICE_EVENTS = frozenset({"DocSetPricePerformed", "DocSetPricePerformCanceled"})
+CATALOG_PRODUCT_WEBHOOK_EVENTS = (
+    ITEM_UPDATED_EVENTS | ITEM_REMOVED_EVENTS | ITEM_GROUP_EVENTS | SET_PRICE_EVENTS
+)
 
 
 EVENT_SPECS: dict[str, EventSpec] = {
@@ -204,6 +228,41 @@ def _schedule_pos_session(
     )
 
 
+def _schedule_set_price_document(
+    background_tasks: BackgroundTasks | None,
+    company_id: int,
+    document_id: int,
+    event_action: str,
+) -> None:
+    if background_tasks is None:
+        logger.warning("Cannot schedule set-price catalog update: background_tasks is None")
+        return
+    background_tasks.add_task(
+        webhook_background.process_set_price_document,
+        company_id,
+        document_id,
+        event_action,
+    )
+
+
+def _parse_item_id(event_data: dict[str, Any]) -> int | None:
+    raw_id = event_data.get("id")
+    if raw_id is None:
+        return None
+    try:
+        parsed = int(raw_id)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def _webhook_occurred_at(webhook_data: dict[str, Any]) -> str | None:
+    occurred_at = webhook_data.get("occurred_at")
+    if isinstance(occurred_at, str) and occurred_at.strip():
+        return occurred_at.strip()
+    return None
+
+
 async def handle_regos_webhook(
     session: AsyncSession,
     webhook_data: dict[str, Any],
@@ -245,6 +304,99 @@ async def handle_regos_webhook(
         document_id,
         resource_uuid,
     )
+
+    occurred_at = _webhook_occurred_at(webhook_data)
+
+    if event_action in ITEM_REMOVED_EVENTS:
+        item_id = _parse_item_id(event_data)
+        if item_id is not None:
+            catalog_events_service.publish_products_removed(
+                company_id,
+                regos_item_ids=[item_id],
+                source_action=event_action,
+                occurred_at=occurred_at,
+            )
+        return {"ok": True, "message": "Webhook processed", "company_id": company_id}
+
+    if event_action in ITEM_UPDATED_EVENTS:
+        item_id = _parse_item_id(event_data)
+        if item_id is not None:
+            catalog_events_service.publish_products_updated(
+                company_id,
+                regos_item_ids=[item_id],
+                source_action=event_action,
+                occurred_at=occurred_at,
+            )
+        return {"ok": True, "message": "Webhook processed", "company_id": company_id}
+
+    if event_action in ITEM_GROUP_EVENTS:
+        catalog_events_service.publish_groups_invalidated(
+            company_id,
+            source_action=event_action,
+            occurred_at=occurred_at,
+        )
+        return {"ok": True, "message": "Webhook processed", "company_id": company_id}
+
+    if event_action in PAYMENT_TYPE_REMOVED_EVENTS:
+        payment_type_id = _parse_item_id(event_data)
+        if payment_type_id is not None:
+            catalog_events_service.publish_payment_types_removed(
+                company_id,
+                payment_type_ids=[payment_type_id],
+                source_action=event_action,
+                occurred_at=occurred_at,
+            )
+        return {"ok": True, "message": "Webhook processed", "company_id": company_id}
+
+    if event_action in PAYMENT_TYPE_UPDATED_EVENTS:
+        payment_type_id = _parse_item_id(event_data)
+        if payment_type_id is not None:
+            catalog_events_service.publish_payment_types_updated(
+                company_id,
+                payment_type_ids=[payment_type_id],
+                source_action=event_action,
+                occurred_at=occurred_at,
+            )
+        return {"ok": True, "message": "Webhook processed", "company_id": company_id}
+
+    if event_action in STOCK_REFERENCE_OPTION_EVENTS:
+        catalog_events_service.publish_reference_options_invalidated(
+            company_id,
+            kinds=["warehouse"],
+            source_action=event_action,
+            occurred_at=occurred_at,
+        )
+        return {"ok": True, "message": "Webhook processed", "company_id": company_id}
+
+    if event_action in PARTNER_REFERENCE_OPTION_EVENTS:
+        catalog_events_service.publish_reference_options_invalidated(
+            company_id,
+            kinds=["partner"],
+            source_action=event_action,
+            occurred_at=occurred_at,
+        )
+        return {"ok": True, "message": "Webhook processed", "company_id": company_id}
+
+    if event_action in PRICE_TYPE_REFERENCE_OPTION_EVENTS:
+        catalog_events_service.publish_reference_options_invalidated(
+            company_id,
+            kinds=["price_type"],
+            source_action=event_action,
+            occurred_at=occurred_at,
+        )
+        return {"ok": True, "message": "Webhook processed", "company_id": company_id}
+
+    if event_action in SET_PRICE_EVENTS:
+        if not document_id:
+            logger.warning("%s event missing document ID", event_action)
+            return {"ok": True, "message": "Missing document id", "company_id": company_id}
+        _schedule_set_price_document(
+            background_tasks,
+            company_id,
+            int(document_id),
+            event_action,
+        )
+        return {"ok": True, "message": "Webhook processed", "company_id": company_id}
 
     pos_spec = POS_EVENT_SPECS.get(event_action)
     if pos_spec:

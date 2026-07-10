@@ -12,13 +12,17 @@ export type CatalogViewMode = "single" | "double" | "list";
 type CatalogState = {
   products: Product[];
   refreshNonce: number;
+  groupsRefreshNonce: number;
   mobileViewMode: CatalogViewMode;
   hideCardImages: boolean;
   catalogSort: CatalogSort;
   uiPreferencesHydrated: boolean;
   setProducts: (products: Product[]) => void;
   appendProducts: (products: Product[]) => void;
+  patchProducts: (products: Product[]) => void;
+  removeProducts: (productIds: string[]) => void;
   requestRefresh: () => void;
+  requestGroupsRefresh: () => void;
   setMobileViewMode: (mode: CatalogViewMode) => void;
   setHideCardImages: (hide: boolean) => void;
   setCatalogSort: (sort: CatalogSort) => void;
@@ -41,12 +45,14 @@ function persistUiPreferences(
 export const useCatalog = create<CatalogState>((set, get) => ({
   products: [],
   refreshNonce: 0,
+  groupsRefreshNonce: 0,
   mobileViewMode: "double",
   hideCardImages: false,
   catalogSort: { ...DEFAULT_CATALOG_SORT },
   uiPreferencesHydrated: false,
   setProducts: (products) => set({ products }),
   requestRefresh: () => set((s) => ({ refreshNonce: s.refreshNonce + 1 })),
+  requestGroupsRefresh: () => set((s) => ({ groupsRefreshNonce: s.groupsRefreshNonce + 1 })),
   setMobileViewMode: (mode) => {
     set({ mobileViewMode: mode });
     persistUiPreferences({ ...get(), mobileViewMode: mode });
@@ -77,6 +83,25 @@ export const useCatalog = create<CatalogState>((set, get) => ({
       const seen = new Set(s.products.map((p) => p.id));
       return {
         products: [...s.products, ...products.filter((p) => !seen.has(p.id))],
+      };
+    }),
+  patchProducts: (products) =>
+    set((s) => {
+      if (products.length === 0) return s;
+      const byId = new Map(products.map((product) => [product.id, product]));
+      const next = s.products.map((product) => byId.get(product.id) ?? product);
+      const existingIds = new Set(s.products.map((product) => product.id));
+      const additions = products.filter((product) => !existingIds.has(product.id));
+      return {
+        products: additions.length > 0 ? [...next, ...additions] : next,
+      };
+    }),
+  removeProducts: (productIds) =>
+    set((s) => {
+      if (productIds.length === 0) return s;
+      const remove = new Set(productIds);
+      return {
+        products: s.products.filter((product) => !remove.has(product.id)),
       };
     }),
   decrementStock: (productId, qty) =>

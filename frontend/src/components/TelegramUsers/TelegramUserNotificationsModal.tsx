@@ -4,7 +4,7 @@ import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { formatAuthError } from "@/store/auth";
+import { formatAuthError, useAuth } from "@/store/auth";
 import {
   TELEGRAM_RECEIPT_LANGUAGES,
   receiptLanguageLabelKey,
@@ -134,6 +134,7 @@ export function TelegramUserNotificationsModal({
   onSaved,
 }: Props) {
   const { t } = useLanguage();
+  const companyId = useAuth((s) => s.user?.company_id);
   const [selectedLeaves, setSelectedLeaves] = useState<Set<TelegramNotificationLeaf>>(new Set());
   const [receiptLanguage, setReceiptLanguage] = useState<TelegramReceiptLanguage>("ru");
   const [isActive, setIsActive] = useState(true);
@@ -148,7 +149,10 @@ export function TelegramUserNotificationsModal({
 
   const referenceOptionsQuery = useQuery({
     queryKey: ["regos", "reference-options", token],
-    queryFn: () => fetchRegosReferenceOptions(token),
+    queryFn: () =>
+      fetchRegosReferenceOptions(token, {
+        cacheScope: companyId != null ? { companyId } : undefined,
+      }),
     enabled: open && Boolean(token),
     staleTime: 60_000,
   });

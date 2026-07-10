@@ -45,40 +45,41 @@ REFERENCE_NAMES = {
 
 DEFAULT_VAT_CALCULATION_TYPE = "Exclude"
 VAT_CALCULATION_TYPES = frozenset({"No", "Exclude", "Include"})
+REFERENCE_OPTIONS_PAGE_SIZE = 200
 
 REFERENCE_REQUESTS = {
     "warehouse": {
         "deleted_mark": False,
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "Name", "direction": "asc"}],
     },
     "price_type": {
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "Name", "direction": "asc"}],
     },
     "partner": {
         "deleted_mark": False,
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "Name", "direction": "asc"}],
     },
     "payment_category": {
         "positive": True,
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "Name", "direction": "asc"}],
     },
     "refund_payment_category": {
         "positive": False,
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "Name", "direction": "asc"}],
     },
     "attached_user": {
         "active": True,
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "FirstName", "direction": "asc"}],
     },
@@ -586,18 +587,43 @@ async def _enrich_price_type_options(
 async def _fetch_reference_options(
     session: AsyncSession, company_id: int, kind: str
 ) -> list[dict[str, Any]]:
-    response = await regos_async_api_request_for_company(
-        session,
-        company_id,
-        REFERENCE_ENDPOINTS[kind],
-        dict(REFERENCE_REQUESTS[kind]),
-    )
-    items = response.get("result") or []
-    return [
-        _map_reference_item(item, kind)
-        for item in items
-        if isinstance(item, dict) and item.get("id")
-    ]
+    base_payload = dict(REFERENCE_REQUESTS[kind])
+    page_size = int(base_payload.pop("limit", REFERENCE_OPTIONS_PAGE_SIZE))
+    offset = int(base_payload.pop("offset", 0))
+    endpoint = REFERENCE_ENDPOINTS[kind]
+    collected: list[dict[str, Any]] = []
+
+    while True:
+        payload = {**base_payload, "limit": page_size, "offset": offset}
+        response = await regos_async_api_request_for_company(
+            session,
+            company_id,
+            endpoint,
+            payload,
+        )
+        items = response.get("result") or []
+        page = [
+            _map_reference_item(item, kind)
+            for item in items
+            if isinstance(item, dict) and item.get("id")
+        ]
+        collected.extend(page)
+
+        if not page:
+            break
+
+        total = response.get("total")
+        next_offset = response.get("next_offset")
+        if isinstance(total, int) and len(collected) >= total:
+            break
+        if isinstance(next_offset, int) and next_offset > offset:
+            offset = next_offset
+            continue
+        if len(page) < page_size:
+            break
+        offset += len(page)
+
+    return collected
 
 
 def _request_for_ids(kind: str, value: int) -> dict[str, Any]:

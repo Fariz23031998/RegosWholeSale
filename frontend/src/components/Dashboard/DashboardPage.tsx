@@ -399,6 +399,7 @@ function BestSellersSection({
 export function DashboardPage() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
+  const companyId = useAuth((s) => s.user?.company_id);
   const {
     canChangeWarehouse,
     defaultWarehouse,
@@ -565,7 +566,12 @@ export function DashboardPage() {
 
     let cancelled = false;
     setDefaultsReady(false);
-    void Promise.all([fetchRegosReferenceOptions(token), fetchRegosDefaults(token)])
+    void Promise.all([
+      fetchRegosReferenceOptions(token, {
+        cacheScope: companyId != null ? { companyId } : undefined,
+      }),
+      fetchRegosDefaults(token),
+    ])
       .then(([options, defaultsResponse]) => {
         if (cancelled) return;
         setPartners(options.partners);
@@ -606,7 +612,7 @@ export function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [canChangeWarehouse, token]);
+  }, [canChangeWarehouse, companyId, token]);
 
   useEffect(() => {
     if (!warehouseScopeReady || canChangeWarehouse) return;

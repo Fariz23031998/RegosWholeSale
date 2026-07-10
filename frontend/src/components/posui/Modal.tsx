@@ -58,7 +58,14 @@ export function Modal({
         elevated && styles.elevatedOverlay,
         overlayClassName,
       )}
-      onMouseDown={onClose}
+      onMouseDown={(e) => {
+        if (e.target === e.currentTarget) {
+          e.preventDefault();
+        }
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
     >
       <div
         className={clsx(

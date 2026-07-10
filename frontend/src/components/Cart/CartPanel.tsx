@@ -23,17 +23,22 @@ import {
   maxCartQty,
   resolveCartUnitType,
   shouldReserveStockOnPostpone,
+  type StockAdjustOp,
 } from "@/lib/cart-stock";
 import { formatCurrency } from "@/lib/format";
 import { toast } from "sonner";
 import { maybeResetSellContextAfterSaleClosed } from "@/lib/sell-context-lifecycle";
-import { postponeSale } from "@/lib/sales-api";
+import { enqueuePendingSaleSync } from "@/lib/pending-sales-sync";
+import { buildPendingSalesScopeKey } from "@/types/pending-sale";
+import type { PostponeRequest } from "@/lib/sales-api";
+import { usePendingSales } from "@/store/pending-sales";
 import { buildPrintContextFromCartDraft, loadPrintContextFromCartDraft } from "@/lib/receipt-context-builder";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import { Button } from "@/components/posui/Button";
 import { CheckoutModal } from "@/components/Checkout/CheckoutModal";
 import { ContinueSaleModal } from "@/components/Cart/ContinueSaleModal";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
+import type { PaymentSubmitPayload } from "@/components/Checkout/PaymentPanel";
 import { CheckoutTabs } from "./CheckoutTabs";
 import { CartLineImage } from "./CartLineImage";
 import { QtyKeypad } from "./QtyKeypad";
@@ -54,6 +59,7 @@ export function CartPanel() {
   const postponedDocType = useCart((s) => s.postponedDocType);
   const accessToken = useAuth((s) => s.accessToken);
   const cashier = useAuth((s) => s.cashier);
+  const user = useAuth((s) => s.user);
   const {
     canChangeWarehouse,
     canChangePriceType,
@@ -72,6 +78,7 @@ export function CartPanel() {
       canChangePartner: canChangePartner(),
     });
   const saleCurrency = useSellContext((s) => s.saleCurrency);
+  const priceTypeId = useSellContext((s) => s.priceTypeId);
   const partnerId = useSellContext((s) => s.partnerId);
   const warehouseId = useSellContext((s) => s.warehouseId);
   const partners = useSellContext((s) => s.options.partners);
@@ -119,6 +126,15 @@ export function CartPanel() {
   const itemCount = items.reduce((s, i) => s + i.qty, 0);
 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [restorePaymentPayload, setRestorePaymentPayload] =
+    useState<PaymentSubmitPayload | null>(null);
+  const [restoreRetryLocalId, setRestoreRetryLocalId] = useState<string | null>(null);
+  const enqueuePendingSale = usePendingSales((s) => s.enqueue);
+  const updatePendingSale = usePendingSales((s) => s.updateRecord);
+  const setActiveRetryLocalId = usePendingSales((s) => s.setActiveRetryLocalId);
+  const activeRetryLocalId = usePendingSales((s) => s.activeRetryLocalId);
+  const checkoutRestoreRequest = usePendingSales((s) => s.checkoutRestoreRequest);
+  const clearCheckoutRestore = usePendingSales((s) => s.clearCheckoutRestore);
   const [continueOpen, setContinueOpen] = useState(false);
   const [postponing, setPostponing] = useState(false);
   const [postponeError, setPostponeError] = useState<string | null>(null);
@@ -130,6 +146,14 @@ export function CartPanel() {
   const skipKeypadOnLastAdd = useCart((s) => s.skipKeypadOnLastAdd);
   const clearSkipKeypadOnLastAdd = useCart((s) => s.clearSkipKeypadOnLastAdd);
   const seenAddRef = useRef(0);
+
+  useEffect(() => {
+    if (!checkoutRestoreRequest) return;
+    setRestorePaymentPayload(checkoutRestoreRequest.initialPaymentPayload);
+    setRestoreRetryLocalId(checkoutRestoreRequest.localId);
+    setCheckoutOpen(true);
+    clearCheckoutRestore();
+  }, [checkoutRestoreRequest, clearCheckoutRestore]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
@@ -194,7 +218,7 @@ export function CartPanel() {
   };
 
   const handlePostponeSale = async () => {
-    if (!accessToken || !cashier || items.length === 0 || postponing) return;
+    if (!accessToken || !cashier || !user || items.length === 0 || postponing) return;
 
     const cartItems = items.filter((item) => item.regosItemId > 0);
     if (cartItems.length !== items.length) {
@@ -202,38 +226,86 @@ export function CartPanel() {
       return;
     }
 
+    const scopeKey = buildPendingSalesScopeKey(user.company_id, user.id);
+    if (!scopeKey) return;
+
     setPostponing(true);
     setPostponeError(null);
 
+    const request: PostponeRequest = {
+      items: cartItems.map((item) => ({
+        regos_item_id: item.regosItemId,
+        qty: item.qty,
+        price: item.price,
+      })),
+      discount: totals.discount,
+      total: totals.total,
+      description: `POS ${cashier.name}`,
+      ...(postponedWholesaleDocId
+        ? { wholesale_doc_id: postponedWholesaleDocId }
+        : {}),
+      ...permittedOverrides(),
+    };
+
+    let stockAdjustments: StockAdjustOp[] = [];
+    if (shouldReserveStockOnPostpone(postponeDocumentType, postponeOrderBooked)) {
+      stockAdjustments = computePostponeStockAdjustments(
+        cartItems,
+        postponedWholesaleDocId != null,
+      );
+    }
+
+    const localId = activeRetryLocalId ?? crypto.randomUUID();
+    const record = {
+      localId,
+      scopeKey,
+      kind: "postpone" as const,
+      status: "pending" as const,
+      companyId: user.company_id,
+      userId: user.id,
+      createdAt: Date.now(),
+      lastAttemptAt: null,
+      attemptCount: 0,
+      errorMessage: null,
+      errorCode: null,
+      request,
+      wholesaleDocId: postponedWholesaleDocId,
+      postponedDocType,
+      cartItems: [...cartItems],
+      discountMode,
+      discountValue,
+      totals: { ...totals },
+      sellContext: {
+        warehouseId,
+        priceTypeId,
+        partnerId,
+        saleCurrency,
+      },
+      cashier: { id: cashier.id, name: cashier.name },
+      description: request.description ?? "",
+      stockAdjustments,
+    };
+
     try {
-      await postponeSale(accessToken, {
-        items: cartItems.map((item) => ({
-          regos_item_id: item.regosItemId,
-          qty: item.qty,
-          price: item.price,
-        })),
-        discount: totals.discount,
-        total: totals.total,
-        description: `POS ${cashier.name}`,
-        ...(postponedWholesaleDocId
-          ? { wholesale_doc_id: postponedWholesaleDocId }
-          : {}),
-        ...(permittedOverrides()),
-      });
-      if (shouldReserveStockOnPostpone(postponeDocumentType, postponeOrderBooked)) {
-        applyStockAdjustments(
-          computePostponeStockAdjustments(
-            cartItems,
-            postponedWholesaleDocId != null,
-          ),
-          decrementStock,
-          incrementStock,
-        );
+      if (activeRetryLocalId) {
+        await updatePendingSale(localId, {
+          ...record,
+          status: "pending",
+          errorMessage: null,
+          errorCode: null,
+        });
+        setActiveRetryLocalId(null);
+      } else {
+        await enqueuePendingSale(record);
+      }
+      if (stockAdjustments.length > 0) {
+        applyStockAdjustments(stockAdjustments, decrementStock, incrementStock);
       }
       toast.success(t("cart.postponeSuccess", "Sale postponed"));
       clear();
       clearActiveTabAfterCheckout();
       setMobileOpen(false);
+      enqueuePendingSaleSync(localId);
     } catch (err: unknown) {
       setPostponeError(formatAuthError(err, t("cart.errors.postponeFailed", "Failed to postpone sale")));
     } finally {
@@ -516,11 +588,21 @@ export function CartPanel() {
 
       <CheckoutModal
         open={checkoutOpen}
-        onClose={() => setCheckoutOpen(false)}
+        onClose={() => {
+          setCheckoutOpen(false);
+          setRestorePaymentPayload(null);
+          setRestoreRetryLocalId(null);
+          setActiveRetryLocalId(null);
+        }}
         onSuccess={() => {
           if (isMobile) setMobileOpen(false);
+          setRestorePaymentPayload(null);
+          setRestoreRetryLocalId(null);
+          setActiveRetryLocalId(null);
         }}
         totals={totals}
+        initialPaymentPayload={restorePaymentPayload}
+        retryLocalId={restoreRetryLocalId}
       />
       <ContinueSaleModal
         open={continueOpen}

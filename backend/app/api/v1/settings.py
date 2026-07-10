@@ -35,6 +35,7 @@ from app.services import receipt_templates as receipt_templates_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services import settings as settings_service
 from app.services.permissions import get_user_with_permissions
+from app.services.settings_events import publish_settings_updated
 
 router = APIRouter(tags=["settings"])
 
@@ -79,6 +80,11 @@ async def patch_company_regos_defaults(
         session,
         current.company_id,
         body.model_dump(exclude_unset=True),
+    )
+    publish_settings_updated(
+        current.company_id,
+        scope="company",
+        namespace="regos_defaults",
     )
     return RegosDefaultsResponse(defaults=defaults)
 
@@ -134,6 +140,12 @@ async def patch_my_regos_defaults(
         user,
         body.model_dump(exclude_unset=True),
     )
+    publish_settings_updated(
+        current.company_id,
+        scope="employee",
+        namespace="regos_defaults",
+        user_id=current.id,
+    )
     return RegosDefaultsResponse(defaults=defaults)
 
 
@@ -164,6 +176,12 @@ async def patch_my_pos_settings(
         user,
         body.model_dump(exclude_unset=True),
     )
+    publish_settings_updated(
+        current.company_id,
+        scope="employee",
+        namespace="pos",
+        user_id=current.id,
+    )
     return UserPosSettingsResponse(settings=settings)
 
 
@@ -186,6 +204,11 @@ async def patch_company_pos_settings(
         session,
         current.company_id,
         body.model_dump(exclude_unset=True),
+    )
+    publish_settings_updated(
+        current.company_id,
+        scope="company",
+        namespace="pos",
     )
     return PosSettingsResponse(settings=settings)
 
@@ -214,6 +237,11 @@ async def patch_company_receipt_templates(
         current.company_id,
         body.model_dump(exclude_unset=True),
     )
+    publish_settings_updated(
+        current.company_id,
+        scope="company",
+        namespace="receipt_templates",
+    )
     return ReceiptTemplatesResponse(settings=settings)
 
 
@@ -238,6 +266,11 @@ async def patch_company_exchange_rate_sync_settings(
         session,
         current.company_id,
         body.model_dump(exclude_unset=True),
+    )
+    publish_settings_updated(
+        current.company_id,
+        scope="company",
+        namespace="exchange_rate_sync",
     )
     return ExchangeRateSyncResponse(settings=ExchangeRateSyncSettings.model_validate(settings))
 

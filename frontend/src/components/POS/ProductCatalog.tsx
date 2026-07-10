@@ -13,7 +13,8 @@ import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useBookedOrderContinuation } from "@/hooks/use-booked-order-continuation";
 import { usePermissions } from "@/hooks/use-permissions";
-import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
+import { loadCatalogProducts, loadProductGroups } from "@/lib/catalog-service";
+import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
 import { canAddProductToCart } from "@/lib/cart-stock";
 import { isBarcodeInput } from "@/lib/barcode";
 import {
@@ -121,6 +122,7 @@ export function ProductCatalog() {
   const setProducts = useCatalog((s) => s.setProducts);
   const appendProducts = useCatalog((s) => s.appendProducts);
   const refreshNonce = useCatalog((s) => s.refreshNonce);
+  const groupsRefreshNonce = useCatalog((s) => s.groupsRefreshNonce);
   const add = useCart((s) => s.add);
   const addWithQty = useCart((s) => s.addWithQty);
   const checkoutTabs = useCheckoutTabs((s) => s.tabs);
@@ -256,7 +258,11 @@ export function ProductCatalog() {
         userId: user?.id,
         companyId: user?.company_id,
       });
-      void hydratePosConfig(token, { force: true });
+      void hydratePosConfig(token, {
+        force: true,
+        userId: user?.id,
+        companyId: user?.company_id,
+      });
     }, PREPARE_TIMEOUT_MS);
 
     return () => window.clearTimeout(timer);
@@ -340,6 +346,15 @@ export function ProductCatalog() {
     [catalogOverrides, catalogSort, featuredOnly, isGlobalSearch, search, selectedGroupId],
   );
 
+  const catalogScope = useMemo(
+    () => ({
+      companyId: user?.company_id,
+      warehouseId: catalogOverrides.warehouseId,
+      priceTypeId: catalogOverrides.priceTypeId,
+    }),
+    [catalogOverrides.priceTypeId, catalogOverrides.warehouseId, user?.company_id],
+  );
+
   const catalogQueryKey = useMemo(
     () =>
       [
@@ -383,7 +398,7 @@ export function ProductCatalog() {
 
       try {
         for (let round = 0; round < maxGridFillRounds && loadedCount < PAGE_SIZE; round++) {
-          const res = await fetchCatalogProducts(token, catalogFetchParams(cursor));
+          const res = await loadCatalogProducts(token, catalogFetchParams(cursor), catalogScope);
           const countBefore = loadedCount;
 
           loadedCount = applyCatalogPage(
@@ -426,7 +441,7 @@ export function ProductCatalog() {
         isEnsuringGridRef.current = false;
       }
     },
-    [appendProducts, applyCatalogResponse, catalogFetchParams, isGlobalSearch, setProducts, token],
+    [appendProducts, applyCatalogResponse, catalogFetchParams, catalogScope, isGlobalSearch, setProducts, token],
   );
 
   const prevCatalogContextRef = useRef({ warehouseId, priceTypeId });
@@ -452,9 +467,9 @@ export function ProductCatalog() {
 
     let cancelled = false;
 
-    void fetchProductGroups(token)
-      .then((groupsRes) => {
-        if (!cancelled) setGroups(groupsRes.groups);
+    void loadProductGroups(token, user?.company_id)
+      .then((loadedGroups) => {
+        if (!cancelled) setGroups(loadedGroups);
       })
       .catch(() => {
         if (!cancelled) setGroups([]);
@@ -463,7 +478,7 @@ export function ProductCatalog() {
     return () => {
       cancelled = true;
     };
-  }, [categoryReady, sellContextHydrated, token]);
+  }, [categoryReady, groupsRefreshNonce, sellContextHydrated, token, user?.company_id]);
 
   useEffect(() => {
     if (!token || !categoryReady || !sellContextHydrated) {
@@ -567,7 +582,11 @@ export function ProductCatalog() {
           return;
         }
 
-        const res = await fetchCatalogProducts(token, catalogFetchParams(requestOffset));
+        const res = await loadCatalogProducts(
+          token,
+          catalogFetchParams(requestOffset),
+          catalogScope,
+        );
         if (res.products.length > 0) {
           appendProducts(res.products);
         }
@@ -584,6 +603,7 @@ export function ProductCatalog() {
       appendProducts,
       applyCatalogResponse,
       catalogFetchParams,
+      catalogScope,
       ensureMinimumGridProducts,
       isGlobalSearch,
       lastPageProductCount,
@@ -666,8 +686,8 @@ export function ProductCatalog() {
     if (!token) return;
 
     lastRequestedOffsetRef.current = null;
-    const groupsRes = await fetchProductGroups(token);
-    setGroups(groupsRes.groups);
+    const loadedGroups = await loadProductGroups(token, user?.company_id);
+    setGroups(loadedGroups);
     await ensureMinimumGridProducts(0, "replace");
   };
 
@@ -700,7 +720,11 @@ export function ProductCatalog() {
       userId: user?.id,
       companyId: user?.company_id,
     });
-    void hydratePosConfig(token, { force: true });
+    void hydratePosConfig(token, {
+      force: true,
+      userId: user?.id,
+      companyId: user?.company_id,
+    });
   };
 
   const toggleFeatured = useCallback(
@@ -737,14 +761,18 @@ export function ProductCatalog() {
       );
     } else {
       try {
-        const res = await fetchCatalogProducts(token, {
-          offset: 0,
-          limit: PAGE_SIZE,
-          search: term,
-          groupId: null,
-          featuredOnly: false,
-          ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
-        });
+        const res = await loadCatalogProducts(
+          token,
+          {
+            offset: 0,
+            limit: PAGE_SIZE,
+            search: term,
+            groupId: null,
+            featuredOnly: false,
+            ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
+          },
+          catalogScope,
+        );
         firstProduct = firstAddableProduct(
           prioritizeCatalogProductsByCode(res.products, term),
         );
@@ -766,6 +794,11 @@ export function ProductCatalog() {
         piecePrefix: internalBarcodePiecePrefix,
       },
       catalogOverrides,
+      scopeKey: buildCatalogScopeKey(
+        user?.company_id,
+        catalogOverrides.warehouseId,
+        catalogOverrides.priceTypeId,
+      ),
       allowOutOfStock,
       bookedOrderContinuation,
       getInCartQty,
@@ -778,6 +811,7 @@ export function ProductCatalog() {
       getReservedInOtherTabs,
       internalBarcodePiecePrefix,
       internalBarcodeWeightPrefix,
+      user?.company_id,
     ],
   );
 

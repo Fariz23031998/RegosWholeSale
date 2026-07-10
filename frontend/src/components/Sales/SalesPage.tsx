@@ -30,6 +30,7 @@ import {
   type DashboardPeriodPreset,
 } from "@/lib/dashboard-api";
 import { formatCurrency, formatDateTime } from "@/lib/format";
+import { subscribeReferenceOptionsEvents } from "@/lib/catalog-events";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
 import {
   fetchWholesaleDocumentPayments,
@@ -56,6 +57,7 @@ type SaleDetail = {
 export function SalesPage() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
+  const user = useAuth((s) => s.user);
   const { canPrintDocuments } = usePermissions();
   const {
     canChangeWarehouse,
@@ -142,31 +144,50 @@ export function SalesPage() {
     }
 
     let cancelled = false;
-    void fetchRegosReferenceOptions(token)
-      .then((options) => {
-        if (cancelled) return;
-        setPartners(options.partners);
-        if (canChangeWarehouse) {
-          setWarehouses(options.warehouses);
-          setSelectedStockIds((current) =>
-            current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
+    const cacheScope = user?.company_id != null ? { companyId: user.company_id } : undefined;
+
+    const loadReferenceOptions = () => {
+      void fetchRegosReferenceOptions(token, { cacheScope })
+        .then((options) => {
+          if (cancelled) return;
+          setPartners(options.partners);
+          if (canChangeWarehouse) {
+            setWarehouses(options.warehouses);
+            setSelectedStockIds((current) =>
+              current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
+            );
+          }
+          setSelectedPartnerIds((current) =>
+            current.length > 0 ? current : options.partners.map((partner) => partner.id),
           );
-        }
-        setSelectedPartnerIds((current) =>
-          current.length > 0 ? current : options.partners.map((partner) => partner.id),
-        );
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setWarehouses([]);
-          setPartners([]);
-        }
-      });
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setWarehouses([]);
+            setPartners([]);
+          }
+        });
+    };
+
+    loadReferenceOptions();
+
+    const unsubscribe = subscribeReferenceOptionsEvents(() => {
+      void fetchRegosReferenceOptions(token, { force: true, cacheScope })
+        .then((options) => {
+          if (cancelled) return;
+          setPartners(options.partners);
+          if (canChangeWarehouse) {
+            setWarehouses(options.warehouses);
+          }
+        })
+        .catch(() => undefined);
+    });
 
     return () => {
       cancelled = true;
+      unsubscribe();
     };
-  }, [canChangeWarehouse, token]);
+  }, [canChangeWarehouse, token, user?.company_id]);
 
   useEffect(() => {
     if (!warehouseScopeReady || canChangeWarehouse) return;

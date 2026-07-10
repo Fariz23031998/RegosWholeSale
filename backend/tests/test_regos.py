@@ -7,7 +7,14 @@ from helpers import TEST_VERIFICATION_CODE, register_owner
 from app.config import get_settings
 from app.services import regos_defaults as regos_defaults_service
 from app.services import regos_tokens as regos_tokens_service
-from app.services.regos_webhook import EVENT_SPECS, POS_EVENT_SPECS
+from app.services.regos_webhook import (
+    CATALOG_PRODUCT_WEBHOOK_EVENTS,
+    EVENT_SPECS,
+    PAYMENT_TYPE_REMOVED_EVENTS,
+    PAYMENT_TYPE_UPDATED_EVENTS,
+    POS_EVENT_SPECS,
+    REFERENCE_OPTIONS_WEBHOOK_EVENTS,
+)
 
 REGOS_TOKEN = "a" * 32
 
@@ -207,6 +214,75 @@ async def test_products_use_default_warehouse_and_price_type(
     assert call_args[0][3]["search"] == "cola"
     assert call_args[0][3]["zero_quantity"] is False
     assert call_args[0][3]["zero_price"] is False
+
+
+@patch("app.services.regos_products.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_products_by_ids_route(mock_regos: AsyncMock, client: AsyncClient) -> None:
+    mock_regos.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "item": {
+                    "id": 101,
+                    "name": "Cola",
+                    "articul": "SKU-101",
+                    "code": "COLA-101",
+                    "base_barcode": "4601234567890",
+                    "unit": {"name": "piece", "type": "pcs"},
+                    "group": {"name": "Beverages"},
+                },
+                "quantity": {"allowed": 7},
+                "price": 22000,
+                "image_url": "https://cdn.example.test/item.png",
+            },
+            {
+                "item": {
+                    "id": 202,
+                    "name": "Water",
+                    "articul": "SKU-202",
+                    "code": "WATER-202",
+                    "unit": {"name": "piece", "type": "pcs"},
+                    "group": {"name": "Beverages"},
+                },
+                "quantity": {"allowed": 3},
+                "price": 5000,
+                "image_url": "",
+            },
+        ],
+    }
+
+    reg = await register_owner(client, email="products-by-ids@test.com", company_name="Products By Ids Co")
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    patch = await client.patch(
+        "/api/v1/company/settings",
+        headers=headers,
+        json={
+            "settings": {
+                "regos_defaults": {
+                    "warehouse": {"id": 11, "name": "Main warehouse"},
+                    "price_type": {"id": 22, "name": "Retail"},
+                }
+            }
+        },
+    )
+    assert patch.status_code == 200
+
+    response = await client.get(
+        "/api/v1/regos/products/by-ids",
+        headers=headers,
+        params={"ids": "101,202"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert [product["id"] for product in data["products"]] == ["101", "202"]
+    assert data["total"] == 2
+
+    call_args = mock_regos.call_args
+    assert call_args[0][2] == "item/getext"
+    assert call_args[0][3]["ids"] == [101, 202]
 
 
 @patch("app.services.regos_products.regos_async_api_request_for_company", new_callable=AsyncMock)
@@ -544,6 +620,59 @@ async def test_partners_create_edit_delete_mark(mock_regos: AsyncMock, client: A
     assert mock_regos.call_args_list[0][0][2] == "partner/add"
     assert mock_regos.call_args_list[1][0][2] == "partner/edit"
     assert mock_regos.call_args_list[2][0][2] == "partner/deletemark"
+
+
+@patch("app.services.regos_partners.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_partner_create_publishes_reference_options_invalidated(
+    mock_regos: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    import asyncio
+
+    mock_regos.return_value = {"ok": True, "result": {"new_id": 21}}
+
+    reg = await register_owner(
+        client, email="partner-catalog@test.com", company_name="Partner Catalog Co"
+    )
+    token = reg.json()["access_token"]
+    company_id = reg.json()["user"]["company_id"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    await client.put(
+        "/api/v1/regos/tokens",
+        headers=headers,
+        json={"token": REGOS_TOKEN, "is_replicable": False},
+    )
+
+    from app.services.catalog_events import get_catalog_event_hub
+
+    hub = get_catalog_event_hub()
+
+    async def collect() -> dict:
+        async for event in hub.subscribe(company_id=company_id):
+            return event
+        raise AssertionError("No event received")
+
+    task = asyncio.create_task(collect())
+    await asyncio.sleep(0.01)
+
+    response = await client.post(
+        "/api/v1/regos/partners",
+        headers=headers,
+        json={
+            "group_id": 2,
+            "legal_status": "Natural",
+            "name": "SSE Partner",
+            "phones": "90 111-222-33",
+        },
+    )
+    assert response.status_code == 200
+
+    event = await asyncio.wait_for(task, timeout=2)
+    assert event["type"] == "reference_options_invalidated"
+    assert event["kinds"] == ["partner"]
+    assert event["source_action"] == "PartnerAdded"
 
 
 @patch(
@@ -1170,7 +1299,14 @@ async def test_delete_regos_token(client: AsyncClient) -> None:
 
 
 def test_required_integration_webhooks_match_handlers() -> None:
-    handler_events = set(POS_EVENT_SPECS) | set(EVENT_SPECS)
+    handler_events = (
+        set(POS_EVENT_SPECS)
+        | set(EVENT_SPECS)
+        | set(CATALOG_PRODUCT_WEBHOOK_EVENTS)
+        | set(PAYMENT_TYPE_UPDATED_EVENTS)
+        | set(PAYMENT_TYPE_REMOVED_EVENTS)
+        | set(REFERENCE_OPTIONS_WEBHOOK_EVENTS)
+    )
     assert set(regos_tokens_service.REQUIRED_INTEGRATION_WEBHOOKS) == handler_events
 
 
@@ -1336,9 +1472,41 @@ async def test_update_regos_integration_not_found_in_connected_list(
 
 @patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
+async def test_fetch_reference_options_paginates_all_partners(mock_regos: AsyncMock) -> None:
+    mock_regos.side_effect = [
+        {
+            "ok": True,
+            "result": [{"id": index, "name": f"Partner {index}"} for index in range(1, 101)],
+            "next_offset": 100,
+            "total": 150,
+        },
+        {
+            "ok": True,
+            "result": [{"id": index, "name": f"Partner {index}"} for index in range(101, 151)],
+            "next_offset": 0,
+            "total": 150,
+        },
+    ]
+
+    partners = await regos_defaults_service._fetch_reference_options(None, 1, "partner")
+
+    assert len(partners) == 150
+    assert partners[0]["id"] == 1
+    assert partners[-1]["id"] == 150
+    assert mock_regos.await_count == 2
+    assert mock_regos.await_args_list[0].args[2] == "partner/get"
+    assert mock_regos.await_args_list[0].args[3]["offset"] == 0
+    assert mock_regos.await_args_list[1].args[3]["offset"] == 100
+
+
+@patch("app.services.regos_defaults.regos_firms_service.list_firms", new_callable=AsyncMock)
+@patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
 async def test_payment_category_reference_request_includes_positive(
     mock_regos: AsyncMock,
+    mock_firms: AsyncMock,
 ) -> None:
+    mock_firms.return_value = {"firms": []}
     mock_regos.side_effect = [
         {"ok": True, "result": []},
         {"ok": True, "result": []},
@@ -1361,9 +1529,14 @@ async def test_payment_category_reference_request_includes_positive(
     assert payment_calls[1][0][3]["positive"] is False
 
 
+@patch("app.services.regos_defaults.regos_firms_service.list_firms", new_callable=AsyncMock)
 @patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
-async def test_price_type_reference_options_include_currency(mock_regos: AsyncMock) -> None:
+async def test_price_type_reference_options_include_currency(
+    mock_regos: AsyncMock,
+    mock_firms: AsyncMock,
+) -> None:
+    mock_firms.return_value = {"firms": []}
     mock_regos.side_effect = [
         {"ok": True, "result": []},
         {

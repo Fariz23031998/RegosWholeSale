@@ -1,4 +1,8 @@
 import { fetchCatalogProducts } from "@/lib/catalog-api";
+import {
+  findProductByBarcode as findCachedProductByBarcode,
+  findProductByCode as findCachedProductByCode,
+} from "@/lib/catalog-products-db";
 import { canAddProductToCart, clampCartQty } from "@/lib/cart-stock";
 import { CATALOG_PAGE_SIZE } from "@/lib/catalog-pagination";
 import {
@@ -19,6 +23,7 @@ export type BarcodeLookupResult =
 export type BarcodeLookupOptions = {
   prefixes: InternalBarcodePrefixes;
   catalogOverrides: { warehouseId?: number; priceTypeId?: number };
+  scopeKey?: string;
   allowOutOfStock: boolean;
   bookedOrderContinuation?: boolean;
   getInCartQty: (productId: string) => number;
@@ -38,6 +43,7 @@ export async function lookupProductForBarcode(
   const {
     prefixes,
     catalogOverrides,
+    scopeKey,
     allowOutOfStock,
     bookedOrderContinuation = false,
     getInCartQty,
@@ -56,11 +62,17 @@ export async function lookupProductForBarcode(
   };
 
   if (parsedInternal) {
-    const res = await fetchCatalogProducts(token, {
-      ...fetchParams,
-      search: parsedInternal.productCode,
-    });
-    const product = findProductByCode(res.products, parsedInternal.productCode);
+    let product =
+      scopeKey != null
+        ? await findCachedProductByCode(scopeKey, parsedInternal.productCode)
+        : null;
+    if (!product) {
+      const res = await fetchCatalogProducts(token, {
+        ...fetchParams,
+        search: parsedInternal.productCode,
+      });
+      product = findProductByCode(res.products, parsedInternal.productCode);
+    }
     if (!product) {
       return { ok: false, reason: "not_found" };
     }
@@ -89,11 +101,15 @@ export async function lookupProductForBarcode(
     return { ok: true, product, qty: qtyToAdd };
   }
 
-  const res = await fetchCatalogProducts(token, {
-    ...fetchParams,
-    search: term,
-  });
-  const product = findProductByBarcode(res.products, term);
+  let product =
+    scopeKey != null ? await findCachedProductByBarcode(scopeKey, term) : null;
+  if (!product) {
+    const res = await fetchCatalogProducts(token, {
+      ...fetchParams,
+      search: term,
+    });
+    product = findProductByBarcode(res.products, term);
+  }
   if (
     !product ||
     !canAddProductToCart(

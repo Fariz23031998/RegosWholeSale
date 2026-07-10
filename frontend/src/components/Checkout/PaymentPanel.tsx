@@ -29,7 +29,10 @@ import {
   splitPaymentAmountPaid,
   type PaymentPanelMode,
 } from "@/lib/checkout-payments";
-import { fetchPaymentTypes, invalidatePaymentTypesCache } from "@/lib/payment-api";
+import { invalidatePaymentTypesCache } from "@/lib/payment-api";
+import { invalidatePaymentTypes } from "@/lib/payment-types-db";
+import { loadPaymentTypes } from "@/lib/payment-service";
+import { useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import type { CheckoutPaymentLineRequest } from "@/lib/sales-api";
 import type { PaymentType } from "@/types/payment";
@@ -58,6 +61,7 @@ type Props = {
   active: boolean;
   processing?: boolean;
   tenderedQuickAmounts?: number[];
+  initialPaymentPayload?: PaymentSubmitPayload | null;
   onConfirm: (payload: PaymentSubmitPayload) => void;
   onCloseWithoutPayment?: () => void;
 };
@@ -70,19 +74,21 @@ export function PaymentPanel({
   active,
   processing = false,
   tenderedQuickAmounts = [],
+  initialPaymentPayload = null,
   onConfirm,
   onCloseWithoutPayment,
 }: Props) {
   const { t } = useLanguage();
   const labels = paymentPanelLabels(mode, t);
   const totals = useMemo(() => ({ total }), [total]);
+  const companyId = useAuth((s) => s.user?.company_id);
   const priceTypes = useSellContext((s) => s.options.price_types);
   const crossCurrencyPaymentMode = usePosConfig((s) => s.crossCurrencyPaymentMode);
 
   const paymentTypesQuery = useQuery({
     queryKey: ["regos", "payment-types", accessToken],
-    queryFn: () => fetchPaymentTypes(accessToken!),
-    enabled: active && Boolean(accessToken),
+    queryFn: () => loadPaymentTypes(accessToken!, companyId),
+    enabled: active && Boolean(accessToken) && companyId != null,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -298,8 +304,33 @@ export function PaymentPanel({
       setSplitPayment(false);
       setPaymentLines([]);
       prevPaymentCurrencyIdRef.current = null;
+      return;
     }
-  }, [active]);
+
+    if (!initialPaymentPayload) return;
+
+    if (initialPaymentPayload.payments?.length) {
+      setSplitPayment(true);
+      setPaymentLines(
+        initialPaymentPayload.payments.map((line) => ({
+          key: nextLineKey(),
+          paymentTypeId: line.payment_type_id,
+          amount: String(line.amount_paid),
+        })),
+      );
+      return;
+    }
+
+    if (initialPaymentPayload.payment_type_id != null) {
+      setSelectedId(initialPaymentPayload.payment_type_id);
+    }
+    if (initialPaymentPayload.tendered != null) {
+      setTendered(String(initialPaymentPayload.tendered));
+    }
+    if (initialPaymentPayload.amount_paid != null && initialPaymentPayload.tendered == null) {
+      setDebtAmount(String(initialPaymentPayload.amount_paid));
+    }
+  }, [active, initialPaymentPayload]);
 
   useEffect(() => {
     if (!selected) return;
@@ -493,6 +524,9 @@ export function PaymentPanel({
             onClick={() => {
               if (!accessToken) return;
               invalidatePaymentTypesCache(accessToken);
+              if (companyId != null) {
+                void invalidatePaymentTypes(companyId);
+              }
               void paymentTypesQuery.refetch();
             }}
           >

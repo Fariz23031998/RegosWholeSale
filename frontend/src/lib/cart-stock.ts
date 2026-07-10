@@ -130,6 +130,22 @@ export function applyStockAdjustments(
   }
 }
 
+export function revertStockAdjustments(
+  adjustments: StockAdjustOp[],
+  decrementStock: (productId: string, qty: number) => void,
+  incrementStock: (productId: string, qty: number) => void,
+): void {
+  applyStockAdjustments(
+    adjustments.map(({ productId, decrement, increment }) => ({
+      productId,
+      decrement: increment,
+      increment: decrement,
+    })),
+    decrementStock,
+    incrementStock,
+  );
+}
+
 export function getProductStock(
   products: Product[],
   productId: string,

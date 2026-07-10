@@ -205,4 +205,5 @@ WHOLESALE_RETURN_SPEC = OperationDocumentSpec(
 )
 INOUT_SPEC = OperationDocumentSpec("DocInOut/Get", "InOutOperation/Get", "inout")
 MOVEMENT_SPEC = OperationDocumentSpec("DocMovement/Get", "MovementOperation/Get", "movement")
+SET_PRICE_SPEC = OperationDocumentSpec("DocSetPrice/Get", "SetPriceOperation/Get", "set_price")
 PAYMENT_DOC_ENDPOINT = "DocPayment/Get"

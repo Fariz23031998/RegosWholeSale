@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { ExchangeRateSyncSection } from "@/components/Settings/ExchangeRateSyncSection";
@@ -17,6 +17,7 @@ import {
   patchPosSettings,
   patchRegosDefaults,
   saveRegosToken,
+  SETTINGS_QUERY_KEYS,
   updateRegosIntegration,
 } from "@/lib/settings-api";
 import {
@@ -182,25 +183,32 @@ function SettingsPage() {
 
   const queryClient = useQueryClient();
   const settingsEnabled = Boolean(token) && canManageSettings;
+  const cacheScope = useMemo(
+    () =>
+      user?.company_id != null
+        ? { companyId: user.company_id, userId: user.id }
+        : undefined,
+    [user?.company_id, user?.id],
+  );
 
   const posSettingsQuery = useQuery({
-    queryKey: ["settings", "pos", token],
-    queryFn: () => fetchPosSettings(token!),
+    queryKey: SETTINGS_QUERY_KEYS.pos(token),
+    queryFn: () => fetchPosSettings(token!, { cacheScope }),
     enabled: settingsEnabled,
     staleTime: 30_000,
   });
 
   const regosBootstrapQuery = useQuery({
-    queryKey: ["settings", "regos-bootstrap", token],
+    queryKey: SETTINGS_QUERY_KEYS.regosBootstrap(token),
     queryFn: async () => {
-      const config = await fetchRegosTokenConfig(token!);
+      const config = await fetchRegosTokenConfig(token!, { cacheScope });
       if (!config.configured) {
         return { config, regos: null };
       }
 
       const [defaults, nextOptions] = await Promise.all([
-        fetchRegosDefaults(token!),
-        fetchRegosReferenceOptions(token!),
+        fetchRegosDefaults(token!, { cacheScope }),
+        fetchRegosReferenceOptions(token!, { cacheScope }),
       ]);
 
       const defaultSaleIdFieldStatus: RegosDocPaymentSaleIdFieldResponse = {
@@ -220,8 +228,8 @@ function SettingsPage() {
       let paymentLinkingLoadError = "";
 
       const [saleIdFieldResult, paymentLinkingResult] = await Promise.allSettled([
-        fetchDocPaymentSaleIdField(token!),
-        fetchPaymentLinking(token!),
+        fetchDocPaymentSaleIdField(token!, { cacheScope }),
+        fetchPaymentLinking(token!, { cacheScope }),
       ]);
 
       if (saleIdFieldResult.status === "fulfilled") {
@@ -432,14 +440,20 @@ function SettingsPage() {
         return;
       }
 
-      await saveRegosToken(token, {
-        token: nextToken || null,
-        is_replicable: isReplicable,
-      });
+      await saveRegosToken(
+        token,
+        {
+          token: nextToken || null,
+          is_replicable: isReplicable,
+        },
+        cacheScope,
+      );
       setIntegrationToken("");
       setTokenInfo(t("settings.regos.tokenSaved", "Regos integration token saved."));
       setRegosError("");
-      await queryClient.invalidateQueries({ queryKey: ["settings", "regos-bootstrap", token] });
+      await queryClient.invalidateQueries({
+        queryKey: SETTINGS_QUERY_KEYS.regosBootstrap(token),
+      });
     } catch (err) {
       setTokenError(formatAuthError(err));
     } finally {
@@ -455,7 +469,7 @@ function SettingsPage() {
     setTokenInfo("");
 
     try {
-      await updateRegosIntegration(token);
+      await updateRegosIntegration(token, cacheScope);
       setTokenInfo(
         t(
           "settings.regos.updateIntegrationSuccess",
@@ -476,11 +490,13 @@ function SettingsPage() {
     setTokenError("");
     setTokenInfo("");
     try {
-      await deleteRegosToken(token);
+      await deleteRegosToken(token, cacheScope);
       setTokenInfo(t("settings.regos.tokenRemoved", "Regos integration token removed."));
       setRegosError("");
       setRegosInfo("");
-      await queryClient.invalidateQueries({ queryKey: ["settings", "regos-bootstrap", token] });
+      await queryClient.invalidateQueries({
+        queryKey: SETTINGS_QUERY_KEYS.regosBootstrap(token),
+      });
     } catch (err) {
       setTokenError(formatAuthError(err));
     } finally {
@@ -495,7 +511,7 @@ function SettingsPage() {
     setSaleIdFieldError("");
     setSaleIdFieldInfo("");
     try {
-      const res = await createDocPaymentSaleIdField(token);
+      const res = await createDocPaymentSaleIdField(token, cacheScope);
       setSaleIdFieldConfigured(res.configured);
       setSaleIdField(res.field);
       setSaleIdFieldInfo(
@@ -520,7 +536,7 @@ function SettingsPage() {
     setPaymentLinkingError("");
     setPaymentLinkingInfo("");
     try {
-      const res = await patchPaymentLinking(token, { mode: nextMode });
+      const res = await patchPaymentLinking(token, { mode: nextMode }, cacheScope);
       setPaymentLinkingMode(res.mode);
       setSaleIdFieldConfigured(res.sale_id_field_configured);
       setSaleIdField(res.sale_id_field);
@@ -542,19 +558,23 @@ function SettingsPage() {
     setRegosInfo("");
 
     try {
-      const res = await patchRegosDefaults(token, {
-        warehouse_id: warehouseId ? Number(warehouseId) : null,
-        price_type_id: priceTypeId ? Number(priceTypeId) : null,
-        partner_id: partnerId ? Number(partnerId) : null,
-        payment_category_id: paymentCategoryId ? Number(paymentCategoryId) : null,
-        refund_payment_category_id: refundPaymentCategoryId
-          ? Number(refundPaymentCategoryId)
-          : null,
-        attached_user_id: attachedUserId ? Number(attachedUserId) : null,
-        vat_calculation_type: vatCalculationType,
-        zero_quantity: zeroQuantity,
-        zero_price: zeroPrice,
-      });
+      const res = await patchRegosDefaults(
+        token,
+        {
+          warehouse_id: warehouseId ? Number(warehouseId) : null,
+          price_type_id: priceTypeId ? Number(priceTypeId) : null,
+          partner_id: partnerId ? Number(partnerId) : null,
+          payment_category_id: paymentCategoryId ? Number(paymentCategoryId) : null,
+          refund_payment_category_id: refundPaymentCategoryId
+            ? Number(refundPaymentCategoryId)
+            : null,
+          attached_user_id: attachedUserId ? Number(attachedUserId) : null,
+          vat_calculation_type: vatCalculationType,
+          zero_quantity: zeroQuantity,
+          zero_price: zeroPrice,
+        },
+        cacheScope,
+      );
       applyDefaults(res.defaults);
       setRegosInfo(t("settings.defaults.saved", "Regos defaults saved"));
     } catch (err) {
@@ -581,7 +601,7 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { tendered_quick_amounts: amounts });
+      const res = await patchPosSettings(token, { tendered_quick_amounts: amounts }, cacheScope);
       setTenderedAmountsInput(
         formatTenderedQuickAmounts(res.settings.tendered_quick_amounts),
       );
@@ -599,7 +619,7 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { allow_out_of_stock: checked });
+      const res = await patchPosSettings(token, { allow_out_of_stock: checked }, cacheScope);
       setAllowOutOfStock(res.settings.allow_out_of_stock);
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
@@ -616,7 +636,7 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { auto_open_qty_keypad: checked });
+      const res = await patchPosSettings(token, { auto_open_qty_keypad: checked }, cacheScope);
       setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
@@ -634,9 +654,13 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, {
-        default_category: selectValueToDefaultCategory(value),
-      });
+      const res = await patchPosSettings(
+        token,
+        {
+          default_category: selectValueToDefaultCategory(value),
+        },
+        cacheScope,
+      );
       setDefaultCategoryValue(defaultCategoryToSelectValue(res.settings.default_category));
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
@@ -654,7 +678,7 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { cross_currency_payment_mode: mode });
+      const res = await patchPosSettings(token, { cross_currency_payment_mode: mode }, cacheScope);
       setCrossCurrencyPaymentMode(res.settings.cross_currency_payment_mode);
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
@@ -672,7 +696,7 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { postpone_document_type: value });
+      const res = await patchPosSettings(token, { postpone_document_type: value }, cacheScope);
       setPostponeDocumentType(res.settings.postpone_document_type);
       setPostponeOrderBooked(res.settings.postpone_order_booked ?? true);
     } catch (err) {
@@ -691,7 +715,7 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { postpone_order_booked: checked });
+      const res = await patchPosSettings(token, { postpone_order_booked: checked }, cacheScope);
       setPostponeOrderBooked(res.settings.postpone_order_booked);
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
@@ -707,10 +731,14 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, {
-        internal_barcode_weight_prefix: internalBarcodeWeightPrefix,
-        internal_barcode_piece_prefix: internalBarcodePiecePrefix,
-      });
+      const res = await patchPosSettings(
+        token,
+        {
+          internal_barcode_weight_prefix: internalBarcodeWeightPrefix,
+          internal_barcode_piece_prefix: internalBarcodePiecePrefix,
+        },
+        cacheScope,
+      );
       setInternalBarcodeWeightPrefix(res.settings.internal_barcode_weight_prefix);
       setInternalBarcodePiecePrefix(res.settings.internal_barcode_piece_prefix);
     } catch (err) {
@@ -1675,6 +1703,7 @@ function SettingsPage() {
           <section className={styles.section}>
             <ExchangeRateSyncSection
               token={token ?? ""}
+              companyId={user?.company_id}
               tokenConfigured={tokenConfigured}
               priceTypes={options.price_types}
               defaultCurrency={

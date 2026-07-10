@@ -3,6 +3,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import catalog_events as catalog_events_service
 from app.services import document_telegram_format as fmt
 from app.services import pos_session_excel as session_excel
 from app.services import pos_session_report as session_report
@@ -24,6 +25,36 @@ from app.services.telegram_notifications import (
 )
 
 logger = logging.getLogger("regos.backend")
+
+
+def _publish_catalog_stock_updates(
+    company_id: int,
+    event_action: str,
+    document: dict[str, Any],
+    operations: list[dict[str, Any]],
+) -> None:
+    item_ids = doc_fetch.item_ids_from_operations(operations)
+    if not item_ids:
+        return
+
+    sender_id = doc_fetch.stock_sender_id_from_document(document)
+    receiver_id = doc_fetch.stock_receiver_id_from_document(document)
+    stock_ids: list[int | None] = []
+    if sender_id is not None or receiver_id is not None:
+        if sender_id is not None:
+            stock_ids.append(sender_id)
+        if receiver_id is not None and receiver_id != sender_id:
+            stock_ids.append(receiver_id)
+    else:
+        stock_ids.append(doc_fetch.stock_id_from_document(document))
+
+    for scoped_stock_id in stock_ids:
+        catalog_events_service.publish_products_updated(
+            company_id,
+            regos_item_ids=item_ids,
+            source_action=event_action,
+            stock_id=scoped_stock_id,
+        )
 
 
 async def _run_with_session(coro) -> None:
@@ -176,6 +207,13 @@ async def process_operation_document(
                     document,
                     operations,
                 )
+
+            _publish_catalog_stock_updates(
+                company_id,
+                event_action,
+                document,
+                operations,
+            )
 
         await _run_with_session(run)
     except Exception:
@@ -331,6 +369,14 @@ async def process_pos_cheque(
                     operations,
                 )
 
+            if operations and variant in ("closed", "canceled"):
+                _publish_catalog_stock_updates(
+                    company_id,
+                    event_action,
+                    cheque,
+                    operations,
+                )
+
         await _run_with_session(run)
     except Exception:
         logger.error(
@@ -401,5 +447,50 @@ async def process_pos_session(
             company_id,
             session_uuid,
             variant,
+            exc_info=True,
+        )
+
+
+async def process_set_price_document(
+    company_id: int,
+    document_id: int,
+    event_action: str,
+) -> None:
+    try:
+        async def run(session):
+            operations = await doc_fetch.fetch_operations(
+                session,
+                company_id,
+                doc_fetch.SET_PRICE_SPEC.ops_endpoint,
+                document_id,
+            )
+            if not operations:
+                return
+
+            item_ids = doc_fetch.item_ids_from_operations(operations)
+            if not item_ids:
+                return
+
+            document = await doc_fetch.fetch_document(
+                session,
+                company_id,
+                doc_fetch.SET_PRICE_SPEC.doc_endpoint,
+                document_id,
+            )
+            stock_id = doc_fetch.stock_id_from_document(document or {})
+            catalog_events_service.publish_products_updated(
+                company_id,
+                regos_item_ids=item_ids,
+                source_action=event_action,
+                stock_id=stock_id,
+            )
+
+        await _run_with_session(run)
+    except Exception:
+        logger.error(
+            "Background set-price catalog update failed for company=%s document=%s event=%s",
+            company_id,
+            document_id,
+            event_action,
             exc_info=True,
         )

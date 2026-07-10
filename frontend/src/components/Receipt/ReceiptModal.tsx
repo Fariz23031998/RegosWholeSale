@@ -31,7 +31,8 @@ export function ReceiptModal({
 }: Props) {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
-  const { templates, defaultTemplateId } = useReceiptTemplates(token);
+  const companyId = useAuth((s) => s.user?.company_id);
+  const { templates, defaultTemplateId } = useReceiptTemplates(token, companyId);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
   const printRootRef = useRef<HTMLDivElement>(null);
 

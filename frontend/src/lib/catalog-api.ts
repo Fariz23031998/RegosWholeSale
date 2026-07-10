@@ -43,6 +43,26 @@ export async function fetchCatalogProducts(
   return apiRequest(`/api/v1/regos/products?${params.toString()}`, { token });
 }
 
+export async function fetchProductsByIds(
+  token: string,
+  regosItemIds: number[],
+  query: { warehouseId?: number; priceTypeId?: number } = {},
+): Promise<CatalogProductsResponse> {
+  const uniqueIds = [...new Set(regosItemIds.filter((id) => id > 0))];
+  if (uniqueIds.length === 0) {
+    return { products: [], next_offset: 0, total: 0 };
+  }
+  const params = new URLSearchParams();
+  params.set("ids", uniqueIds.join(","));
+  if (query.warehouseId) {
+    params.set("warehouse_id", String(query.warehouseId));
+  }
+  if (query.priceTypeId) {
+    params.set("price_type_id", String(query.priceTypeId));
+  }
+  return apiRequest(`/api/v1/regos/products/by-ids?${params.toString()}`, { token });
+}
+
 export async function fetchProductGroups(token: string): Promise<CatalogGroupsResponse> {
   return apiRequest("/api/v1/regos/product-groups", { token });
 }

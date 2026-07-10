@@ -1,10 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { fetchProductGroups } from "@/lib/catalog-api";
+import { subscribeReferenceOptionsEvents } from "@/lib/catalog-events";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
+import {
+  subscribeSettingsEvents,
+  type SettingsEventMessage,
+} from "@/lib/settings-events";
 import {
   clearUserPosSettings,
   clearUserRegosDefaults,
@@ -80,6 +85,12 @@ function applyRegosDefaults(defaults: {
   };
 }
 
+function isUserSettingsEventForUser(event: SettingsEventMessage, userId: number): boolean {
+  if (event.namespace !== "pos" && event.namespace !== "regos_defaults") return false;
+  if (event.scope === "company") return true;
+  return event.user_id === userId;
+}
+
 export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const { t } = useLanguage();
   const vatOptions = getVatCalculationTypeOptions(t);
@@ -110,6 +121,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [derivedFirm, setDerivedFirm] = useState<RegosDefaultOption | null>(null);
   const [zeroQuantity, setZeroQuantity] = useState(false);
   const [zeroPrice, setZeroPrice] = useState(false);
+  const reloadSettingsRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
@@ -126,58 +138,82 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
     setLoading(true);
     setError("");
 
-    void Promise.all([
-      fetchUserPosSettingsById(token, user.id),
-      fetchCompanyPosSettings(token),
-      fetchProductGroups(token),
-      fetchUserRegosDefaultsById(token, user.id),
-      fetchRegosReferenceOptions(token),
-    ])
-      .then(([userPosRes, companyPosRes, groupsRes, userRegosRes, refOptions]) => {
-        if (cancelled) return;
-        setAllowOutOfStock(userPosRes.settings.allow_out_of_stock);
-        setAutoOpenQtyKeypad(userPosRes.settings.auto_open_qty_keypad);
-        setTenderedAmountsInput(
-          formatTenderedQuickAmounts(userPosRes.settings.tendered_quick_amounts),
-        );
-        setDefaultCategoryValue(
-          defaultCategoryToSelectValue(userPosRes.settings.default_category),
-        );
-        setCompanyAllowOutOfStock(companyPosRes.settings.allow_out_of_stock);
-        setCompanyAutoOpenQtyKeypad(companyPosRes.settings.auto_open_qty_keypad);
-        setCompanyTenderedAmounts(
-          formatTenderedQuickAmounts(companyPosRes.settings.tendered_quick_amounts),
-        );
-        setCompanyDefaultCategoryValue(
-          defaultCategoryToSelectValue(companyPosRes.settings.default_category),
-        );
-        setProductGroups(groupsRes.groups);
+    const reload = () => {
+      void Promise.all([
+        fetchUserPosSettingsById(token, user.id),
+        fetchCompanyPosSettings(token),
+        fetchProductGroups(token),
+        fetchUserRegosDefaultsById(token, user.id),
+        fetchRegosReferenceOptions(token, {
+          cacheScope: { companyId: user.company_id },
+        }),
+      ])
+        .then(([userPosRes, companyPosRes, groupsRes, userRegosRes, refOptions]) => {
+          if (cancelled) return;
+          setAllowOutOfStock(userPosRes.settings.allow_out_of_stock);
+          setAutoOpenQtyKeypad(userPosRes.settings.auto_open_qty_keypad);
+          setTenderedAmountsInput(
+            formatTenderedQuickAmounts(userPosRes.settings.tendered_quick_amounts),
+          );
+          setDefaultCategoryValue(
+            defaultCategoryToSelectValue(userPosRes.settings.default_category),
+          );
+          setCompanyAllowOutOfStock(companyPosRes.settings.allow_out_of_stock);
+          setCompanyAutoOpenQtyKeypad(companyPosRes.settings.auto_open_qty_keypad);
+          setCompanyTenderedAmounts(
+            formatTenderedQuickAmounts(companyPosRes.settings.tendered_quick_amounts),
+          );
+          setCompanyDefaultCategoryValue(
+            defaultCategoryToSelectValue(companyPosRes.settings.default_category),
+          );
+          setProductGroups(groupsRes.groups);
 
-        const regos = applyRegosDefaults(userRegosRes.defaults);
-        setWarehouseId(regos.warehouseId);
-        setPriceTypeId(regos.priceTypeId);
-        setPartnerId(regos.partnerId);
-        setPaymentCategoryId(regos.paymentCategoryId);
-        setRefundPaymentCategoryId(regos.refundPaymentCategoryId);
-        setAttachedUserId(regos.attachedUserId);
-        setVatCalculationType(regos.vatCalculationType);
-        setDerivedCurrency(regos.derivedCurrency);
-        setDerivedFirm(regos.derivedFirm);
-        setZeroQuantity(regos.zeroQuantity);
-        setZeroPrice(regos.zeroPrice);
-        setOptions(refOptions);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(formatAuthError(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+          const regos = applyRegosDefaults(userRegosRes.defaults);
+          setWarehouseId(regos.warehouseId);
+          setPriceTypeId(regos.priceTypeId);
+          setPartnerId(regos.partnerId);
+          setPaymentCategoryId(regos.paymentCategoryId);
+          setRefundPaymentCategoryId(regos.refundPaymentCategoryId);
+          setAttachedUserId(regos.attachedUserId);
+          setVatCalculationType(regos.vatCalculationType);
+          setDerivedCurrency(regos.derivedCurrency);
+          setDerivedFirm(regos.derivedFirm);
+          setZeroQuantity(regos.zeroQuantity);
+          setZeroPrice(regos.zeroPrice);
+          setOptions(refOptions);
+        })
+        .catch((err) => {
+          if (!cancelled) setError(formatAuthError(err));
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    };
+
+    reloadSettingsRef.current = reload;
+    reload();
 
     return () => {
       cancelled = true;
     };
   }, [open, token, user]);
+
+  useEffect(() => {
+    if (!open || !user) return;
+
+    return subscribeSettingsEvents((event) => {
+      if (!isUserSettingsEventForUser(event, user.id)) return;
+      reloadSettingsRef.current();
+    });
+  }, [open, user]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    return subscribeReferenceOptionsEvents(() => {
+      reloadSettingsRef.current();
+    });
+  }, [open]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

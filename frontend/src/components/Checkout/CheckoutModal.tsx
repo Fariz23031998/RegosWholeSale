@@ -10,26 +10,24 @@ import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { useCheckoutTabs } from "@/store/checkout-tabs";
+import { usePendingSales } from "@/store/pending-sales";
 import {
   applyStockAdjustments,
   computeCheckoutStockAdjustments,
   isBookedOrderFromPartnerContinuation,
+  type StockAdjustOp,
 } from "@/lib/cart-stock";
-import { extractWholesaleDocIdFromError } from "@/lib/checkout-error";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
-import { checkoutSale } from "@/lib/sales-api";
-import type { CheckoutResponse } from "@/lib/sales-api";
+import type { CheckoutRequest } from "@/lib/sales-api";
 import type { PaymentType } from "@/types/payment";
-import type { RegosCurrencyOption } from "@/types/settings";
 import type { Sale, SalePaymentLine } from "@/data/seed";
 import {
-  buildCheckoutCartLines,
   buildPrintContextFromCartDraft,
-  buildPrintContextFromCheckout,
   loadPrintContextFromCartDraft,
-  loadPrintContextFromCheckout,
 } from "@/lib/receipt-context-builder";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
+import { enqueuePendingSaleSync } from "@/lib/pending-sales-sync";
+import { buildPendingSalesScopeKey } from "@/types/pending-sale";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
 import {
   PaymentPanel,
@@ -44,19 +42,28 @@ type Props = {
   onClose: () => void;
   onSuccess?: () => void;
   totals: Totals;
+  initialPaymentPayload?: PaymentSubmitPayload | null;
+  retryLocalId?: string | null;
 };
 
-export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
+export function CheckoutModal({
+  open,
+  onClose,
+  onSuccess,
+  totals,
+  initialPaymentPayload = null,
+  retryLocalId = null,
+}: Props) {
   const { t } = useLanguage();
   const items = useCart((s) => s.items);
   const clearCart = useCart((s) => s.clear);
-  const setPostponedWholesaleDocId = useCart((s) => s.setPostponedWholesaleDocId);
-  const setPostponedDocType = useCart((s) => s.setPostponedDocType);
-  const persistCheckoutTabs = useCheckoutTabs((s) => s.persistNow);
+  const discountMode = useCart((s) => s.discountMode);
+  const discountValue = useCart((s) => s.discountValue);
   const clearActiveTabAfterCheckout = useCheckoutTabs(
     (s) => s.clearActiveTabAfterCheckout,
   );
   const cashier = useAuth((s) => s.cashier);
+  const user = useAuth((s) => s.user);
   const accessToken = useAuth((s) => s.accessToken);
   const { canChangeWarehouse, canChangePriceType, canChangePartner, canPrintDocuments } =
     usePermissions();
@@ -80,6 +87,10 @@ export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
   const postponeDocumentType = usePosConfig((s) => s.postponeDocumentType);
   const postponeOrderBooked = usePosConfig((s) => s.postponeOrderBooked);
   const tenderedQuickAmounts = usePosConfig((s) => s.tenderedQuickAmounts);
+  const enqueuePendingSale = usePendingSales((s) => s.enqueue);
+  const updatePendingSale = usePendingSales((s) => s.updateRecord);
+  const setActiveRetryLocalId = usePendingSales((s) => s.setActiveRetryLocalId);
+  const activeRetryLocalId = usePendingSales((s) => s.activeRetryLocalId);
 
   const [processing, setProcessing] = useState(false);
   const [checkoutError, setCheckoutError] = useState<string | null>(null);
@@ -136,61 +147,17 @@ export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
       });
   };
 
-  const buildSalePaymentLines = (
-    result: CheckoutResponse,
-    types: PaymentType[],
-  ): SalePaymentLine[] =>
-    (result.payments ?? []).map((payment) => {
-      const type = types.find((t) => t.id === payment.payment_type_id);
-      return {
-        paymentTypeId: payment.payment_type_id,
-        paymentTypeName: type?.name ?? t("checkout.paymentFallback", "Payment"),
-        isCash: type?.is_cash ?? false,
-        amountPaid: payment.amount_paid,
-        paymentCurrency: payment.payment_currency ?? type?.currency ?? null,
-        paymentAmount: payment.payment_amount ?? undefined,
-      };
-    });
-
-  const buildSaleFromResponse = (
-    paymentType: PaymentType,
-    result: CheckoutResponse,
-    payload: PaymentSubmitPayload,
-  ): Sale => ({
-    id: result.wholesale_code,
-    createdAt: result.performed_at,
-    cashierId: cashier?.id ?? "",
-    cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
-    items: items.map((i) => ({
-      productId: i.productId,
-      name: i.name,
-      price: i.price,
-      qty: i.qty,
-    })),
-    subtotal: totals.subtotal,
-    discount: totals.discount,
-    tax: 0,
-    total: totals.total,
-    paymentTypeId: paymentType.id,
-    paymentTypeName: paymentType.name,
-    isCash: paymentType.is_cash,
-    tendered: payload.tendered,
-    change: payload.change,
-    amountPaid: result.amount_paid,
-    balanceDue: result.balance_due,
-    saleCurrency: result.payment.sale_currency ?? saleCurrency,
-    paymentCurrency: result.payment.payment_currency ?? paymentType.currency ?? null,
-    paymentAmount: result.payment.payment_amount ?? undefined,
-  });
-
   const submitCheckout = async (payload: PaymentSubmitPayload) => {
-    if (!accessToken || !cashier) return;
+    if (!accessToken || !cashier || !user) return;
 
     const cartItems = items.filter((i) => i.regosItemId > 0);
     if (cartItems.length !== items.length) {
       setCheckoutError(t("checkout.missingRegosIds", "Some cart items are missing Regos product ids."));
       return;
     }
+
+    const scopeKey = buildPendingSalesScopeKey(user.company_id, user.id);
+    if (!scopeKey) return;
 
     setProcessing(true);
     setCheckoutError(null);
@@ -205,128 +172,126 @@ export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
         ? postponedWholesaleDocId
         : null;
 
+    const request: CheckoutRequest = {
+      items: cartItems.map((i) => ({
+        regos_item_id: i.regosItemId,
+        qty: i.qty,
+        price: i.price,
+      })),
+      discount: totals.discount,
+      total: totals.total,
+      description: `POS ${cashier.name}`,
+      ...(wholesaleDocId ? { wholesale_doc_id: wholesaleDocId } : {}),
+      ...(orderFromPartnerDocId
+        ? { order_from_partner_doc_id: orderFromPartnerDocId }
+        : {}),
+      ...(payload.payments
+        ? { payments: payload.payments }
+        : {
+            payment_type_id: payload.payment_type_id,
+            amount_paid: payload.amount_paid,
+            tendered: payload.tendered,
+            change: payload.change,
+          }),
+      ...permittedOverrides(),
+    };
+
+    const partner = partners.find((entry) => entry.id === partnerId) ?? null;
+    const warehouse = warehouses.find((entry) => entry.id === warehouseId) ?? null;
+    const draftInput = {
+      items: cartItems,
+      totals,
+      catalogProducts,
+      saleCurrency,
+      partnerId,
+      partnerName: partner?.name ?? null,
+      stockId: warehouseId,
+      stockName: warehouse?.name ?? null,
+      cashierId: cashier.id ?? null,
+      cashierName: cashier.name ?? t("checkout.cashierFallback", "Cashier"),
+      wholesaleDocId: postponedWholesaleDocId,
+    };
+
+    const stockAdjustments: StockAdjustOp[] = computeCheckoutStockAdjustments(
+      cartItems,
+      isBookedOrderFromPartnerContinuation(
+        postponedDocType,
+        postponedWholesaleDocId,
+        postponeDocumentType,
+        postponeOrderBooked,
+      ),
+    );
+
+    let receiptContext: DocumentPrintContext;
     try {
-      const result = await checkoutSale(accessToken, {
-        items: cartItems.map((i) => ({
-          regos_item_id: i.regosItemId,
-          qty: i.qty,
-          price: i.price,
-        })),
-        discount: totals.discount,
-        total: totals.total,
-        description: `POS ${cashier.name}`,
-        ...(wholesaleDocId ? { wholesale_doc_id: wholesaleDocId } : {}),
-        ...(orderFromPartnerDocId
-          ? { order_from_partner_doc_id: orderFromPartnerDocId }
-          : {}),
-        ...(payload.payments
-          ? { payments: payload.payments }
-          : {
-              payment_type_id: payload.payment_type_id,
-              amount_paid: payload.amount_paid,
-              tendered: payload.tendered,
-              change: payload.change,
-            }),
-        ...permittedOverrides(),
-      });
+      receiptContext = accessToken
+        ? await loadPrintContextFromCartDraft(accessToken, draftInput)
+        : buildPrintContextFromCartDraft(draftInput);
+    } catch {
+      receiptContext = buildPrintContextFromCartDraft(draftInput);
+    }
 
-      const paymentTypeId = payload.payment_type_id ?? payload.payments?.[0]?.payment_type_id ?? 0;
-      const paymentType: PaymentType = {
-        id: paymentTypeId,
-        name: result.payment.payment_type_id
-          ? t("checkout.paymentFallback", "Payment")
-          : t("checkout.paymentFallback", "Payment"),
-        is_cash: false,
-        allows_debt: false,
-        image_url: "",
-        currency: result.payment.payment_currency ?? null,
-      };
-
-      const sale: Sale = payload.payments
-        ? {
-            id: result.wholesale_code,
-            createdAt: result.performed_at,
-            cashierId: cashier?.id ?? "",
-            cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
-            items: items.map((i) => ({
-              productId: i.productId,
-              name: i.name,
-              price: i.price,
-              qty: i.qty,
-            })),
-            subtotal: totals.subtotal,
-            discount: totals.discount,
-            tax: 0,
-            total: totals.total,
-            paymentTypeId: result.payment.payment_type_id,
-            paymentTypeName:
-              (result.payments ?? []).length > 1
-                ? (result.payments ?? [])
-                    .map(() => t("checkout.paymentFallback", "Payment"))
-                    .join(" + ")
-                : t("checkout.paymentFallback", "Payment"),
-            isCash: false,
-            amountPaid: result.amount_paid,
-            balanceDue: result.balance_due,
-            saleCurrency: result.payment.sale_currency ?? saleCurrency,
-            payments: buildSalePaymentLines(result, []),
-          }
-        : buildSaleFromResponse(paymentType, result, payload);
-
-      const partner = partners.find((entry) => entry.id === partnerId) ?? null;
-      const warehouse = warehouses.find((entry) => entry.id === warehouseId) ?? null;
-      const cartLines = buildCheckoutCartLines(cartItems, catalogProducts);
-      const documentExtras = {
+    const effectiveRetryId = retryLocalId ?? activeRetryLocalId;
+    const localId = effectiveRetryId ?? crypto.randomUUID();
+    const record = {
+      localId,
+      scopeKey,
+      kind: "checkout" as const,
+      status: "pending" as const,
+      companyId: user.company_id,
+      userId: user.id,
+      createdAt: Date.now(),
+      lastAttemptAt: null,
+      attemptCount: 0,
+      errorMessage: null,
+      errorCode: null,
+      request,
+      paymentPayload: payload,
+      wholesaleDocId: postponedWholesaleDocId,
+      postponedDocType,
+      cartItems: [...cartItems],
+      discountMode,
+      discountValue,
+      totals: { ...totals },
+      sellContext: {
+        warehouseId,
+        priceTypeId: useSellContext.getState().priceTypeId,
         partnerId,
-        partnerName: partner?.name ?? null,
-        stockId: warehouseId,
-        stockName: warehouse?.name ?? null,
-        saleCurrency: result.payment.sale_currency ?? saleCurrency,
-        cashierId: cashier?.id ?? null,
-        cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
-      };
-      applyStockAdjustments(
-        computeCheckoutStockAdjustments(
-          cartItems,
-          isBookedOrderFromPartnerContinuation(
-            postponedDocType,
-            postponedWholesaleDocId,
-            postponeDocumentType,
-            postponeOrderBooked,
-          ),
-        ),
-        decrementStock,
-        incrementStock,
-      );
+        saleCurrency,
+      },
+      cashier: { id: cashier.id, name: cashier.name },
+      description: request.description ?? "",
+      stockAdjustments,
+      receiptContext,
+    };
+
+    try {
+      if (effectiveRetryId) {
+        if (cartItems.length === 0) {
+          setActiveRetryLocalId(null);
+          setCheckoutError(t("checkout.errors.failed", "Checkout failed"));
+          return;
+        }
+        await updatePendingSale(localId, {
+          ...record,
+          status: "pending",
+          errorMessage: null,
+          errorCode: null,
+        });
+        setActiveRetryLocalId(null);
+      } else {
+        await enqueuePendingSale(record);
+      }
+
+      applyStockAdjustments(stockAdjustments, decrementStock, incrementStock);
       clearCart();
       clearActiveTabAfterCheckout();
-      const checkoutPrintInput = {
-        result,
-        sale,
-        cartLines,
-        documentExtras,
-      };
-      const paymentFallback = t("checkout.paymentFallback", "Payment");
-      const printContext = accessToken
-        ? await loadPrintContextFromCheckout(
-            accessToken,
-            checkoutPrintInput,
-            [],
-            paymentFallback,
-            t,
-          )
-        : buildPrintContextFromCheckout(checkoutPrintInput, [], paymentFallback);
-      setCompletedContext(printContext);
+      setCompletedContext(receiptContext);
       reset();
       onClose();
       onSuccess?.();
+      enqueuePendingSaleSync(localId);
     } catch (err: unknown) {
-      const failedWholesaleDocId = extractWholesaleDocIdFromError(err);
-      if (failedWholesaleDocId !== null) {
-        setPostponedWholesaleDocId(failedWholesaleDocId);
-        setPostponedDocType("wholesale");
-        void persistCheckoutTabs();
-      }
       setCheckoutError(formatAuthError(err, t("checkout.errors.failed", "Checkout failed")));
     } finally {
       setProcessing(false);
@@ -376,6 +341,7 @@ export function CheckoutModal({ open, onClose, onSuccess, totals }: Props) {
               active={open}
               processing={processing}
               tenderedQuickAmounts={tenderedQuickAmounts}
+              initialPaymentPayload={initialPaymentPayload}
               onConfirm={(payload) => void submitCheckout(payload)}
             />
           </div>

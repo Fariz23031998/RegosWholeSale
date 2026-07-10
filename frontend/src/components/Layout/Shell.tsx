@@ -18,6 +18,7 @@ import { CatalogViewToggle } from "@/components/POS/CatalogViewToggle";
 import { SellContextBar } from "@/components/POS/SellContextBar";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { ThemeSelector } from "@/components/ThemeSelector";
+import { NotificationMenu } from "@/components/Notifications/NotificationMenu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useAuth } from "@/store/auth";
@@ -169,6 +170,7 @@ export function Shell() {
             {showCatalogViewToggle ? (
               <CatalogViewToggle className={styles.topBarViewToggle} />
             ) : null}
+            <NotificationMenu />
           </div>
         )}
         <Outlet />

@@ -3,8 +3,10 @@ import {
   canAddProductToCart,
   canIncreaseCartQty,
   clampCartQty,
+  applyStockAdjustments,
   computeCheckoutStockAdjustments,
   computePostponeStockAdjustments,
+  revertStockAdjustments,
   getBookedContinuationCartStock,
   getCartAvailabilityStock,
   isBookedOrderFromPartnerContinuation,
@@ -190,5 +192,25 @@ describe("postpone and checkout stock adjustments", () => {
       shouldReserveStockOnPostpone("doc_order_from_partner", false),
     ).toBe(false);
     expect(shouldReserveStockOnPostpone("doc_wholesale", true)).toBe(false);
+  });
+
+  it("reverts stock adjustments by swapping increment and decrement", () => {
+    const decrements: Array<{ productId: string; qty: number }> = [];
+    const increments: Array<{ productId: string; qty: number }> = [];
+    applyStockAdjustments(
+      [{ productId: "1", decrement: 2, increment: 0 }],
+      (productId, qty) => decrements.push({ productId, qty }),
+      (productId, qty) => increments.push({ productId, qty }),
+    );
+    expect(decrements).toEqual([{ productId: "1", qty: 2 }]);
+
+    decrements.length = 0;
+    increments.length = 0;
+    revertStockAdjustments(
+      [{ productId: "1", decrement: 2, increment: 0 }],
+      (productId, qty) => decrements.push({ productId, qty }),
+      (productId, qty) => increments.push({ productId, qty }),
+    );
+    expect(increments).toEqual([{ productId: "1", qty: 2 }]);
   });
 });
