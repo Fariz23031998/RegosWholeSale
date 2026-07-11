@@ -25,6 +25,10 @@ import { patchCachedReferenceOptions } from "@/lib/reference-options-db";
 import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
 import type { Product } from "@/types/catalog";
 import type { PaymentType } from "@/types/payment";
+import { updateProductPriceOnly } from "@/lib/catalog-events/updateProductPriceOnly/updateProductPriceOnly";
+import { updateProductStockOnly } from "@/lib/catalog-events/updateProductStockOnly/updateProductStockOnly";
+import { updateProductInfoOnly } from "@/lib/catalog-events/updateProductInfoOnly/updateProductInfoOnly";
+import { loadCachedProductIdsByScope } from "@/lib/catalog-products-db/loadCachedProductIdsByScope/loadCachedProductIdsByScope";
 
 export const CATALOG_EVENTS_CHANNEL = "pulse-pos-catalog-events";
 
@@ -147,7 +151,7 @@ function regosItemIdsToProductIds(regosItemIds: number[]): string[] {
   return regosItemIds.map((id) => String(id));
 }
 
-async function handleCatalogEvent(
+export async function handleCatalogEvent(
   token: string,
   event: CatalogEventMessage,
   context: CatalogEventContext,
@@ -178,11 +182,6 @@ async function handleCatalogEvent(
     return;
   }
 
-  if (event.type === "groups_invalidated") {
-    await invalidateGroups(context.companyId).catch(() => undefined);
-    handlers.onGroupsInvalidated?.();
-    return;
-  }
 
   if (event.type === "payment_types_removed") {
     await removePaymentTypes(context.companyId, event.payment_type_ids).catch(() => undefined);
@@ -224,47 +223,156 @@ async function handleCatalogEvent(
     fetchQuery.priceTypeId,
   );
 
+  const priceOnlyEvents = new Set(["DocSetPricePerformCanceled", "DocSetPricePerformed"]);
+  const stockOnlyEvents = new Set([
+    "DocChequeClosed",
+    "DocInOutPerformCanceled",
+    "DocInOutPerformed",
+    "DocMovementPerformCanceled",
+    "DocMovementPerformed",
+    "DocReturnsToPartnerPerformCanceled",
+    "DocReturnsToPartnerPerformed",
+    "DocWholeSalePerformCanceled",
+    "DocWholeSalePerformed",
+    "DocWholeSaleReturnPerformCanceled",
+    "DocWholeSaleReturnPerformed",
+  ]);
+  const productInfoEvents = new Set([
+    "ItemAdded",
+    "ItemDeleted",
+    "ItemDeleteMarked",
+    "ItemEdited",
+    "ItemGroupAdded",
+    "ItemGroupDeleted",
+    "ItemGroupEdited",
+  ]);
+
+  if (event.type === "groups_invalidated") {
+    await invalidateGroups(context.companyId).catch(() => undefined);
+    handlers.onGroupsInvalidated?.();
+    if (productInfoEvents.has(event.source_action)) {
+      const cachedIds = await loadCachedProductIdsByScope(activeScopeKey).catch(() => []);
+      if (cachedIds.length > 0) {
+        const itemIds = cachedIds.map((id) => Number(id)).filter((id) => !isNaN(id));
+        await updateProductInfoOnly(
+          token,
+          itemIds,
+          activeScopeKey,
+          handlers.onProductsUpdated,
+        ).catch(() => undefined);
+      }
+    }
+    return;
+  }
+
   if (event.type === "products_removed") {
+    if (productInfoEvents.has(event.source_action)) {
+      await updateProductInfoOnly(
+        token,
+        event.regos_item_ids,
+        activeScopeKey,
+        handlers.onProductsUpdated,
+      ).catch(() => undefined);
+      return;
+    }
     const productIds = regosItemIdsToProductIds(event.regos_item_ids);
     await removeProducts(activeScopeKey, productIds).catch(() => undefined);
     handlers.onProductsRemoved?.(productIds);
     return;
   }
 
-  const eventStockId = event.stock_id;
-  const activeWarehouseId = context.canChangeWarehouse ? context.warehouseId ?? null : null;
-  const shouldPatchActiveView =
-    eventStockId == null ||
-    activeWarehouseId == null ||
-    eventStockId === activeWarehouseId;
+  if (event.type === "products_updated") {
+    const action = event.source_action;
+    const eventStockId = event.stock_id;
+    const activeWarehouseId = context.canChangeWarehouse ? context.warehouseId ?? null : null;
+    const shouldPatchActiveView =
+      eventStockId == null ||
+      activeWarehouseId == null ||
+      eventStockId === activeWarehouseId;
 
-  if (eventStockId != null) {
-    const eventScope = {
-      companyId: context.companyId,
-      warehouseId: eventStockId,
-      priceTypeId: fetchQuery.priceTypeId,
-    };
-    await refreshProductsByIds(token, event.regos_item_ids, eventScope, {
-      warehouseId: eventStockId,
-      priceTypeId: fetchQuery.priceTypeId,
-    }).catch(() => undefined);
-  }
+    if (priceOnlyEvents.has(action)) {
+      if (shouldPatchActiveView) {
+        await updateProductPriceOnly(
+          token,
+          event.regos_item_ids,
+          activeScopeKey,
+          fetchQuery,
+          handlers.onProductsUpdated,
+        ).catch(() => undefined);
+      }
+      return;
+    }
 
-  if (!shouldPatchActiveView) return;
+    if (stockOnlyEvents.has(action)) {
+      if (eventStockId != null) {
+        const eventScopeKey = buildCatalogScopeKey(
+          context.companyId,
+          eventStockId,
+          fetchQuery.priceTypeId,
+        );
+        await updateProductStockOnly(
+          token,
+          event.regos_item_ids,
+          eventScopeKey,
+          {
+            warehouseId: eventStockId,
+            priceTypeId: fetchQuery.priceTypeId,
+          },
+        ).catch(() => undefined);
+      }
 
-  try {
-    const fresh = await fetchProductsByIds(token, event.regos_item_ids, fetchQuery);
-    await upsertProducts(activeScopeKey, fresh.products).catch(() => undefined);
-    handlers.onProductsUpdated?.(fresh.products);
-  } catch {
-    const cached = await refreshProductsByIds(
-      token,
-      event.regos_item_ids,
-      activeScope,
-      fetchQuery,
-    ).catch(() => null);
-    if (cached) {
-      handlers.onProductsUpdated?.(cached.products);
+      if (shouldPatchActiveView) {
+        await updateProductStockOnly(
+          token,
+          event.regos_item_ids,
+          activeScopeKey,
+          fetchQuery,
+          handlers.onProductsUpdated,
+        ).catch(() => undefined);
+      }
+      return;
+    }
+
+    if (productInfoEvents.has(action)) {
+      if (shouldPatchActiveView) {
+        await updateProductInfoOnly(
+          token,
+          event.regos_item_ids,
+          activeScopeKey,
+          handlers.onProductsUpdated,
+        ).catch(() => undefined);
+      }
+      return;
+    }
+
+    if (eventStockId != null) {
+      const eventScope = {
+        companyId: context.companyId,
+        warehouseId: eventStockId,
+        priceTypeId: fetchQuery.priceTypeId,
+      };
+      await refreshProductsByIds(token, event.regos_item_ids, eventScope, {
+        warehouseId: eventStockId,
+        priceTypeId: fetchQuery.priceTypeId,
+      }).catch(() => undefined);
+    }
+
+    if (!shouldPatchActiveView) return;
+
+    try {
+      const fresh = await fetchProductsByIds(token, event.regos_item_ids, fetchQuery);
+      await upsertProducts(activeScopeKey, fresh.products).catch(() => undefined);
+      handlers.onProductsUpdated?.(fresh.products);
+    } catch {
+      const cached = await refreshProductsByIds(
+        token,
+        event.regos_item_ids,
+        activeScope,
+        fetchQuery,
+      ).catch(() => null);
+      if (cached) {
+        handlers.onProductsUpdated?.(cached.products);
+      }
     }
   }
 }

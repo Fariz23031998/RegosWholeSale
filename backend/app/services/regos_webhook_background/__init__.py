@@ -23,6 +23,12 @@ from app.services.telegram_notifications import (
     resolve_pos_cheque_notification_type,
     resolve_pos_session_notification_type,
 )
+from app.services.regos_webhook_background.process_operation_document.process_operation_document import (
+    process_operation_document,
+)
+from app.services.regos_webhook_background.process_set_price_document.process_set_price_document import (
+    process_set_price_document,
+)
 
 logger = logging.getLogger("regos.backend")
 
@@ -54,6 +60,16 @@ def _publish_catalog_stock_updates(
             regos_item_ids=item_ids,
             source_action=event_action,
             stock_id=scoped_stock_id,
+        )
+
+    # For purchase events which can trigger price changes, also publish globally (stock_id=None)
+    # so that all clients refresh the active catalog view prices.
+    if event_action in ("DocPurchasePerformed", "DocPurchasePerformCanceled"):
+        catalog_events_service.publish_products_updated(
+            company_id,
+            regos_item_ids=item_ids,
+            source_action=event_action,
+            stock_id=None,
         )
 
 
@@ -126,102 +142,6 @@ async def process_out_of_stock_for_cheque(
             "Background out-of-stock check failed for company=%s cheque=%s",
             company_id,
             cheque.get("uuid"),
-            exc_info=True,
-        )
-
-
-async def process_operation_document(
-    company_id: int,
-    document_id: int,
-    event_action: str,
-) -> None:
-    from app.services.regos_webhook import EVENT_SPECS
-
-    try:
-        async def run(session):
-            event_spec = EVENT_SPECS.get(event_action)
-            if event_spec is None or event_spec.spec is None:
-                return
-            spec = event_spec.spec
-
-            document = await doc_fetch.fetch_document(
-                session, company_id, spec.doc_endpoint, document_id
-            )
-            if not document:
-                return
-
-            operations = await doc_fetch.fetch_operations(
-                session, company_id, spec.ops_endpoint, document_id
-            )
-            if not operations:
-                return
-
-            if spec.kind == "movement":
-                build_message = lambda lang: fmt.format_movement_receipt(
-                    document,
-                    operations,
-                    is_cancelled=event_spec.is_cancelled,
-                    lang=lang,
-                )
-            elif spec.kind == "inout":
-                warehouse_name = await _resolve_warehouse_name(session, company_id, document)
-                build_message = lambda lang: fmt.format_inout_receipt(
-                    document,
-                    operations,
-                    warehouse_name,
-                    is_cancelled=event_spec.is_cancelled,
-                    lang=lang,
-                )
-            else:
-                warehouse_name = await _resolve_warehouse_name(session, company_id, document)
-                build_message = lambda lang: fmt.format_partner_receipt(
-                    document,
-                    operations,
-                    warehouse_name,
-                    is_cancelled=event_spec.is_cancelled,
-                    is_return=spec.is_return,
-                    use_cost=spec.use_cost,
-                    lang=lang,
-                )
-
-            leaf_type = resolve_document_notification_type(
-                event_spec.notification_type,
-                is_cancelled=event_spec.is_cancelled,
-            )
-            await telegram_service.notify_company_subscribers(
-                session,
-                company_id,
-                notification_type=leaf_type,
-                build_message=build_message,
-                scope=scope_from_document(document),
-            )
-
-            if (
-                out_of_stock_service.is_stock_decrease_event(event_action, document)
-                and doc_fetch.item_ids_from_operations(operations)
-            ):
-                await out_of_stock_service.check_and_record_out_of_stock(
-                    session,
-                    company_id,
-                    event_action,
-                    document,
-                    operations,
-                )
-
-            _publish_catalog_stock_updates(
-                company_id,
-                event_action,
-                document,
-                operations,
-            )
-
-        await _run_with_session(run)
-    except Exception:
-        logger.error(
-            "Background operation document notification failed for company=%s document=%s event=%s",
-            company_id,
-            document_id,
-            event_action,
             exc_info=True,
         )
 
@@ -447,50 +367,5 @@ async def process_pos_session(
             company_id,
             session_uuid,
             variant,
-            exc_info=True,
-        )
-
-
-async def process_set_price_document(
-    company_id: int,
-    document_id: int,
-    event_action: str,
-) -> None:
-    try:
-        async def run(session):
-            operations = await doc_fetch.fetch_operations(
-                session,
-                company_id,
-                doc_fetch.SET_PRICE_SPEC.ops_endpoint,
-                document_id,
-            )
-            if not operations:
-                return
-
-            item_ids = doc_fetch.item_ids_from_operations(operations)
-            if not item_ids:
-                return
-
-            document = await doc_fetch.fetch_document(
-                session,
-                company_id,
-                doc_fetch.SET_PRICE_SPEC.doc_endpoint,
-                document_id,
-            )
-            stock_id = doc_fetch.stock_id_from_document(document or {})
-            catalog_events_service.publish_products_updated(
-                company_id,
-                regos_item_ids=item_ids,
-                source_action=event_action,
-                stock_id=stock_id,
-            )
-
-        await _run_with_session(run)
-    except Exception:
-        logger.error(
-            "Background set-price catalog update failed for company=%s document=%s event=%s",
-            company_id,
-            document_id,
-            event_action,
             exc_info=True,
         )
