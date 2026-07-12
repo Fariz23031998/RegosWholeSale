@@ -1,10 +1,8 @@
 from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import bad_request
-from app.core.regos_api import regos_async_api_request_for_company
 from app.services import regos_defaults as regos_defaults_service
 from app.services.regos_products.helpers.map_product.map_product import map_product
-from app.services.regos_prices.fetch_item_prices.fetch_item_prices import fetch_item_prices
 
 async def get_products_by_ids(
     session: AsyncSession,
@@ -15,6 +13,8 @@ async def get_products_by_ids(
     warehouse_id: int | None = None,
     price_type_id: int | None = None,
 ) -> list[dict[str, Any]]:
+    from app.services.regos_products import regos_async_api_request_for_company
+
     unique_ids = [product_id for product_id in dict.fromkeys(product_ids) if product_id > 0]
     if not unique_ids:
         return []
@@ -59,9 +59,6 @@ async def get_products_by_ids(
     )
     result = response.get("result") or []
 
-    # Fetch fresh prices from itemprice/get
-    fresh_prices = await fetch_item_prices(session, company_id, unique_ids, price_type["id"])
-
     by_id: dict[int, dict[str, Any]] = {}
     for row in result:
         if not isinstance(row, dict):
@@ -71,11 +68,7 @@ async def get_products_by_ids(
         except Exception:
             continue
 
-        # Override price if found in fresh_prices
-        p_id = product["regos_item_id"]
-        if p_id in fresh_prices:
-            product["price"] = fresh_prices[p_id]
-
         by_id[int(product["regos_item_id"])] = product
 
     return [by_id[product_id] for product_id in unique_ids if product_id in by_id]
+

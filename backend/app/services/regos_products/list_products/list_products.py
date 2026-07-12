@@ -1,7 +1,6 @@
 from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AppError, bad_request
-from app.core.regos_api import regos_async_api_request_for_company
 from app.services import regos_defaults as regos_defaults_service
 
 from app.services.regos_products.helpers.catalog_sort_orders.catalog_sort_orders import catalog_sort_orders
@@ -35,6 +34,8 @@ async def list_products(
     sort_column: str | None = None,
     sort_direction: str | None = None,
 ) -> dict[str, Any]:
+    from app.services.regos_products import regos_async_api_request_for_company
+
     search_term = search.strip() if search and search.strip() else None
     global_search = search_term is not None
 

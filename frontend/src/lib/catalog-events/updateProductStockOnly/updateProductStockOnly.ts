@@ -1,6 +1,6 @@
 import { fetchProductsByIds } from "@/lib/catalog-api";
 import { loadCachedProduct } from "@/lib/catalog-products-db/loadCachedProduct/loadCachedProduct";
-import { upsertProducts } from "@/lib/catalog-products-db";
+import { upsertProducts } from "../../catalog-products-db";
 import type { Product } from "@/types/catalog";
 
 export async function updateProductStockOnly(
@@ -10,7 +10,7 @@ export async function updateProductStockOnly(
   query: { warehouseId?: number; priceTypeId?: number },
   onProductsUpdated?: (products: Product[]) => void,
 ): Promise<void> {
-  if (regosItemIds.length === 0) return;
+  if (!regosItemIds || regosItemIds.length === 0) return;
   const fresh = await fetchProductsByIds(token, regosItemIds, query);
   const updatedProducts: Product[] = [];
   

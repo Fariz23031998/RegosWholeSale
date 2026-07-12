@@ -30,6 +30,18 @@ function idbKey(cacheScope?: SettingsCacheScope): string | null {
   return buildCompanySettingsKey(cacheScope.companyId, "receipt-templates");
 }
 
+function setMemoryCache(token: string, data: ReceiptTemplatesResponse): void {
+  cache.set(token, { data, expiresAt: Date.now() + CACHE_TTL_MS });
+}
+
+export function getCachedReceiptTemplates(token: string): ReceiptTemplatesResponse | null {
+  const cached = cache.get(token);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.data;
+  }
+  return null;
+}
+
 export async function fetchReceiptTemplates(
   token: string,
   options?: { force?: boolean; cacheScope?: SettingsCacheScope },
@@ -37,34 +49,42 @@ export async function fetchReceiptTemplates(
   const storageKey = idbKey(options?.cacheScope);
 
   if (!options?.force) {
-    const cached = cache.get(token);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.data;
-    }
-
-    const pending = inflight.get(token);
-    if (pending) return pending;
-
-    const idb = await loadCachedSettingsData<ReceiptTemplatesResponse>(storageKey);
-    if (idb) return idb;
+    const cached = getCachedReceiptTemplates(token);
+    if (cached) return cached;
   }
 
-  const request = apiRequest<ReceiptTemplatesResponse>(
-    "/api/v1/company/settings/receipt-templates",
-    { token },
-  )
-    .then(async (data) => {
-      cache.set(token, { data, expiresAt: Date.now() + CACHE_TTL_MS });
-      inflight.delete(token);
+  // Always coalesce concurrent callers (including force / StrictMode remounts).
+  const pending = inflight.get(token);
+  if (pending) return pending;
+
+  const request = (async () => {
+    if (!options?.force) {
+      const idb = await loadCachedSettingsData<ReceiptTemplatesResponse>(storageKey);
+      if (idb) {
+        setMemoryCache(token, idb);
+        return idb;
+      }
+    }
+
+    try {
+      const data = await apiRequest<ReceiptTemplatesResponse>(
+        "/api/v1/company/settings/receipt-templates",
+        { token },
+      );
+      setMemoryCache(token, data);
       await saveToIdb(storageKey, data);
       return data;
-    })
-    .catch(async (error) => {
-      inflight.delete(token);
+    } catch (error) {
       const idb = await loadCachedSettingsData<ReceiptTemplatesResponse>(storageKey);
-      if (idb) return idb;
+      if (idb) {
+        setMemoryCache(token, idb);
+        return idb;
+      }
       throw error;
-    });
+    } finally {
+      inflight.delete(token);
+    }
+  })();
 
   inflight.set(token, request);
   return request;
@@ -93,7 +113,7 @@ export async function patchReceiptTemplates(
       body,
     },
   );
-  invalidateReceiptTemplatesCache(token);
+  setMemoryCache(token, response);
   await saveToIdb(idbKey(cacheScope), response);
   return response;
 }

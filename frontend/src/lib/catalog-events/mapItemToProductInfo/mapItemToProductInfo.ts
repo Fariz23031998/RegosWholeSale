@@ -2,12 +2,13 @@ import type { Product } from "@/types/catalog";
 
 export function mapItemToProductInfo(item: any): Partial<Product> {
   const regosItemId = item.id;
-  const name = item.name || item.fullname || `#${regosItemId}`;
-  const category = item.group?.name || item.department?.name || "Other";
-  const barcode = item.base_barcode || "";
-  const code = item.code || "";
-  const articul = item.articul || "";
-  const unit_name = item.unit?.name || "";
+  const name = String(item.name || item.fullname || `#${regosItemId}`);
+  const category = String(item.group?.name || item.department?.name || "Other");
+  const barcode = item.base_barcode != null ? String(item.base_barcode) : "";
+  const barcode_list = item.barcode_list != null ? String(item.barcode_list) : barcode;
+  const code = item.code != null ? String(item.code) : "";
+  const articul = item.articul != null ? String(item.articul) : "";
+  const unit_name = item.unit?.name != null ? String(item.unit.name) : "";
   
   let unit_type: number | null = null;
   if (item.unit) {
@@ -18,8 +19,8 @@ export function mapItemToProductInfo(item: any): Partial<Product> {
     }
   }
 
-  const sku = articul || barcode || code || String(regosItemId);
-  const image = item.image_url || "";
+  const sku = String(articul || barcode || code || regosItemId);
+  const image = item.image_url != null ? String(item.image_url) : "";
   const group_id = item.group?.id || null;
 
   return {
@@ -32,6 +33,7 @@ export function mapItemToProductInfo(item: any): Partial<Product> {
     sku,
     articul,
     barcode,
+    barcode_list,
     code,
     unit_name,
     unit_type,

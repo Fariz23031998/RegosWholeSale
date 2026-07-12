@@ -4,16 +4,18 @@ import {
   saveCheckoutTabs,
   type CheckoutTabData,
 } from "@/lib/checkout-tabs-db";
-import { maybeResetSellContextAfterSaleClosed } from "@/lib/sell-context-lifecycle";
 import { languageService } from "@/services/language";
 import { useCart, type PostponedDocType } from "@/store/cart";
+import { useSellContext } from "@/store/sell-context";
 
 const PERSIST_DEBOUNCE_MS = 300;
 const CHECKOUT_TABS_CHANNEL = "pulse-pos-checkout-tabs";
 
 let persistTimer: ReturnType<typeof setTimeout> | null = null;
 let skipCartPersist = false;
+let skipSellContextSync = false;
 let cartUnsubscribe: (() => void) | null = null;
+let sellContextUnsubscribe: (() => void) | null = null;
 let crossWindowUnsubscribe: (() => void) | null = null;
 const crossWindowSourceId =
   typeof crypto !== "undefined" && "randomUUID" in crypto
@@ -29,16 +31,73 @@ function defaultTabLabel(index: number): string {
   return template.replace(/\{\{n\}\}/g, String(index));
 }
 
+type TabSellContext = {
+  warehouseId: number | null;
+  priceTypeId: number | null;
+  partnerId: number | null;
+};
+
+function defaultsSellContext(): TabSellContext {
+  const { apiDefaults } = useSellContext.getState();
+  return {
+    warehouseId: apiDefaults.warehouseId,
+    priceTypeId: apiDefaults.priceTypeId,
+    partnerId: apiDefaults.partnerId,
+  };
+}
+
+function withDefaultsSellContext(tab: CheckoutTabData): CheckoutTabData {
+  const defaults = defaultsSellContext();
+  return {
+    ...tab,
+    warehouseId: defaults.warehouseId,
+    priceTypeId: defaults.priceTypeId,
+    partnerId: defaults.partnerId,
+    updatedAt: Date.now(),
+  };
+}
+
+function resolveTabSellContext(tab: CheckoutTabData): TabSellContext {
+  const defaults = defaultsSellContext();
+  return {
+    warehouseId: tab.warehouseId !== undefined ? tab.warehouseId : defaults.warehouseId,
+    priceTypeId: tab.priceTypeId !== undefined ? tab.priceTypeId : defaults.priceTypeId,
+    partnerId: tab.partnerId !== undefined ? tab.partnerId : defaults.partnerId,
+  };
+}
+
+/**
+ * Prevent sell-context updates (e.g. hydrate resetting to API defaults) from
+ * overwriting the active tab's saved warehouse / price type / partner.
+ * Zustand notifies subscribers synchronously inside set(), so the flag only
+ * needs to stay true for the duration of `fn`.
+ */
+export function suppressSellContextTabSync(fn: () => void) {
+  skipSellContextSync = true;
+  try {
+    fn();
+  } finally {
+    skipSellContextSync = false;
+  }
+}
+
+function applyTabSellContext(tab: CheckoutTabData) {
+  const resolved = resolveTabSellContext(tab);
+  suppressSellContextTabSync(() => {
+    useSellContext.getState().applyTabSelection(resolved);
+  });
+}
+
 function createEmptyTab(index: number): CheckoutTabData {
   const id = createTabId();
-  return {
+  return withDefaultsSellContext({
     id,
     label: defaultTabLabel(index),
     items: [],
     discountMode: "percent",
     discountValue: 0,
     updatedAt: Date.now(),
-  };
+  });
 }
 
 function resolvePostponedDocType(
@@ -70,6 +129,17 @@ function tabFromCartSnapshot(
 function scopeKeyForUser(userId: number | null, companyId: number | null): string | null {
   if (userId == null) return null;
   return `${companyId ?? 0}:${userId}`;
+}
+
+function migrateTabSellContext(tab: CheckoutTabData): CheckoutTabData {
+  if (
+    tab.warehouseId !== undefined &&
+    tab.priceTypeId !== undefined &&
+    tab.partnerId !== undefined
+  ) {
+    return tab;
+  }
+  return withDefaultsSellContext(tab);
 }
 
 type CheckoutTabsState = {
@@ -151,11 +221,13 @@ async function reloadCheckoutTabsFromStorage(get: () => CheckoutTabsState) {
     const stored = await loadCheckoutTabs(scopeKey);
     if (!stored?.tabs.length) return;
 
+    const tabs = stored.tabs.map(migrateTabSellContext);
     const activeTab =
-      stored.tabs.find((tab) => tab.id === activeTabId) ?? stored.tabs[0];
-    useCheckoutTabs.setState({ tabs: stored.tabs });
+      tabs.find((tab) => tab.id === activeTabId) ?? tabs[0];
+    useCheckoutTabs.setState({ tabs });
     if (activeTab.id === activeTabId) {
       applyActiveTabToCart(activeTab);
+      applyTabSellContext(activeTab);
     }
   } catch {
     // Ignore reload errors; in-memory state remains available.
@@ -201,6 +273,43 @@ function ensureCartSubscription(get: () => CheckoutTabsState) {
   });
 }
 
+function ensureSellContextSubscription(get: () => CheckoutTabsState) {
+  if (sellContextUnsubscribe) return;
+  sellContextUnsubscribe = useSellContext.subscribe((state, prev) => {
+    if (skipSellContextSync) return;
+    if (
+      state.warehouseId === prev.warehouseId &&
+      state.priceTypeId === prev.priceTypeId &&
+      state.partnerId === prev.partnerId
+    ) {
+      return;
+    }
+    const { activeTabId, tabs, scopeKey, hydrated } = get();
+    if (!hydrated || !scopeKey) return;
+
+    const nextTabs = tabs.map((tab) =>
+      tab.id === activeTabId
+        ? {
+            ...tab,
+            warehouseId: state.warehouseId,
+            priceTypeId: state.priceTypeId,
+            partnerId: state.partnerId,
+            updatedAt: Date.now(),
+          }
+        : tab,
+    );
+    useCheckoutTabs.setState({ tabs: nextTabs });
+    // Persist immediately — context changes are rare and must survive refresh.
+    void get().persistNow();
+  });
+}
+
+function ensureSubscriptions(get: () => CheckoutTabsState) {
+  ensureCartSubscription(get);
+  ensureSellContextSubscription(get);
+  ensureCrossWindowSync(get);
+}
+
 export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
   scopeKey: null,
   hydrated: false,
@@ -218,8 +327,8 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
         tabs: [tab],
       });
       applyActiveTabToCart(tab);
-      ensureCartSubscription(get);
-      ensureCrossWindowSync(get);
+      applyTabSellContext(tab);
+      ensureSubscriptions(get);
       return;
     }
 
@@ -228,15 +337,23 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
     try {
       const stored = await loadCheckoutTabs(scopeKey);
       if (stored?.tabs.length) {
+        const tabs = stored.tabs.map(migrateTabSellContext);
         const activeTab =
-          stored.tabs.find((tab) => tab.id === stored.activeTabId) ??
-          stored.tabs[0];
+          tabs.find((tab) => tab.id === stored.activeTabId) ?? tabs[0];
         set({
           activeTabId: activeTab.id,
-          tabs: stored.tabs,
+          tabs,
           hydrated: true,
         });
         applyActiveTabToCart(activeTab);
+        applyTabSellContext(activeTab);
+        // Persist migration of legacy tabs missing sell-context fields.
+        if (tabs.some((tab, i) => tab !== stored.tabs[i])) {
+          await saveCheckoutTabs(scopeKey, {
+            activeTabId: activeTab.id,
+            tabs,
+          });
+        }
       } else {
         const tab = createEmptyTab(1);
         set({
@@ -245,6 +362,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
           hydrated: true,
         });
         applyActiveTabToCart(tab);
+        applyTabSellContext(tab);
         await saveCheckoutTabs(scopeKey, {
           activeTabId: tab.id,
           tabs: [tab],
@@ -258,10 +376,10 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
         hydrated: true,
       });
       applyActiveTabToCart(tab);
+      applyTabSellContext(tab);
     }
 
-    ensureCartSubscription(get);
-    ensureCrossWindowSync(get);
+    ensureSubscriptions(get);
   },
 
   reset: () => {
@@ -287,6 +405,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
     const nextTabs = syncActiveTabFromCart(tabs, activeTabId);
     set({ tabs: nextTabs, activeTabId: tabId });
     applyActiveTabToCart(target);
+    applyTabSellContext(target);
     void get().persistNow();
   },
 
@@ -299,6 +418,7 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
       activeTabId: tab.id,
     });
     applyActiveTabToCart(tab);
+    applyTabSellContext(tab);
     void get().persistNow();
   },
 
@@ -306,19 +426,18 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
     const { activeTabId, tabs } = get();
     if (tabs.length <= 1) {
       const [onlyTab] = tabs;
-      const clearedTab = {
+      const clearedTab = withDefaultsSellContext({
         ...onlyTab,
         items: [],
         discountMode: "percent" as const,
         discountValue: 0,
         postponedWholesaleDocId: null,
         postponedDocType: null,
-        updatedAt: Date.now(),
-      };
+      });
       set({ tabs: [clearedTab] });
       applyActiveTabToCart(clearedTab);
+      applyTabSellContext(clearedTab);
       void get().persistNow();
-      maybeResetSellContextAfterSaleClosed();
       return;
     }
 
@@ -336,31 +455,32 @@ export const useCheckoutTabs = create<CheckoutTabsState>((set, get) => ({
       const nextTab = nextTabs[Math.min(closedIndex, nextTabs.length - 1)];
       nextActiveId = nextTab.id;
       applyActiveTabToCart(nextTab);
+      applyTabSellContext(nextTab);
     }
 
     set({ tabs: nextTabs, activeTabId: nextActiveId });
     void get().persistNow();
-    maybeResetSellContextAfterSaleClosed();
   },
 
   clearActiveTabAfterCheckout: () => {
     const { activeTabId, tabs } = get();
     const nextTabs = tabs.map((tab) =>
       tab.id === activeTabId
-        ? {
+        ? withDefaultsSellContext({
             ...tab,
             items: [],
             discountMode: "percent" as const,
             discountValue: 0,
             postponedWholesaleDocId: null,
             postponedDocType: null,
-            updatedAt: Date.now(),
-          }
+          })
         : tab,
     );
+    const activeTab = nextTabs.find((tab) => tab.id === activeTabId) ?? nextTabs[0];
     set({ tabs: nextTabs });
+    applyActiveTabToCart(activeTab);
+    applyTabSellContext(activeTab);
     void get().persistNow();
-    maybeResetSellContextAfterSaleClosed();
   },
 
   persistNow: async () => {

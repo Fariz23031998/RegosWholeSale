@@ -41,6 +41,14 @@
   display: flex;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  align-items: center;
+}
+
+.catalogToolbarActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
 }
 
 .search {
@@ -201,6 +209,23 @@
 @media (max-width: 900px) {
   .catalogFilterBtnLabel {
     display: none;
+  }
+
+  .searchRow {
+    flex-wrap: wrap;
+  }
+
+  .catalogToolbarActions {
+    order: 1;
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .searchRow > .search {
+    order: 2;
+    flex: 1 1 100%;
   }
 }
 
@@ -402,11 +427,32 @@
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  flex-wrap: wrap;
 }
 
 .partnerModalToolbar .categoryModalSearch {
   flex: 1;
+  min-width: 160px;
   margin-bottom: 0;
+}
+
+.partnerGroupFilter {
+  flex-shrink: 0;
+  height: 40px;
+  min-width: 140px;
+  max-width: 220px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  outline: none;
+}
+
+.partnerGroupFilter:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
 }
 
 .partnerModalError {

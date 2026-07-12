@@ -6,6 +6,8 @@ import { usePermissions } from "@/hooks/use-permissions";
 import { connectCatalogEvents } from "@/lib/catalog-events";
 import { connectSettingsEvents, type SettingsEventNamespace } from "@/lib/settings-events";
 import { SETTINGS_QUERY_KEYS, fetchRegosReferenceOptions } from "@/lib/settings-api";
+import { performMetaIncrementalSync } from "@/lib/meta-incremental-sync";
+import { subscribeAppResume } from "@/lib/app-resume";
 import {
   enqueuePendingSaleSync,
   startPendingSaleSync,
@@ -84,12 +86,65 @@ function AppLayout() {
   }, [accessToken, isHydrated, navigate]);
 
   useEffect(() => {
-    if (!isHydrated || !accessToken || !user?.company_id) return;
+    if (!isHydrated || !accessToken || !user?.company_id || !user.id) return;
 
-    void fetchRegosReferenceOptions(accessToken, {
-      cacheScope: { companyId: user.company_id },
-    }).catch(() => undefined);
-  }, [accessToken, isHydrated, user?.company_id]);
+    const companyId = user.company_id;
+    const userId = user.id;
+
+    const applyMetaResult = async (
+      result: Awaited<ReturnType<typeof performMetaIncrementalSync>> | null,
+    ) => {
+      if (!result) return;
+
+      await fetchRegosReferenceOptions(accessToken, {
+        cacheScope: { companyId },
+        ...(result.referenceKinds.length || result.fullSyncRequired
+          ? { force: true }
+          : {}),
+      }).catch(() => undefined);
+
+      if (result.settingsCount || result.fullSyncRequired) {
+        void queryClient.invalidateQueries({ queryKey: SETTINGS_QUERY_KEYS.pos(accessToken) });
+        void queryClient.invalidateQueries({
+          queryKey: SETTINGS_QUERY_KEYS.regosBootstrap(accessToken),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: SETTINGS_QUERY_KEYS.receiptTemplates(accessToken),
+        });
+        void queryClient.invalidateQueries({
+          queryKey: SETTINGS_QUERY_KEYS.exchangeRateSync(accessToken),
+        });
+      }
+      if (result.referenceKinds.length || result.fullSyncRequired) {
+        void queryClient.invalidateQueries({
+          queryKey: ["regos", "reference-options", accessToken],
+        });
+      }
+    };
+
+    const runMetaSync = async (options?: { force?: boolean }) => {
+      const result = await performMetaIncrementalSync(
+        accessToken,
+        companyId,
+        userId,
+        {
+          canChangePosContext: canChangePosContextRef.current(),
+          force: options?.force,
+        },
+      ).catch(() => null);
+      await applyMetaResult(result);
+    };
+
+    void runMetaSync();
+
+    const unsubscribeResume = subscribeAppResume(() => {
+      void runMetaSync({ force: true });
+    });
+
+    return () => {
+      unsubscribeResume();
+    };
+  }, [accessToken, isHydrated, queryClient, user?.company_id, user?.id]);
 
   useEffect(() => {
     settingsEventsRef.current?.close();

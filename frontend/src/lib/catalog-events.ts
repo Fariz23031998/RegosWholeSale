@@ -3,7 +3,7 @@ import {
   invalidateGroups,
   removeProducts,
   upsertProducts,
-} from "@/lib/catalog-products-db";
+} from "./catalog-products-db";
 import { refreshProductsByIds } from "@/lib/catalog-service";
 import { fetchProductsByIds } from "@/lib/catalog-api";
 import {
@@ -29,6 +29,9 @@ import { updateProductPriceOnly } from "@/lib/catalog-events/updateProductPriceO
 import { updateProductStockOnly } from "@/lib/catalog-events/updateProductStockOnly/updateProductStockOnly";
 import { updateProductInfoOnly } from "@/lib/catalog-events/updateProductInfoOnly/updateProductInfoOnly";
 import { loadCachedProductIdsByScope } from "@/lib/catalog-products-db/loadCachedProductIdsByScope/loadCachedProductIdsByScope";
+import { fetchAllPartners, fetchPartnerGroups } from "@/lib/partners-api";
+import { saveCachedPartners, saveCachedPartnerGroups } from "@/lib/partners-db";
+
 
 export const CATALOG_EVENTS_CHANNEL = "pulse-pos-catalog-events";
 
@@ -174,6 +177,16 @@ export async function handleCatalogEvent(
         price_types: fresh.price_types,
         partners: fresh.partners,
       });
+      if (event.kinds.includes("partner")) {
+        const [allPartners, groupsResponse] = await Promise.all([
+          fetchAllPartners(token),
+          fetchPartnerGroups(token),
+        ]);
+        await Promise.all([
+          saveCachedPartners(context.companyId, allPartners).catch(() => undefined),
+          saveCachedPartnerGroups(context.companyId, groupsResponse.groups).catch(() => undefined),
+        ]);
+      }
       notifyReferenceOptionsEventListeners(event);
       handlers.onReferenceOptionsInvalidated(event.kinds);
     } catch {
@@ -237,6 +250,11 @@ export async function handleCatalogEvent(
     "DocWholeSaleReturnPerformCanceled",
     "DocWholeSaleReturnPerformed",
   ]);
+  // Purchase can change stock at the document warehouse and prices for all warehouses.
+  const stockAndPriceEvents = new Set([
+    "DocPurchasePerformCanceled",
+    "DocPurchasePerformed",
+  ]);
   const productInfoEvents = new Set([
     "ItemAdded",
     "ItemDeleted",
@@ -250,7 +268,7 @@ export async function handleCatalogEvent(
   if (event.type === "groups_invalidated") {
     await invalidateGroups(context.companyId).catch(() => undefined);
     handlers.onGroupsInvalidated?.();
-    if (productInfoEvents.has(event.source_action)) {
+    if (productInfoEvents.has(event.source_action) && handlers.onProductsUpdated) {
       const cachedIds = await loadCachedProductIdsByScope(activeScopeKey).catch(() => []);
       if (cachedIds.length > 0) {
         const itemIds = cachedIds.map((id) => Number(id)).filter((id) => !isNaN(id));
@@ -267,12 +285,14 @@ export async function handleCatalogEvent(
 
   if (event.type === "products_removed") {
     if (productInfoEvents.has(event.source_action)) {
-      await updateProductInfoOnly(
-        token,
-        event.regos_item_ids,
-        activeScopeKey,
-        handlers.onProductsUpdated,
-      ).catch(() => undefined);
+      if (handlers.onProductsUpdated) {
+        await updateProductInfoOnly(
+          token,
+          event.regos_item_ids,
+          activeScopeKey,
+          handlers.onProductsUpdated,
+        ).catch(() => undefined);
+      }
       return;
     }
     const productIds = regosItemIdsToProductIds(event.regos_item_ids);
@@ -282,6 +302,8 @@ export async function handleCatalogEvent(
   }
 
   if (event.type === "products_updated") {
+    if (!handlers.onProductsUpdated) return;
+
     const action = event.source_action;
     const eventStockId = event.stock_id;
     const activeWarehouseId = context.canChangeWarehouse ? context.warehouseId ?? null : null;
@@ -304,7 +326,12 @@ export async function handleCatalogEvent(
     }
 
     if (stockOnlyEvents.has(action)) {
-      if (eventStockId != null) {
+      // Warm the document-warehouse cache when it differs from the active view.
+      if (
+        eventStockId != null &&
+        activeWarehouseId != null &&
+        eventStockId !== activeWarehouseId
+      ) {
         const eventScopeKey = buildCatalogScopeKey(
           context.companyId,
           eventStockId,
@@ -345,7 +372,49 @@ export async function handleCatalogEvent(
       return;
     }
 
-    if (eventStockId != null) {
+    if (stockAndPriceEvents.has(action)) {
+      // Warm the document-warehouse cache when it differs from the active view.
+      if (
+        eventStockId != null &&
+        activeWarehouseId != null &&
+        eventStockId !== activeWarehouseId
+      ) {
+        const eventScope = {
+          companyId: context.companyId,
+          warehouseId: eventStockId,
+          priceTypeId: fetchQuery.priceTypeId,
+        };
+        await refreshProductsByIds(token, event.regos_item_ids, eventScope, {
+          warehouseId: eventStockId,
+          priceTypeId: fetchQuery.priceTypeId,
+        }).catch(() => undefined);
+      }
+
+      // Always refresh the active view so price changes are visible on any warehouse.
+      try {
+        const fresh = await fetchProductsByIds(token, event.regos_item_ids, fetchQuery);
+        await upsertProducts(activeScopeKey, fresh.products).catch(() => undefined);
+        handlers.onProductsUpdated?.(fresh.products);
+      } catch {
+        const cached = await refreshProductsByIds(
+          token,
+          event.regos_item_ids,
+          activeScope,
+          fetchQuery,
+        ).catch(() => null);
+        if (cached) {
+          handlers.onProductsUpdated?.(cached.products);
+        }
+      }
+      return;
+    }
+
+    // Warm a non-active warehouse cache without duplicating the active-view fetch.
+    if (
+      eventStockId != null &&
+      activeWarehouseId != null &&
+      eventStockId !== activeWarehouseId
+    ) {
       const eventScope = {
         companyId: context.companyId,
         warehouseId: eventStockId,
@@ -377,41 +446,128 @@ export async function handleCatalogEvent(
   }
 }
 
+const MAX_SIGNATURES = 100;
+
+function getEventSignature(event: CatalogEventMessage): string {
+  const ids = "regos_item_ids" in event ? event.regos_item_ids.join(",") : "";
+  const stock = "stock_id" in event ? event.stock_id ?? "" : "";
+  const kinds = "kinds" in event ? event.kinds.join(",") : "";
+  const paymentTypeIds = "payment_type_ids" in event ? event.payment_type_ids.join(",") : "";
+  return `${event.type}:${event.source_action}:${ids}:${stock}:${kinds}:${paymentTypeIds}:${event.occurred_at}`;
+}
+
+interface ConnectionInfo {
+  token: string;
+  context: CatalogEventContext;
+  handlers: CatalogEventHandlers;
+}
+
+interface GlobalSSEState {
+  sharedSource: EventSource | null;
+  sharedChannel: BroadcastChannel | null;
+  activeConnections: Set<ConnectionInfo>;
+  processedEventSignatures: Set<string>;
+}
+
+const getGlobalSseState = (): GlobalSSEState => {
+  const empty = (): GlobalSSEState => ({
+    sharedSource: null,
+    sharedChannel: null,
+    activeConnections: new Set<ConnectionInfo>(),
+    processedEventSignatures: new Set<string>(),
+  });
+
+  if (typeof window === "undefined") {
+    const glob = global as any;
+    if (!glob.__pulse_pos_sse_global__) {
+      glob.__pulse_pos_sse_global__ = empty();
+    }
+    return glob.__pulse_pos_sse_global__;
+  }
+  const win = window as any;
+  if (!win.__pulse_pos_sse_global__) {
+    win.__pulse_pos_sse_global__ = empty();
+  }
+  return win.__pulse_pos_sse_global__;
+};
+
+function isDuplicateEvent(event: CatalogEventMessage): boolean {
+  const signature = getEventSignature(event);
+  const state = getGlobalSseState();
+  if (state.processedEventSignatures.has(signature)) {
+    return true;
+  }
+  state.processedEventSignatures.add(signature);
+  if (state.processedEventSignatures.size > MAX_SIGNATURES) {
+    const firstKey = state.processedEventSignatures.values().next().value;
+    if (firstKey !== undefined) {
+      state.processedEventSignatures.delete(firstKey);
+    }
+  }
+  return false;
+}
+
+function handleIncomingEvent(event: CatalogEventMessage) {
+  const state = getGlobalSseState();
+  for (const conn of state.activeConnections) {
+    void handleCatalogEvent(conn.token, event, conn.context, conn.handlers).catch(() => undefined);
+  }
+}
+
 export function connectCatalogEvents(
   token: string,
   context: CatalogEventContext,
   handlers: CatalogEventHandlers,
 ): CatalogEventConnection {
-  const baseUrl = getApiBaseUrl();
-  const url = `${baseUrl}/api/v1/regos/catalog-events?access_token=${encodeURIComponent(token)}`;
-  const source = new EventSource(url);
+  const connection: ConnectionInfo = { token, context, handlers };
+  const state = getGlobalSseState();
+  state.activeConnections.add(connection);
 
-  const onMessage = (messageEvent: MessageEvent<string>) => {
-    const event = parseCatalogEvent(messageEvent.data);
-    if (!event) return;
-    broadcastCatalogEvent(event);
-    void handleCatalogEvent(token, event, context, handlers).catch(() => undefined);
-  };
+  if (!state.sharedSource) {
+    const baseUrl = getApiBaseUrl();
+    const url = `${baseUrl}/api/v1/regos/catalog-events?access_token=${encodeURIComponent(token)}`;
+    const source = new EventSource(url);
+    state.sharedSource = source;
 
-  source.addEventListener("message", onMessage as EventListener);
+    const onMessage = (messageEvent: MessageEvent<string>) => {
+      const event = parseCatalogEvent(messageEvent.data);
+      if (!event) return;
+      if (isDuplicateEvent(event)) return;
+      broadcastCatalogEvent(event);
+      handleIncomingEvent(event);
+    };
 
-  let channel: BroadcastChannel | null = null;
-  if (typeof BroadcastChannel !== "undefined") {
-    channel = new BroadcastChannel(CATALOG_EVENTS_CHANNEL);
+    source.addEventListener("message", onMessage as EventListener);
+  }
+
+  if (!state.sharedChannel && typeof BroadcastChannel !== "undefined") {
+    const channel = new BroadcastChannel(CATALOG_EVENTS_CHANNEL);
+    state.sharedChannel = channel;
     channel.onmessage = (message) => {
       const payload = message.data as { sourceId?: string; event?: CatalogEventMessage };
       if (payload?.sourceId === catalogEventsSourceId) return;
       const event = payload?.event;
       if (!event || typeof event !== "object" || !("type" in event)) return;
-      void handleCatalogEvent(token, event, context, handlers).catch(() => undefined);
+      if (isDuplicateEvent(event)) return;
+      handleIncomingEvent(event);
     };
   }
 
   return {
     close: () => {
-      source.removeEventListener("message", onMessage as EventListener);
-      source.close();
-      channel?.close();
+      const currentState = getGlobalSseState();
+      currentState.activeConnections.delete(connection);
+      if (currentState.activeConnections.size === 0) {
+        if (currentState.sharedSource) {
+          currentState.sharedSource.close();
+          currentState.sharedSource = null;
+        }
+        if (currentState.sharedChannel) {
+          currentState.sharedChannel.close();
+          currentState.sharedChannel = null;
+        }
+      }
     },
   };
 }
+

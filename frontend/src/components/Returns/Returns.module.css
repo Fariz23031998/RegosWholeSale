@@ -314,6 +314,25 @@
   margin-bottom: var(--space-3);
 }
 
+.continueSaleModal {
+  height: min(85vh, 860px);
+  max-height: 90vh;
+}
+
+.continueSaleBody {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  gap: var(--space-3);
+}
+
+.continueSaleList {
+  flex: 1;
+  min-height: 280px;
+  max-height: none;
+  margin-bottom: 0;
+}
+
 .saleRow {
   display: flex;
   justify-content: space-between;

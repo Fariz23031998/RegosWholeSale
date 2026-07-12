@@ -17,8 +17,8 @@ export function isBarcodeInput(value: string): boolean {
   return /^\d{12,}$/.test(trimmed);
 }
 
-export function normalizeProductCode(code: string): string {
-  const trimmed = code.trim();
+export function normalizeProductCode(code: string | number): string {
+  const trimmed = String(code).trim();
   const withoutLeading = trimmed.replace(/^0+/, "");
   return withoutLeading || "0";
 }
@@ -116,7 +116,10 @@ export function findProductByBarcode(
   barcode: string,
 ): Product | undefined {
   const trimmed = barcode.trim();
-  const exact = products.find((product) => product.barcode?.trim() === trimmed);
+  const exact = products.find((product) => {
+    const pBarcode = product.barcode != null ? String(product.barcode).trim() : "";
+    return pBarcode === trimmed;
+  });
   if (exact) return exact;
   return products[0];
 }

@@ -27,17 +27,17 @@ type CatalogProductCardProps = {
 };
 
 function productDisplayName(product: Product): string {
-  const unitName = product.unit_name?.trim();
+  const unitName = product.unit_name != null ? String(product.unit_name).trim() : "";
   if (!unitName) return product.name;
   return `${product.name} (${unitName})`;
 }
 
 function productCodeLine(product: Product): string {
   const parts = [product.code, product.articul, product.barcode]
-    .map((value) => value?.trim())
+    .map((value) => (value != null ? String(value).trim() : ""))
     .filter(Boolean);
   if (parts.length > 0) return parts.join(" · ");
-  return product.sku;
+  return product.sku != null ? String(product.sku) : "";
 }
 
 export const CatalogProductCard = memo(function CatalogProductCard({

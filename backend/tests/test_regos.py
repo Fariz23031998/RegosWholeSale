@@ -1752,6 +1752,47 @@ async def test_products_route_uses_zero_flags_from_defaults(
     assert payload["zero_price"] is True
 
 
+@patch("app.services.regos_products.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_products_route_query_zero_flags_override_false_defaults(
+    mock_regos: AsyncMock, client: AsyncClient
+) -> None:
+    """Full catalog download sends zero_quantity/zero_price=true even when defaults are false."""
+    mock_regos.return_value = {"ok": True, "result": [], "next_offset": 0, "total": 0}
+
+    reg = await register_owner(
+        client, email="products-zero-override@test.com", company_name="Products Zero Override Co"
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    patched = await client.patch(
+        "/api/v1/company/settings",
+        headers=headers,
+        json={
+            "settings": {
+                "regos_defaults": {
+                    "warehouse": {"id": 11, "name": "Main warehouse"},
+                    "price_type": {"id": 22, "name": "Retail"},
+                    "zero_quantity": False,
+                    "zero_price": False,
+                }
+            }
+        },
+    )
+    assert patched.status_code == 200
+
+    response = await client.get(
+        "/api/v1/regos/products",
+        headers=headers,
+        params={"zero_quantity": "true", "zero_price": "true"},
+    )
+    assert response.status_code == 200
+    payload = mock_regos.call_args[0][3]
+    assert payload["zero_quantity"] is True
+    assert payload["zero_price"] is True
+
+
 @patch("app.services.regos_defaults.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio
 async def test_employee_can_read_but_not_update_regos_defaults(

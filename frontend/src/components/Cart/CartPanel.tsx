@@ -27,7 +27,6 @@ import {
 } from "@/lib/cart-stock";
 import { formatCurrency } from "@/lib/format";
 import { toast } from "sonner";
-import { maybeResetSellContextAfterSaleClosed } from "@/lib/sell-context-lifecycle";
 import { enqueuePendingSaleSync } from "@/lib/pending-sales-sync";
 import { buildPendingSalesScopeKey } from "@/types/pending-sale";
 import type { PostponeRequest } from "@/lib/sales-api";
@@ -315,9 +314,7 @@ export function CartPanel() {
 
   const handleClearCart = () => {
     clear();
-    queueMicrotask(() => {
-      maybeResetSellContextAfterSaleClosed();
-    });
+    clearActiveTabAfterCheckout();
   };
 
   return (

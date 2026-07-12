@@ -1,7 +1,6 @@
 from typing import Any
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import bad_request
-from app.core.regos_api import regos_async_api_request_for_company
 from app.services import regos_defaults as regos_defaults_service
 from app.services.regos_products.helpers.map_product.map_product import map_product
 from app.services.regos_products.helpers.matches_product_filters.matches_product_filters import matches_product_filters
@@ -18,6 +17,8 @@ async def list_featured_products(
     warehouse_id: int | None = None,
     price_type_id: int | None = None,
 ) -> dict[str, Any]:
+    from app.services.regos_products import regos_async_api_request_for_company
+
     from app.services import featured_products as featured_products_service
 
     product_ids = await featured_products_service.list_product_ids(session, user_id)

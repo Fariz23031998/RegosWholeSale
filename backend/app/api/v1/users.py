@@ -16,7 +16,7 @@ from app.services import pos_settings as pos_settings_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services import users as users_service
 from app.services.permissions import set_user_permission_rules
-from app.services.settings_events import publish_settings_updated
+from app.services.settings_change import notify_settings_updated
 from app.services.users import get_company_user, user_to_dict
 
 router = APIRouter(prefix="/users", tags=["users"])
@@ -169,7 +169,7 @@ async def patch_user_pos_settings(
         user,
         body.model_dump(exclude_unset=True),
     )
-    publish_settings_updated(
+    await notify_settings_updated(session, 
         current.company_id,
         scope="employee",
         namespace="pos",
@@ -186,7 +186,7 @@ async def clear_user_pos_settings(
 ) -> UserPosSettingsResponse:
     user = await get_company_user(session, current.company_id, user_id)
     settings = await pos_settings_service.clear_user_pos_settings(session, user)
-    publish_settings_updated(
+    await notify_settings_updated(session, 
         current.company_id,
         scope="employee",
         namespace="pos",
@@ -221,7 +221,7 @@ async def patch_user_regos_defaults(
         user,
         body.model_dump(exclude_unset=True),
     )
-    publish_settings_updated(
+    await notify_settings_updated(session, 
         current.company_id,
         scope="employee",
         namespace="regos_defaults",
@@ -238,7 +238,7 @@ async def clear_user_regos_defaults(
 ) -> RegosDefaultsResponse:
     user = await get_company_user(session, current.company_id, user_id)
     defaults = await regos_defaults_service.clear_user_regos_defaults(session, user)
-    publish_settings_updated(
+    await notify_settings_updated(session, 
         current.company_id,
         scope="employee",
         namespace="regos_defaults",

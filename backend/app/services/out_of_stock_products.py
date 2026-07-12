@@ -12,13 +12,13 @@ async def record_out_of_stock(
     product_id: int,
     stock_id: int,
 ) -> OutOfStockProduct:
+    """Stage an out-of-stock row; caller commits so the write lock is not held during I/O."""
     row = OutOfStockProduct(
         company_id=company_id,
         product_id=product_id,
         stock_id=stock_id,
     )
     session.add(row)
-    await session.flush()
     return row
 
 

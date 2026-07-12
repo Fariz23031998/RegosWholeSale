@@ -93,7 +93,8 @@ async def process_operation_document(
                     operations,
                 )
 
-            _publish_catalog_stock_updates(
+            await _publish_catalog_stock_updates(
+                session,
                 company_id,
                 event_action,
                 document,

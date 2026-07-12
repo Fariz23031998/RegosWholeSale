@@ -23,7 +23,9 @@ export async function loadCachedProductIdsByScope(scopeKey: string): Promise<str
       }
       const record = cursor.value as CachedProductRecord;
       if (record && record.product && record.product.id) {
-        ids.push(record.product.id);
+        if (!ids.includes(record.product.id)) {
+          ids.push(record.product.id);
+        }
       }
       cursor.continue();
     };

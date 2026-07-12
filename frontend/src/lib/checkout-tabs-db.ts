@@ -14,6 +14,10 @@ export type CheckoutTabData = {
   discountValue: number;
   postponedWholesaleDocId?: number | null;
   postponedDocType?: PostponedDocType;
+  /** Per-tab sell context; missing on legacy IDB rows → treat as defaults on apply. */
+  warehouseId?: number | null;
+  priceTypeId?: number | null;
+  partnerId?: number | null;
   updatedAt: number;
 };
 

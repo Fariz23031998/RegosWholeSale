@@ -1,4 +1,5 @@
 from app.models.company import Company
+from app.models.events_log import EventsLog
 from app.models.permission import Permission, UserPermission
 from app.models.platform_admin import PlatformAdmin
 from app.models.schedule import LoginSchedule
@@ -16,6 +17,7 @@ from app.models.receipt_share import ReceiptShare
 
 __all__ = [
     "Company",
+    "EventsLog",
     "SubscriptionStatus",
     "SubscriptionPayment",
     "PlatformAdmin",

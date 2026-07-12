@@ -1,5 +1,5 @@
 export const PULSE_POS_DB_NAME = "pulse-pos";
-export const PULSE_POS_DB_VERSION = 8;
+export const PULSE_POS_DB_VERSION = 10;
 
 export const CHECKOUT_TABS_STORE = "checkout-tabs";
 export const CATALOG_UI_STORE = "catalog-ui";
@@ -11,6 +11,8 @@ export const CATALOG_GROUPS_STORE = "catalog-groups";
 export const PAYMENT_TYPES_STORE = "payment-types";
 export const REFERENCE_OPTIONS_STORE = "reference-options";
 export const PENDING_SALES_STORE = "pending-sales";
+export const PARTNERS_STORE = "partners";
+export const SYNC_META_STORE = "sync-meta";
 
 export function ensurePulsePosStores(db: IDBDatabase): void {
   if (!db.objectStoreNames.contains(CHECKOUT_TABS_STORE)) {
@@ -47,6 +49,12 @@ export function ensurePulsePosStores(db: IDBDatabase): void {
     const store = db.createObjectStore(PENDING_SALES_STORE, { keyPath: "localId" });
     store.createIndex("scopeKey", "scopeKey", { unique: false });
     store.createIndex("status", "status", { unique: false });
+  }
+  if (!db.objectStoreNames.contains(PARTNERS_STORE)) {
+    db.createObjectStore(PARTNERS_STORE);
+  }
+  if (!db.objectStoreNames.contains(SYNC_META_STORE)) {
+    db.createObjectStore(SYNC_META_STORE);
   }
 }
 

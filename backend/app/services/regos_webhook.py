@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import RegosToken
+from app.services import events_log as events_log_service
 from app.services import catalog_events as catalog_events_service
 from app.services import regos_document_fetch as doc_fetch
 from app.services import regos_webhook_background as webhook_background
@@ -307,6 +308,9 @@ async def handle_regos_webhook(
 
     occurred_at = _webhook_occurred_at(webhook_data)
 
+    # Periodically clean up old change-log entries
+    await events_log_service.cleanup_old_entries(session, company_id)
+
     if event_action in ITEM_REMOVED_EVENTS:
         item_id = _parse_item_id(event_data)
         if item_id is not None:
@@ -315,6 +319,9 @@ async def handle_regos_webhook(
                 regos_item_ids=[item_id],
                 source_action=event_action,
                 occurred_at=occurred_at,
+            )
+            await events_log_service.record_product_changes(
+                session, company_id, "product_removed", [item_id], event_action,
             )
         return {"ok": True, "message": "Webhook processed", "company_id": company_id}
 
@@ -327,6 +334,9 @@ async def handle_regos_webhook(
                 source_action=event_action,
                 occurred_at=occurred_at,
             )
+            await events_log_service.record_product_changes(
+                session, company_id, "product_updated", [item_id], event_action,
+            )
         return {"ok": True, "message": "Webhook processed", "company_id": company_id}
 
     if event_action in ITEM_GROUP_EVENTS:
@@ -334,6 +344,9 @@ async def handle_regos_webhook(
             company_id,
             source_action=event_action,
             occurred_at=occurred_at,
+        )
+        await events_log_service.record_product_changes(
+            session, company_id, "groups_invalidated", None, event_action,
         )
         return {"ok": True, "message": "Webhook processed", "company_id": company_id}
 
@@ -346,6 +359,13 @@ async def handle_regos_webhook(
                 source_action=event_action,
                 occurred_at=occurred_at,
             )
+            await events_log_service.record_payment_type_changes(
+                session,
+                company_id,
+                events_log_service.CHANGE_PAYMENT_TYPE_RM,
+                [payment_type_id],
+                event_action,
+            )
         return {"ok": True, "message": "Webhook processed", "company_id": company_id}
 
     if event_action in PAYMENT_TYPE_UPDATED_EVENTS:
@@ -357,6 +377,13 @@ async def handle_regos_webhook(
                 source_action=event_action,
                 occurred_at=occurred_at,
             )
+            await events_log_service.record_payment_type_changes(
+                session,
+                company_id,
+                events_log_service.CHANGE_PAYMENT_TYPE_UPD,
+                [payment_type_id],
+                event_action,
+            )
         return {"ok": True, "message": "Webhook processed", "company_id": company_id}
 
     if event_action in STOCK_REFERENCE_OPTION_EVENTS:
@@ -365,6 +392,9 @@ async def handle_regos_webhook(
             kinds=["warehouse"],
             source_action=event_action,
             occurred_at=occurred_at,
+        )
+        await events_log_service.record_reference_options_invalidated(
+            session, company_id, ["warehouse"], event_action,
         )
         return {"ok": True, "message": "Webhook processed", "company_id": company_id}
 
@@ -375,6 +405,9 @@ async def handle_regos_webhook(
             source_action=event_action,
             occurred_at=occurred_at,
         )
+        await events_log_service.record_reference_options_invalidated(
+            session, company_id, ["partner"], event_action,
+        )
         return {"ok": True, "message": "Webhook processed", "company_id": company_id}
 
     if event_action in PRICE_TYPE_REFERENCE_OPTION_EVENTS:
@@ -383,6 +416,9 @@ async def handle_regos_webhook(
             kinds=["price_type"],
             source_action=event_action,
             occurred_at=occurred_at,
+        )
+        await events_log_service.record_reference_options_invalidated(
+            session, company_id, ["price_type"], event_action,
         )
         return {"ok": True, "message": "Webhook processed", "company_id": company_id}
 

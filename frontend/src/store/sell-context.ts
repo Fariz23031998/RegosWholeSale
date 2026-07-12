@@ -1,10 +1,4 @@
 import { create } from "zustand";
-import {
-  clearSellContext,
-  loadSellContext,
-  saveSellContext,
-  validateSellContextRecord,
-} from "@/lib/sell-context-db";
 import { loadCachedReferenceOptions } from "@/lib/reference-options-db";
 import type { ReferenceOptionKind } from "@/lib/catalog-events";
 import { buildEmployeeSettingsKey, loadCachedSettingsData } from "@/lib/settings-db";
@@ -38,6 +32,12 @@ type HydrateOptions = {
   companyId?: number | null;
 };
 
+type TabSelection = {
+  warehouseId: number | null;
+  priceTypeId: number | null;
+  partnerId: number | null;
+};
+
 type SellContextState = {
   scopeKey: string | null;
   warehouseId: number | null;
@@ -55,6 +55,7 @@ type SellContextState = {
   setWarehouseId: (id: number | null) => void;
   setPriceTypeId: (id: number | null) => void;
   setPartnerId: (id: number | null) => void;
+  applyTabSelection: (selection: TabSelection) => void;
   resetToDefaults: () => Promise<void>;
   refreshPartnerOptions: (token: string) => Promise<void>;
   refreshReferenceOptions: (token: string, kinds: ReferenceOptionKind[]) => Promise<void>;
@@ -93,28 +94,6 @@ function apiDefaultsFromRegosDefaults(defaults: RegosDefaults): ApiDefaults {
     priceTypeId: optionId(defaults.price_type),
     partnerId: optionId(defaults.partner),
     saleCurrency: defaults.currency,
-  };
-}
-
-function mergeStoredSellContext(
-  apiDefaults: ApiDefaults,
-  stored: {
-    warehouseId: number | null;
-    priceTypeId: number | null;
-    partnerId: number | null;
-  },
-  options: RegosReferenceOptionsResponse,
-): Pick<SellContextState, "warehouseId" | "priceTypeId" | "partnerId" | "saleCurrency"> {
-  const warehouseId = stored.warehouseId ?? apiDefaults.warehouseId;
-  const priceTypeId = stored.priceTypeId ?? apiDefaults.priceTypeId;
-  const partnerId = stored.partnerId ?? apiDefaults.partnerId;
-
-  return {
-    warehouseId,
-    priceTypeId,
-    partnerId,
-    saleCurrency:
-      saleCurrencyForPriceType(priceTypeId, options) ?? apiDefaults.saleCurrency,
   };
 }
 
@@ -163,30 +142,16 @@ async function resolveSellContextState(
     };
   }
 
-  let nextContext = {
+  // Live selection starts at API defaults; checkout tabs own per-sale overrides.
+  return {
+    scopeKey,
+    apiDefaults,
     warehouseId: apiDefaults.warehouseId,
     priceTypeId: apiDefaults.priceTypeId,
     partnerId: apiDefaults.partnerId,
     saleCurrency:
       saleCurrencyForPriceType(apiDefaults.priceTypeId, referenceOptions) ??
       apiDefaults.saleCurrency,
-  };
-
-  if (scopeKey) {
-    const stored = await loadSellContext(scopeKey);
-    if (stored) {
-      const validated = validateSellContextRecord(stored, referenceOptions, canOverride);
-      nextContext = mergeStoredSellContext(apiDefaults, validated, referenceOptions);
-    }
-  }
-
-  return {
-    scopeKey,
-    apiDefaults,
-    warehouseId: nextContext.warehouseId,
-    priceTypeId: nextContext.priceTypeId,
-    partnerId: nextContext.partnerId,
-    saleCurrency: nextContext.saleCurrency,
     options: canOverride ? referenceOptions : EMPTY_OPTIONS,
   };
 }
@@ -194,19 +159,6 @@ async function resolveSellContextState(
 let hydrateInflight: Promise<void> | null = null;
 let hydrateInflightKey: string | null = null;
 let lastHydratedKey: string | null = null;
-
-function persistCurrentSellContext(get: () => SellContextState) {
-  const { scopeKey, warehouseId, priceTypeId, partnerId } = get();
-  if (!scopeKey) return;
-
-  void saveSellContext(scopeKey, {
-    warehouseId,
-    priceTypeId,
-    partnerId,
-  }).catch(() => {
-    // Ignore persistence errors; in-memory state remains available.
-  });
-}
 
 export const useSellContext = create<SellContextState>((set, get) => ({
   scopeKey: null,
@@ -267,6 +219,61 @@ export const useSellContext = create<SellContextState>((set, get) => ({
         set({ hydrated: false, scopeKey });
       }
 
+      const { suppressSellContextTabSync, useCheckoutTabs } = await import(
+        "@/store/checkout-tabs"
+      );
+
+      const applyDefaultsWithoutWipingTabs = (
+        nextState: Awaited<ReturnType<typeof resolveSellContextState>>,
+        markHydrated: boolean,
+      ) => {
+        const tabsState = useCheckoutTabs.getState();
+        const tabsOwnSelection = tabsState.hydrated && Boolean(tabsState.activeTabId);
+
+        suppressSellContextTabSync(() => {
+          if (tabsOwnSelection) {
+            // Tabs already restored live selection — only refresh defaults/options.
+            const current = get();
+            set({
+              scopeKey: nextState.scopeKey,
+              apiDefaults: nextState.apiDefaults,
+              options: nextState.options,
+              warehouseId: current.warehouseId,
+              priceTypeId: current.priceTypeId,
+              partnerId: current.partnerId,
+              saleCurrency:
+                saleCurrencyForPriceType(current.priceTypeId, nextState.options) ??
+                nextState.apiDefaults.saleCurrency,
+              ...(markHydrated ? { hydrated: true } : {}),
+            });
+            return;
+          }
+
+          set({
+            ...nextState,
+            ...(markHydrated ? { hydrated: true } : {}),
+          });
+        });
+      };
+
+      const restoreActiveTabSelection = () => {
+        const tabsState = useCheckoutTabs.getState();
+        if (!tabsState.hydrated || !tabsState.activeTabId) return;
+        const active = tabsState.tabs.find((tab) => tab.id === tabsState.activeTabId);
+        if (!active) return;
+        const defaults = get().apiDefaults;
+        suppressSellContextTabSync(() => {
+          get().applyTabSelection({
+            warehouseId:
+              active.warehouseId !== undefined ? active.warehouseId : defaults.warehouseId,
+            priceTypeId:
+              active.priceTypeId !== undefined ? active.priceTypeId : defaults.priceTypeId,
+            partnerId:
+              active.partnerId !== undefined ? active.partnerId : defaults.partnerId,
+          });
+        });
+      };
+
       try {
         if (!force && cacheScope) {
           const idbKey = buildEmployeeSettingsKey(
@@ -284,7 +291,7 @@ export const useSellContext = create<SellContextState>((set, get) => ({
               false,
               companyId,
             );
-            set({ ...nextState, hydrated: true });
+            applyDefaultsWithoutWipingTabs(nextState, true);
           }
         }
 
@@ -300,22 +307,24 @@ export const useSellContext = create<SellContextState>((set, get) => ({
           force,
           companyId,
         );
-        set(nextState);
+        applyDefaultsWithoutWipingTabs(nextState, false);
       } catch {
         if (!get().hydrated) {
-          set({
-            scopeKey,
-            warehouseId: null,
-            priceTypeId: null,
-            partnerId: null,
-            saleCurrency: null,
-            apiDefaults: {
+          suppressSellContextTabSync(() => {
+            set({
+              scopeKey,
               warehouseId: null,
               priceTypeId: null,
               partnerId: null,
               saleCurrency: null,
-            },
-            options: EMPTY_OPTIONS,
+              apiDefaults: {
+                warehouseId: null,
+                priceTypeId: null,
+                partnerId: null,
+                saleCurrency: null,
+              },
+              options: EMPTY_OPTIONS,
+            });
           });
         }
       } finally {
@@ -323,6 +332,13 @@ export const useSellContext = create<SellContextState>((set, get) => ({
         set({ hydrated: true });
         hydrateInflight = null;
         hydrateInflightKey = null;
+
+        // Tabs own live warehouse/price/partner; restore active tab after defaults reload.
+        try {
+          restoreActiveTabSelection();
+        } catch {
+          // Ignore; tabs may not be available yet.
+        }
       }
     })();
 
@@ -333,7 +349,6 @@ export const useSellContext = create<SellContextState>((set, get) => ({
 
   setWarehouseId: (id) => {
     set({ warehouseId: id });
-    persistCurrentSellContext(get);
   },
 
   setPriceTypeId: (id) => {
@@ -344,24 +359,26 @@ export const useSellContext = create<SellContextState>((set, get) => ({
         saleCurrency: resolved ?? (id ? state.saleCurrency : null),
       };
     });
-    persistCurrentSellContext(get);
   },
 
   setPartnerId: (id) => {
     set({ partnerId: id });
-    persistCurrentSellContext(get);
+  },
+
+  applyTabSelection: (selection) => {
+    const { options, apiDefaults } = get();
+    set({
+      warehouseId: selection.warehouseId,
+      priceTypeId: selection.priceTypeId,
+      partnerId: selection.partnerId,
+      saleCurrency:
+        saleCurrencyForPriceType(selection.priceTypeId, options) ??
+        apiDefaults.saleCurrency,
+    });
   },
 
   resetToDefaults: async () => {
-    const { scopeKey, apiDefaults, options } = get();
-    if (scopeKey) {
-      try {
-        await clearSellContext(scopeKey);
-      } catch {
-        // Ignore clear errors; defaults still apply in memory.
-      }
-    }
-
+    const { apiDefaults, options } = get();
     set({
       warehouseId: apiDefaults.warehouseId,
       priceTypeId: apiDefaults.priceTypeId,

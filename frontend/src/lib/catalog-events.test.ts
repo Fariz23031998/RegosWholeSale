@@ -1,5 +1,31 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
+const mockLocalStorage: Record<string, string> = {};
+const localStorageStub = {
+  getItem: vi.fn((key: string) => mockLocalStorage[key] ?? null),
+  setItem: vi.fn((key: string, value: string) => {
+    mockLocalStorage[key] = value;
+  }),
+  removeItem: vi.fn((key: string) => {
+    delete mockLocalStorage[key];
+  }),
+  clear: vi.fn(() => {
+    for (const key of Object.keys(mockLocalStorage)) {
+      delete mockLocalStorage[key];
+    }
+  }),
+};
+vi.stubGlobal("localStorage", localStorageStub);
+
+class MockEventSource {
+  addEventListener = vi.fn();
+  removeEventListener = vi.fn();
+  close = vi.fn();
+}
+vi.stubGlobal("EventSource", MockEventSource);
+
+
+
 // Mock the APIs and DB methods returning Promises to support .catch()
 vi.mock("@/lib/api", () => ({
   apiRequest: vi.fn(() => Promise.resolve({ ok: true, result: [] })),
@@ -22,13 +48,37 @@ vi.mock("@/lib/catalog-products-db/loadCachedProductIdsByScope/loadCachedProduct
 vi.mock("@/lib/catalog-service", () => ({
   refreshProductsByIds: vi.fn(() => Promise.resolve({ products: [], next_offset: 0, total: 0 })),
 }));
+vi.mock("@/lib/sync-meta-db", () => ({
+  getLastSyncTime: vi.fn(() => Promise.resolve(null)),
+  setLastSyncTime: vi.fn(() => Promise.resolve()),
+  clearSyncMeta: vi.fn(() => Promise.resolve()),
+}));
 
 import { apiRequest } from "@/lib/api";
 import { fetchProductsByIds } from "@/lib/catalog-api";
 import { upsertProducts, removeProducts, invalidateGroups } from "@/lib/catalog-products-db";
 import { loadCachedProduct } from "@/lib/catalog-products-db/loadCachedProduct/loadCachedProduct";
 import { loadCachedProductIdsByScope } from "@/lib/catalog-products-db/loadCachedProductIdsByScope/loadCachedProductIdsByScope";
+import { fetchAllPartners, fetchPartnerGroups } from "@/lib/partners-api";
+import { saveCachedPartners, saveCachedPartnerGroups } from "@/lib/partners-db";
 import { handleCatalogEvent } from "./catalog-events";
+
+
+vi.mock("@/lib/partners-api", () => ({
+  fetchAllPartners: vi.fn(() => Promise.resolve([])),
+  fetchPartnerGroups: vi.fn(() => Promise.resolve({ groups: [] })),
+}));
+vi.mock("@/lib/partners-db", () => ({
+  saveCachedPartners: vi.fn(() => Promise.resolve()),
+  saveCachedPartnerGroups: vi.fn(() => Promise.resolve()),
+}));
+vi.mock("@/lib/settings-api", () => ({
+  fetchRegosReferenceOptions: vi.fn(() => Promise.resolve({ warehouses: [], price_types: [], partners: [] })),
+  patchReferenceOptionsInMemory: vi.fn(),
+}));
+vi.mock("@/lib/reference-options-db", () => ({
+  patchCachedReferenceOptions: vi.fn(() => Promise.resolve()),
+}));
 
 describe("Selective SSE updates", () => {
   const token = "test-token";
@@ -70,36 +120,34 @@ describe("Selective SSE updates", () => {
       image: "",
     });
 
-    // Mock fresh product fetched from server: price is now 150, stock is 99 (should be ignored)
-    vi.mocked(fetchProductsByIds).mockResolvedValue({
-      products: [
+    // Mock proxy response from itemprice/get
+    vi.mocked(apiRequest).mockResolvedValue({
+      ok: true,
+      result: [
         {
-          id: "101",
-          regos_item_id: 101,
-          name: "Test Item",
-          price: 150,
-          stock: 99,
-          sku: "TEST-101",
-          category: "Test",
-          image: "",
+          item_id: 101,
+          value: 150,
+          price_type: { id: 3 },
         },
       ],
-      next_offset: 0,
-      total: 1,
     });
 
     await handleCatalogEvent(token, event, context, handlers);
 
-    expect(fetchProductsByIds).toHaveBeenCalledWith(token, [101], {
-      warehouseId: 2,
-      priceTypeId: 3,
+    expect(apiRequest).toHaveBeenCalledWith("/api/v1/regos/proxy/itemprice/get", {
+      token,
+      method: "POST",
+      body: {
+        item_ids: [101],
+        price_type_ids: [3],
+      },
     });
     expect(upsertProducts).toHaveBeenCalledWith("1:2:3", [
       {
         id: "101",
         regos_item_id: 101,
         name: "Test Item",
-        price: 150,
+        price: 150, // updated!
         stock: 5, // preserved!
         sku: "TEST-101",
         category: "Test",
@@ -136,6 +184,7 @@ describe("Selective SSE updates", () => {
 
     await handleCatalogEvent(token, event, context, handlers);
 
+    expect(fetchProductsByIds).toHaveBeenCalledTimes(1);
     expect(upsertProducts).toHaveBeenCalledWith("1:2:3", [
       {
         id: "101",
@@ -148,6 +197,87 @@ describe("Selective SSE updates", () => {
         image: "",
       },
     ]);
+  });
+
+  it("DocPurchasePerformed with matching stock_id refreshes active view once", async () => {
+    const { refreshProductsByIds } = await import("@/lib/catalog-service");
+    const event = {
+      type: "products_updated" as const,
+      regos_item_ids: [101],
+      stock_id: 2,
+      source_action: "DocPurchasePerformed",
+      occurred_at: "2026-07-11T14:49:06Z",
+    };
+
+    vi.mocked(fetchProductsByIds).mockResolvedValue({
+      products: [
+        {
+          id: "101",
+          regos_item_id: 101,
+          name: "Test Item",
+          price: 150,
+          stock: 99,
+          sku: "TEST-101",
+          category: "Test",
+          image: "",
+        },
+      ],
+      next_offset: 0,
+      total: 1,
+    });
+
+    await handleCatalogEvent(token, event, context, handlers);
+
+    expect(refreshProductsByIds).not.toHaveBeenCalled();
+    expect(fetchProductsByIds).toHaveBeenCalledTimes(1);
+    expect(fetchProductsByIds).toHaveBeenCalledWith(token, [101], {
+      warehouseId: 2,
+      priceTypeId: 3,
+    });
+    expect(handlers.onProductsUpdated).toHaveBeenCalled();
+  });
+
+  it("DocPurchasePerformed with other stock_id warms that cache and refreshes active prices", async () => {
+    const { refreshProductsByIds } = await import("@/lib/catalog-service");
+    const event = {
+      type: "products_updated" as const,
+      regos_item_ids: [101],
+      stock_id: 9,
+      source_action: "DocPurchasePerformCanceled",
+      occurred_at: "2026-07-11T14:49:06Z",
+    };
+
+    vi.mocked(fetchProductsByIds).mockResolvedValue({
+      products: [
+        {
+          id: "101",
+          regos_item_id: 101,
+          name: "Test Item",
+          price: 150,
+          stock: 5,
+          sku: "TEST-101",
+          category: "Test",
+          image: "",
+        },
+      ],
+      next_offset: 0,
+      total: 1,
+    });
+
+    await handleCatalogEvent(token, event, context, handlers);
+
+    expect(refreshProductsByIds).toHaveBeenCalledTimes(1);
+    expect(refreshProductsByIds).toHaveBeenCalledWith(
+      token,
+      [101],
+      { companyId: 1, warehouseId: 9, priceTypeId: 3 },
+      { warehouseId: 9, priceTypeId: 3 },
+    );
+    expect(fetchProductsByIds).toHaveBeenCalledTimes(1);
+    expect(fetchProductsByIds).toHaveBeenCalledWith(token, [101], {
+      warehouseId: 2,
+      priceTypeId: 3,
+    });
   });
 
   it("DocChequeClosed updates only product stock and leaves price unchanged", async () => {
@@ -200,6 +330,67 @@ describe("Selective SSE updates", () => {
         image: "",
       },
     ]);
+  });
+
+  it("DocWholeSalePerformed with matching stock_id refreshes active view once", async () => {
+    const event = {
+      type: "products_updated" as const,
+      regos_item_ids: [10, 8, 9],
+      stock_id: 2,
+      source_action: "DocWholeSalePerformed",
+      occurred_at: "2026-07-12T16:00:00Z",
+    };
+
+    vi.mocked(fetchProductsByIds).mockResolvedValue({
+      products: [
+        {
+          id: "10",
+          regos_item_id: 10,
+          name: "A",
+          price: 1,
+          stock: 5,
+          sku: "A",
+          category: "Test",
+          image: "",
+        },
+      ],
+      next_offset: 0,
+      total: 1,
+    });
+
+    await handleCatalogEvent(token, event, context, handlers);
+
+    expect(fetchProductsByIds).toHaveBeenCalledTimes(1);
+    expect(fetchProductsByIds).toHaveBeenCalledWith(token, [10, 8, 9], {
+      warehouseId: 2,
+      priceTypeId: 3,
+    });
+    expect(handlers.onProductsUpdated).toHaveBeenCalledTimes(1);
+  });
+
+  it("DocWholeSalePerformCanceled with other stock_id warms that cache only", async () => {
+    const event = {
+      type: "products_updated" as const,
+      regos_item_ids: [10, 8, 9],
+      stock_id: 9,
+      source_action: "DocWholeSalePerformCanceled",
+      occurred_at: "2026-07-12T16:00:00Z",
+    };
+
+    vi.mocked(fetchProductsByIds).mockResolvedValue({
+      products: [],
+      next_offset: 0,
+      total: 0,
+    });
+
+    await handleCatalogEvent(token, event, context, handlers);
+
+    expect(fetchProductsByIds).toHaveBeenCalledTimes(1);
+    expect(fetchProductsByIds).toHaveBeenCalledWith(token, [10, 8, 9], {
+      warehouseId: 9,
+      priceTypeId: 3,
+    });
+    expect(handlers.onProductsUpdated).not.toHaveBeenCalled();
   });
 
   it("ItemEdited calls proxy Item/Get to update product info, leaving price and stock unchanged", async () => {
@@ -256,6 +447,7 @@ describe("Selective SSE updates", () => {
         sku: "NEW-101", // updated!
         articul: "NEW-101", // updated!
         barcode: "99999", // updated!
+        barcode_list: "99999",
         code: "",
         category: "New Cat", // updated!
         group_id: 12, // updated!
@@ -362,4 +554,51 @@ describe("Selective SSE updates", () => {
       },
     });
   });
+
+  it("ignores products_updated when onProductsUpdated handler is not provided", async () => {
+    const event = {
+      type: "products_updated" as const,
+      regos_item_ids: [101],
+      source_action: "DocSetPricePerformed",
+      occurred_at: "2026-07-11T14:49:06Z",
+    };
+
+    const minimalHandlers = {
+      onReferenceOptionsInvalidated: vi.fn(),
+    };
+
+    await handleCatalogEvent(token, event, context, minimalHandlers as any);
+
+    expect(fetchProductsByIds).not.toHaveBeenCalled();
+    expect(upsertProducts).not.toHaveBeenCalled();
+  });
+
+  it("handles reference_options_invalidated for partner kind and updates IndexedDB cache", async () => {
+    const event = {
+      type: "reference_options_invalidated" as const,
+      kinds: ["partner" as const],
+      source_action: "PartnerEdited",
+      occurred_at: "2026-07-11T14:49:06Z",
+    };
+
+    const mockPartners = [
+      { id: 1, name: "Partner A" },
+    ];
+    const mockGroups = [{ id: 10, name: "Retail" }];
+    vi.mocked(fetchAllPartners).mockResolvedValue(mockPartners as any);
+    vi.mocked(fetchPartnerGroups).mockResolvedValue({ groups: mockGroups } as any);
+
+    const testHandlers = {
+      onReferenceOptionsInvalidated: vi.fn(),
+    };
+
+    await handleCatalogEvent(token, event, context, testHandlers as any);
+
+    expect(fetchAllPartners).toHaveBeenCalledWith(token);
+    expect(fetchPartnerGroups).toHaveBeenCalledWith(token);
+    expect(saveCachedPartners).toHaveBeenCalledWith(context.companyId, mockPartners);
+    expect(saveCachedPartnerGroups).toHaveBeenCalledWith(context.companyId, mockGroups);
+    expect(testHandlers.onReferenceOptionsInvalidated).toHaveBeenCalledWith(["partner"]);
+  });
 });
+

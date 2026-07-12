@@ -29,6 +29,25 @@ export async function fetchPartners(
   return apiRequest(`/api/v1/regos/partners?${params.toString()}`, { token });
 }
 
+export async function fetchAllPartners(token: string): Promise<Partner[]> {
+  const allPartners: Partner[] = [];
+  let offset = 0;
+  const limit = 200;
+  while (true) {
+    const response = await fetchPartners(token, { offset, limit });
+    allPartners.push(...response.partners);
+    if (
+      !response.partners.length ||
+      allPartners.length >= response.total ||
+      response.next_offset === offset
+    ) {
+      break;
+    }
+    offset = response.next_offset || (offset + limit);
+  }
+  return allPartners;
+}
+
 export async function fetchPartner(token: string, partnerId: number): Promise<Partner> {
   return apiRequest(`/api/v1/regos/partners/${partnerId}`, { token });
 }

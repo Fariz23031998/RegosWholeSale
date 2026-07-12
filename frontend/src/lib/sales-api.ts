@@ -96,6 +96,7 @@ export type WholesaleDocument = {
   partner_phone?: string | null;
   stock_id: number | null;
   stock_name: string | null;
+  price_type_id?: number | null;
   attached_user_id: number | null;
   attached_user_name: string | null;
   amount: number | null;

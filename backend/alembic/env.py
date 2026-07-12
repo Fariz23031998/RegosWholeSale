@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.models.base import Base
 from app.models import (  # noqa: F401
     Company,
+    EventsLog,
     LoginSchedule,
     Permission,
     User,

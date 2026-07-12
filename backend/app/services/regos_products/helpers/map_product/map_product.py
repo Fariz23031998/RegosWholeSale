@@ -20,6 +20,7 @@ def map_product(row: dict[str, Any]) -> dict[str, Any]:
         or "Other"
     )
     barcode = coerce_text(item.get("base_barcode")) or ""
+    barcode_list = coerce_text(item.get("barcode_list")) or barcode
     code = coerce_text(item.get("code")) or ""
     articul = coerce_text(item.get("articul")) or ""
     unit = item.get("unit") if isinstance(item.get("unit"), dict) else {}
@@ -46,6 +47,7 @@ def map_product(row: dict[str, Any]) -> dict[str, Any]:
         "sku": sku,
         "articul": articul,
         "barcode": barcode,
+        "barcode_list": barcode_list,
         "code": code,
         "unit_name": unit_name,
         "unit_type": unit_type,

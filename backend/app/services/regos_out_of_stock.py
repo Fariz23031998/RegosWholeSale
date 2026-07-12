@@ -262,18 +262,13 @@ async def _notify_out_of_stock_items(
         return 0
 
     warehouse_label = stock_name or str(stock_id)
+    depleted_items = [item for item in stock_items if item["allowed"] <= item["min_quantity"]]
+    if not depleted_items:
+        return 0
+
+    # Notify first (HTTP), then stage DB rows so a write lock is not held during Telegram I/O.
     notified = 0
-    for item in stock_items:
-        if item["allowed"] > item["min_quantity"]:
-            continue
-
-        await out_of_stock_products_service.record_out_of_stock(
-            session,
-            company_id,
-            int(item["product_id"]),
-            stock_id,
-        )
-
+    for item in depleted_items:
         product_name = str(item["name"])
         product_code = str(item.get("code") or "")
         product_barcode = str(item.get("barcode") or "")
@@ -302,6 +297,14 @@ async def _notify_out_of_stock_items(
         )
         if sent > 0:
             notified += 1
+
+    for item in depleted_items:
+        await out_of_stock_products_service.record_out_of_stock(
+            session,
+            company_id,
+            int(item["product_id"]),
+            stock_id,
+        )
 
     return notified
 

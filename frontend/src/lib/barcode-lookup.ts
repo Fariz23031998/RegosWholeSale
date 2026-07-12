@@ -2,7 +2,8 @@ import { fetchCatalogProducts } from "@/lib/catalog-api";
 import {
   findProductByBarcode as findCachedProductByBarcode,
   findProductByCode as findCachedProductByCode,
-} from "@/lib/catalog-products-db";
+  upsertProducts,
+} from "./catalog-products-db";
 import { canAddProductToCart, clampCartQty } from "@/lib/cart-stock";
 import { CATALOG_PAGE_SIZE } from "@/lib/catalog-pagination";
 import {
@@ -62,7 +63,7 @@ export async function lookupProductForBarcode(
   };
 
   if (parsedInternal) {
-    let product =
+    let product: Product | null | undefined =
       scopeKey != null
         ? await findCachedProductByCode(scopeKey, parsedInternal.productCode)
         : null;
@@ -72,6 +73,9 @@ export async function lookupProductForBarcode(
         search: parsedInternal.productCode,
       });
       product = findProductByCode(res.products, parsedInternal.productCode);
+      if (product && scopeKey != null) {
+        await upsertProducts(scopeKey, [product]).catch(() => undefined);
+      }
     }
     if (!product) {
       return { ok: false, reason: "not_found" };
@@ -101,7 +105,7 @@ export async function lookupProductForBarcode(
     return { ok: true, product, qty: qtyToAdd };
   }
 
-  let product =
+  let product: Product | null | undefined =
     scopeKey != null ? await findCachedProductByBarcode(scopeKey, term) : null;
   if (!product) {
     const res = await fetchCatalogProducts(token, {
@@ -109,6 +113,9 @@ export async function lookupProductForBarcode(
       search: term,
     });
     product = findProductByBarcode(res.products, term);
+    if (product && scopeKey != null) {
+      await upsertProducts(scopeKey, [product]).catch(() => undefined);
+    }
   }
   if (
     !product ||

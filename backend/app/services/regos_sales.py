@@ -1379,6 +1379,73 @@ async def _resolve_wholesale_document_defaults(
     return defaults, None
 
 
+def _nested_option_id(value: Any) -> int | None:
+    if not isinstance(value, dict):
+        return None
+    raw_id = value.get("id")
+    return int(raw_id) if isinstance(raw_id, int) and raw_id > 0 else None
+
+
+async def _sync_draft_document_context(
+    session: AsyncSession,
+    company_id: int,
+    document_id: int,
+    defaults: dict[str, Any],
+    *,
+    regos_path: str,
+    edit_path: str,
+    include_price_type: bool,
+) -> None:
+    existing = await _fetch_regos_document_by_id(
+        session,
+        company_id,
+        document_id,
+        regos_path=regos_path,
+        not_found_message=f"Document {document_id} was not found.",
+        not_found_code="DOCUMENT_NOT_FOUND",
+    )
+
+    edit_payload: dict[str, Any] = {"id": document_id}
+
+    desired_partner_id = _nested_option_id(defaults.get("partner"))
+    current_partner_id = _nested_option_id(existing.get("partner"))
+    if desired_partner_id is not None and desired_partner_id != current_partner_id:
+        edit_payload["partner_id"] = desired_partner_id
+
+    desired_stock_id = _nested_option_id(defaults.get("warehouse"))
+    current_stock_id = _nested_option_id(existing.get("stock"))
+    if desired_stock_id is not None and desired_stock_id != current_stock_id:
+        edit_payload["stock_id"] = desired_stock_id
+
+    if include_price_type:
+        desired_price_type_id = _nested_option_id(defaults.get("price_type"))
+        current_price_type_id = _nested_option_id(existing.get("price_type"))
+        if (
+            desired_price_type_id is not None
+            and desired_price_type_id != current_price_type_id
+        ):
+            edit_payload["price_type_id"] = desired_price_type_id
+
+    desired_currency = defaults.get("currency")
+    if isinstance(desired_currency, dict) and isinstance(desired_currency.get("id"), int):
+        current_currency = _extract_currency_reference(existing, "currency")
+        desired_currency_id = int(desired_currency["id"])
+        current_currency_id = (
+            int(current_currency["id"])
+            if isinstance(current_currency, dict)
+            and isinstance(current_currency.get("id"), int)
+            else None
+        )
+        if desired_currency_id != current_currency_id:
+            edit_payload["currency_id"] = desired_currency_id
+            exchange_rate = parse_exchange_rate(desired_currency.get("exchange_rate"))
+            if exchange_rate != 1.0:
+                edit_payload["exchange_rate"] = exchange_rate
+
+    if len(edit_payload) > 1:
+        await _regos_call(session, company_id, edit_path, edit_payload)
+
+
 async def _upsert_wholesale_draft(
     session: AsyncSession,
     company_id: int,
@@ -1409,6 +1476,15 @@ async def _upsert_wholesale_draft(
         doc_id = existing_doc_id
         await _regos_call(session, company_id, "docwholesale/lock", {"ids": [doc_id]})
         try:
+            await _sync_draft_document_context(
+                session,
+                company_id,
+                doc_id,
+                document_defaults,
+                regos_path="docwholesale/get",
+                edit_path="docwholesale/edit",
+                include_price_type=True,
+            )
             await _sync_wholesale_operations(session, company_id, doc_id, lines)
         finally:
             await _regos_call(session, company_id, "docwholesale/unlock", {"ids": [doc_id]})
@@ -1452,6 +1528,15 @@ async def _upsert_order_from_partner_draft(
         doc_id = existing_doc_id
         await _regos_call(session, company_id, "docorderfrompartner/lock", {"ids": [doc_id]})
         try:
+            await _sync_draft_document_context(
+                session,
+                company_id,
+                doc_id,
+                defaults,
+                regos_path="docorderfrompartner/get",
+                edit_path="docorderfrompartner/edit",
+                include_price_type=False,
+            )
             await _sync_order_from_partner_operations(session, company_id, doc_id, lines)
         finally:
             await _regos_call(session, company_id, "docorderfrompartner/unlock", {"ids": [doc_id]})
@@ -2505,6 +2590,7 @@ def _map_order_from_partner_document(item: dict[str, Any]) -> dict[str, Any]:
 def _map_wholesale_document(item: dict[str, Any]) -> dict[str, Any]:
     partner = item.get("partner") if isinstance(item.get("partner"), dict) else {}
     stock = item.get("stock") if isinstance(item.get("stock"), dict) else {}
+    price_type = item.get("price_type") if isinstance(item.get("price_type"), dict) else {}
     attached_user_id, attached_user_name = _attached_user_fields(item)
     mapped: dict[str, Any] = {
         "id": int(item.get("id") or 0),
@@ -2515,6 +2601,9 @@ def _map_wholesale_document(item: dict[str, Any]) -> dict[str, Any]:
         "partner_phone": _partner_phone_from_row(partner),
         "stock_id": stock.get("id") if isinstance(stock.get("id"), int) else None,
         "stock_name": stock.get("name") if isinstance(stock.get("name"), str) else None,
+        "price_type_id": (
+            price_type.get("id") if isinstance(price_type.get("id"), int) else None
+        ),
         "attached_user_id": attached_user_id,
         "attached_user_name": attached_user_name,
         "amount": float(item["amount"]) if item.get("amount") is not None else None,

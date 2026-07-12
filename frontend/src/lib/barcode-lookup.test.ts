@@ -6,7 +6,18 @@ vi.mock("@/lib/catalog-api", () => ({
   fetchCatalogProducts: vi.fn(),
 }));
 
+vi.mock("./catalog-products-db", () => ({
+  findProductByBarcode: vi.fn(),
+  findProductByCode: vi.fn(),
+  upsertProducts: vi.fn(),
+}));
+
 import { fetchCatalogProducts } from "@/lib/catalog-api";
+import {
+  findProductByBarcode as findCachedProductByBarcode,
+  findProductByCode as findCachedProductByCode,
+  upsertProducts,
+} from "./catalog-products-db";
 
 const DEFAULT_PREFIXES = { weightPrefix: "22", piecePrefix: "23" };
 
@@ -39,9 +50,12 @@ const defaultOptions = {
 describe("lookupProductForBarcode", () => {
   beforeEach(() => {
     vi.mocked(fetchCatalogProducts).mockReset();
+    vi.mocked(findCachedProductByBarcode).mockReset().mockResolvedValue(null);
+    vi.mocked(findCachedProductByCode).mockReset().mockResolvedValue(null);
+    vi.mocked(upsertProducts).mockReset().mockResolvedValue();
   });
 
-  it("resolves internal weight barcode with clamped qty", async () => {
+  it("resolves internal weight barcode with clamped qty and updates cache", async () => {
     const product = makeProduct({ id: "p1", code: "2345", unit_name: "kg" });
     vi.mocked(fetchCatalogProducts).mockResolvedValue({
       products: [product],
@@ -49,15 +63,19 @@ describe("lookupProductForBarcode", () => {
       total: 1,
     });
 
-    const result = await lookupProductForBarcode("token", "2202345005004", defaultOptions);
+    const result = await lookupProductForBarcode("token", "2202345005004", {
+      ...defaultOptions,
+      scopeKey: "1:2:3",
+    });
 
     expect(result).toEqual({ ok: true, product, qty: 0.5 });
     expect(fetchCatalogProducts).toHaveBeenCalledWith("token", expect.objectContaining({
       search: "2345",
     }));
+    expect(upsertProducts).toHaveBeenCalledWith("1:2:3", [product]);
   });
 
-  it("resolves standard barcode with qty 1", async () => {
+  it("resolves standard barcode with qty 1 and updates cache", async () => {
     const product = makeProduct({ id: "p2", barcode: "4870249813251" });
     vi.mocked(fetchCatalogProducts).mockResolvedValue({
       products: [product],
@@ -65,12 +83,16 @@ describe("lookupProductForBarcode", () => {
       total: 1,
     });
 
-    const result = await lookupProductForBarcode("token", "4870249813251", defaultOptions);
+    const result = await lookupProductForBarcode("token", "4870249813251", {
+      ...defaultOptions,
+      scopeKey: "1:2:3",
+    });
 
     expect(result).toEqual({ ok: true, product, qty: 1 });
     expect(fetchCatalogProducts).toHaveBeenCalledWith("token", expect.objectContaining({
       search: "4870249813251",
     }));
+    expect(upsertProducts).toHaveBeenCalledWith("1:2:3", [product]);
   });
 
   it("returns not_found when product is missing", async () => {

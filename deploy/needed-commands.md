@@ -1,5 +1,45 @@
 # Deploy commands
 
+## PostgreSQL 18 (VPS host via apt)
+
+Install on the same Ubuntu host as the backend (localhost only). Use PGDG on Ubuntu 22.04/24.04; Ubuntu 26.04 may ship PG 18 in the default archive.
+
+```bash
+sudo apt install -y postgresql-common ca-certificates
+sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh
+sudo apt install -y postgresql-18 postgresql-client-18
+
+sudo -u postgres psql -c "CREATE USER regos WITH PASSWORD 'CHANGE_ME';"
+sudo -u postgres psql -c "CREATE DATABASE regos OWNER regos;"
+```
+
+Backend `.env` (production):
+
+```env
+DATABASE_URL=postgresql+asyncpg://regos:CHANGE_ME@127.0.0.1:5432/regos
+```
+
+### SQLite → PostgreSQL data cutover
+
+1. Backup SQLite: copy `backend/data/regos.db` (and `-wal`/`-shm` if present) off-box.
+2. Deploy code with `asyncpg`, update `.env` `DATABASE_URL` to Postgres.
+3. Create empty schema: `cd /srv/RegosWholeSale/backend && .venv/bin/alembic upgrade head`
+4. Stop writes: `sudo systemctl stop regos-backend`
+5. Final SQLite backup, then copy data:
+
+```bash
+cd /srv/RegosWholeSale/backend
+.venv/bin/python -m scripts.migrate_sqlite_to_postgres \
+  --sqlite-path ./data/regos.db \
+  --postgres-url "postgresql+asyncpg://regos:CHANGE_ME@127.0.0.1:5432/regos" \
+  --force
+```
+
+`--force` truncates destination data tables first. Required after `alembic upgrade head` because migration 009 seeds permission rows.
+
+6. Spot-check login / company count, then `sudo systemctl start regos-backend`
+7. Keep the SQLite backup for a rollback window. Rollback: point `DATABASE_URL` back to the SQLite file and restart.
+
 ## Tenant frontend (regosoptom.uz + regosoptom.shop)
 Shared static build — both domains serve `frontend/dist/client`.
 
@@ -68,3 +108,5 @@ ScrapRegosUserBot `.env` on server:
 
 After moving payment routes off `no-thing.uz`, reload Partner Bot nginx:
 - `sudo cp no-thing.uz.conf /etc/nginx/sites-available/no-thing.uz.conf && sudo nginx -t && sudo systemctl reload nginx`
+
+python scripts\migrate_sqlite_to_postgres.py --sqlite-path .\data\regos.db --postgres-url postgresql+asyncpg://postgres:masterkey@127.0.0.1:5432/regos_wholesale

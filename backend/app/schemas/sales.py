@@ -112,6 +112,7 @@ class WholesaleDocument(BaseModel):
     partner_phone: str | None = None
     stock_id: int | None = None
     stock_name: str | None = None
+    price_type_id: int | None = None
     attached_user_id: int | None = None
     attached_user_name: str | None = None
     amount: float | None = None

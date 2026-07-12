@@ -128,30 +128,36 @@ export async function fetchPosSettings(
 ): Promise<PosSettingsResponse> {
   const idbKey = companyKey(options?.cacheScope, "pos");
 
+  const pending = posSettingsInflight.get(token);
+  if (pending) return pending;
+
   if (!options?.force) {
     const cached = posSettingsCache.get(token);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
-
-    const pending = posSettingsInflight.get(token);
-    if (pending) return pending;
-
-    const idb = await loadSettingsFromIdb<PosSettingsResponse>(idbKey);
-    if (idb) return idb;
   }
 
-  const request = apiRequest<PosSettingsResponse>("/api/v1/company/settings/pos", { token })
-    .then(async (data) => {
+  const request = (async () => {
+    if (!options?.force) {
+      const idb = await loadSettingsFromIdb<PosSettingsResponse>(idbKey);
+      if (idb) {
+        posSettingsCache.set(token, { data: idb, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
+        return idb;
+      }
+    }
+
+    try {
+      const data = await apiRequest<PosSettingsResponse>("/api/v1/company/settings/pos", { token });
       posSettingsCache.set(token, { data, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
-      posSettingsInflight.delete(token);
       await saveSettingsToIdb(idbKey, data);
       return data;
-    })
-    .catch(async (error) => {
-      posSettingsInflight.delete(token);
+    } catch (error) {
       const idb = await loadSettingsFromIdb<PosSettingsResponse>(idbKey);
       if (idb) return idb;
       throw error;
-    });
+    }
+  })().finally(() => {
+    posSettingsInflight.delete(token);
+  });
 
   posSettingsInflight.set(token, request);
   return request;
@@ -178,30 +184,36 @@ export async function fetchRegosTokenConfig(
 ): Promise<RegosTokenConfig> {
   const idbKey = companyKey(options?.cacheScope, "regos-token");
 
+  const pending = regosTokenInflight.get(token);
+  if (pending) return pending;
+
   if (!options?.force) {
     const cached = regosTokenCache.get(token);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
-
-    const pending = regosTokenInflight.get(token);
-    if (pending) return pending;
-
-    const idb = await loadSettingsFromIdb<RegosTokenConfig>(idbKey);
-    if (idb) return idb;
   }
 
-  const request = apiRequest<RegosTokenConfig>("/api/v1/regos/tokens", { token })
-    .then(async (data) => {
+  const request = (async () => {
+    if (!options?.force) {
+      const idb = await loadSettingsFromIdb<RegosTokenConfig>(idbKey);
+      if (idb) {
+        regosTokenCache.set(token, { data: idb, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
+        return idb;
+      }
+    }
+
+    try {
+      const data = await apiRequest<RegosTokenConfig>("/api/v1/regos/tokens", { token });
       regosTokenCache.set(token, { data, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
-      regosTokenInflight.delete(token);
       await saveSettingsToIdb(idbKey, data);
       return data;
-    })
-    .catch(async (error) => {
-      regosTokenInflight.delete(token);
+    } catch (error) {
       const idb = await loadSettingsFromIdb<RegosTokenConfig>(idbKey);
       if (idb) return idb;
       throw error;
-    });
+    }
+  })().finally(() => {
+    regosTokenInflight.delete(token);
+  });
 
   regosTokenInflight.set(token, request);
   return request;
@@ -251,35 +263,44 @@ export async function fetchRegosDefaults(
 ): Promise<RegosDefaultsResponse> {
   const idbKey = companyKey(options?.cacheScope, "regos-defaults");
 
+  const pending = regosDefaultsInflight.get(token);
+  if (pending) return pending;
+
   if (!options?.force) {
     const cached = regosDefaultsCache.get(token);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
-
-    const pending = regosDefaultsInflight.get(token);
-    if (pending) return pending;
-
-    const idb = await loadSettingsFromIdb<RegosDefaultsResponse>(idbKey);
-    if (idb) return idb;
   }
 
-  const request = apiRequest<RegosDefaultsResponse>("/api/v1/company/settings/regos-defaults", {
-    token,
-  })
-    .then(async (data) => {
+  const request = (async () => {
+    if (!options?.force) {
+      const idb = await loadSettingsFromIdb<RegosDefaultsResponse>(idbKey);
+      if (idb) {
+        regosDefaultsCache.set(token, {
+          data: idb,
+          expiresAt: Date.now() + REGOS_DEFAULTS_CACHE_TTL_MS,
+        });
+        return idb;
+      }
+    }
+
+    try {
+      const data = await apiRequest<RegosDefaultsResponse>("/api/v1/company/settings/regos-defaults", {
+        token,
+      });
       regosDefaultsCache.set(token, {
         data,
         expiresAt: Date.now() + REGOS_DEFAULTS_CACHE_TTL_MS,
       });
-      regosDefaultsInflight.delete(token);
       await saveSettingsToIdb(idbKey, data);
       return data;
-    })
-    .catch(async (error) => {
-      regosDefaultsInflight.delete(token);
+    } catch (error) {
       const idb = await loadSettingsFromIdb<RegosDefaultsResponse>(idbKey);
       if (idb) return idb;
       throw error;
-    });
+    }
+  })().finally(() => {
+    regosDefaultsInflight.delete(token);
+  });
 
   regosDefaultsInflight.set(token, request);
   return request;
@@ -316,41 +337,43 @@ export async function fetchRegosReferenceOptions(
 ): Promise<RegosReferenceOptionsResponse> {
   const companyId = options?.cacheScope?.companyId;
 
+  const pending = regosReferenceOptionsInflight.get(token);
+  if (pending) return pending;
+
   if (!options?.force) {
     const cached = regosReferenceOptionsCache.get(token);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.data;
     }
-
-    const pending = regosReferenceOptionsInflight.get(token);
-    if (pending) return pending;
-
-    if (companyId != null) {
-      const idb = await loadCachedReferenceOptions(companyId).catch(() => null);
-      if (idb) {
-        const fromIdb = referenceOptionsFromIdb(idb, cached?.data);
-        regosReferenceOptionsCache.set(token, {
-          data: fromIdb,
-          expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS,
-        });
-        void fetchRegosReferenceOptions(token, {
-          force: true,
-          cacheScope: options?.cacheScope,
-        }).catch(() => undefined);
-        return fromIdb;
-      }
-    }
   }
 
-  const request = apiRequest<RegosReferenceOptionsResponse>("/api/v1/regos/reference-options", {
-    token,
-  })
-    .then(async (data) => {
+  const request = (async () => {
+    if (!options?.force) {
+      if (companyId != null) {
+        const idb = await loadCachedReferenceOptions(companyId).catch(() => null);
+        if (idb) {
+          const fromIdb = referenceOptionsFromIdb(idb, regosReferenceOptionsCache.get(token)?.data);
+          regosReferenceOptionsCache.set(token, {
+            data: fromIdb,
+            expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS,
+          });
+          void fetchRegosReferenceOptions(token, {
+            force: true,
+            cacheScope: options?.cacheScope,
+          }).catch(() => undefined);
+          return fromIdb;
+        }
+      }
+    }
+
+    try {
+      const data = await apiRequest<RegosReferenceOptionsResponse>("/api/v1/regos/reference-options", {
+        token,
+      });
       regosReferenceOptionsCache.set(token, {
         data,
         expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS,
       });
-      regosReferenceOptionsInflight.delete(token);
       if (companyId != null) {
         await saveCachedReferenceOptions(companyId, {
           warehouses: data.warehouses,
@@ -359,9 +382,7 @@ export async function fetchRegosReferenceOptions(
         }).catch(() => undefined);
       }
       return data;
-    })
-    .catch(async (error) => {
-      regosReferenceOptionsInflight.delete(token);
+    } catch (error) {
       if (companyId != null) {
         const idb = await loadCachedReferenceOptions(companyId).catch(() => null);
         if (idb) {
@@ -369,7 +390,10 @@ export async function fetchRegosReferenceOptions(
         }
       }
       throw error;
-    });
+    }
+  })().finally(() => {
+    regosReferenceOptionsInflight.delete(token);
+  });
 
   regosReferenceOptionsInflight.set(token, request);
   return request;
@@ -427,33 +451,39 @@ export async function fetchDocPaymentSaleIdField(
 ): Promise<RegosDocPaymentSaleIdFieldResponse> {
   const idbKey = companyKey(options?.cacheScope, "doc-payment-sale-id");
 
+  const pending = docPaymentSaleIdInflight.get(token);
+  if (pending) return pending;
+
   if (!options?.force) {
     const cached = docPaymentSaleIdCache.get(token);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
-
-    const pending = docPaymentSaleIdInflight.get(token);
-    if (pending) return pending;
-
-    const idb = await loadSettingsFromIdb<RegosDocPaymentSaleIdFieldResponse>(idbKey);
-    if (idb) return idb;
   }
 
-  const request = apiRequest<RegosDocPaymentSaleIdFieldResponse>(
-    "/api/v1/regos/fields/doc-payment-sale-id",
-    { token },
-  )
-    .then(async (data) => {
+  const request = (async () => {
+    if (!options?.force) {
+      const idb = await loadSettingsFromIdb<RegosDocPaymentSaleIdFieldResponse>(idbKey);
+      if (idb) {
+        docPaymentSaleIdCache.set(token, { data: idb, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
+        return idb;
+      }
+    }
+
+    try {
+      const data = await apiRequest<RegosDocPaymentSaleIdFieldResponse>(
+        "/api/v1/regos/fields/doc-payment-sale-id",
+        { token },
+      );
       docPaymentSaleIdCache.set(token, { data, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
-      docPaymentSaleIdInflight.delete(token);
       await saveSettingsToIdb(idbKey, data);
       return data;
-    })
-    .catch(async (error) => {
-      docPaymentSaleIdInflight.delete(token);
+    } catch (error) {
       const idb = await loadSettingsFromIdb<RegosDocPaymentSaleIdFieldResponse>(idbKey);
       if (idb) return idb;
       throw error;
-    });
+    }
+  })().finally(() => {
+    docPaymentSaleIdInflight.delete(token);
+  });
 
   docPaymentSaleIdInflight.set(token, request);
   return request;
@@ -481,30 +511,36 @@ export async function fetchPaymentLinking(
 ): Promise<RegosPaymentLinkingResponse> {
   const idbKey = companyKey(options?.cacheScope, "payment-linking");
 
+  const pending = paymentLinkingInflight.get(token);
+  if (pending) return pending;
+
   if (!options?.force) {
     const cached = paymentLinkingCache.get(token);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
-
-    const pending = paymentLinkingInflight.get(token);
-    if (pending) return pending;
-
-    const idb = await loadSettingsFromIdb<RegosPaymentLinkingResponse>(idbKey);
-    if (idb) return idb;
   }
 
-  const request = apiRequest<RegosPaymentLinkingResponse>("/api/v1/regos/payment-linking", { token })
-    .then(async (data) => {
+  const request = (async () => {
+    if (!options?.force) {
+      const idb = await loadSettingsFromIdb<RegosPaymentLinkingResponse>(idbKey);
+      if (idb) {
+        paymentLinkingCache.set(token, { data: idb, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
+        return idb;
+      }
+    }
+
+    try {
+      const data = await apiRequest<RegosPaymentLinkingResponse>("/api/v1/regos/payment-linking", { token });
       paymentLinkingCache.set(token, { data, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
-      paymentLinkingInflight.delete(token);
       await saveSettingsToIdb(idbKey, data);
       return data;
-    })
-    .catch(async (error) => {
-      paymentLinkingInflight.delete(token);
+    } catch (error) {
       const idb = await loadSettingsFromIdb<RegosPaymentLinkingResponse>(idbKey);
       if (idb) return idb;
       throw error;
-    });
+    }
+  })().finally(() => {
+    paymentLinkingInflight.delete(token);
+  });
 
   paymentLinkingInflight.set(token, request);
   return request;
@@ -531,33 +567,42 @@ export async function fetchMyRegosDefaults(
 ): Promise<RegosDefaultsResponse> {
   const idbKey = employeeKey(options?.cacheScope, "regos-defaults");
 
+  const pending = myRegosDefaultsInflight.get(token);
+  if (pending) return pending;
+
   if (!options?.force) {
     const cached = myRegosDefaultsCache.get(token);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
-
-    const pending = myRegosDefaultsInflight.get(token);
-    if (pending) return pending;
-
-    const idb = await loadSettingsFromIdb<RegosDefaultsResponse>(idbKey);
-    if (idb) return idb;
   }
 
-  const request = apiRequest<RegosDefaultsResponse>("/api/v1/me/settings/regos-defaults", { token })
-    .then(async (data) => {
+  const request = (async () => {
+    if (!options?.force) {
+      const idb = await loadSettingsFromIdb<RegosDefaultsResponse>(idbKey);
+      if (idb) {
+        myRegosDefaultsCache.set(token, {
+          data: idb,
+          expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS,
+        });
+        return idb;
+      }
+    }
+
+    try {
+      const data = await apiRequest<RegosDefaultsResponse>("/api/v1/me/settings/regos-defaults", { token });
       myRegosDefaultsCache.set(token, {
         data,
         expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS,
       });
-      myRegosDefaultsInflight.delete(token);
       await saveSettingsToIdb(idbKey, data);
       return data;
-    })
-    .catch(async (error) => {
-      myRegosDefaultsInflight.delete(token);
+    } catch (error) {
       const idb = await loadSettingsFromIdb<RegosDefaultsResponse>(idbKey);
       if (idb) return idb;
       throw error;
-    });
+    }
+  })().finally(() => {
+    myRegosDefaultsInflight.delete(token);
+  });
 
   myRegosDefaultsInflight.set(token, request);
   return request;
@@ -573,39 +618,63 @@ export function invalidateMyRegosDefaultsCache(token?: string) {
   myRegosDefaultsInflight.clear();
 }
 
+export async function patchMyRegosDefaults(
+  token: string,
+  body: RegosDefaultsPatchRequest,
+  cacheScope?: SettingsCacheScope,
+): Promise<RegosDefaultsResponse> {
+  const response = await apiRequest<RegosDefaultsResponse>("/api/v1/me/settings/regos-defaults", {
+    method: "PATCH",
+    token,
+    body,
+  });
+  invalidateMyRegosDefaultsCache(token);
+  await saveSettingsToIdb(employeeKey(cacheScope, "regos-defaults"), response);
+  return response;
+}
+
 export async function fetchUserPosSettings(
   token: string,
   options?: FetchOptions,
 ): Promise<UserPosSettingsResponse> {
   const idbKey = employeeKey(options?.cacheScope, "pos");
 
+  const pending = userPosSettingsInflight.get(token);
+  if (pending) return pending;
+
   if (!options?.force) {
     const cached = userPosSettingsCache.get(token);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
-
-    const pending = userPosSettingsInflight.get(token);
-    if (pending) return pending;
-
-    const idb = await loadSettingsFromIdb<UserPosSettingsResponse>(idbKey);
-    if (idb) return idb;
   }
 
-  const request = apiRequest<UserPosSettingsResponse>("/api/v1/me/settings/pos", { token })
-    .then(async (data) => {
+  const request = (async () => {
+    if (!options?.force) {
+      const idb = await loadSettingsFromIdb<UserPosSettingsResponse>(idbKey);
+      if (idb) {
+        userPosSettingsCache.set(token, {
+          data: idb,
+          expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS,
+        });
+        return idb;
+      }
+    }
+
+    try {
+      const data = await apiRequest<UserPosSettingsResponse>("/api/v1/me/settings/pos", { token });
       userPosSettingsCache.set(token, {
         data,
         expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS,
       });
-      userPosSettingsInflight.delete(token);
       await saveSettingsToIdb(idbKey, data);
       return data;
-    })
-    .catch(async (error) => {
-      userPosSettingsInflight.delete(token);
+    } catch (error) {
       const idb = await loadSettingsFromIdb<UserPosSettingsResponse>(idbKey);
       if (idb) return idb;
       throw error;
-    });
+    }
+  })().finally(() => {
+    userPosSettingsInflight.delete(token);
+  });
 
   userPosSettingsInflight.set(token, request);
   return request;
@@ -642,33 +711,39 @@ export async function fetchExchangeRateSync(
 ): Promise<ExchangeRateSyncResponse> {
   const idbKey = companyKey(options?.cacheScope, "exchange-rate-sync");
 
+  const pending = exchangeRateSyncInflight.get(token);
+  if (pending) return pending;
+
   if (!options?.force) {
     const cached = exchangeRateSyncCache.get(token);
     if (cached && cached.expiresAt > Date.now()) return cached.data;
-
-    const pending = exchangeRateSyncInflight.get(token);
-    if (pending) return pending;
-
-    const idb = await loadSettingsFromIdb<ExchangeRateSyncResponse>(idbKey);
-    if (idb) return idb;
   }
 
-  const request = apiRequest<ExchangeRateSyncResponse>(
-    "/api/v1/company/settings/exchange-rate-sync",
-    { token },
-  )
-    .then(async (data) => {
+  const request = (async () => {
+    if (!options?.force) {
+      const idb = await loadSettingsFromIdb<ExchangeRateSyncResponse>(idbKey);
+      if (idb) {
+        exchangeRateSyncCache.set(token, { data: idb, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
+        return idb;
+      }
+    }
+
+    try {
+      const data = await apiRequest<ExchangeRateSyncResponse>(
+        "/api/v1/company/settings/exchange-rate-sync",
+        { token },
+      );
       exchangeRateSyncCache.set(token, { data, expiresAt: Date.now() + SETTINGS_CACHE_TTL_MS });
-      exchangeRateSyncInflight.delete(token);
       await saveSettingsToIdb(idbKey, data);
       return data;
-    })
-    .catch(async (error) => {
-      exchangeRateSyncInflight.delete(token);
+    } catch (error) {
       const idb = await loadSettingsFromIdb<ExchangeRateSyncResponse>(idbKey);
       if (idb) return idb;
       throw error;
-    });
+    }
+  })().finally(() => {
+    exchangeRateSyncInflight.delete(token);
+  });
 
   exchangeRateSyncInflight.set(token, request);
   return request;

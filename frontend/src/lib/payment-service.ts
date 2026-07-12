@@ -1,7 +1,7 @@
 import {
   CATALOG_CACHE_TTL_MS,
   isCacheFresh,
-} from "@/lib/catalog-products-db";
+} from "./catalog-products-db";
 import {
   fetchPaymentTypes,
   setCachedPaymentTypes,

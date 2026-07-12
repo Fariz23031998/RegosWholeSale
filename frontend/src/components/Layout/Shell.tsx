@@ -18,6 +18,7 @@ import { CatalogViewToggle } from "@/components/POS/CatalogViewToggle";
 import { SellContextBar } from "@/components/POS/SellContextBar";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { ThemeSelector } from "@/components/ThemeSelector";
+import { CacheManagement } from "@/components/Layout/CacheManagement";
 import { NotificationMenu } from "@/components/Notifications/NotificationMenu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -130,6 +131,7 @@ export function Shell() {
         <div className={styles.spacer} />
 
         <div className={styles.sidebarFooter}>
+          <CacheManagement variant="menu" />
           <ThemeSelector variant="menu" />
           <LanguageSelector variant="menu" />
 

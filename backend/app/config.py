@@ -24,6 +24,7 @@ def parse_hh_mm(value: str, *, default: tuple[int, int] = (10, 0)) -> tuple[int,
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # Local/dev default. Production: postgresql+asyncpg://user:pass@127.0.0.1:5432/regos
     database_url: str = "sqlite+aiosqlite:///./data/regos.db"
     secret_key: str = "change-me-in-production"
     access_token_expire_minutes: int = 480

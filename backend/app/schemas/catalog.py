@@ -15,6 +15,7 @@ class CatalogProduct(BaseModel):
     sku: str
     articul: str = ""
     barcode: str = ""
+    barcode_list: str = ""
     code: str = ""
     unit_name: str = ""
     unit_type: int | None = None
@@ -50,3 +51,27 @@ class PaymentType(BaseModel):
 
 class PaymentTypesResponse(BaseModel):
     payment_types: list[PaymentType]
+
+
+class SyncProductsResponse(BaseModel):
+    updated_products: list[CatalogProduct] = []
+    removed_product_ids: list[int] = []
+    groups_invalidated: bool = False
+    synced_at: str
+    full_sync_required: bool = False
+
+
+class SyncMetaSettingsChange(BaseModel):
+    scope: str
+    namespace: str
+    user_id: int | None = None
+
+
+class SyncMetaResponse(BaseModel):
+    """Catch-up flags for non-product data (reference options, payment types, settings)."""
+
+    synced_at: str
+    full_sync_required: bool = False
+    reference_kinds: list[str] = []
+    payment_types_invalidated: bool = False
+    settings: list[SyncMetaSettingsChange] = []

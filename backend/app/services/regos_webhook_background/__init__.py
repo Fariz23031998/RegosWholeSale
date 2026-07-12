@@ -3,6 +3,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.services import events_log as events_log_service
 from app.services import catalog_events as catalog_events_service
 from app.services import document_telegram_format as fmt
 from app.services import pos_session_excel as session_excel
@@ -33,7 +34,8 @@ from app.services.regos_webhook_background.process_set_price_document.process_se
 logger = logging.getLogger("regos.backend")
 
 
-def _publish_catalog_stock_updates(
+async def _publish_catalog_stock_updates(
+    session: AsyncSession,
     company_id: int,
     event_action: str,
     document: dict[str, Any],
@@ -62,15 +64,10 @@ def _publish_catalog_stock_updates(
             stock_id=scoped_stock_id,
         )
 
-    # For purchase events which can trigger price changes, also publish globally (stock_id=None)
-    # so that all clients refresh the active catalog view prices.
-    if event_action in ("DocPurchasePerformed", "DocPurchasePerformCanceled"):
-        catalog_events_service.publish_products_updated(
-            company_id,
-            regos_item_ids=item_ids,
-            source_action=event_action,
-            stock_id=None,
-        )
+    # Record product updates in the change log for incremental sync
+    await events_log_service.record_product_changes(
+        session, company_id, "product_updated", item_ids, event_action,
+    )
 
 
 async def _run_with_session(coro) -> None:
@@ -290,7 +287,8 @@ async def process_pos_cheque(
                 )
 
             if operations and variant in ("closed", "canceled"):
-                _publish_catalog_stock_updates(
+                await _publish_catalog_stock_updates(
+                    session,
                     company_id,
                     event_action,
                     cheque,

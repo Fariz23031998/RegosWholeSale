@@ -1,4 +1,5 @@
 import logging
+from app.services import events_log as events_log_service
 from app.services import regos_document_fetch as doc_fetch
 from app.services import catalog_events as catalog_events_service
 
@@ -32,6 +33,11 @@ async def process_set_price_document(
                 regos_item_ids=item_ids,
                 source_action=event_action,
                 stock_id=None,
+            )
+
+            # Record in change log for incremental sync
+            await events_log_service.record_product_changes(
+                session, company_id, "product_updated", item_ids, event_action,
             )
 
         await _run_with_session(run)

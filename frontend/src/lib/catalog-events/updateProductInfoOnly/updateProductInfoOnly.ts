@@ -1,8 +1,10 @@
 import { apiRequest } from "@/lib/api";
 import { loadCachedProduct } from "@/lib/catalog-products-db/loadCachedProduct/loadCachedProduct";
-import { upsertProducts } from "@/lib/catalog-products-db";
+import { upsertProducts } from "../../catalog-products-db";
 import { mapItemToProductInfo } from "@/lib/catalog-events/mapItemToProductInfo/mapItemToProductInfo";
 import type { Product } from "@/types/catalog";
+
+const inflightInfoFetches = new Map<string, Promise<{ ok: boolean; result: any[] }>>();
 
 export async function updateProductInfoOnly(
   token: string,
@@ -10,17 +12,29 @@ export async function updateProductInfoOnly(
   scopeKey: string,
   onProductsUpdated?: (products: Product[]) => void,
 ): Promise<void> {
-  if (regosItemIds.length === 0) return;
-  
-  try {
-    const response = await apiRequest<{ ok: boolean; result: any[] }>("/api/v1/regos/proxy/Item/Get", {
+  if (!regosItemIds || regosItemIds.length === 0) return;
+
+  const sortedIds = [...new Set(regosItemIds)].sort().join(",");
+  const cacheKey = sortedIds;
+
+  let promise = inflightInfoFetches.get(cacheKey);
+  if (!promise) {
+    promise = apiRequest<{ ok: boolean; result: any[] }>("/api/v1/regos/proxy/Item/Get", {
       token,
       method: "POST",
       body: {
         ids: regosItemIds,
         deleted_mark: false,
       },
+    }).finally(() => {
+      inflightInfoFetches.delete(cacheKey);
     });
+    inflightInfoFetches.set(cacheKey, promise);
+  }
+  
+  try {
+    const response = await promise;
+
 
     if (!response || !response.ok || !Array.isArray(response.result)) {
       return;
