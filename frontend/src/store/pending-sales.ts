@@ -36,6 +36,7 @@ type PendingSalesState = {
   reset: () => void;
   enqueue: (record: PendingSaleRecord) => Promise<void>;
   updateRecord: (localId: string, patch: Partial<PendingSaleRecord>) => Promise<PendingSaleRecord | null>;
+  upsertRecord: (record: PendingSaleRecord) => Promise<void>;
   markSyncing: (localId: string) => Promise<void>;
   markFailed: (localId: string, errorMessage: string, errorCode?: string | null) => Promise<void>;
   markPending: (localId: string) => Promise<void>;
@@ -159,6 +160,13 @@ export const usePendingSales = create<PendingSalesState>((set, get) => ({
     const { scopeKey } = get();
     if (scopeKey) broadcastPendingSalesUpdate(scopeKey);
     return updated;
+  },
+
+  upsertRecord: async (record) => {
+    await savePendingSale(record);
+    set((state) => ({ records: replaceRecord(state.records, record) }));
+    const { scopeKey } = get();
+    if (scopeKey) broadcastPendingSalesUpdate(scopeKey);
   },
 
   markSyncing: async (localId) => {

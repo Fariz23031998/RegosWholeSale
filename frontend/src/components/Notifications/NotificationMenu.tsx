@@ -18,6 +18,20 @@ function formatTimestamp(createdAt: number): string {
   return new Date(createdAt).toLocaleString();
 }
 
+function statusLabel(
+  status: PendingSaleRecord["status"],
+  t: (key: string, fallback: string) => string,
+): string {
+  switch (status) {
+    case "pending":
+      return t("notifications.statusPending", "Waiting to sync");
+    case "syncing":
+      return t("notifications.statusSyncing", "Syncing…");
+    case "failed":
+      return t("notifications.statusFailed", "Failed");
+  }
+}
+
 export function NotificationMenu() {
   const { t } = useLanguage();
   const navigate = useNavigate();
@@ -36,7 +50,6 @@ export function NotificationMenu() {
   const remove = usePendingSales((s) => s.remove);
   const setActiveRetryLocalId = usePendingSales((s) => s.setActiveRetryLocalId);
   const requestCheckoutRestore = usePendingSales((s) => s.requestCheckoutRestore);
-  const markPending = usePendingSales((s) => s.markPending);
   const decrementStock = useCatalog((s) => s.decrementStock);
   const incrementStock = useCatalog((s) => s.incrementStock);
 
@@ -100,12 +113,11 @@ export function NotificationMenu() {
   const resolveRecord = (localId: string): PendingSaleRecord | null =>
     records.find((record) => record.localId === localId) ?? modalSnapshot;
 
-  const handleRestoreAndRetry = async (localId: string) => {
+  const handleRestoreAndRetry = (localId: string) => {
     const record = resolveRecord(localId);
     if (!record) return;
 
     restorePendingSaleSnapshot(record);
-    await markPending(record.localId);
     setActiveRetryLocalId(record.localId);
     setModalSnapshot(null);
 
@@ -142,13 +154,14 @@ export function NotificationMenu() {
               {t("notifications.title", "Sync failures")}
             </div>
             <div className={styles.list}>
-              {failedRecords.length === 0 ? (
+              {records.length === 0 ? (
                 <div className={styles.empty}>
                   {t("notifications.empty", "No failed sales to sync.")}
                 </div>
               ) : (
-                failedRecords.map((record) => {
-                  const unread = unreadFailedIds.has(record.localId);
+                records.map((record) => {
+                  const failed = record.status === "failed";
+                  const unread = failed && unreadFailedIds.has(record.localId);
                   return (
                     <div
                       key={record.localId}
@@ -166,33 +179,43 @@ export function NotificationMenu() {
                             {formatCurrency(record.totals.total)}
                           </div>
                         </div>
+                        <div
+                          className={clsx(
+                            styles.status,
+                            failed && styles.statusFailed,
+                          )}
+                        >
+                          {statusLabel(record.status, t)}
+                        </div>
                       </div>
                       {record.errorMessage ? (
                         <div className={styles.error}>{record.errorMessage}</div>
                       ) : null}
-                      <div className={styles.actions}>
-                        <button
-                          type="button"
-                          className={styles.actionBtn}
-                          onClick={() => handleOpen(record)}
-                        >
-                          {t("notifications.open", "Open")}
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.actionBtn}
-                          onClick={() => void handleRetry(record)}
-                        >
-                          {t("notifications.retrySync", "Retry sync")}
-                        </button>
-                        <button
-                          type="button"
-                          className={clsx(styles.actionBtn, styles.actionBtnDanger)}
-                          onClick={() => void dismissRecord(record)}
-                        >
-                          {t("notifications.dismiss", "Dismiss")}
-                        </button>
-                      </div>
+                      {failed ? (
+                        <div className={styles.actions}>
+                          <button
+                            type="button"
+                            className={styles.actionBtn}
+                            onClick={() => handleOpen(record)}
+                          >
+                            {t("notifications.open", "Open")}
+                          </button>
+                          <button
+                            type="button"
+                            className={styles.actionBtn}
+                            onClick={() => void handleRetry(record)}
+                          >
+                            {t("notifications.retrySync", "Retry sync")}
+                          </button>
+                          <button
+                            type="button"
+                            className={clsx(styles.actionBtn, styles.actionBtnDanger)}
+                            onClick={() => void dismissRecord(record)}
+                          >
+                            {t("notifications.dismiss", "Dismiss")}
+                          </button>
+                        </div>
+                      ) : null}
                     </div>
                   );
                 })
@@ -209,7 +232,7 @@ export function NotificationMenu() {
           onDismiss={() =>
             void dismissRecord(modalSnapshot).then(() => handleCloseModal())
           }
-          onRestoreAndRetry={() => void handleRestoreAndRetry(modalSnapshot.localId)}
+          onRestoreAndRetry={() => handleRestoreAndRetry(modalSnapshot.localId)}
         />
       ) : null}
     </>

@@ -129,7 +129,7 @@ export function CartPanel() {
     useState<PaymentSubmitPayload | null>(null);
   const [restoreRetryLocalId, setRestoreRetryLocalId] = useState<string | null>(null);
   const enqueuePendingSale = usePendingSales((s) => s.enqueue);
-  const updatePendingSale = usePendingSales((s) => s.updateRecord);
+  const upsertPendingSale = usePendingSales((s) => s.upsertRecord);
   const setActiveRetryLocalId = usePendingSales((s) => s.setActiveRetryLocalId);
   const activeRetryLocalId = usePendingSales((s) => s.activeRetryLocalId);
   const checkoutRestoreRequest = usePendingSales((s) => s.checkoutRestoreRequest);
@@ -287,12 +287,9 @@ export function CartPanel() {
 
     try {
       if (activeRetryLocalId) {
-        await updatePendingSale(localId, {
-          ...record,
-          status: "pending",
-          errorMessage: null,
-          errorCode: null,
-        });
+        // Upsert so the retried sale is re-created even if the stored record
+        // was removed in the meantime, instead of being silently dropped.
+        await upsertPendingSale(record);
         setActiveRetryLocalId(null);
       } else {
         await enqueuePendingSale(record);

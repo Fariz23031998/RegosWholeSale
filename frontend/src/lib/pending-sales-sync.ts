@@ -87,6 +87,9 @@ async function requeueFailedSales(): Promise<void> {
   const records = await listPendingSales(scopeKey);
   const pendingSales = usePendingSales.getState();
   for (const record of records) {
+    // Skip the record the user is actively restoring/editing; it will be
+    // re-queued with fresh data when they resubmit.
+    if (record.localId === pendingSales.activeRetryLocalId) continue;
     if (record.status === "failed") {
       await pendingSales.markPending(record.localId);
     }
@@ -100,8 +103,12 @@ async function processQueue(): Promise<void> {
   try {
     while (accessToken && scopeKey) {
       const syncable = await listSyncable(scopeKey);
+      const activeRetryLocalId = usePendingSales.getState().activeRetryLocalId;
       const next = syncable.find(
-        (record) => record.status === "pending" && !inFlight.has(record.localId),
+        (record) =>
+          record.status === "pending" &&
+          !inFlight.has(record.localId) &&
+          record.localId !== activeRetryLocalId,
       );
       if (!next) break;
       await syncRecord(next, accessToken);
@@ -163,3 +170,6 @@ export function __resetPendingSaleSyncForTests(): void {
 
 /** @internal Test helper */
 export { processQueue as __processPendingSaleQueueForTests };
+
+/** @internal Test helper */
+export { requeueFailedSales as __requeueFailedSalesForTests };
