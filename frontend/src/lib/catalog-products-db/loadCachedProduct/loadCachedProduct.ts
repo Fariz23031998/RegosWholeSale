@@ -1,4 +1,5 @@
 import { openPulsePosDb, CATALOG_PRODUCTS_STORE, buildCatalogProductKey } from "@/lib/pulse-pos-db";
+import { isCacheEnabled } from "@/lib/cache-policy";
 import type { Product } from "@/types/catalog";
 
 type CachedProductRecord = {
@@ -14,6 +15,7 @@ export async function loadCachedProduct(
   scopeKey: string,
   productId: string,
 ): Promise<Product | null> {
+  if (!isCacheEnabled()) return null;
   const db = await openPulsePosDb();
   const key = buildCatalogProductKey(scopeKey, productId);
   return new Promise((resolve, reject) => {

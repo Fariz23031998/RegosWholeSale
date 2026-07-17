@@ -1,4 +1,5 @@
 import { openPulsePosDb, SETTINGS_CACHE_STORE } from "@/lib/pulse-pos-db";
+import { isCacheEnabled } from "@/lib/cache-policy";
 
 export const SETTINGS_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
@@ -41,6 +42,7 @@ async function openDb(): Promise<IDBDatabase> {
 }
 
 export async function loadCachedSettings(key: string): Promise<SettingsCacheRecord | null> {
+  if (!isCacheEnabled()) return null;
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SETTINGS_CACHE_STORE, "readonly");
@@ -59,6 +61,7 @@ export async function loadCachedSettings(key: string): Promise<SettingsCacheReco
 }
 
 export async function saveCachedSettings(key: string, data: unknown): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   const record: SettingsCacheRecord = {
     data,
@@ -79,6 +82,7 @@ export async function saveCachedSettings(key: string, data: unknown): Promise<vo
 }
 
 export async function clearCachedSettings(key: string): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SETTINGS_CACHE_STORE, "readwrite");

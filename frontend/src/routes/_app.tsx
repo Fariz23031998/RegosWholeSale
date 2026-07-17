@@ -85,6 +85,17 @@ function AppLayout() {
     void navigate({ to: "/login", replace: true });
   }, [accessToken, isHydrated, navigate]);
 
+  // On initial page load `beforeLoad` only runs on the server (where it bails out),
+  // so the token is never validated on the client. Validate it once after hydration;
+  // refreshMe() clears the session on 401/403 and the effect above redirects to /login.
+  const sessionVerifiedRef = useRef(false);
+  useEffect(() => {
+    if (!isHydrated || sessionVerifiedRef.current) return;
+    sessionVerifiedRef.current = true;
+    if (!useAuth.getState().accessToken) return;
+    void useAuth.getState().refreshMe();
+  }, [isHydrated]);
+
   useEffect(() => {
     if (!isHydrated || !accessToken || !user?.company_id || !user.id) return;
 

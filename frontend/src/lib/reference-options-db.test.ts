@@ -23,6 +23,33 @@ describe("reference-options-db", () => {
     });
   });
 
+  it("keeps payment categories and attached users across partial patches", () => {
+    expect(
+      mergeReferenceOptionsCache(
+        {
+          warehouses: [{ id: 1, name: "Main" }],
+          price_types: [],
+          partners: [],
+          payment_categories: [{ id: 5, name: "Sales income" }],
+          refund_payment_categories: [{ id: 6, name: "Refunds" }],
+          attached_users: [{ id: 7, name: "Cashier" }],
+          fetchedAt: 100,
+        },
+        {
+          warehouses: [{ id: 2, name: "Secondary" }],
+        },
+      ),
+    ).toEqual({
+      warehouses: [{ id: 2, name: "Secondary" }],
+      price_types: [],
+      partners: [],
+      payment_categories: [{ id: 5, name: "Sales income" }],
+      refund_payment_categories: [{ id: 6, name: "Refunds" }],
+      attached_users: [{ id: 7, name: "Cashier" }],
+      fetchedAt: expect.any(Number),
+    });
+  });
+
   it("creates a full cache record from an empty base", () => {
     expect(
       mergeReferenceOptionsCache(null, {

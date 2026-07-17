@@ -11,6 +11,11 @@ import {
   clearPaymentTypesCache,
   clearAllCaches,
 } from "@/lib/cache-service";
+import {
+  isCacheEnabled,
+  setCacheEnabled,
+  subscribeCacheEnabled,
+} from "@/lib/cache-policy";
 import styles from "./CacheManagement.module.css";
 
 type Props = {
@@ -21,8 +26,16 @@ type Props = {
 export function CacheManagement({ className, variant = "menu" }: Props) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
+  const [cacheEnabled, setCacheEnabledState] = useState(() => isCacheEnabled());
+  const [togglingCache, setTogglingCache] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const user = useAuth((s) => s.user);
+
+  useEffect(() => {
+    return subscribeCacheEnabled(() => {
+      setCacheEnabledState(isCacheEnabled());
+    });
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -43,6 +56,22 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
+
+  const handleCacheToggle = async (enabled: boolean) => {
+    if (togglingCache) return;
+
+    setTogglingCache(true);
+    try {
+      setCacheEnabled(enabled);
+      if (!enabled && user?.company_id) {
+        await clearAllCaches(user.company_id);
+      }
+    } catch {
+      toast.error(t("cache.toggleError", "Failed to update cache setting."));
+    } finally {
+      setTogglingCache(false);
+    }
+  };
 
   const handleClear = async (
     type: "catalog" | "partners" | "settings" | "payments" | "all",
@@ -92,6 +121,19 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
 
       {open && (
         <div className={clsx(styles.menu, styles.menuAbove)} role="menu">
+          <label className={styles.menuToggleRow}>
+            <span>{t("cache.enableCaching", "Enable caching")}</span>
+            <span className={styles.switch}>
+              <input
+                type="checkbox"
+                checked={cacheEnabled}
+                disabled={togglingCache}
+                onChange={(event) => void handleCacheToggle(event.target.checked)}
+              />
+              <span className={styles.slider} />
+            </span>
+          </label>
+          <div className={styles.menuDivider} />
           <button
             type="button"
             role="menuitem"

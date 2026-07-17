@@ -15,7 +15,8 @@ import { useCatalog } from "@/store/catalog";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 import { downloadCompleteCatalog } from "@/lib/catalog-service";
-import { performIncrementalSync } from "@/lib/catalog-incremental-sync";
+import { performIncrementalSync, getCatalogDownloadStatus, setCatalogDownloadStatus, removeCatalogDownloadStatus } from "@/lib/catalog-incremental-sync";
+import { isCacheEnabled } from "@/lib/cache-policy";
 import { subscribeAppResume } from "@/lib/app-resume";
 import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
 import styles from "@/components/POS/POS.module.css";
@@ -106,7 +107,6 @@ function PosPage() {
     }
 
     const scopeKey = buildCatalogScopeKey(user.company_id, warehouseId, priceTypeId);
-    const statusKey = `catalog_download_status:${user.company_id}:${warehouseId}:${priceTypeId}`;
     let cancelled = false;
 
     const applySyncResult = (
@@ -127,6 +127,10 @@ function PosPage() {
     };
 
     const ensureCatalogReady = async (options?: { force?: boolean }) => {
+      // Browser caching disabled: no local catalog to sync or pre-download,
+      // the catalog reads straight from the API instead.
+      if (!isCacheEnabled()) return;
+
       // One successful startup sync per scope; forced resumes always re-check events_log.
       if (!options?.force && startupSyncDoneForScope.current === scopeKey) {
         return;
@@ -149,7 +153,7 @@ function PosPage() {
         if (cancelled) return;
         fullSyncRequired = applySyncResult(syncResult);
         if (fullSyncRequired) {
-          localStorage.removeItem(statusKey);
+          removeCatalogDownloadStatus(user.company_id, warehouseId, priceTypeId);
         }
       } catch {
         // Incremental sync failed (e.g. network error) — continue to full download check
@@ -157,7 +161,7 @@ function PosPage() {
 
       if (cancelled) return;
 
-      const status = localStorage.getItem(statusKey);
+      const status = getCatalogDownloadStatus(user.company_id, warehouseId, priceTypeId);
       if (status === "completed" && !fullSyncRequired) {
         // Mark done only after a completed catch-up so cancelled remounts can retry.
         startupSyncDoneForScope.current = scopeKey;
@@ -177,7 +181,7 @@ function PosPage() {
           priceTypeId,
         });
         if (cancelled) return;
-        localStorage.setItem(statusKey, "completed");
+        setCatalogDownloadStatus(user.company_id, warehouseId, priceTypeId, "completed");
         toast.success(t("pos.catalog.downloadSuccess", "Catalog downloaded successfully!"), {
           id: toastId,
         });

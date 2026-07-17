@@ -17,6 +17,7 @@ import {
   fetchProductsByIds,
 } from "@/lib/catalog-api";
 import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
+import { isCacheEnabled } from "@/lib/cache-policy";
 import { setLastSyncTime } from "@/lib/sync-meta-db";
 import type { CatalogProductsResponse, ProductGroup } from "@/types/catalog";
 
@@ -71,7 +72,9 @@ export async function loadCatalogProducts(
   const pageKey = buildCatalogPageKey(query);
   const inflightKey = `${scopeKey}:${pageKey}`;
 
-  if (options?.forceApi) {
+  // With browser caching disabled the IndexedDB store is always empty,
+  // so serve every page directly from the API.
+  if (options?.forceApi || !isCacheEnabled()) {
     const existing = inflightPages.get(inflightKey);
     if (existing) return existing;
 

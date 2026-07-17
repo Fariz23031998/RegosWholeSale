@@ -3,6 +3,7 @@ import {
   invalidateCachedReferenceOptions,
   loadCachedReferenceOptions,
   saveCachedReferenceOptions,
+  type CachedReferenceOptions,
 } from "@/lib/reference-options-db";
 import {
   buildCompanySettingsKey,
@@ -351,7 +352,10 @@ export async function fetchRegosReferenceOptions(
     if (!options?.force) {
       if (companyId != null) {
         const idb = await loadCachedReferenceOptions(companyId).catch(() => null);
-        if (idb) {
+        // Older cache records only stored warehouses/price types/partners.
+        // Serving them would leave the payment category and attached user
+        // dropdowns empty, so fall through to the network in that case.
+        if (idb && isCompleteCachedReferenceOptions(idb)) {
           const fromIdb = referenceOptionsFromIdb(idb, regosReferenceOptionsCache.get(token)?.data);
           regosReferenceOptionsCache.set(token, {
             data: fromIdb,
@@ -379,6 +383,10 @@ export async function fetchRegosReferenceOptions(
           warehouses: data.warehouses,
           price_types: data.price_types,
           partners: data.partners,
+          payment_categories: data.payment_categories,
+          refund_payment_categories: data.refund_payment_categories,
+          attached_users: data.attached_users,
+          firms: data.firms,
         }).catch(() => undefined);
       }
       return data;
@@ -399,22 +407,28 @@ export async function fetchRegosReferenceOptions(
   return request;
 }
 
+function isCompleteCachedReferenceOptions(cached: CachedReferenceOptions): boolean {
+  return (
+    cached.payment_categories != null &&
+    cached.refund_payment_categories != null &&
+    cached.attached_users != null
+  );
+}
+
 function referenceOptionsFromIdb(
-  cached: {
-    warehouses: RegosReferenceOptionsResponse["warehouses"];
-    price_types: RegosReferenceOptionsResponse["price_types"];
-    partners: RegosReferenceOptionsResponse["partners"];
-  },
+  cached: CachedReferenceOptions,
   existing?: RegosReferenceOptionsResponse,
 ): RegosReferenceOptionsResponse {
   return {
     warehouses: cached.warehouses,
     price_types: cached.price_types,
     partners: cached.partners,
-    payment_categories: existing?.payment_categories ?? [],
-    refund_payment_categories: existing?.refund_payment_categories ?? [],
-    attached_users: existing?.attached_users ?? [],
-    firms: existing?.firms ?? [],
+    payment_categories:
+      cached.payment_categories ?? existing?.payment_categories ?? [],
+    refund_payment_categories:
+      cached.refund_payment_categories ?? existing?.refund_payment_categories ?? [],
+    attached_users: cached.attached_users ?? existing?.attached_users ?? [],
+    firms: cached.firms ?? existing?.firms ?? [],
   };
 }
 

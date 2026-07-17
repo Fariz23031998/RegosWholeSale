@@ -1,4 +1,5 @@
 import { PARTNERS_STORE, openPulsePosDb } from "@/lib/pulse-pos-db";
+import { isCacheEnabled } from "@/lib/cache-policy";
 import type { Partner, PartnerGroup } from "@/types/partners";
 
 export type CachedPartnersRecord = {
@@ -30,6 +31,7 @@ async function openDb(): Promise<IDBDatabase> {
 export async function loadPartnerGroupFilter(
   companyId: number,
 ): Promise<number | null> {
+  if (!isCacheEnabled()) return null;
   const db = await openDb();
   const key = partnerGroupFilterKey(companyId);
   return new Promise((resolve, reject) => {
@@ -66,6 +68,7 @@ export async function savePartnerGroupFilter(
   companyId: number,
   groupId: number | null,
 ): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   const key = partnerGroupFilterKey(companyId);
   const record: PartnerPickerPreferences = { groupId };
@@ -87,6 +90,7 @@ export async function savePartnerGroupFilter(
 export async function loadCachedPartners(
   companyId: number,
 ): Promise<CachedPartnersRecord | null> {
+  if (!isCacheEnabled()) return null;
   const db = await openDb();
   const key = String(companyId);
   return new Promise((resolve, reject) => {
@@ -109,6 +113,7 @@ export async function saveCachedPartners(
   companyId: number,
   partners: Partner[],
 ): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   const key = String(companyId);
   const record: CachedPartnersRecord = {
@@ -130,6 +135,7 @@ export async function saveCachedPartners(
 }
 
 export async function invalidateCachedPartners(companyId: number): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(PARTNERS_STORE, "readwrite");
@@ -148,6 +154,7 @@ export async function invalidateCachedPartners(companyId: number): Promise<void>
 export async function loadCachedPartnerGroups(
   companyId: number,
 ): Promise<CachedPartnerGroupsRecord | null> {
+  if (!isCacheEnabled()) return null;
   const db = await openDb();
   const key = partnerGroupsKey(companyId);
   return new Promise((resolve, reject) => {
@@ -171,6 +178,7 @@ export async function saveCachedPartnerGroups(
   companyId: number,
   groups: PartnerGroup[],
 ): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   const key = partnerGroupsKey(companyId);
   const record: CachedPartnerGroupsRecord = {
@@ -193,6 +201,7 @@ export async function saveCachedPartnerGroups(
 }
 
 export async function invalidateCachedPartnerGroups(companyId: number): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   const key = partnerGroupsKey(companyId);
   return new Promise((resolve, reject) => {

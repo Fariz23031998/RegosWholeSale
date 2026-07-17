@@ -27,6 +27,7 @@ import {
   CATALOG_PRODUCTS_STORE,
   openPulsePosDb,
 } from "@/lib/pulse-pos-db";
+import { isCacheEnabled } from "@/lib/cache-policy";
 
 export const CATALOG_CACHE_TTL_MS = 10 * 60 * 1000;
 
@@ -74,6 +75,7 @@ export async function loadCachedPage(
   scopeKey: string,
   pageKey: string,
 ): Promise<CachedPageRecord | null> {
+  if (!isCacheEnabled()) return null;
   const db = await openDb();
   const key = `${scopeKey}:${pageKey}`;
   return new Promise((resolve, reject) => {
@@ -97,6 +99,7 @@ export async function saveCachedPage(
   pageKey: string,
   response: CatalogProductsResponse,
 ): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   const key = `${scopeKey}:${pageKey}`;
   const record: CachedPageRecord = {
@@ -129,6 +132,7 @@ function getProductBarcodes(product: Product): string[] {
 }
 
 export async function upsertProducts(scopeKey: string, products: Product[]): Promise<void> {
+  if (!isCacheEnabled()) return;
   if (products.length === 0) return;
   const db = await openDb();
   const fetchedAt = Date.now();
@@ -177,6 +181,7 @@ export async function upsertProducts(scopeKey: string, products: Product[]): Pro
 }
 
 export async function removeProducts(scopeKey: string, productIds: string[]): Promise<void> {
+  if (!isCacheEnabled()) return;
   if (productIds.length === 0) return;
   const db = await openDb();
   return new Promise((resolve, reject) => {
@@ -214,6 +219,7 @@ async function findProductByIndex(
   indexName: "barcode" | "code",
   value: string,
 ): Promise<Product | null> {
+  if (!isCacheEnabled()) return null;
   const normalized = value.trim();
   if (!normalized) return null;
   const db = await openDb();
@@ -255,6 +261,7 @@ export function findProductByCode(scopeKey: string, code: string): Promise<Produ
 }
 
 export async function clearCachedPagesForScope(scopeKey: string): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CATALOG_PAGES_STORE, "readwrite");
@@ -282,6 +289,7 @@ export async function clearCachedPagesForScope(scopeKey: string): Promise<void> 
 }
 
 export async function invalidateScope(scopeKey: string): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction([CATALOG_PRODUCTS_STORE, CATALOG_PAGES_STORE], "readwrite");
@@ -317,6 +325,7 @@ export async function invalidateScope(scopeKey: string): Promise<void> {
 }
 
 export async function loadCachedGroups(companyId: number): Promise<CachedGroupsRecord | null> {
+  if (!isCacheEnabled()) return null;
   const db = await openDb();
   const key = String(companyId);
   return new Promise((resolve, reject) => {
@@ -339,6 +348,7 @@ export async function saveCachedGroups(
   companyId: number,
   groups: ProductGroup[],
 ): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   const key = String(companyId);
   const record: CachedGroupsRecord = {
@@ -360,6 +370,7 @@ export async function saveCachedGroups(
 }
 
 export async function invalidateGroups(companyId: number): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CATALOG_GROUPS_STORE, "readwrite");
@@ -382,6 +393,7 @@ export function isCacheFresh(fetchedAt: number, ttlMs: number = CATALOG_CACHE_TT
 export async function getCachedProductEntriesByScope(
   scopeKey: string,
 ): Promise<ProductSearchEntry[]> {
+  if (!isCacheEnabled()) return [];
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CATALOG_PRODUCTS_STORE, "readonly");

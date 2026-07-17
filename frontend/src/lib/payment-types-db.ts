@@ -1,4 +1,5 @@
 import { PAYMENT_TYPES_STORE, openPulsePosDb } from "@/lib/pulse-pos-db";
+import { isCacheEnabled } from "@/lib/cache-policy";
 import type { PaymentType } from "@/types/payment";
 
 export type CachedPaymentTypesRecord = {
@@ -13,6 +14,7 @@ async function openDb(): Promise<IDBDatabase> {
 export async function loadCachedPaymentTypes(
   companyId: number,
 ): Promise<CachedPaymentTypesRecord | null> {
+  if (!isCacheEnabled()) return null;
   const db = await openDb();
   const key = String(companyId);
   return new Promise((resolve, reject) => {
@@ -35,6 +37,7 @@ export async function saveCachedPaymentTypes(
   companyId: number,
   paymentTypes: PaymentType[],
 ): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   const key = String(companyId);
   const record: CachedPaymentTypesRecord = {
@@ -56,6 +59,7 @@ export async function saveCachedPaymentTypes(
 }
 
 export async function removePaymentTypes(companyId: number, ids: number[]): Promise<void> {
+  if (!isCacheEnabled()) return;
   if (ids.length === 0) return;
   const cached = await loadCachedPaymentTypes(companyId).catch(() => null);
   if (!cached) return;
@@ -66,6 +70,7 @@ export async function removePaymentTypes(companyId: number, ids: number[]): Prom
 }
 
 export async function invalidatePaymentTypes(companyId: number): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(PAYMENT_TYPES_STORE, "readwrite");

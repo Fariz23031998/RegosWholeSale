@@ -1,4 +1,5 @@
 import { openPulsePosDb, CATALOG_PRODUCTS_STORE } from "@/lib/pulse-pos-db";
+import { isCacheEnabled } from "@/lib/cache-policy";
 
 type CachedProductRecord = {
   key: string;
@@ -7,6 +8,7 @@ type CachedProductRecord = {
 };
 
 export async function loadCachedProductIdsByScope(scopeKey: string): Promise<string[]> {
+  if (!isCacheEnabled()) return [];
   const db = await openPulsePosDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(CATALOG_PRODUCTS_STORE, "readonly");

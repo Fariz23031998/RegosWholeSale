@@ -6,6 +6,7 @@ import {
   clearCachedPagesForScope,
 } from "@/lib/catalog-products-db";
 import { loadCachedProductIdsByScope } from "@/lib/catalog-products-db/loadCachedProductIdsByScope/loadCachedProductIdsByScope";
+import { isCacheEnabled } from "@/lib/cache-policy";
 import { getLastSyncTime, setLastSyncTime } from "@/lib/sync-meta-db";
 import type { Product } from "@/types/catalog";
 
@@ -41,11 +42,47 @@ function downloadStatusKey(
   return `catalog_download_status:${companyId}:${warehouseId ?? 0}:${priceTypeId ?? 0}`;
 }
 
+export function getCatalogDownloadStatus(
+  companyId: number,
+  warehouseId?: number | null,
+  priceTypeId?: number | null,
+): string | null {
+  if (!isCacheEnabled() || typeof localStorage === "undefined") return null;
+  return localStorage.getItem(
+    downloadStatusKey(companyId, warehouseId ?? undefined, priceTypeId ?? undefined),
+  );
+}
+
+export function setCatalogDownloadStatus(
+  companyId: number,
+  warehouseId: number | null,
+  priceTypeId: number | null,
+  status: string,
+): void {
+  if (!isCacheEnabled() || typeof localStorage === "undefined") return;
+  localStorage.setItem(
+    downloadStatusKey(companyId, warehouseId ?? undefined, priceTypeId ?? undefined),
+    status,
+  );
+}
+
+export function removeCatalogDownloadStatus(
+  companyId: number,
+  warehouseId?: number | null,
+  priceTypeId?: number | null,
+): void {
+  if (typeof localStorage === "undefined") return;
+  localStorage.removeItem(
+    downloadStatusKey(companyId, warehouseId ?? undefined, priceTypeId ?? undefined),
+  );
+}
+
 function hasCompletedCatalogDownload(
   companyId: number,
   warehouseId?: number,
   priceTypeId?: number,
 ): boolean {
+  if (!isCacheEnabled()) return false;
   if (typeof localStorage === "undefined") return false;
   return localStorage.getItem(downloadStatusKey(companyId, warehouseId, priceTypeId)) === "completed";
 }

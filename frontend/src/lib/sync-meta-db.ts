@@ -1,10 +1,12 @@
 import { SYNC_META_STORE, openPulsePosDb } from "@/lib/pulse-pos-db";
+import { isCacheEnabled } from "@/lib/cache-policy";
 
 type SyncMetaRecord = {
   syncedAt: string;
 };
 
 export async function getLastSyncTime(scopeKey: string): Promise<string | null> {
+  if (!isCacheEnabled()) return null;
   const db = await openPulsePosDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SYNC_META_STORE, "readonly");
@@ -24,6 +26,7 @@ export async function getLastSyncTime(scopeKey: string): Promise<string | null> 
 }
 
 export async function setLastSyncTime(scopeKey: string, syncedAt: string): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openPulsePosDb();
   const record: SyncMetaRecord = { syncedAt };
   return new Promise((resolve, reject) => {
@@ -41,6 +44,7 @@ export async function setLastSyncTime(scopeKey: string, syncedAt: string): Promi
 }
 
 export async function clearSyncMeta(scopeKey?: string): Promise<void> {
+  if (!isCacheEnabled()) return;
   const db = await openPulsePosDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SYNC_META_STORE, "readwrite");
@@ -57,6 +61,7 @@ export async function clearSyncMeta(scopeKey?: string): Promise<void> {
 }
 
 export async function getSyncMetaKeysForCompany(companyId: number): Promise<string[]> {
+  if (!isCacheEnabled()) return [];
   const db = await openPulsePosDb();
   return new Promise((resolve, reject) => {
     const tx = db.transaction(SYNC_META_STORE, "readonly");
