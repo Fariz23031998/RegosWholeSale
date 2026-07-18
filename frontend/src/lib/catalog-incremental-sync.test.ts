@@ -41,7 +41,7 @@ import { fetchProductSync } from "@/lib/catalog-api";
 import { upsertProducts } from "@/lib/catalog-products-db";
 import { loadCachedProductIdsByScope } from "@/lib/catalog-products-db/loadCachedProductIdsByScope/loadCachedProductIdsByScope";
 import { getLastSyncTime, setLastSyncTime } from "@/lib/sync-meta-db";
-import { performIncrementalSync, resolveSyncSince } from "./catalog-incremental-sync";
+import { performIncrementalSync, resolveSyncSince, applyIncrementalSyncToCatalog } from "./catalog-incremental-sync";
 
 describe("catalog-incremental-sync", () => {
   const token = "test-token";
@@ -131,5 +131,50 @@ describe("catalog-incremental-sync", () => {
       priceTypeId: 3,
     });
     expect(setLastSyncTime).toHaveBeenCalledWith("old-scope", "2026-07-12T14:00:00Z");
+  });
+
+  it("applyIncrementalSyncToCatalog patches and removes without a full refresh", () => {
+    const patchProducts = vi.fn();
+    const removeProducts = vi.fn();
+    const requestGroupsRefresh = vi.fn();
+    const requestRefresh = vi.fn();
+
+    const fullSyncRequired = applyIncrementalSyncToCatalog(
+      {
+        synced: true,
+        fullSyncRequired: false,
+        updatedCount: 1,
+        removedCount: 1,
+        groupsInvalidated: false,
+        updatedProducts: [{ id: "101", name: "Updated" } as any],
+        removedProductIds: ["202"],
+      },
+      { patchProducts, removeProducts, requestGroupsRefresh },
+    );
+
+    expect(fullSyncRequired).toBe(false);
+    expect(patchProducts).toHaveBeenCalledWith([{ id: "101", name: "Updated" }]);
+    expect(removeProducts).toHaveBeenCalledWith(["202"]);
+    expect(requestGroupsRefresh).not.toHaveBeenCalled();
+    expect(requestRefresh).not.toHaveBeenCalled();
+  });
+
+  it("applyIncrementalSyncToCatalog refreshes groups when invalidated", () => {
+    const requestGroupsRefresh = vi.fn();
+    applyIncrementalSyncToCatalog(
+      {
+        synced: true,
+        fullSyncRequired: false,
+        updatedCount: 0,
+        removedCount: 0,
+        groupsInvalidated: true,
+      },
+      {
+        patchProducts: vi.fn(),
+        removeProducts: vi.fn(),
+        requestGroupsRefresh,
+      },
+    );
+    expect(requestGroupsRefresh).toHaveBeenCalledTimes(1);
   });
 });

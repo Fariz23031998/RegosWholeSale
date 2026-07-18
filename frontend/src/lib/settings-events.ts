@@ -45,6 +45,43 @@ type SettingsEventContext = {
 
 type SettingsEventListener = (event: SettingsEventMessage) => void;
 
+interface SettingsConnectionInfo {
+  token: string;
+  context: SettingsEventContext;
+  handlers: SettingsEventHandlers;
+}
+
+interface GlobalSettingsSseState {
+  sharedSource: EventSource | null;
+  sharedToken: string | null;
+  sharedChannel: BroadcastChannel | null;
+  activeConnections: Set<SettingsConnectionInfo>;
+  lastEventAt: number | null;
+}
+
+const getGlobalSettingsSseState = (): GlobalSettingsSseState => {
+  const empty = (): GlobalSettingsSseState => ({
+    sharedSource: null,
+    sharedToken: null,
+    sharedChannel: null,
+    activeConnections: new Set<SettingsConnectionInfo>(),
+    lastEventAt: null,
+  });
+
+  if (typeof window === "undefined") {
+    const glob = global as any;
+    if (!glob.__pulse_pos_settings_sse_global__) {
+      glob.__pulse_pos_settings_sse_global__ = empty();
+    }
+    return glob.__pulse_pos_settings_sse_global__;
+  }
+  const win = window as any;
+  if (!win.__pulse_pos_settings_sse_global__) {
+    win.__pulse_pos_settings_sse_global__ = empty();
+  }
+  return win.__pulse_pos_settings_sse_global__;
+};
+
 const settingsEventListeners = new Set<SettingsEventListener>();
 
 function notifySettingsEventListeners(event: SettingsEventMessage): void {
@@ -64,11 +101,13 @@ export function subscribeSettingsEvents(listener: SettingsEventListener): () => 
   };
 }
 
-function parseSettingsEvent(data: string): SettingsEventMessage | null {
+function parseSettingsEvent(data: string): SettingsEventMessage | "heartbeat" | null {
   try {
-    const parsed = JSON.parse(data) as SettingsEventMessage;
-    if (!parsed || typeof parsed !== "object" || parsed.type !== "settings_updated") return null;
-    return parsed;
+    const parsed = JSON.parse(data) as { type?: string };
+    if (!parsed || typeof parsed !== "object" || !("type" in parsed)) return null;
+    if (parsed.type === "heartbeat") return "heartbeat";
+    if (parsed.type !== "settings_updated") return null;
+    return parsed as SettingsEventMessage;
   } catch {
     return null;
   }
@@ -131,43 +170,84 @@ function queueSettingsEvent(
   }, SETTINGS_EVENT_DEBOUNCE_MS);
 }
 
+function handleIncomingSettingsEvent(event: SettingsEventMessage): void {
+  const state = getGlobalSettingsSseState();
+  notifySettingsEventListeners(event);
+  for (const conn of state.activeConnections) {
+    queueSettingsEvent(conn.token, event, conn.context, conn.handlers);
+  }
+}
+
+function attachSharedSettingsSource(token: string): void {
+  const state = getGlobalSettingsSseState();
+  if (state.sharedSource && state.sharedToken === token) return;
+
+  if (state.sharedSource) {
+    state.sharedSource.close();
+    state.sharedSource = null;
+  }
+
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl}/api/v1/settings-events?access_token=${encodeURIComponent(token)}`;
+  const source = new EventSource(url);
+  state.sharedSource = source;
+  state.sharedToken = token;
+
+  const onMessage = (messageEvent: MessageEvent<string>) => {
+    const event = parseSettingsEvent(messageEvent.data);
+    if (!event) return;
+    state.lastEventAt = Date.now();
+    if (event === "heartbeat") return;
+    broadcastSettingsEvent(event);
+    handleIncomingSettingsEvent(event);
+  };
+
+  source.addEventListener("message", onMessage as EventListener);
+}
+
+function ensureSharedSettingsChannel(): void {
+  const state = getGlobalSettingsSseState();
+  if (state.sharedChannel || typeof BroadcastChannel === "undefined") return;
+
+  const channel = new BroadcastChannel(SETTINGS_EVENTS_CHANNEL);
+  state.sharedChannel = channel;
+  channel.onmessage = (message) => {
+    const payload = message.data as { sourceId?: string; event?: SettingsEventMessage };
+    if (payload?.sourceId === settingsEventsSourceId) return;
+    const event = payload?.event;
+    if (!event || event.type !== "settings_updated") return;
+    state.lastEventAt = Date.now();
+    handleIncomingSettingsEvent(event);
+  };
+}
+
 export function connectSettingsEvents(
   token: string,
   context: SettingsEventContext,
   handlers: SettingsEventHandlers,
 ): SettingsEventConnection {
-  const baseUrl = getApiBaseUrl();
-  const url = `${baseUrl}/api/v1/settings-events?access_token=${encodeURIComponent(token)}`;
-  const source = new EventSource(url);
+  const connection: SettingsConnectionInfo = { token, context, handlers };
+  const state = getGlobalSettingsSseState();
+  state.activeConnections.add(connection);
 
-  const onMessage = (messageEvent: MessageEvent<string>) => {
-    const event = parseSettingsEvent(messageEvent.data);
-    if (!event) return;
-    broadcastSettingsEvent(event);
-    notifySettingsEventListeners(event);
-    queueSettingsEvent(token, event, context, handlers);
-  };
-
-  source.addEventListener("message", onMessage as EventListener);
-
-  let channel: BroadcastChannel | null = null;
-  if (typeof BroadcastChannel !== "undefined") {
-    channel = new BroadcastChannel(SETTINGS_EVENTS_CHANNEL);
-    channel.onmessage = (message) => {
-      const payload = message.data as { sourceId?: string; event?: SettingsEventMessage };
-      if (payload?.sourceId === settingsEventsSourceId) return;
-      const event = payload?.event;
-      if (!event || event.type !== "settings_updated") return;
-      notifySettingsEventListeners(event);
-      queueSettingsEvent(token, event, context, handlers);
-    };
-  }
+  attachSharedSettingsSource(token);
+  ensureSharedSettingsChannel();
 
   return {
     close: () => {
-      source.removeEventListener("message", onMessage as EventListener);
-      source.close();
-      channel?.close();
+      const current = getGlobalSettingsSseState();
+      current.activeConnections.delete(connection);
+      if (current.activeConnections.size === 0) {
+        if (current.sharedSource) {
+          current.sharedSource.close();
+          current.sharedSource = null;
+        }
+        current.sharedToken = null;
+        if (current.sharedChannel) {
+          current.sharedChannel.close();
+          current.sharedChannel = null;
+        }
+      }
     },
   };
 }

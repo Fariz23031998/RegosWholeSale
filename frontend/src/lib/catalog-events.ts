@@ -80,6 +80,9 @@ export type CatalogEventMessage =
       occurred_at: string;
     };
 
+/** Age after which a quiet SSE stream is treated as stale for resume gap-fill. */
+export const CATALOG_SSE_STALE_MS = 60_000;
+
 export type ReferenceOptionsInvalidatedEvent = Extract<
   CatalogEventMessage,
   { type: "reference_options_invalidated" }
@@ -129,11 +132,12 @@ type CatalogEventContext = {
   canChangePriceType?: boolean;
 };
 
-function parseCatalogEvent(data: string): CatalogEventMessage | null {
+function parseCatalogEvent(data: string): CatalogEventMessage | "heartbeat" | null {
   try {
-    const parsed = JSON.parse(data) as CatalogEventMessage;
+    const parsed = JSON.parse(data) as { type?: string };
     if (!parsed || typeof parsed !== "object" || !("type" in parsed)) return null;
-    return parsed;
+    if (parsed.type === "heartbeat") return "heartbeat";
+    return parsed as CatalogEventMessage;
   } catch {
     return null;
   }
@@ -462,19 +466,31 @@ interface ConnectionInfo {
   handlers: CatalogEventHandlers;
 }
 
+type CatalogReconnectListener = () => void;
+
 interface GlobalSSEState {
   sharedSource: EventSource | null;
+  sharedToken: string | null;
   sharedChannel: BroadcastChannel | null;
   activeConnections: Set<ConnectionInfo>;
   processedEventSignatures: Set<string>;
+  lastEventAt: number | null;
+  wasDisconnected: boolean;
+  everOpened: boolean;
+  reconnectListeners: Set<CatalogReconnectListener>;
 }
 
 const getGlobalSseState = (): GlobalSSEState => {
   const empty = (): GlobalSSEState => ({
     sharedSource: null,
+    sharedToken: null,
     sharedChannel: null,
     activeConnections: new Set<ConnectionInfo>(),
     processedEventSignatures: new Set<string>(),
+    lastEventAt: null,
+    wasDisconnected: false,
+    everOpened: false,
+    reconnectListeners: new Set<CatalogReconnectListener>(),
   });
 
   if (typeof window === "undefined") {
@@ -490,6 +506,46 @@ const getGlobalSseState = (): GlobalSSEState => {
   }
   return win.__pulse_pos_sse_global__;
 };
+
+function markCatalogEventReceived(): void {
+  getGlobalSseState().lastEventAt = Date.now();
+}
+
+function notifyCatalogReconnectListeners(): void {
+  const state = getGlobalSseState();
+  for (const listener of state.reconnectListeners) {
+    try {
+      listener();
+    } catch {
+      // ignore listener failures
+    }
+  }
+}
+
+export function isCatalogEventsConnected(): boolean {
+  const source = getGlobalSseState().sharedSource;
+  return source != null && source.readyState === EventSource.OPEN;
+}
+
+export function getCatalogEventsLastEventAt(): number | null {
+  return getGlobalSseState().lastEventAt;
+}
+
+/** True when SSE is down or has been quiet long enough that resume should force gap-fill. */
+export function shouldForceCatalogGapFill(staleMs = CATALOG_SSE_STALE_MS): boolean {
+  const state = getGlobalSseState();
+  if (!isCatalogEventsConnected()) return true;
+  if (state.lastEventAt == null) return true;
+  return Date.now() - state.lastEventAt > staleMs;
+}
+
+export function subscribeCatalogEventsReconnect(listener: CatalogReconnectListener): () => void {
+  const state = getGlobalSseState();
+  state.reconnectListeners.add(listener);
+  return () => {
+    state.reconnectListeners.delete(listener);
+  };
+}
 
 function isDuplicateEvent(event: CatalogEventMessage): boolean {
   const signature = getEventSignature(event);
@@ -514,6 +570,69 @@ function handleIncomingEvent(event: CatalogEventMessage) {
   }
 }
 
+function attachSharedCatalogSource(token: string): void {
+  const state = getGlobalSseState();
+  if (state.sharedSource && state.sharedToken === token) return;
+
+  if (state.sharedSource) {
+    state.sharedSource.close();
+    state.sharedSource = null;
+    state.wasDisconnected = true;
+  }
+
+  const baseUrl = getApiBaseUrl();
+  const url = `${baseUrl}/api/v1/regos/catalog-events?access_token=${encodeURIComponent(token)}`;
+  const source = new EventSource(url);
+  state.sharedSource = source;
+  state.sharedToken = token;
+
+  const onMessage = (messageEvent: MessageEvent<string>) => {
+    const event = parseCatalogEvent(messageEvent.data);
+    if (!event) return;
+    markCatalogEventReceived();
+    if (event === "heartbeat") return;
+    if (isDuplicateEvent(event)) return;
+    broadcastCatalogEvent(event);
+    handleIncomingEvent(event);
+  };
+
+  source.addEventListener("message", onMessage as EventListener);
+
+  source.onopen = () => {
+    const current = getGlobalSseState();
+    const shouldGapFill = current.wasDisconnected;
+    current.wasDisconnected = false;
+    current.everOpened = true;
+    markCatalogEventReceived();
+    if (shouldGapFill) {
+      notifyCatalogReconnectListeners();
+    }
+  };
+
+  source.onerror = () => {
+    const current = getGlobalSseState();
+    current.wasDisconnected = true;
+  };
+}
+
+function ensureSharedCatalogChannel(): void {
+  const state = getGlobalSseState();
+  if (state.sharedChannel || typeof BroadcastChannel === "undefined") return;
+
+  const channel = new BroadcastChannel(CATALOG_EVENTS_CHANNEL);
+  state.sharedChannel = channel;
+  channel.onmessage = (message) => {
+    const payload = message.data as { sourceId?: string; event?: CatalogEventMessage };
+    if (payload?.sourceId === catalogEventsSourceId) return;
+    const event = payload?.event;
+    if (!event || typeof event !== "object" || !("type" in event)) return;
+    if (event.type === "heartbeat") return;
+    if (isDuplicateEvent(event)) return;
+    markCatalogEventReceived();
+    handleIncomingEvent(event);
+  };
+}
+
 export function connectCatalogEvents(
   token: string,
   context: CatalogEventContext,
@@ -523,35 +642,8 @@ export function connectCatalogEvents(
   const state = getGlobalSseState();
   state.activeConnections.add(connection);
 
-  if (!state.sharedSource) {
-    const baseUrl = getApiBaseUrl();
-    const url = `${baseUrl}/api/v1/regos/catalog-events?access_token=${encodeURIComponent(token)}`;
-    const source = new EventSource(url);
-    state.sharedSource = source;
-
-    const onMessage = (messageEvent: MessageEvent<string>) => {
-      const event = parseCatalogEvent(messageEvent.data);
-      if (!event) return;
-      if (isDuplicateEvent(event)) return;
-      broadcastCatalogEvent(event);
-      handleIncomingEvent(event);
-    };
-
-    source.addEventListener("message", onMessage as EventListener);
-  }
-
-  if (!state.sharedChannel && typeof BroadcastChannel !== "undefined") {
-    const channel = new BroadcastChannel(CATALOG_EVENTS_CHANNEL);
-    state.sharedChannel = channel;
-    channel.onmessage = (message) => {
-      const payload = message.data as { sourceId?: string; event?: CatalogEventMessage };
-      if (payload?.sourceId === catalogEventsSourceId) return;
-      const event = payload?.event;
-      if (!event || typeof event !== "object" || !("type" in event)) return;
-      if (isDuplicateEvent(event)) return;
-      handleIncomingEvent(event);
-    };
-  }
+  attachSharedCatalogSource(token);
+  ensureSharedCatalogChannel();
 
   return {
     close: () => {
@@ -562,6 +654,9 @@ export function connectCatalogEvents(
           currentState.sharedSource.close();
           currentState.sharedSource = null;
         }
+        currentState.sharedToken = null;
+        currentState.wasDisconnected = false;
+        currentState.everOpened = false;
         if (currentState.sharedChannel) {
           currentState.sharedChannel.close();
           currentState.sharedChannel = null;

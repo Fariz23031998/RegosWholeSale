@@ -1,6 +1,7 @@
 import asyncio
 import json
 from collections.abc import AsyncIterator
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
@@ -19,6 +20,12 @@ router = APIRouter(prefix="/regos", tags=["regos"])
 
 SSE_HEARTBEAT_SECONDS = 30
 
+
+def _sse_heartbeat_frame() -> str:
+    occurred_at = (
+        datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    )
+    return f"data: {json.dumps({'type': 'heartbeat', 'occurred_at': occurred_at}, separators=(',', ':'))}\n\n"
 
 async def get_current_user_for_sse(
     access_token: str | None = Query(default=None, max_length=4096),
@@ -74,7 +81,7 @@ async def _catalog_event_stream(company_id: int) -> AsyncIterator[str]:
         try:
             event = await asyncio.wait_for(iterator.__anext__(), timeout=SSE_HEARTBEAT_SECONDS)
         except asyncio.TimeoutError:
-            yield ": heartbeat\n\n"
+            yield _sse_heartbeat_frame()
             continue
         except StopAsyncIteration:
             break

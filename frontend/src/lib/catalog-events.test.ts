@@ -18,9 +18,39 @@ const localStorageStub = {
 vi.stubGlobal("localStorage", localStorageStub);
 
 class MockEventSource {
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSED = 2;
+
+  readyState = MockEventSource.CONNECTING;
+  onopen: ((ev?: Event) => void) | null = null;
+  onerror: ((ev?: Event) => void) | null = null;
   addEventListener = vi.fn();
   removeEventListener = vi.fn();
-  close = vi.fn();
+  close = vi.fn(() => {
+    this.readyState = MockEventSource.CLOSED;
+  });
+
+  /** Test helper: simulate successful open. */
+  simulateOpen() {
+    this.readyState = MockEventSource.OPEN;
+    this.onopen?.(new Event("open"));
+  }
+
+  /** Test helper: simulate connection error. */
+  simulateError() {
+    this.readyState = MockEventSource.CONNECTING;
+    this.onerror?.(new Event("error"));
+  }
+
+  /** Test helper: deliver a message to registered listeners. */
+  simulateMessage(data: string) {
+    for (const [type, handler] of this.addEventListener.mock.calls) {
+      if (type === "message") {
+        (handler as (ev: MessageEvent<string>) => void)({ data } as MessageEvent<string>);
+      }
+    }
+  }
 }
 vi.stubGlobal("EventSource", MockEventSource);
 
@@ -61,7 +91,7 @@ import { loadCachedProduct } from "@/lib/catalog-products-db/loadCachedProduct/l
 import { loadCachedProductIdsByScope } from "@/lib/catalog-products-db/loadCachedProductIdsByScope/loadCachedProductIdsByScope";
 import { fetchAllPartners, fetchPartnerGroups } from "@/lib/partners-api";
 import { saveCachedPartners, saveCachedPartnerGroups } from "@/lib/partners-db";
-import { handleCatalogEvent } from "./catalog-events";
+import { handleCatalogEvent, connectCatalogEvents, subscribeCatalogEventsReconnect, shouldForceCatalogGapFill, getCatalogEventsLastEventAt } from "./catalog-events";
 
 
 vi.mock("@/lib/partners-api", () => ({
@@ -599,6 +629,73 @@ describe("Selective SSE updates", () => {
     expect(saveCachedPartners).toHaveBeenCalledWith(context.companyId, mockPartners);
     expect(saveCachedPartnerGroups).toHaveBeenCalledWith(context.companyId, mockGroups);
     expect(testHandlers.onReferenceOptionsInvalidated).toHaveBeenCalledWith(["partner"]);
+  });
+});
+
+describe("Catalog SSE lifecycle", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete (globalThis as any).__pulse_pos_sse_global__;
+    if (typeof window !== "undefined") {
+      delete (window as any).__pulse_pos_sse_global__;
+    }
+  });
+
+  it("ignores heartbeat messages but updates lastEventAt", () => {
+    const conn = connectCatalogEvents(
+      "token",
+      { companyId: 1 },
+      { onProductsUpdated: vi.fn() },
+    );
+    const source = (globalThis as any).__pulse_pos_sse_global__.sharedSource as MockEventSource;
+    expect(source).toBeTruthy();
+
+    source.simulateMessage(
+      JSON.stringify({ type: "heartbeat", occurred_at: "2026-07-18T12:00:00Z" }),
+    );
+
+    expect(getCatalogEventsLastEventAt()).not.toBeNull();
+    conn.close();
+  });
+
+  it("fires reconnect listeners after error then open", () => {
+    const onReconnect = vi.fn();
+    const unsubscribe = subscribeCatalogEventsReconnect(onReconnect);
+
+    const conn = connectCatalogEvents(
+      "token",
+      { companyId: 1 },
+      { onProductsUpdated: vi.fn() },
+    );
+    const source = (globalThis as any).__pulse_pos_sse_global__.sharedSource as MockEventSource;
+
+    source.simulateOpen();
+    expect(onReconnect).not.toHaveBeenCalled();
+
+    source.simulateError();
+    expect(shouldForceCatalogGapFill()).toBe(true);
+
+    source.simulateOpen();
+    expect(onReconnect).toHaveBeenCalledTimes(1);
+
+    unsubscribe();
+    conn.close();
+  });
+
+  it("shouldForceCatalogGapFill is false when connected with a fresh lastEventAt", () => {
+    const conn = connectCatalogEvents(
+      "token",
+      { companyId: 1 },
+      { onProductsUpdated: vi.fn() },
+    );
+    const source = (globalThis as any).__pulse_pos_sse_global__.sharedSource as MockEventSource;
+    source.simulateOpen();
+    source.simulateMessage(
+      JSON.stringify({ type: "heartbeat", occurred_at: "2026-07-18T12:00:00Z" }),
+    );
+
+    expect(shouldForceCatalogGapFill()).toBe(false);
+    conn.close();
   });
 });
 

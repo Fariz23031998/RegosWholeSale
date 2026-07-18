@@ -5,7 +5,7 @@ import { ProductCatalog } from "@/components/POS/ProductCatalog";
 import { CartPanel } from "@/components/Cart/CartPanel";
 import { languageService } from "@/services/language";
 import { usePermissions } from "@/hooks/use-permissions";
-import { connectCatalogEvents } from "@/lib/catalog-events";
+import { connectCatalogEvents, shouldForceCatalogGapFill, subscribeCatalogEventsReconnect } from "@/lib/catalog-events";
 import { loadPaymentTypes } from "@/lib/payment-service";
 import { useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
@@ -15,7 +15,7 @@ import { useCatalog } from "@/store/catalog";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { toast } from "sonner";
 import { downloadCompleteCatalog } from "@/lib/catalog-service";
-import { performIncrementalSync, getCatalogDownloadStatus, setCatalogDownloadStatus, removeCatalogDownloadStatus } from "@/lib/catalog-incremental-sync";
+import { performIncrementalSync, getCatalogDownloadStatus, setCatalogDownloadStatus, removeCatalogDownloadStatus, applyIncrementalSyncToCatalog } from "@/lib/catalog-incremental-sync";
 import { isCacheEnabled } from "@/lib/cache-policy";
 import { subscribeAppResume } from "@/lib/app-resume";
 import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
@@ -111,20 +111,12 @@ function PosPage() {
 
     const applySyncResult = (
       syncResult: Awaited<ReturnType<typeof performIncrementalSync>>,
-    ) => {
-      if (
-        syncResult.synced &&
-        (syncResult.updatedCount > 0 ||
-          syncResult.removedCount > 0 ||
-          syncResult.groupsInvalidated)
-      ) {
-        requestRefresh();
-        if (syncResult.groupsInvalidated) {
-          requestGroupsRefresh();
-        }
-      }
-      return syncResult.fullSyncRequired;
-    };
+    ) =>
+      applyIncrementalSyncToCatalog(syncResult, {
+        patchProducts,
+        removeProducts,
+        requestGroupsRefresh,
+      });
 
     const ensureCatalogReady = async (options?: { force?: boolean }) => {
       // Browser caching disabled: no local catalog to sync or pre-download,
@@ -201,12 +193,17 @@ function PosPage() {
     void ensureCatalogReady();
 
     const unsubscribeResume = subscribeAppResume(() => {
+      void ensureCatalogReady({ force: shouldForceCatalogGapFill() });
+    });
+
+    const unsubscribeReconnect = subscribeCatalogEventsReconnect(() => {
       void ensureCatalogReady({ force: true });
     });
 
     return () => {
       cancelled = true;
       unsubscribeResume();
+      unsubscribeReconnect();
     };
   }, [
     token,
@@ -214,6 +211,8 @@ function PosPage() {
     warehouseId,
     priceTypeId,
     sellContextHydrated,
+    patchProducts,
+    removeProducts,
     requestRefresh,
     requestGroupsRefresh,
     t,

@@ -230,3 +230,33 @@ export async function performIncrementalSync(
   }
   return promise;
 }
+
+export type CatalogSyncUiHandlers = {
+  patchProducts: (products: Product[]) => void;
+  removeProducts: (productIds: string[]) => void;
+  requestGroupsRefresh: () => void;
+};
+
+/**
+ * Apply incremental sync results to the live catalog UI without a full list reload.
+ * Returns whether a full catalog download is still required.
+ */
+export function applyIncrementalSyncToCatalog(
+  syncResult: IncrementalSyncResult,
+  handlers: CatalogSyncUiHandlers,
+): boolean {
+  if (!syncResult.synced) {
+    return syncResult.fullSyncRequired;
+  }
+
+  if (syncResult.updatedProducts && syncResult.updatedProducts.length > 0) {
+    handlers.patchProducts(syncResult.updatedProducts);
+  }
+  if (syncResult.removedProductIds && syncResult.removedProductIds.length > 0) {
+    handlers.removeProducts(syncResult.removedProductIds);
+  }
+  if (syncResult.groupsInvalidated) {
+    handlers.requestGroupsRefresh();
+  }
+  return syncResult.fullSyncRequired;
+}
