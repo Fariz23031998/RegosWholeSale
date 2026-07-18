@@ -140,8 +140,10 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
             className={styles.menuItem}
             onClick={() => void handleClear("catalog")}
           >
-            <ShoppingCart size={16} />
-            {t("cache.clearCatalog", "Clear Product Catalog")}
+            <ShoppingCart size={16} aria-hidden />
+            <span className={styles.menuItemLabel}>
+              {t("cache.clearCatalog", "Clear Product Catalog")}
+            </span>
           </button>
           <button
             type="button"
@@ -149,8 +151,10 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
             className={styles.menuItem}
             onClick={() => void handleClear("partners")}
           >
-            <Users size={16} />
-            {t("cache.clearPartners", "Clear Partners")}
+            <Users size={16} aria-hidden />
+            <span className={styles.menuItemLabel}>
+              {t("cache.clearPartners", "Clear Partners")}
+            </span>
           </button>
           <button
             type="button"
@@ -158,8 +162,10 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
             className={styles.menuItem}
             onClick={() => void handleClear("settings")}
           >
-            <Settings size={16} />
-            {t("cache.clearSettings", "Clear Settings")}
+            <Settings size={16} aria-hidden />
+            <span className={styles.menuItemLabel}>
+              {t("cache.clearSettings", "Clear Settings")}
+            </span>
           </button>
           <button
             type="button"
@@ -167,8 +173,10 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
             className={styles.menuItem}
             onClick={() => void handleClear("payments")}
           >
-            <Receipt size={16} />
-            {t("cache.clearPayments", "Clear Payment Types")}
+            <Receipt size={16} aria-hidden />
+            <span className={styles.menuItemLabel}>
+              {t("cache.clearPayments", "Clear Payment Types")}
+            </span>
           </button>
           <button
             type="button"
@@ -176,8 +184,10 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
             className={clsx(styles.menuItem, styles.danger)}
             onClick={() => void handleClear("all")}
           >
-            <Trash2 size={16} />
-            {t("cache.clearAll", "Clear All Cache")}
+            <Trash2 size={16} aria-hidden />
+            <span className={styles.menuItemLabel}>
+              {t("cache.clearAll", "Clear All Cache")}
+            </span>
           </button>
         </div>
       )}

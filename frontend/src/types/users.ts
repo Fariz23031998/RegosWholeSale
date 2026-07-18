@@ -66,6 +66,10 @@ const ALL_PERMISSION_CODES = [
   "sales.write",
   "sales.postpone",
   "sales.continue",
+  "payments.read",
+  "payments.create",
+  "payments.edit",
+  "payments.delete",
   "returns.manage",
   "documents.print",
   "dashboard.read",
@@ -76,7 +80,15 @@ const ALL_PERMISSION_CODES = [
 export const ROLE_DEFAULTS: Record<UserRole, readonly string[]> = {
   owner: ALL_PERMISSION_CODES,
   admin: ALL_PERMISSION_CODES,
-  employee: ["pos.access", "sales.read", "sales.write"],
+  employee: [
+    "pos.access",
+    "sales.read",
+    "sales.write",
+    "payments.read",
+    "payments.create",
+    "payments.edit",
+    "payments.delete",
+  ],
 };
 
 export type PermissionGroup = {
@@ -123,6 +135,12 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     labelKey: "users.permissions.groups.returns",
     fallback: "Returns",
     codes: ["returns.manage"],
+  },
+  {
+    id: "payments",
+    labelKey: "users.permissions.groups.payments",
+    fallback: "Payments",
+    codes: ["payments.read", "payments.create", "payments.edit", "payments.delete"],
   },
   {
     id: "administration",

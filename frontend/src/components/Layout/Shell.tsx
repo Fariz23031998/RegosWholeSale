@@ -10,6 +10,7 @@ import {
   ShoppingCart,
   Undo2,
   Users,
+  Wallet,
   X,
 } from "lucide-react";
 import clsx from "clsx";
@@ -29,6 +30,7 @@ import styles from "./Shell.module.css";
 const NAV = [
   { to: "/", labelKey: "nav.sell", icon: ShoppingCart, permission: "pos.access" },
   { to: "/sales", labelKey: "nav.sales", icon: Receipt, permission: "sales.read" },
+  { to: "/payments", labelKey: "nav.payments", icon: Wallet, permission: "payments.read" },
   { to: "/returns", labelKey: "nav.returns", icon: Undo2, permission: "returns.manage" },
   { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, permission: "dashboard.read" },
   { to: "/users", labelKey: "nav.users", icon: Users, permission: "users.manage" },

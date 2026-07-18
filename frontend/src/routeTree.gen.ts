@@ -20,6 +20,7 @@ import { Route as AppSettingsRouteImport } from './routes/_app.settings'
 import { Route as AppSalesRouteImport } from './routes/_app.sales'
 import { Route as AppReturnsRouteImport } from './routes/_app.returns'
 import { Route as AppReceiptTemplatesRouteImport } from './routes/_app.receipt-templates'
+import { Route as AppPaymentsRouteImport } from './routes/_app.payments'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as PublicTemplatesTokenRouteImport } from './routes/public.templates.$token'
 
@@ -77,6 +78,11 @@ const AppReceiptTemplatesRoute = AppReceiptTemplatesRouteImport.update({
   path: '/receipt-templates',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPaymentsRoute = AppPaymentsRouteImport.update({
+  id: '/payments',
+  path: '/payments',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -94,6 +100,7 @@ export interface FileRoutesByFullPath {
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/dashboard': typeof AppDashboardRoute
+  '/payments': typeof AppPaymentsRoute
   '/receipt-templates': typeof AppReceiptTemplatesRoute
   '/returns': typeof AppReturnsRoute
   '/sales': typeof AppSalesRoute
@@ -107,6 +114,7 @@ export interface FileRoutesByTo {
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/dashboard': typeof AppDashboardRoute
+  '/payments': typeof AppPaymentsRoute
   '/receipt-templates': typeof AppReceiptTemplatesRoute
   '/returns': typeof AppReturnsRoute
   '/sales': typeof AppSalesRoute
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/payments': typeof AppPaymentsRoute
   '/_app/receipt-templates': typeof AppReceiptTemplatesRoute
   '/_app/returns': typeof AppReturnsRoute
   '/_app/sales': typeof AppSalesRoute
@@ -140,6 +149,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset-password'
     | '/dashboard'
+    | '/payments'
     | '/receipt-templates'
     | '/returns'
     | '/sales'
@@ -153,6 +163,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset-password'
     | '/dashboard'
+    | '/payments'
     | '/receipt-templates'
     | '/returns'
     | '/sales'
@@ -168,6 +179,7 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset-password'
     | '/_app/dashboard'
+    | '/_app/payments'
     | '/_app/receipt-templates'
     | '/_app/returns'
     | '/_app/sales'
@@ -265,6 +277,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReceiptTemplatesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/payments': {
+      id: '/_app/payments'
+      path: '/payments'
+      fullPath: '/payments'
+      preLoaderRoute: typeof AppPaymentsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/dashboard': {
       id: '/_app/dashboard'
       path: '/dashboard'
@@ -284,6 +303,7 @@ declare module '@tanstack/react-router' {
 
 interface AppRouteChildren {
   AppDashboardRoute: typeof AppDashboardRoute
+  AppPaymentsRoute: typeof AppPaymentsRoute
   AppReceiptTemplatesRoute: typeof AppReceiptTemplatesRoute
   AppReturnsRoute: typeof AppReturnsRoute
   AppSalesRoute: typeof AppSalesRoute
@@ -295,6 +315,7 @@ interface AppRouteChildren {
 
 const AppRouteChildren: AppRouteChildren = {
   AppDashboardRoute: AppDashboardRoute,
+  AppPaymentsRoute: AppPaymentsRoute,
   AppReceiptTemplatesRoute: AppReceiptTemplatesRoute,
   AppReturnsRoute: AppReturnsRoute,
   AppSalesRoute: AppSalesRoute,

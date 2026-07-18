@@ -31,6 +31,8 @@ from app.schemas.partners import (
     PartnerCreateResponse,
     PartnerGroupsResponse,
     PartnerMutationResponse,
+    PartnerPayDebtRequest,
+    PartnerPayDebtResponse,
     PartnerUpdateRequest,
     PartnersListResponse,
 )
@@ -42,6 +44,7 @@ from app.services import regos_fields as regos_fields_service
 from app.services import regos_groups as regos_groups_service
 from app.services import regos_firms as regos_firms_service
 from app.services import regos_partner_balance as regos_partner_balance_service
+from app.services import regos_partner_pay_debt as regos_partner_pay_debt_service
 from app.services import regos_partners as regos_partners_service
 from app.services import regos_payment_linking as regos_payment_linking_service
 from app.services import regos_payment_types as regos_payment_types_service
@@ -54,6 +57,7 @@ router = APIRouter(prefix="/regos", tags=["regos"])
 
 _POS_CONTEXT_OR_SETTINGS = ("settings.manage", *POS_CONTEXT_CHANGE_PERMISSIONS)
 _PARTNER_OR_SETTINGS = ("settings.manage", "pos.change_partner")
+_PARTNER_PAY_DEBT = ("sales.write", "settings.manage", "pos.change_partner")
 
 
 @router.get("/tokens/status", response_model=RegosTokenStatus)
@@ -547,6 +551,27 @@ async def get_regos_partner_balance(
         in_base_currency=in_base_currency,
     )
     return PartnerBalanceResponse(**data)
+
+
+@router.post(
+    "/partners/{partner_id}/pay-debt",
+    response_model=PartnerPayDebtResponse,
+)
+async def pay_regos_partner_debt(
+    partner_id: int,
+    body: PartnerPayDebtRequest,
+    current: CurrentUser = Depends(require_any_permission(*_PARTNER_PAY_DEBT)),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerPayDebtResponse:
+    data = await regos_partner_pay_debt_service.pay_partner_debt(
+        session,
+        current.company_id,
+        current.id,
+        partner_id=partner_id,
+        firm_id=body.firm_id,
+        payments=[line.model_dump() for line in body.payments],
+    )
+    return PartnerPayDebtResponse(**data)
 
 
 @router.post("/partners/{partner_id}/delete-mark", response_model=PartnerMutationResponse)

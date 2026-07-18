@@ -1,0 +1,97 @@
+@page {
+  size: 80mm auto;
+  margin: 4mm;
+}
+
+.receipt {
+  font-family: "Menlo", "Consolas", "Courier New", monospace;
+  font-size: 11px;
+  width: 72mm;
+  color: #000;
+  line-height: 1.35;
+}
+
+.center { text-align: center; }
+
+.logos img {
+  max-width: 120px;
+  height: auto;
+  margin: 0 2px 4px;
+}
+
+.company-name {
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 2px;
+}
+
+.muted {
+  font-size: 10px;
+  color: #444;
+}
+
+.doc-type {
+  font-weight: 700;
+  font-size: 12px;
+  letter-spacing: 1px;
+  margin-top: 6px;
+}
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 1px 0;
+}
+
+.row span:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.meta { font-size: 10px; }
+
+.line { margin: 3px 0; }
+
+.name {
+  font-weight: 600;
+  word-break: break-word;
+}
+
+.qty {
+  font-size: 10px;
+  color: #222;
+}
+
+.total {
+  font-weight: 700;
+  font-size: 14px;
+  margin: 4px 0 2px;
+  padding: 3px 0;
+  border-top: 1px solid #000;
+  border-bottom: 1px solid #000;
+}
+
+.in-words {
+  font-size: 9px;
+  font-style: italic;
+  margin: 2px 0 4px;
+}
+
+.items-count {
+  font-size: 10px;
+  color: #444;
+  margin-bottom: 4px;
+}
+
+.balance { font-weight: 700; }
+
+.reason { font-size: 10px; }
+
+.thanks { margin-top: 4px; }
+
+hr {
+  border: none;
+  border-top: 1px dashed #999;
+  margin: 6px 0;
+}

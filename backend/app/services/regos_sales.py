@@ -1922,41 +1922,47 @@ async def _add_payment_document(
     company_id: int,
     defaults: dict[str, Any],
     *,
-    source_document_id: int,
-    document_type_id: int,
+    source_document_id: int | None,
+    document_type_id: int | None,
     payment_type_id: int,
     amount: float,
     exchange_rate: float,
     category_id: int,
     document_date: int,
+    description: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "type_id": payment_type_id,
-        "document": source_document_id,
-        "document_type_id": document_type_id,
         "firm_id": defaults["firm"]["id"],
         "partner_id": defaults["partner"]["id"],
         "category_id": category_id,
         "amount": amount,
         "exchange_rate": exchange_rate,
-        "description": str(source_document_id),
+        "description": description
+        if description is not None
+        else (str(source_document_id) if source_document_id is not None else ""),
         "date": document_date,
     }
+    if source_document_id is not None:
+        payload["document"] = source_document_id
+    if document_type_id is not None:
+        payload["document_type_id"] = document_type_id
     attached_user = defaults.get("attached_user")
     if attached_user:
         payload["attached_user_id"] = attached_user["id"]
 
-    linking_settings = await regos_payment_linking_service.get_payment_linking_settings(
-        session, company_id
-    )
-    if linking_settings["mode"] == "sale_id_field":
-        sale_id_fields = await regos_fields_service.build_doc_payment_sale_id_fields(
-            session,
-            company_id,
-            source_document_id=source_document_id,
+    if source_document_id is not None:
+        linking_settings = await regos_payment_linking_service.get_payment_linking_settings(
+            session, company_id
         )
-        if sale_id_fields:
-            payload["fields"] = sale_id_fields
+        if linking_settings["mode"] == "sale_id_field":
+            sale_id_fields = await regos_fields_service.build_doc_payment_sale_id_fields(
+                session,
+                company_id,
+                source_document_id=source_document_id,
+            )
+            if sale_id_fields:
+                payload["fields"] = sale_id_fields
 
     response = await _regos_call(session, company_id, "docpayment/add", payload)
     return _extract_new_document(response)
@@ -2257,6 +2263,7 @@ async def _resolve_payment_posting(
     is_return: bool,
     source_document_id: int,
     document_date: int,
+    transfer_description: str | None = None,
 ) -> dict[str, Any]:
     payment_currency = selected_payment_type.get("currency")
     payment_type_id = int(selected_payment_type["id"])
@@ -2329,11 +2336,14 @@ async def _resolve_payment_posting(
         amount_sended = line_amount_paid
         amount_received = amount_in_payment_currency
 
-    description = (
-        f"POS return #{source_document_id}"
-        if is_return
-        else f"POS sale #{source_document_id}"
-    )
+    if transfer_description is not None:
+        description = transfer_description
+    else:
+        description = (
+            f"POS return #{source_document_id}"
+            if is_return
+            else f"POS sale #{source_document_id}"
+        )
 
     return {
         "payment_type_id": int(settlement_payment_type["id"]),

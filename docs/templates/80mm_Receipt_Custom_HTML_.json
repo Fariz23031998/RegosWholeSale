@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "template": {
+    "name": "80mm Receipt (Custom HTML)",
+    "format": "80mm",
+    "engine": "html",
+    "header": {
+      "company_name": "Gigant Optoom",
+      "address": "",
+      "phone": "",
+      "tax_id": ""
+    },
+    "invoice_title": "",
+    "footer_text": "Спасибо за покупку!",
+    "amount_in_words_language": "ru",
+    "sections": {
+      "header": true,
+      "meta": true,
+      "partner": false,
+      "items": true,
+      "subtotal": true,
+      "discount": true,
+      "total": true,
+      "payments": true,
+      "tendered_change": true,
+      "balance_due": true,
+      "closed_without_payment": true,
+      "footer": true
+    },
+    "line_sort": {
+      "column": "document_order",
+      "direction": "asc"
+    },
+    "logos": [],
+    "html": "<div class=\"receipt\">\n  {{#if logos.length}}\n  <div class=\"center logos\">\n    {{#each logos}}\n    <img src=\"{{src}}\" alt=\"{{name}}\"{{#if max_width}} style=\"max-width:{{max_width}}px;height:auto;\"{{/if}} />\n    {{/each}}\n  </div>\n  {{/if}}\n\n  <div class=\"center company-name\">{{header.company_name}}</div>\n  {{#if header.address}}<div class=\"center muted\">{{header.address}}</div>{{/if}}\n  {{#if header.phone}}<div class=\"center muted\">{{header.phone}}</div>{{/if}}\n  {{#if header.tax_id}}<div class=\"center muted\">ИНН {{header.tax_id}}</div>{{/if}}\n\n  {{#if (eq kind \"return\")}}\n  <div class=\"center doc-type\">*** ВОЗВРАТ ***</div>\n  {{/if}}\n\n  <hr />\n\n  <div class=\"meta\">\n    <div class=\"row\"><span>Чек №</span><span>{{document.code}}</span></div>\n    <div class=\"row\"><span>Дата</span><span>{{#if sale.createdAt}}{{formatDateTime sale.createdAt}}{{else}}{{formatRegosDate document.date}}{{/if}}</span></div>\n    {{#if document.attached_user_name}}\n    <div class=\"row\"><span>Кассир</span><span>{{document.attached_user_name}}</span></div>\n    {{/if}}\n    {{#if stock_name}}\n    <div class=\"row\"><span>Склад</span><span>{{stock_name}}</span></div>\n    {{/if}}\n    {{#if document.partner_name}}\n    <div class=\"row\"><span>Покупатель</span><span>{{document.partner_name}}</span></div>\n    {{/if}}\n  </div>\n\n  <hr />\n\n  {{#each operations}}\n  <div class=\"line\">\n    <div class=\"name\">{{add @index 1}}. {{item_name}}</div>\n    <div class=\"row qty\">\n      <span>{{quantity}} {{item_unit_name}} × {{formatCurrency price}}</span>\n      <span>{{formatCurrency amount}}</span>\n    </div>\n  </div>\n  {{/each}}\n\n  <hr />\n\n  {{#if (gt totals.discount 0)}}\n  <div class=\"row\"><span>Сумма без скидки</span><span>{{formatCurrency totals.amount_gross}}</span></div>\n  <div class=\"row\"><span>Скидка</span><span>−{{formatCurrency totals.discount}}</span></div>\n  {{/if}}\n\n  <div class=\"row total\">\n    <span>ИТОГО</span>\n    <span>{{formatCurrency totals.amount}}{{#if document.currency.code_chr}} {{document.currency.code_chr}}{{/if}}</span>\n  </div>\n  {{#if total_in_words}}<div class=\"in-words\">{{total_in_words}}</div>{{/if}}\n  <div class=\"row items-count\"><span>Позиций</span><span>{{totals.quantity}}</span></div>\n\n  {{#each payments}}\n  <div class=\"row\"><span>{{payment_type_name}}</span><span>{{formatCurrency amount}}{{#if currency.code_chr}} {{currency.code_chr}}{{/if}}</span></div>\n  {{/each}}\n\n  {{#if (gt sale.tendered 0)}}\n  <div class=\"row\"><span>Наличными</span><span>{{formatCurrency sale.tendered}}</span></div>\n  <div class=\"row\"><span>Сдача</span><span>{{formatCurrency sale.change}}</span></div>\n  {{/if}}\n\n  {{#if (gt sale.balanceDue 0)}}\n  <div class=\"row\"><span>Оплачено</span><span>{{formatCurrency sale.amountPaid}}</span></div>\n  <div class=\"row balance\"><span>Остаток к оплате</span><span>{{formatCurrency sale.balanceDue}}</span></div>\n  {{/if}}\n\n  {{#if (eq kind \"return\")}}\n  {{#if document.reason}}\n  <hr />\n  <div class=\"reason\">Причина возврата: {{document.reason}}</div>\n  {{/if}}\n  {{/if}}\n\n  {{#if footer_text}}\n  <hr />\n  <div class=\"center thanks\">{{footer_text}}</div>\n  {{/if}}\n</div>",
+    "css": "@page {\n  size: 80mm auto;\n  margin: 4mm;\n}\n\n.receipt {\n  font-family: \"Menlo\", \"Consolas\", \"Courier New\", monospace;\n  font-size: 11px;\n  width: 72mm;\n  color: #000;\n  line-height: 1.35;\n}\n\n.center { text-align: center; }\n\n.logos img {\n  max-width: 120px;\n  height: auto;\n  margin: 0 2px 4px;\n}\n\n.company-name {\n  font-size: 30px;\n  font-weight: 700;\n  margin-bottom: 2px;\n}\n\n.muted {\n  font-size: 10px;\n  color: #444;\n}\n\n.doc-type {\n  font-weight: 700;\n  font-size: 15px;\n  letter-spacing: 1px;\n  margin-top: 6px;\n}\n\n.row {\n  display: flex;\n  justify-content: space-between;\n  gap: 6px;\n  padding: 1px 0;\n}\n\n.row span:last-child {\n  text-align: right;\n  white-space: nowrap;\n}\n\n.meta { font-size: 12px; }\n\n.line { margin: 3px 0; }\n\n.name {\n  font-size: 16px;\n  font-weight: 600;\n  word-break: break-word;\n}\n\n.qty {\n  font-size: 16px;\n  color: #222;\n}\n\n.total {\n  font-weight: 700;\n  font-size: 20px;\n  margin: 4px 0 2px;\n  padding: 3px 0;\n  border-top: 1px solid #000;\n  border-bottom: 1px solid #000;\n}\n\n.in-words {\n  font-size: 14px;\n  font-style: italic;\n  margin: 2px 0 4px;\n}\n\n.items-count {\n  font-size: 10px;\n  color: #444;\n  margin-bottom: 4px;\n}\n\n.balance { font-weight: 700; }\n\n.reason { font-size: 10px; }\n\n.thanks { margin-top: 4px; font-size: 20px }\n\nhr {\n  border: none;\n  border-top: 1px dashed #999;\n  margin: 6px 0;\n}"
+  }
+}

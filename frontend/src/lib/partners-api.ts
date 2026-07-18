@@ -6,6 +6,8 @@ import type {
   PartnerBalanceResponse,
   PartnerCreateRequest,
   PartnerGroupsResponse,
+  PartnerPayDebtRequest,
+  PartnerPayDebtResponse,
   PartnerUpdateRequest,
   PartnersListResponse,
 } from "@/types/partners";
@@ -165,5 +167,17 @@ export async function fetchPartnerBalance(
   }
   return apiRequest(`/api/v1/regos/partners/${partnerId}/balance?${params.toString()}`, {
     token,
+  });
+}
+
+export async function payPartnerDebt(
+  token: string,
+  partnerId: number,
+  body: PartnerPayDebtRequest,
+): Promise<PartnerPayDebtResponse> {
+  return apiRequest(`/api/v1/regos/partners/${partnerId}/pay-debt`, {
+    method: "POST",
+    token,
+    body,
   });
 }

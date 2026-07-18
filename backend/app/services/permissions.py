@@ -18,6 +18,10 @@ PERMISSION_CODES = [
     ("sales.write", "Create and modify sales"),
     ("sales.postpone", "Postpone sales"),
     ("sales.continue", "Continue postponed sales"),
+    ("payments.read", "View payments"),
+    ("payments.create", "Create payments"),
+    ("payments.edit", "Edit payments"),
+    ("payments.delete", "Delete payments"),
     ("returns.manage", "Process returns"),
     ("documents.print", "Print receipts, invoices, and documents"),
     ("dashboard.read", "View dashboard analytics"),
@@ -40,7 +44,15 @@ ALL_PERMISSION_CODES = {code for code, _ in PERMISSION_CODES}
 ROLE_DEFAULTS: dict[UserRole, set[str]] = {
     UserRole.owner: {code for code, _ in PERMISSION_CODES if code != LEGACY_OVERRIDE_REGOS},
     UserRole.admin: {code for code, _ in PERMISSION_CODES if code != LEGACY_OVERRIDE_REGOS},
-    UserRole.employee: {"pos.access", "sales.read", "sales.write"},
+    UserRole.employee: {
+        "pos.access",
+        "sales.read",
+        "sales.write",
+        "payments.read",
+        "payments.create",
+        "payments.edit",
+        "payments.delete",
+    },
 }
 
 

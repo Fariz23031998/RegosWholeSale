@@ -41,7 +41,11 @@
 .menuAbove {
   bottom: calc(100% + 6px);
   left: 0;
-  right: 0;
+  /* Grow with longer translated labels; do not clamp to trigger width */
+  right: auto;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 24px));
 }
 
 .menuToggleRow {
@@ -125,6 +129,14 @@
   cursor: pointer;
   background: transparent;
   transition: background 0.15s, color 0.15s;
+}
+
+.menuItem svg {
+  flex-shrink: 0;
+}
+
+.menuItemLabel {
+  min-width: 0;
 }
 
 .menuItem:hover {

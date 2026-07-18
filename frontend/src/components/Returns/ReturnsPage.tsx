@@ -1,5 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
 import { CalendarRange, Printer, Scale, Search, Users, Warehouse } from "lucide-react";
 import { PartnerBalanceModal } from "@/components/POS/PartnerBalanceModal";
@@ -18,6 +17,8 @@ import {
 } from "@/components/Dashboard/DashboardWarehousesModal";
 import { ReturnsDetailModal } from "@/components/Returns/ReturnsDetailModal";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useInfiniteScrollSentinel } from "@/hooks/use-infinite-scroll-sentinel";
+import { DOCUMENT_LIST_PAGE_SIZE, usePagedList } from "@/hooks/use-paged-list";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useWarehouseScope } from "@/hooks/use-warehouse-scope";
 import {
@@ -78,7 +79,7 @@ export function ReturnsPage() {
   const [selectedStockIds, setSelectedStockIds] = useState<number[]>([]);
   const [allPartners, setAllPartners] = useState(true);
   const [selectedPartnerIds, setSelectedPartnerIds] = useState<number[]>([]);
-  const [error, setError] = useState("");
+  const [detailError, setDetailError] = useState("");
   const [open, setOpen] = useState<ReturnDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [printContext, setPrintContext] = useState<DocumentPrintContext | null>(null);
@@ -117,7 +118,7 @@ export function ReturnsPage() {
   );
 
   const returnDocumentsQueryKey = useMemo(
-    () => serializeDashboardQueryParams({ ...queryParams, limit: 100 }),
+    () => serializeDashboardQueryParams({ ...queryParams, limit: DOCUMENT_LIST_PAGE_SIZE }),
     [
       allPartners,
       effectiveStockFilters.allStocks,
@@ -134,6 +135,42 @@ export function ReturnsPage() {
     if (periodPreset !== "custom") return presetToCustomRange(periodPreset);
     return presetToCustomRange("week");
   }, [customRange, periodPreset]);
+
+  const fetchPage = useCallback(
+    async ({ offset, limit }: { offset: number; limit: number }) => {
+      if (!token) return { items: [], next_offset: 0, total: 0 };
+      const res = await fetchWholesaleReturnDocuments(token, { ...queryParams, offset, limit });
+      return {
+        items: res.documents,
+        next_offset: res.next_offset,
+        total: res.total,
+      };
+    },
+    [queryParams, token],
+  );
+
+  const {
+    items: returnDocuments,
+    total: listTotal,
+    loading,
+    loadingMore,
+    error: listError,
+    hasMore,
+    loadMore,
+  } = usePagedList<WholesaleReturnDocument>({
+    enabled: Boolean(token) && warehouseScopeReady,
+    depsKey: returnDocumentsQueryKey,
+    pageSize: DOCUMENT_LIST_PAGE_SIZE,
+    fetchPage,
+    mapError: (err) => formatAuthError(err, t("returns.errors.load")),
+  });
+
+  const loadError = detailError || listError;
+
+  const sentinelRef = useInfiniteScrollSentinel(() => void loadMore(), {
+    enabled: Boolean(token) && warehouseScopeReady && hasMore && !loading,
+    itemsLength: returnDocuments.length,
+  });
 
   useEffect(() => {
     if (!token) {
@@ -196,19 +233,6 @@ export function ReturnsPage() {
     }
   }, [canChangeWarehouse, defaultWarehouse, warehouseScopeReady]);
 
-  const returnDocumentsQuery = useQuery({
-    queryKey: ["sales", "wholesale-return-documents", token, returnDocumentsQueryKey],
-    queryFn: () => fetchWholesaleReturnDocuments(token!, { ...queryParams, limit: 100 }),
-    enabled: Boolean(token) && warehouseScopeReady,
-    staleTime: 30_000,
-  });
-
-  const returnDocuments = returnDocumentsQuery.data?.documents ?? [];
-  const loading = returnDocumentsQuery.isPending;
-  const loadError = returnDocumentsQuery.error
-    ? formatAuthError(returnDocumentsQuery.error, t("returns.errors.load"))
-    : "";
-
   const filteredDocuments = useMemo(
     () =>
       filterWholesaleDocuments(returnDocuments, search, (doc) => [
@@ -244,7 +268,7 @@ export function ReturnsPage() {
       setOpen(detail);
     } catch (err: unknown) {
       setOpen(null);
-      setError(formatAuthError(err, t("returns.errors.loadDetails")));
+      setDetailError(formatAuthError(err, t("returns.errors.loadDetails")));
     } finally {
       setDetailLoading(false);
     }
@@ -253,14 +277,14 @@ export function ReturnsPage() {
   const printDocument = async (doc: WholesaleReturnDocument) => {
     if (!token || printingId !== null) return;
     setPrintingId(doc.id);
-    setError("");
+    setDetailError("");
     try {
       const detail = await loadReturnDetail(doc);
       setPrintContext(
         buildPrintContextFromReturn(detail.document, detail.operations, detail.payments, t),
       );
     } catch (err: unknown) {
-      setError(formatAuthError(err, t("returns.errors.loadPrint")));
+      setDetailError(formatAuthError(err, t("returns.errors.loadPrint")));
     } finally {
       setPrintingId(null);
     }
@@ -371,7 +395,7 @@ export function ReturnsPage() {
         />
       ) : null}
 
-      {(loadError || error) && <div className={styles.empty}>{loadError || error}</div>}
+      {loadError && <div className={styles.empty}>{loadError}</div>}
 
       {!loading && returnDocuments.length > 0 ? (
         <div className={dashboardStyles.productsToolbar}>
@@ -488,6 +512,25 @@ export function ReturnsPage() {
           </table>
         )}
       </div>
+
+      {!loading && returnDocuments.length > 0 ? (
+        <div className={styles.listFooter}>
+          {listTotal > returnDocuments.length || hasMore ? (
+            <div className={styles.listFooterMuted}>
+              {t("common.showing", "Showing {{shown}} of {{total}}", {
+                shown: returnDocuments.length,
+                total: listTotal,
+              })}
+            </div>
+          ) : null}
+          {loadingMore ? (
+            <div className={styles.listFooterMuted}>
+              {t("common.loadingMore", "Loading more…")}
+            </div>
+          ) : null}
+          <div ref={sentinelRef} className={styles.scrollSentinel} aria-hidden />
+        </div>
+      ) : null}
 
       {open && (
         <ReturnsDetailModal
