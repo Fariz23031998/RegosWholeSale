@@ -1,4 +1,5 @@
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { Database, ShoppingCart, Users, Settings, Receipt, Trash2 } from "lucide-react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -23,12 +24,21 @@ type Props = {
   variant?: "menu";
 };
 
+type MenuPosition = {
+  top: number;
+  left: number;
+  minWidth: number;
+};
+
 export function CacheManagement({ className, variant = "menu" }: Props) {
   const { t } = useLanguage();
   const [open, setOpen] = useState(false);
   const [cacheEnabled, setCacheEnabledState] = useState(() => isCacheEnabled());
   const [togglingCache, setTogglingCache] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const user = useAuth((s) => s.user);
 
   useEffect(() => {
@@ -37,11 +47,62 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
     });
   }, []);
 
+  useLayoutEffect(() => {
+    if (!open) {
+      setMenuPosition(null);
+      return;
+    }
+
+    const updatePosition = () => {
+      const trigger = triggerRef.current;
+      const menu = menuRef.current;
+      if (!trigger) return;
+
+      const rect = trigger.getBoundingClientRect();
+      const menuHeight = menu?.offsetHeight ?? 0;
+      const menuWidth = menu?.offsetWidth ?? 0;
+      const gap = 6;
+      const padding = 12;
+      const maxWidth = Math.min(320, window.innerWidth - padding * 2);
+      const minWidth = Math.min(Math.max(rect.width, menuWidth), maxWidth);
+
+      let left = rect.left;
+      if (left + minWidth > window.innerWidth - padding) {
+        left = Math.max(padding, window.innerWidth - padding - minWidth);
+      }
+
+      let top = rect.top - gap - menuHeight;
+      if (top < padding) {
+        top = Math.min(rect.bottom + gap, window.innerHeight - padding - menuHeight);
+      }
+
+      setMenuPosition({
+        top,
+        left,
+        minWidth,
+      });
+    };
+
+    updatePosition();
+    // Re-measure after first paint once menu height is known
+    const frame = requestAnimationFrame(updatePosition);
+
+    window.addEventListener("resize", updatePosition);
+    window.addEventListener("scroll", updatePosition, true);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("resize", updatePosition);
+      window.removeEventListener("scroll", updatePosition, true);
+    };
+  }, [open]);
+
   useEffect(() => {
     if (!open) return;
 
     const onPointerDown = (event: PointerEvent) => {
-      if (rootRef.current?.contains(event.target as Node)) return;
+      const target = event.target as Node;
+      if (rootRef.current?.contains(target)) return;
+      if (menuRef.current?.contains(target)) return;
       setOpen(false);
     };
 
@@ -100,27 +161,22 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
     }
   };
 
-  return (
-    <div ref={rootRef} className={styles.root}>
-      <button
-        type="button"
-        className={clsx(styles.menuTrigger, className)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={t("cache.selectorLabel", "Cache Management")}
-        onClick={(event) => {
-          event.stopPropagation();
-          startTransition(() => {
-            setOpen((value) => !value);
-          });
-        }}
-      >
-        <Database size={18} />
-        <span>{t("cache.selectorLabel", "Cache Management")}</span>
-      </button>
-
-      {open && (
-        <div className={clsx(styles.menu, styles.menuAbove)} role="menu">
+  const menu = open
+    ? createPortal(
+        <div
+          ref={menuRef}
+          className={clsx(styles.menu, styles.menuFixed)}
+          role="menu"
+          style={
+            menuPosition
+              ? {
+                  top: menuPosition.top,
+                  left: menuPosition.left,
+                  minWidth: menuPosition.minWidth,
+                }
+              : { visibility: "hidden" as const, top: 0, left: 0 }
+          }
+        >
           <label className={styles.menuToggleRow}>
             <span>{t("cache.enableCaching", "Enable caching")}</span>
             <span className={styles.switch}>
@@ -189,8 +245,31 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
               {t("cache.clearAll", "Clear All Cache")}
             </span>
           </button>
-        </div>
-      )}
+        </div>,
+        document.body,
+      )
+    : null;
+
+  return (
+    <div ref={rootRef} className={clsx(styles.root, open && styles.rootOpen)}>
+      <button
+        ref={triggerRef}
+        type="button"
+        className={clsx(styles.menuTrigger, className)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        aria-label={t("cache.selectorLabel", "Cache Management")}
+        onClick={(event) => {
+          event.stopPropagation();
+          startTransition(() => {
+            setOpen((value) => !value);
+          });
+        }}
+      >
+        <Database size={18} />
+        <span>{t("cache.selectorLabel", "Cache Management")}</span>
+      </button>
+      {menu}
     </div>
   );
 }
