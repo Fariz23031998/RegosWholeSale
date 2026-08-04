@@ -377,6 +377,7 @@
   "checkout.errors.loadPaymentTypes": "Навъҳои пардохт бор нашуданд",
   "checkout.payInCurrency": "Пардохт бо {{currency}}",
   "checkout.balanceDue": "Боқимондаи пардохт",
+  "checkout.due": "Боқимонда",
   "checkout.remaining": "Монда",
   "checkout.loadingTypes": "Навъҳои пардохт бор карда истодаанд…",
   "checkout.noPaymentTypes": "Дар Regos навъҳои пардохт танзим нашудаанд.",

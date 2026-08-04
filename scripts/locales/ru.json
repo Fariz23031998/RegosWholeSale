@@ -377,6 +377,7 @@
   "checkout.errors.loadPaymentTypes": "Не удалось загрузить типы оплаты",
   "checkout.payInCurrency": "Оплатить в {{currency}}",
   "checkout.balanceDue": "Остаток к оплате",
+  "checkout.due": "Остаток",
   "checkout.remaining": "Осталось",
   "checkout.loadingTypes": "Загрузка типов оплаты…",
   "checkout.noPaymentTypes": "В Regos не настроены типы оплаты.",

@@ -377,6 +377,7 @@
   "checkout.errors.loadPaymentTypes": "To'lov turlarini yuklab bo'lmadi",
   "checkout.payInCurrency": "{{currency}} da to'lash",
   "checkout.balanceDue": "Qolgan to'lov",
+  "checkout.due": "Qoldiq",
   "checkout.remaining": "Qolgan",
   "checkout.loadingTypes": "To'lov turlari yuklanmoqda…",
   "checkout.noPaymentTypes": "Regosda to'lov turlari sozlanmagan.",

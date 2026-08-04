@@ -1,6 +1,6 @@
 {
-    "version": "1.1.1",
-    "last_updated": "2026-07-18",
+    "version": "1.1.2",
+    "last_updated": "2026-08-04",
     "translations": {
         "common.loading": "Yuklanmoqda...",
         "common.save": "Saqlash",
@@ -382,6 +382,7 @@
         "checkout.errors.loadPaymentTypes": "To'lov turlarini yuklab bo'lmadi",
         "checkout.payInCurrency": "{{currency}} da to'lash",
         "checkout.balanceDue": "Qolgan to'lov",
+        "checkout.due": "Qoldiq",
         "checkout.remaining": "Qolgan",
         "checkout.loadingTypes": "To'lov turlari yuklanmoqda…",
         "checkout.noPaymentTypes": "Regosda to'lov turlari sozlanmagan.",

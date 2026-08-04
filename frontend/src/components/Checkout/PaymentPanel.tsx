@@ -469,14 +469,15 @@ export function PaymentPanel({
     }
   };
 
+  const dueLabel = t("checkout.due", "Due");
   const chargeLabel = displayClosingWithoutPayment
     ? labels.closeWithout
     : displayIsPartialPayment
       ? splitPayment
-        ? `${labels.charge} ${formatAmountWithCurrency(displayAmountPaid, saleCurrency)} · Due ${formatAmountWithCurrency(displayBalanceDue, saleCurrency)}`
+        ? `${labels.charge} ${formatAmountWithCurrency(displayAmountPaid, saleCurrency)} · ${dueLabel} ${formatAmountWithCurrency(displayBalanceDue, saleCurrency)}`
         : currenciesDiffer
-          ? `${labels.charge} ${formatAmountWithCurrency(amountPaidInPaymentCurrency, resolvedPaymentCurrency)} · Due ${formatAmountWithCurrency(balanceDue, saleCurrency)}`
-          : `${labels.charge} ${formatCurrency(amountPaid)} · Due ${formatCurrency(balanceDue)}`
+          ? `${labels.charge} ${formatAmountWithCurrency(amountPaidInPaymentCurrency, resolvedPaymentCurrency)} · ${dueLabel} ${formatAmountWithCurrency(balanceDue, saleCurrency)}`
+          : `${labels.charge} ${formatCurrency(amountPaid)} · ${dueLabel} ${formatCurrency(balanceDue)}`
       : splitPayment
         ? `${labels.charge} ${formatCurrency(Math.min(displayAmountPaid, total))}`
         : currenciesDiffer

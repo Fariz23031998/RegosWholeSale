@@ -382,6 +382,7 @@ export const FALLBACK_TRANSLATIONS: Record<string, string> = {
   "checkout.errors.loadPaymentTypes": "Failed to load payment types",
   "checkout.payInCurrency": "Pay in {{currency}}",
   "checkout.balanceDue": "Balance due",
+  "checkout.due": "Due",
   "checkout.remaining": "Remaining",
   "checkout.loadingTypes": "Loading payment types…",
   "checkout.noPaymentTypes": "No payment types configured in Regos.",
