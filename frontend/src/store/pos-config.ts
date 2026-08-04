@@ -98,14 +98,20 @@ export const usePosConfig = create<PosConfigState>((set, get) => ({
         set({ hydrated: false });
       }
 
+      // Applying a cached copy here (without flipping `hydrated`) lets other
+      // consumers see optimistic values without letting ProductCatalog act on
+      // a value that may still be overwritten by the authoritative fetch below —
+      // that premature apply is what caused the default category to flash
+      // (e.g. "All" then "Featured") on startup.
+      let appliedFromCache = false;
       if (!force && cacheScope) {
         const idbKey = buildEmployeeSettingsKey(cacheScope.companyId, cacheScope.userId, "pos");
         const cached = await loadCachedSettingsData<{ settings: UserPosSettings }>(idbKey);
         if (cached?.settings) {
           set({
             ...applyPosSettings(cached.settings),
-            hydrated: true,
           });
+          appliedFromCache = true;
         }
       }
 
@@ -115,7 +121,7 @@ export const usePosConfig = create<PosConfigState>((set, get) => ({
           ...applyPosSettings(res.settings),
         });
       } catch {
-        if (!get().hydrated) {
+        if (!appliedFromCache) {
           set(defaultPosConfigState());
         }
       } finally {

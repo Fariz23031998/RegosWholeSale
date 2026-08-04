@@ -2,21 +2,19 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { lookupProductForBarcode } from "./barcode-lookup";
 import type { Product } from "@/types/catalog";
 
-vi.mock("@/lib/catalog-api", () => ({
-  fetchCatalogProducts: vi.fn(),
+vi.mock("@/lib/catalog-service", () => ({
+  loadCatalogProducts: vi.fn(),
 }));
 
 vi.mock("./catalog-products-db", () => ({
   findProductByBarcode: vi.fn(),
   findProductByCode: vi.fn(),
-  upsertProducts: vi.fn(),
 }));
 
-import { fetchCatalogProducts } from "@/lib/catalog-api";
+import { loadCatalogProducts } from "@/lib/catalog-service";
 import {
   findProductByBarcode as findCachedProductByBarcode,
   findProductByCode as findCachedProductByCode,
-  upsertProducts,
 } from "./catalog-products-db";
 
 const DEFAULT_PREFIXES = { weightPrefix: "22", piecePrefix: "23" };
@@ -42,6 +40,7 @@ function makeProduct(overrides: Partial<Product> = {}): Product {
 const defaultOptions = {
   prefixes: DEFAULT_PREFIXES,
   catalogOverrides: {},
+  scope: {},
   allowOutOfStock: false,
   getInCartQty: () => 0,
   getReservedInOtherTabs: () => 0,
@@ -49,15 +48,14 @@ const defaultOptions = {
 
 describe("lookupProductForBarcode", () => {
   beforeEach(() => {
-    vi.mocked(fetchCatalogProducts).mockReset();
+    vi.mocked(loadCatalogProducts).mockReset();
     vi.mocked(findCachedProductByBarcode).mockReset().mockResolvedValue(null);
     vi.mocked(findCachedProductByCode).mockReset().mockResolvedValue(null);
-    vi.mocked(upsertProducts).mockReset().mockResolvedValue();
   });
 
-  it("resolves internal weight barcode with clamped qty and updates cache", async () => {
+  it("resolves internal weight barcode with clamped qty via cache-first lookup", async () => {
     const product = makeProduct({ id: "p1", code: "2345", unit_name: "kg" });
-    vi.mocked(fetchCatalogProducts).mockResolvedValue({
+    vi.mocked(loadCatalogProducts).mockResolvedValue({
       products: [product],
       next_offset: 0,
       total: 1,
@@ -69,15 +67,16 @@ describe("lookupProductForBarcode", () => {
     });
 
     expect(result).toEqual({ ok: true, product, qty: 0.5 });
-    expect(fetchCatalogProducts).toHaveBeenCalledWith("token", expect.objectContaining({
-      search: "2345",
-    }));
-    expect(upsertProducts).toHaveBeenCalledWith("1:2:3", [product]);
+    expect(loadCatalogProducts).toHaveBeenCalledWith(
+      "token",
+      expect.objectContaining({ search: "2345" }),
+      defaultOptions.scope,
+    );
   });
 
-  it("resolves standard barcode with qty 1 and updates cache", async () => {
+  it("resolves standard barcode with qty 1 via cache-first lookup", async () => {
     const product = makeProduct({ id: "p2", barcode: "4870249813251" });
-    vi.mocked(fetchCatalogProducts).mockResolvedValue({
+    vi.mocked(loadCatalogProducts).mockResolvedValue({
       products: [product],
       next_offset: 0,
       total: 1,
@@ -89,14 +88,15 @@ describe("lookupProductForBarcode", () => {
     });
 
     expect(result).toEqual({ ok: true, product, qty: 1 });
-    expect(fetchCatalogProducts).toHaveBeenCalledWith("token", expect.objectContaining({
-      search: "4870249813251",
-    }));
-    expect(upsertProducts).toHaveBeenCalledWith("1:2:3", [product]);
+    expect(loadCatalogProducts).toHaveBeenCalledWith(
+      "token",
+      expect.objectContaining({ search: "4870249813251" }),
+      defaultOptions.scope,
+    );
   });
 
   it("returns not_found when product is missing", async () => {
-    vi.mocked(fetchCatalogProducts).mockResolvedValue({
+    vi.mocked(loadCatalogProducts).mockResolvedValue({
       products: [],
       next_offset: 0,
       total: 0,
@@ -109,7 +109,7 @@ describe("lookupProductForBarcode", () => {
 
   it("returns invalid_qty for internal barcode with incompatible unit", async () => {
     const product = makeProduct({ id: "p3", code: "2345", unit_type: 1, unit_name: "шт" });
-    vi.mocked(fetchCatalogProducts).mockResolvedValue({
+    vi.mocked(loadCatalogProducts).mockResolvedValue({
       products: [product],
       next_offset: 0,
       total: 1,
@@ -122,7 +122,7 @@ describe("lookupProductForBarcode", () => {
 
   it("returns out_of_stock when cart is full", async () => {
     const product = makeProduct({ id: "p4", code: "2345", stock: 1, unit_name: "kg" });
-    vi.mocked(fetchCatalogProducts).mockResolvedValue({
+    vi.mocked(loadCatalogProducts).mockResolvedValue({
       products: [product],
       next_offset: 0,
       total: 1,

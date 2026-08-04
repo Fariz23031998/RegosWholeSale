@@ -24,7 +24,7 @@ import { filterCheckoutOverrides } from "@/types/users";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
-import { fetchCatalogProducts } from "@/lib/catalog-api";
+import { loadCatalogProducts } from "@/lib/catalog-service";
 import {
   findProductByBarcode,
   findProductByCode,
@@ -72,6 +72,7 @@ const SALE_PERIOD_PRESETS: SalePeriodPreset[] = ["today", "week", "month", "all"
 export function ReturnModal({ open, onClose }: Props) {
   const { t } = useLanguage();
   const accessToken = useAuth((s) => s.accessToken);
+  const user = useAuth((s) => s.user);
   const { canChangePartner } = usePermissions();
   const canChangePartnerPerm = canChangePartner();
   const { ready: warehouseScopeReady, scopedStockQueryParams } = useWarehouseScope();
@@ -204,12 +205,15 @@ export function ReturnModal({ open, onClose }: Props) {
     let cancelled = false;
     setSearchLoading(true);
     const query = catalogQuery();
-    void fetchCatalogProducts(accessToken, {
-      search: q,
-      limit: 20,
-      warehouseId: query.warehouseId,
-      priceTypeId: query.priceTypeId,
-    })
+    void loadCatalogProducts(
+      accessToken,
+      { search: q, limit: 20, warehouseId: query.warehouseId, priceTypeId: query.priceTypeId },
+      {
+        companyId: user?.company_id,
+        warehouseId: query.warehouseId,
+        priceTypeId: query.priceTypeId,
+      },
+    )
       .then((res) => {
         if (!cancelled) setSearchResults(res.products);
       })
@@ -231,6 +235,7 @@ export function ReturnModal({ open, onClose }: Props) {
     open,
     sourceMode,
     t,
+    user?.company_id,
   ]);
 
   const filteredDocuments = useMemo(() => {
@@ -338,15 +343,19 @@ export function ReturnModal({ open, onClose }: Props) {
     };
     const parsedInternal = parseInternalBarcode(term, prefixes);
     const query = catalogQuery();
+    const scope = {
+      companyId: user?.company_id,
+      warehouseId: query.warehouseId,
+      priceTypeId: query.priceTypeId,
+    };
 
     try {
       if (parsedInternal) {
-        const res = await fetchCatalogProducts(accessToken, {
-          search: parsedInternal.productCode,
-          limit: 20,
-          warehouseId: query.warehouseId,
-          priceTypeId: query.priceTypeId,
-        });
+        const res = await loadCatalogProducts(
+          accessToken,
+          { search: parsedInternal.productCode, limit: 20, warehouseId: query.warehouseId, priceTypeId: query.priceTypeId },
+          scope,
+        );
         const product = findProductByCode(res.products, parsedInternal.productCode);
         if (!product) {
           setError(
@@ -370,12 +379,11 @@ export function ReturnModal({ open, onClose }: Props) {
         return;
       }
 
-      const res = await fetchCatalogProducts(accessToken, {
-        search: term,
-        limit: 20,
-        warehouseId: query.warehouseId,
-        priceTypeId: query.priceTypeId,
-      });
+      const res = await loadCatalogProducts(
+        accessToken,
+        { search: term, limit: 20, warehouseId: query.warehouseId, priceTypeId: query.priceTypeId },
+        scope,
+      );
       const product = findProductByBarcode(res.products, term);
       if (!product) {
         setError(

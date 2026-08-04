@@ -18,6 +18,33 @@ async def test_chunk_batch_steps() -> None:
 
 @pytest.mark.asyncio
 @patch("app.core.regos_batch.regos_async_api_request_for_company", new_callable=AsyncMock)
+async def test_regos_batch_request_adds_compound_false_for_item_get(mock_api: AsyncMock) -> None:
+    mock_api.return_value = {
+        "ok": True,
+        "result": [
+            {
+                "key": "items",
+                "status": 200,
+                "response": {"ok": True, "result": [], "total": 0, "next_offset": 0},
+            }
+        ],
+    }
+
+    await regos_batch_request_for_company(
+        AsyncMock(spec=AsyncSession),
+        1,
+        [{"key": "items", "path": "item/getext", "payload": {"ids": [1, 2]}}],
+    )
+
+    batch_payload = mock_api.await_args.args[3]
+    assert batch_payload["requests"][0]["payload"] == {
+        "ids": [1, 2],
+        "compound": False,
+    }
+
+
+@pytest.mark.asyncio
+@patch("app.core.regos_batch.regos_async_api_request_for_company", new_callable=AsyncMock)
 async def test_regos_batch_request_for_company(mock_api: AsyncMock) -> None:
     mock_api.return_value = {
         "ok": True,

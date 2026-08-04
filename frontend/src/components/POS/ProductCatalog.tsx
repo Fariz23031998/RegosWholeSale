@@ -14,6 +14,11 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useBookedOrderContinuation } from "@/hooks/use-booked-order-continuation";
 import { usePermissions } from "@/hooks/use-permissions";
 import { loadCatalogProducts, loadProductGroups } from "@/lib/catalog-service";
+import {
+  applyIncrementalSyncToCatalog,
+  performIncrementalSync,
+} from "@/lib/catalog-incremental-sync";
+import { isCacheEnabled } from "@/lib/cache-policy";
 import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
 import { canAddProductToCart } from "@/lib/cart-stock";
 import { isBarcodeInput } from "@/lib/barcode";
@@ -126,9 +131,12 @@ export function ProductCatalog() {
   const products = useCatalog((s) => s.products);
   const setProducts = useCatalog((s) => s.setProducts);
   const appendProducts = useCatalog((s) => s.appendProducts);
+  const patchProducts = useCatalog((s) => s.patchProducts);
+  const removeCatalogProducts = useCatalog((s) => s.removeProducts);
   const refreshNonce = useCatalog((s) => s.refreshNonce);
   const requestRefresh = useCatalog((s) => s.requestRefresh);
   const groupsRefreshNonce = useCatalog((s) => s.groupsRefreshNonce);
+  const requestGroupsRefresh = useCatalog((s) => s.requestGroupsRefresh);
   const add = useCart((s) => s.add);
   const addWithQty = useCart((s) => s.addWithQty);
   const checkoutTabs = useCheckoutTabs((s) => s.tabs);
@@ -183,7 +191,6 @@ export function ProductCatalog() {
   const [nextOffset, setNextOffset] = useState(0);
   const [total, setTotal] = useState(0);
   const [lastPageProductCount, setLastPageProductCount] = useState(0);
-  const [reachedCacheEnd, setReachedCacheEnd] = useState(false);
 
   const isPreparing = Boolean(
     token && (!categoryReady || !sellContextHydrated || !posConfigHydrated || !catalogFiltersReady),
@@ -417,6 +424,45 @@ export function ProductCatalog() {
     [catalogOverrides.priceTypeId, catalogOverrides.warehouseId, user?.company_id],
   );
 
+  // Pulls the latest deltas into the IndexedDB cache before a manual Retry.
+  // The grid itself never reads Regos directly when caching is enabled — this is the
+  // only sanctioned way to freshen the cache on demand from the catalog error path.
+  const resyncCatalogFromServer = useCallback(async () => {
+    if (!token || !isCacheEnabled() || user?.company_id == null) return;
+    const scopeKey = buildCatalogScopeKey(
+      user.company_id,
+      catalogOverrides.warehouseId,
+      catalogOverrides.priceTypeId,
+    );
+    try {
+      const syncResult = await performIncrementalSync(
+        token,
+        scopeKey,
+        {
+          companyId: user.company_id,
+          warehouseId: catalogOverrides.warehouseId,
+          priceTypeId: catalogOverrides.priceTypeId,
+        },
+        { force: true },
+      );
+      applyIncrementalSyncToCatalog(syncResult, {
+        patchProducts,
+        removeProducts: removeCatalogProducts,
+        requestGroupsRefresh,
+      });
+    } catch {
+      // Best-effort resync — the cache-only read that follows still runs either way.
+    }
+  }, [
+    catalogOverrides.priceTypeId,
+    catalogOverrides.warehouseId,
+    patchProducts,
+    removeCatalogProducts,
+    requestGroupsRefresh,
+    token,
+    user?.company_id,
+  ]);
+
   const catalogQueryKey = useMemo(
     () =>
       [
@@ -495,7 +541,6 @@ export function ProductCatalog() {
           if (!hasMore) break;
 
           if (res.products.length === 0 && !options?.forceApi) {
-            setReachedCacheEnd(true);
             break;
           }
 
@@ -581,7 +626,6 @@ export function ProductCatalog() {
     setNextOffset(0);
     setTotal(0);
     setLastPageProductCount(0);
-    setReachedCacheEnd(false);
 
     let cancelled = false;
 
@@ -589,7 +633,6 @@ export function ProductCatalog() {
       setLoading(true);
       setError("");
       setLoadMoreError("");
-      setReachedCacheEnd(false);
       try {
         const forceApi = forceNextCatalogLoadRef.current;
         forceNextCatalogLoadRef.current = false;
@@ -636,7 +679,7 @@ export function ProductCatalog() {
   );
 
   const loadMore = useCallback(
-    async (forcedOffset?: number, options?: { forceApi?: boolean }) => {
+    async (forcedOffset?: number) => {
       if (isCatalogReloadingRef.current || loading) return;
 
       const requestOffset =
@@ -665,7 +708,7 @@ export function ProductCatalog() {
         const countBefore = useCatalog.getState().products.length;
 
         if (!isGlobalSearch && countBefore < PAGE_SIZE) {
-          await ensureMinimumGridProducts(requestOffset, "append", options);
+          await ensureMinimumGridProducts(requestOffset, "append");
           return;
         }
 
@@ -673,13 +716,9 @@ export function ProductCatalog() {
           token,
           catalogFetchParams(requestOffset),
           catalogScope,
-          options
         );
         if (res.products.length > 0) {
           appendProducts(res.products);
-          setReachedCacheEnd(false);
-        } else if (!options?.forceApi) {
-          setReachedCacheEnd(true);
         }
         applyCatalogResponse(res, useCatalog.getState().products.length);
       } catch (err) {
@@ -790,6 +829,7 @@ export function ProductCatalog() {
     setError("");
     setLoadMoreError("");
     try {
+      await resyncCatalogFromServer();
       await fetchCatalogPage({ forceApi: true });
     } catch (err) {
       lastRequestedOffsetRef.current = null;
@@ -892,6 +932,7 @@ export function ProductCatalog() {
         catalogOverrides.warehouseId,
         catalogOverrides.priceTypeId,
       ),
+      scope: catalogScope,
       allowOutOfStock,
       bookedOrderContinuation,
       getInCartQty,
@@ -901,6 +942,7 @@ export function ProductCatalog() {
       allowOutOfStock,
       bookedOrderContinuation,
       catalogOverrides,
+      catalogScope,
       getReservedInOtherTabs,
       internalBarcodePiecePrefix,
       internalBarcodeWeightPrefix,
@@ -1002,9 +1044,13 @@ export function ProductCatalog() {
       setIncludeZeroQuantity(Boolean(res.defaults.zero_quantity));
       setIncludeZeroPrice(Boolean(res.defaults.zero_price));
       if (
-        (Boolean(res.defaults.zero_quantity) && !previousZeroQuantity) ||
-        (Boolean(res.defaults.zero_price) && !previousZeroPrice)
+        !isCacheEnabled() &&
+        ((Boolean(res.defaults.zero_quantity) && !previousZeroQuantity) ||
+          (Boolean(res.defaults.zero_price) && !previousZeroPrice))
       ) {
+        // Cache-backed reads already include zero-qty/zero-price items and apply this
+        // filter client-side (see filterAndSortCachedProducts), so no API bypass is
+        // needed there. Only force a direct fetch when there's no cache to filter.
         forceNextCatalogLoadRef.current = true;
       }
       requestRefresh();
@@ -1214,11 +1260,6 @@ export function ProductCatalog() {
             {featuredOnly
               ? t("pos.emptyFeatured", "No featured products yet. Star items to add them here.")
               : t("pos.emptySearch", "No products match your search.")}
-            <div className={styles.statusActions}>
-              <button type="button" className={styles.retryBtn} onClick={() => void retry()}>
-                {t("pos.refresh", "Refresh")}
-              </button>
-            </div>
           </div>
         ) : (
           <>
@@ -1262,25 +1303,16 @@ export function ProductCatalog() {
               <div className={styles.loadingMore}>{t("pos.loadingMore", "Loading more products...")}</div>
             ) : null}
 
-            {(reachedCacheEnd || canLoadMore) && !loadingMore ? (
+            {canLoadMore && !loadingMore ? (
               <div className={styles.loadMoreWrap}>
-                {canLoadMore ? (
-                  <p className={styles.loadMoreHint}>
-                    {total > products.length
-                      ? t("pos.showingCount", "Showing {{n}} · more available", { n: products.length })
-                      : t("pos.showingCount", "Showing {{n}} · more available", { n: products.length }).replace(
-                          " · more available",
-                          "",
-                        )}
-                  </p>
-                ) : null}
-                <button
-                  type="button"
-                  className={styles.loadMoreBtn}
-                  onClick={() => void loadMore(undefined, { forceApi: true })}
-                >
-                  {t("pos.refresh", "Refresh")}
-                </button>
+                <p className={styles.loadMoreHint}>
+                  {total > products.length
+                    ? t("pos.showingCount", "Showing {{n}} · more available", { n: products.length })
+                    : t("pos.showingCount", "Showing {{n}} · more available", { n: products.length }).replace(
+                        " · more available",
+                        "",
+                      )}
+                </p>
               </div>
             ) : null}
           </>

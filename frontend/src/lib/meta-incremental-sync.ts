@@ -110,7 +110,8 @@ async function applySettingsChange(
   }
 }
 
-async function applyFullMetaRefresh(
+/** Force-refresh partners, payment types, and settings caches from the server. */
+export async function forceFullMetaRefresh(
   token: string,
   cacheScope: SettingsCacheScope,
   canChangePosContext: boolean,
@@ -166,7 +167,7 @@ export async function performMetaIncrementalSync(
         const cacheScope: SettingsCacheScope = { companyId, userId };
 
         if (response.full_sync_required) {
-          await applyFullMetaRefresh(token, cacheScope, canChangePosContext);
+          await forceFullMetaRefresh(token, cacheScope, canChangePosContext);
           await setLastSyncTime(metaSyncScopeKey(companyId), response.synced_at);
           lastFetchedAtByCompany.set(companyId, Date.now());
           return {

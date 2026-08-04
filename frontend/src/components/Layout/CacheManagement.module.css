@@ -143,6 +143,15 @@
   background: var(--color-surface-2);
 }
 
+.menuItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.menuItem:disabled:hover {
+  background: transparent;
+}
+
 .danger {
   color: var(--color-danger, #ef4444);
 }

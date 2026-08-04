@@ -206,11 +206,18 @@
   background: var(--color-primary-soft);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1299px) {
   .catalogFilterBtnLabel {
     display: none;
   }
 
+  .catalogFilterBtn {
+    padding: 0 10px;
+    gap: 0;
+  }
+}
+
+@media (max-width: 900px) {
   .searchRow {
     flex-wrap: wrap;
   }
@@ -1372,8 +1379,7 @@
   font-size: 13px;
   color: var(--color-text-muted);
 }
-.retryBtn,
-.loadMoreBtn {
+.retryBtn {
   justify-self: center;
   min-height: 40px;
   padding: 0 16px;
@@ -1383,8 +1389,7 @@
   color: var(--color-text);
   cursor: pointer;
 }
-.retryBtn:hover,
-.loadMoreBtn:hover {
+.retryBtn:hover {
   border-color: var(--color-primary);
 }
 .loadingMore {

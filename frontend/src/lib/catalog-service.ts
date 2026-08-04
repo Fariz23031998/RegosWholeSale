@@ -35,7 +35,7 @@ type CatalogQuery = {
   includeZeroPrice?: boolean;
 };
 
-type CatalogScope = {
+export type CatalogScope = {
   companyId?: number | null;
   warehouseId?: number | null;
   priceTypeId?: number | null;
@@ -72,9 +72,12 @@ export async function loadCatalogProducts(
   const pageKey = buildCatalogPageKey(query);
   const inflightKey = `${scopeKey}:${pageKey}`;
 
-  // With browser caching disabled the IndexedDB store is always empty,
-  // so serve every page directly from the API.
-  if (options?.forceApi || !isCacheEnabled()) {
+  // Only call Regos directly when there is no cache to read from. When caching
+  // is enabled, `forceApi` is intentionally ignored so the grid, refresh
+  // actions, and filter toggles never bypass the cache — callers that want a
+  // fresher cache should resync it (see performIncrementalSync) instead of
+  // requesting a raw API read here.
+  if (!isCacheEnabled()) {
     const existing = inflightPages.get(inflightKey);
     if (existing) return existing;
 
@@ -115,30 +118,6 @@ export async function loadCatalogProducts(
   }
 
   return { products: [], next_offset: query.offset ?? 0, total: 0 };
-}
-
-async function revalidateCatalogPage(
-  token: string,
-  query: CatalogQuery,
-  scope: CatalogScope,
-  scopeKey: string,
-  pageKey: string,
-): Promise<void> {
-  const inflightKey = `${scopeKey}:${pageKey}:revalidate`;
-  if (inflightPages.has(inflightKey)) return;
-
-  const request = fetchCatalogProducts(token, query)
-    .then(async (response) => {
-      await saveCachedPage(scopeKey, pageKey, response).catch(() => undefined);
-      await upsertProducts(scopeKey, response.products).catch(() => undefined);
-      return response;
-    })
-    .finally(() => {
-      inflightPages.delete(inflightKey);
-    });
-
-  inflightPages.set(inflightKey, request);
-  await request.catch(() => undefined);
 }
 
 export async function loadProductGroups(

@@ -18,7 +18,9 @@ import {
   type StockAdjustOp,
 } from "@/lib/cart-stock";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
-import type { CheckoutRequest } from "@/lib/sales-api";
+import { extractWholesaleDocIdFromError } from "@/lib/checkout-error";
+import { isCacheEnabled } from "@/lib/cache-policy";
+import { checkoutSale, type CheckoutRequest } from "@/lib/sales-api";
 import type { PaymentType } from "@/types/payment";
 import type { Sale, SalePaymentLine } from "@/data/seed";
 import {
@@ -81,6 +83,8 @@ export function CheckoutModal({
   const warehouses = useSellContext((s) => s.options.warehouses);
   const postponedWholesaleDocId = useCart((s) => s.postponedWholesaleDocId);
   const postponedDocType = useCart((s) => s.postponedDocType);
+  const setPostponedWholesaleDocId = useCart((s) => s.setPostponedWholesaleDocId);
+  const setPostponedDocType = useCart((s) => s.setPostponedDocType);
   const decrementStock = useCatalog((s) => s.decrementStock);
   const incrementStock = useCatalog((s) => s.incrementStock);
   const catalogProducts = useCatalog((s) => s.products);
@@ -266,20 +270,33 @@ export function CheckoutModal({
     };
 
     try {
-      if (effectiveRetryId) {
-        if (cartItems.length === 0) {
+      if (effectiveRetryId || isCacheEnabled()) {
+        if (effectiveRetryId) {
+          if (cartItems.length === 0) {
+            setActiveRetryLocalId(null);
+            setCheckoutError(t("checkout.errors.failed", "Checkout failed"));
+            return;
+          }
+          // Upsert so the retried sale is re-created even if the stored record
+          // was removed in the meantime, instead of being silently dropped.
+          await upsertPendingSale(record);
           setActiveRetryLocalId(null);
-          setCheckoutError(t("checkout.errors.failed", "Checkout failed"));
-          return;
+        } else {
+          await enqueuePendingSale(record);
         }
-        // Upsert so the retried sale is re-created even if the stored record
-        // was removed in the meantime, instead of being silently dropped.
-        await upsertPendingSale(record);
-        setActiveRetryLocalId(null);
-      } else {
-        await enqueuePendingSale(record);
+
+        applyStockAdjustments(stockAdjustments, decrementStock, incrementStock);
+        clearCart();
+        clearActiveTabAfterCheckout();
+        setCompletedContext(receiptContext);
+        reset();
+        onClose();
+        onSuccess?.();
+        enqueuePendingSaleSync(localId);
+        return;
       }
 
+      await checkoutSale(accessToken, request);
       applyStockAdjustments(stockAdjustments, decrementStock, incrementStock);
       clearCart();
       clearActiveTabAfterCheckout();
@@ -287,8 +304,14 @@ export function CheckoutModal({
       reset();
       onClose();
       onSuccess?.();
-      enqueuePendingSaleSync(localId);
     } catch (err: unknown) {
+      if (!effectiveRetryId && !isCacheEnabled()) {
+        const failedWholesaleDocId = extractWholesaleDocIdFromError(err);
+        if (failedWholesaleDocId !== null) {
+          setPostponedWholesaleDocId(failedWholesaleDocId);
+          setPostponedDocType("wholesale");
+        }
+      }
       setCheckoutError(formatAuthError(err, t("checkout.errors.failed", "Checkout failed")));
     } finally {
       setProcessing(false);

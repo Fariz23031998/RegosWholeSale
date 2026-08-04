@@ -15,6 +15,18 @@ from app.services.regos_credentials import get_regos_api_auth
 
 logger = logging.getLogger("regos.backend")
 
+ITEM_GET_ENDPOINTS = frozenset({"item/get", "item/getext"})
+
+
+def with_item_get_defaults(
+    endpoint: str,
+    request_data: dict | list,
+) -> dict | list:
+    """Always send compound=False for item/get and item/getext bodies."""
+    if endpoint not in ITEM_GET_ENDPOINTS or not isinstance(request_data, dict):
+        return request_data
+    return {**request_data, "compound": False}
+
 
 async def _post_regos_api(
     *,
@@ -65,6 +77,7 @@ async def regos_async_api_request(
     headers = {"Content-Type": "application/json;charset=utf-8"}
     if bearer_token:
         headers["Authorization"] = f"Bearer {bearer_token}"
+    request_data = with_item_get_defaults(endpoint, request_data)
 
     try:
         for attempt in range(MAX_RATE_LIMIT_RETRIES):

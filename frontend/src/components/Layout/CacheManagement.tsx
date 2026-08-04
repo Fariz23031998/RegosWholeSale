@@ -1,9 +1,21 @@
 import { startTransition, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Database, ShoppingCart, Users, Settings, Receipt, Trash2 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  Database,
+  ShoppingCart,
+  Users,
+  Settings,
+  Receipt,
+  Trash2,
+  RefreshCw,
+} from "lucide-react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useAuth } from "@/store/auth";
+import { useCatalog } from "@/store/catalog";
+import { useSellContext } from "@/store/sell-context";
+import { usePermissions } from "@/hooks/use-permissions";
 import { toast } from "sonner";
 import {
   clearProductCatalogCache,
@@ -17,6 +29,10 @@ import {
   setCacheEnabled,
   subscribeCacheEnabled,
 } from "@/lib/cache-policy";
+import { downloadCompleteCatalog } from "@/lib/catalog-service";
+import { setCatalogDownloadStatus } from "@/lib/catalog-incremental-sync";
+import { forceFullMetaRefresh } from "@/lib/meta-incremental-sync";
+import { SETTINGS_QUERY_KEYS } from "@/lib/settings-api";
 import styles from "./CacheManagement.module.css";
 
 type Props = {
@@ -32,14 +48,18 @@ type MenuPosition = {
 
 export function CacheManagement({ className, variant = "menu" }: Props) {
   const { t } = useLanguage();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [cacheEnabled, setCacheEnabledState] = useState(() => isCacheEnabled());
   const [togglingCache, setTogglingCache] = useState(false);
+  const [updating, setUpdating] = useState(false);
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const user = useAuth((s) => s.user);
+  const accessToken = useAuth((s) => s.accessToken);
+  const { canChangePosContext } = usePermissions();
 
   useEffect(() => {
     return subscribeCacheEnabled(() => {
@@ -134,6 +154,71 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
     }
   };
 
+  const handleUpdate = async () => {
+    setOpen(false);
+    if (!accessToken || !user?.company_id || !user.id || updating) return;
+
+    if (!isCacheEnabled()) {
+      toast.error(
+        t("cache.updateDisabled", "Enable caching to update the cache."),
+      );
+      return;
+    }
+
+    setUpdating(true);
+    const toastId = toast.loading(t("cache.updating", "Updating cache..."));
+    try {
+      const { warehouseId, priceTypeId } = useSellContext.getState();
+
+      await downloadCompleteCatalog(accessToken, {
+        companyId: user.company_id,
+        warehouseId,
+        priceTypeId,
+      });
+      setCatalogDownloadStatus(
+        user.company_id,
+        warehouseId,
+        priceTypeId,
+        "completed",
+      );
+
+      await forceFullMetaRefresh(
+        accessToken,
+        { companyId: user.company_id, userId: user.id },
+        canChangePosContext(),
+      );
+
+      useCatalog.getState().requestRefresh();
+      useCatalog.getState().requestGroupsRefresh();
+
+      void queryClient.invalidateQueries({
+        queryKey: SETTINGS_QUERY_KEYS.pos(accessToken),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: SETTINGS_QUERY_KEYS.regosBootstrap(accessToken),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: SETTINGS_QUERY_KEYS.receiptTemplates(accessToken),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: SETTINGS_QUERY_KEYS.exchangeRateSync(accessToken),
+      });
+      void queryClient.invalidateQueries({
+        queryKey: ["regos", "reference-options", accessToken],
+      });
+
+      toast.success(t("cache.updateSuccess", "Cache updated successfully."), {
+        id: toastId,
+      });
+    } catch {
+      toast.error(t("cache.updateError", "Failed to update cache."), {
+        id: toastId,
+      });
+    } finally {
+      setUpdating(false);
+    }
+  };
+
   const handleClear = async (
     type: "catalog" | "partners" | "settings" | "payments" | "all",
   ) => {
@@ -189,6 +274,21 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
               <span className={styles.slider} />
             </span>
           </label>
+          <div className={styles.menuDivider} />
+          <button
+            type="button"
+            role="menuitem"
+            className={styles.menuItem}
+            disabled={!cacheEnabled || updating}
+            onClick={() => void handleUpdate()}
+          >
+            <RefreshCw size={16} aria-hidden />
+            <span className={styles.menuItemLabel}>
+              {updating
+                ? t("cache.updating", "Updating cache...")
+                : t("cache.update", "Update Cache")}
+            </span>
+          </button>
           <div className={styles.menuDivider} />
           <button
             type="button"

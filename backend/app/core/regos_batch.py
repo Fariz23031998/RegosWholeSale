@@ -10,7 +10,7 @@ from typing import Any, TypedDict
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import AppError
-from app.core.regos_api import regos_async_api_request_for_company
+from app.core.regos_api import regos_async_api_request_for_company, with_item_get_defaults
 
 REGOS_BATCH_MAX_STEPS = 50
 REGOS_BATCH_ENDPOINT = "batch"
@@ -78,13 +78,22 @@ async def regos_batch_request_for_company(
             "REGOS_BATCH_TOO_MANY_STEPS",
         )
 
+    normalized_steps: list[BatchStep] = [
+        {
+            "key": step["key"],
+            "path": step["path"],
+            "payload": with_item_get_defaults(step["path"], step["payload"]),
+        }
+        for step in steps
+    ]
+
     data = await regos_async_api_request_for_company(
         session,
         company_id,
         REGOS_BATCH_ENDPOINT,
         {
             "stop_on_error": stop_on_error,
-            "requests": steps,
+            "requests": normalized_steps,
         },
         timeout_seconds=timeout_seconds,
     )

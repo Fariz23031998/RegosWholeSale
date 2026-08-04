@@ -1,8 +1,7 @@
-import { fetchCatalogProducts } from "@/lib/catalog-api";
+import { loadCatalogProducts, type CatalogScope } from "@/lib/catalog-service";
 import {
   findProductByBarcode as findCachedProductByBarcode,
   findProductByCode as findCachedProductByCode,
-  upsertProducts,
 } from "./catalog-products-db";
 import { canAddProductToCart, clampCartQty } from "@/lib/cart-stock";
 import { CATALOG_PAGE_SIZE } from "@/lib/catalog-pagination";
@@ -25,6 +24,8 @@ export type BarcodeLookupOptions = {
   prefixes: InternalBarcodePrefixes;
   catalogOverrides: { warehouseId?: number; priceTypeId?: number };
   scopeKey?: string;
+  /** Used to route the cache-miss fallback search through loadCatalogProducts (cache-first, no direct Regos call when caching is enabled). */
+  scope: CatalogScope;
   allowOutOfStock: boolean;
   bookedOrderContinuation?: boolean;
   getInCartQty: (productId: string) => number;
@@ -45,6 +46,7 @@ export async function lookupProductForBarcode(
     prefixes,
     catalogOverrides,
     scopeKey,
+    scope,
     allowOutOfStock,
     bookedOrderContinuation = false,
     getInCartQty,
@@ -68,14 +70,12 @@ export async function lookupProductForBarcode(
         ? await findCachedProductByCode(scopeKey, parsedInternal.productCode)
         : null;
     if (!product) {
-      const res = await fetchCatalogProducts(token, {
-        ...fetchParams,
-        search: parsedInternal.productCode,
-      });
+      const res = await loadCatalogProducts(
+        token,
+        { ...fetchParams, search: parsedInternal.productCode },
+        scope,
+      );
       product = findProductByCode(res.products, parsedInternal.productCode);
-      if (product && scopeKey != null) {
-        await upsertProducts(scopeKey, [product]).catch(() => undefined);
-      }
     }
     if (!product) {
       return { ok: false, reason: "not_found" };
@@ -108,14 +108,8 @@ export async function lookupProductForBarcode(
   let product: Product | null | undefined =
     scopeKey != null ? await findCachedProductByBarcode(scopeKey, term) : null;
   if (!product) {
-    const res = await fetchCatalogProducts(token, {
-      ...fetchParams,
-      search: term,
-    });
+    const res = await loadCatalogProducts(token, { ...fetchParams, search: term }, scope);
     product = findProductByBarcode(res.products, term);
-    if (product && scopeKey != null) {
-      await upsertProducts(scopeKey, [product]).catch(() => undefined);
-    }
   }
   if (
     !product ||

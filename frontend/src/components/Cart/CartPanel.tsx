@@ -27,9 +27,11 @@ import {
 } from "@/lib/cart-stock";
 import { formatCurrency } from "@/lib/format";
 import { toast } from "sonner";
+import { extractWholesaleDocIdFromError } from "@/lib/checkout-error";
+import { isCacheEnabled } from "@/lib/cache-policy";
 import { enqueuePendingSaleSync } from "@/lib/pending-sales-sync";
 import { buildPendingSalesScopeKey } from "@/types/pending-sale";
-import type { PostponeRequest } from "@/lib/sales-api";
+import { postponeSale, type PostponeRequest } from "@/lib/sales-api";
 import { usePendingSales } from "@/store/pending-sales";
 import { buildPrintContextFromCartDraft, loadPrintContextFromCartDraft } from "@/lib/receipt-context-builder";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
@@ -56,6 +58,8 @@ export function CartPanel() {
   const clear = useCart((s) => s.clear);
   const postponedWholesaleDocId = useCart((s) => s.postponedWholesaleDocId);
   const postponedDocType = useCart((s) => s.postponedDocType);
+  const setPostponedWholesaleDocId = useCart((s) => s.setPostponedWholesaleDocId);
+  const setPostponedDocType = useCart((s) => s.setPostponedDocType);
   const accessToken = useAuth((s) => s.accessToken);
   const cashier = useAuth((s) => s.cashier);
   const user = useAuth((s) => s.user);
@@ -286,14 +290,27 @@ export function CartPanel() {
     };
 
     try {
-      if (activeRetryLocalId) {
-        // Upsert so the retried sale is re-created even if the stored record
-        // was removed in the meantime, instead of being silently dropped.
-        await upsertPendingSale(record);
-        setActiveRetryLocalId(null);
-      } else {
-        await enqueuePendingSale(record);
+      if (activeRetryLocalId || isCacheEnabled()) {
+        if (activeRetryLocalId) {
+          // Upsert so the retried sale is re-created even if the stored record
+          // was removed in the meantime, instead of being silently dropped.
+          await upsertPendingSale(record);
+          setActiveRetryLocalId(null);
+        } else {
+          await enqueuePendingSale(record);
+        }
+        if (stockAdjustments.length > 0) {
+          applyStockAdjustments(stockAdjustments, decrementStock, incrementStock);
+        }
+        toast.success(t("cart.postponeSuccess", "Sale postponed"));
+        clear();
+        clearActiveTabAfterCheckout();
+        setMobileOpen(false);
+        enqueuePendingSaleSync(localId);
+        return;
       }
+
+      await postponeSale(accessToken, request);
       if (stockAdjustments.length > 0) {
         applyStockAdjustments(stockAdjustments, decrementStock, incrementStock);
       }
@@ -301,8 +318,14 @@ export function CartPanel() {
       clear();
       clearActiveTabAfterCheckout();
       setMobileOpen(false);
-      enqueuePendingSaleSync(localId);
     } catch (err: unknown) {
+      if (!activeRetryLocalId && !isCacheEnabled()) {
+        const failedWholesaleDocId = extractWholesaleDocIdFromError(err);
+        if (failedWholesaleDocId !== null) {
+          setPostponedWholesaleDocId(failedWholesaleDocId);
+          setPostponedDocType("wholesale");
+        }
+      }
       setPostponeError(formatAuthError(err, t("cart.errors.postponeFailed", "Failed to postpone sale")));
     } finally {
       setPostponing(false);
