@@ -59,7 +59,7 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
   const menuRef = useRef<HTMLDivElement>(null);
   const user = useAuth((s) => s.user);
   const accessToken = useAuth((s) => s.accessToken);
-  const { canChangePosContext } = usePermissions();
+  const { canChangePosContext, canChangeWarehouse, canChangePriceType } = usePermissions();
 
   useEffect(() => {
     return subscribeCacheEnabled(() => {
@@ -169,16 +169,20 @@ export function CacheManagement({ className, variant = "menu" }: Props) {
     const toastId = toast.loading(t("cache.updating", "Updating cache..."));
     try {
       const { warehouseId, priceTypeId } = useSellContext.getState();
+      const catalogWarehouseId =
+        canChangeWarehouse() && warehouseId ? warehouseId : undefined;
+      const catalogPriceTypeId =
+        canChangePriceType() && priceTypeId ? priceTypeId : undefined;
 
       await downloadCompleteCatalog(accessToken, {
         companyId: user.company_id,
-        warehouseId,
-        priceTypeId,
+        warehouseId: catalogWarehouseId,
+        priceTypeId: catalogPriceTypeId,
       });
       setCatalogDownloadStatus(
         user.company_id,
-        warehouseId,
-        priceTypeId,
+        catalogWarehouseId ?? null,
+        catalogPriceTypeId ?? null,
         "completed",
       );
 

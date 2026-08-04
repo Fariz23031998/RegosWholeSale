@@ -2,7 +2,7 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import bad_request, not_found
+from app.core.exceptions import bad_request, forbidden, not_found
 from app.core.regos_api import regos_async_api_request_for_company
 from app.models import Company, User
 from app.services import settings as settings_service
@@ -273,6 +273,42 @@ async def resolve_stock_filter_scope(
     if warehouse and warehouse.get("id"):
         return [int(warehouse["id"])], False
     return [], False
+
+
+def _default_option_id(defaults: dict[str, Any], key: str) -> int | None:
+    option = defaults.get(key)
+    if not isinstance(option, dict):
+        return None
+    option_id = option.get("id")
+    if not isinstance(option_id, int) or option_id <= 0:
+        return None
+    return option_id
+
+
+async def assert_catalog_scope_allowed(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    permissions: set[str] | list[str],
+    *,
+    warehouse_id: int | None = None,
+    price_type_id: int | None = None,
+) -> None:
+    """Allow catalog scope params when they match defaults; forbid true overrides."""
+    needs_warehouse_check = (
+        warehouse_id is not None and "pos.change_warehouse" not in permissions
+    )
+    needs_price_type_check = (
+        price_type_id is not None and "pos.change_price_type" not in permissions
+    )
+    if not needs_warehouse_check and not needs_price_type_check:
+        return
+
+    defaults = await get_regos_defaults(session, company_id, user_id=user_id)
+    if needs_warehouse_check and warehouse_id != _default_option_id(defaults, "warehouse"):
+        raise forbidden("Missing permission: pos.change_warehouse", "FORBIDDEN")
+    if needs_price_type_check and price_type_id != _default_option_id(defaults, "price_type"):
+        raise forbidden("Missing permission: pos.change_price_type", "FORBIDDEN")
 
 
 async def get_effective_stored_regos_defaults(

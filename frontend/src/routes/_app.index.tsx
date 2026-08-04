@@ -106,7 +106,17 @@ function PosPage() {
       return;
     }
 
-    const scopeKey = buildCatalogScopeKey(user.company_id, warehouseId, priceTypeId);
+    // Match ProductCatalog / catalog-events: locked users share the default
+    // scope key (warehouse/priceType omitted → 0), not the sell-context IDs.
+    const catalogWarehouseId =
+      canChangeWarehousePerm && warehouseId ? warehouseId : undefined;
+    const catalogPriceTypeId =
+      canChangePriceTypePerm && priceTypeId ? priceTypeId : undefined;
+    const scopeKey = buildCatalogScopeKey(
+      user.company_id,
+      catalogWarehouseId,
+      catalogPriceTypeId,
+    );
     let cancelled = false;
 
     const applySyncResult = (
@@ -136,8 +146,8 @@ function PosPage() {
           scopeKey,
           {
             companyId: user.company_id,
-            warehouseId: warehouseId ?? undefined,
-            priceTypeId: priceTypeId ?? undefined,
+            warehouseId: catalogWarehouseId,
+            priceTypeId: catalogPriceTypeId,
           },
           { force: options?.force },
         );
@@ -145,7 +155,11 @@ function PosPage() {
         if (cancelled) return;
         fullSyncRequired = applySyncResult(syncResult);
         if (fullSyncRequired) {
-          removeCatalogDownloadStatus(user.company_id, warehouseId, priceTypeId);
+          removeCatalogDownloadStatus(
+            user.company_id,
+            catalogWarehouseId,
+            catalogPriceTypeId,
+          );
         }
       } catch {
         // Incremental sync failed (e.g. network error) — continue to full download check
@@ -153,7 +167,11 @@ function PosPage() {
 
       if (cancelled) return;
 
-      const status = getCatalogDownloadStatus(user.company_id, warehouseId, priceTypeId);
+      const status = getCatalogDownloadStatus(
+        user.company_id,
+        catalogWarehouseId,
+        catalogPriceTypeId,
+      );
       if (status === "completed" && !fullSyncRequired) {
         // Mark done only after a completed catch-up so cancelled remounts can retry.
         startupSyncDoneForScope.current = scopeKey;
@@ -169,11 +187,16 @@ function PosPage() {
       try {
         await downloadCompleteCatalog(token, {
           companyId: user.company_id,
-          warehouseId,
-          priceTypeId,
+          warehouseId: catalogWarehouseId,
+          priceTypeId: catalogPriceTypeId,
         });
         if (cancelled) return;
-        setCatalogDownloadStatus(user.company_id, warehouseId, priceTypeId, "completed");
+        setCatalogDownloadStatus(
+          user.company_id,
+          catalogWarehouseId ?? null,
+          catalogPriceTypeId ?? null,
+          "completed",
+        );
         toast.success(t("pos.catalog.downloadSuccess", "Catalog downloaded successfully!"), {
           id: toastId,
         });
@@ -211,6 +234,8 @@ function PosPage() {
     warehouseId,
     priceTypeId,
     sellContextHydrated,
+    canChangeWarehousePerm,
+    canChangePriceTypePerm,
     patchProducts,
     removeProducts,
     requestRefresh,

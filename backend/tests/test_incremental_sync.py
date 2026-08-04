@@ -216,3 +216,173 @@ async def test_sync_meta_endpoint(client: AsyncClient, session_factory) -> None:
     )
     assert response.status_code == 200
     assert response.json()["full_sync_required"] is True
+
+
+async def _create_employee(
+    client: AsyncClient,
+    owner_token: str,
+    *,
+    login: str,
+    permission_rules: list[dict] | None = None,
+) -> dict:
+    body: dict = {
+        "login": login,
+        "password": "password123",
+        "display_name": f"Employee {login}",
+        "role": "employee",
+    }
+    if permission_rules is not None:
+        body["permission_rules"] = permission_rules
+    response = await client.post(
+        "/api/v1/users",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json=body,
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+async def _login_employee(client: AsyncClient, login: str) -> str:
+    response = await client.post(
+        "/api/v1/auth/login",
+        json={"login": login, "password": "password123"},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()["access_token"]
+
+
+DEFAULT_WAREHOUSE_ID = 11
+DEFAULT_PRICE_TYPE_ID = 22
+OTHER_WAREHOUSE_ID = 99
+OTHER_PRICE_TYPE_ID = 88
+
+
+@pytest.mark.asyncio
+async def test_sync_products_allows_default_scope_without_change_permissions(
+    client: AsyncClient,
+) -> None:
+    reg = await register_owner(
+        client, email="sync-locked-defaults@test.com", company_name="Sync Locked Co"
+    )
+    owner_token = reg.json()["access_token"]
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+
+    await client.patch(
+        "/api/v1/company/settings",
+        headers=owner_headers,
+        json={
+            "settings": {
+                "regos_defaults": {
+                    "warehouse": {"id": DEFAULT_WAREHOUSE_ID, "name": "Main warehouse"},
+                    "price_type": {"id": DEFAULT_PRICE_TYPE_ID, "name": "Retail"},
+                }
+            }
+        },
+    )
+
+    employee = await _create_employee(
+        client,
+        owner_token,
+        login="sync-locked",
+        permission_rules=[
+            {"code": "pos.change_warehouse", "effect": "deny"},
+            {"code": "pos.change_price_type", "effect": "deny"},
+        ],
+    )
+    assert "pos.access" in employee["permissions"]
+    assert "pos.change_warehouse" not in employee["permissions"]
+    assert "pos.change_price_type" not in employee["permissions"]
+
+    token = await _login_employee(client, "sync-locked")
+    headers = {"Authorization": f"Bearer {token}"}
+    since_str = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+
+    allowed = await client.get(
+        "/api/v1/regos/products/sync",
+        params={
+            "since": since_str,
+            "warehouse_id": DEFAULT_WAREHOUSE_ID,
+            "price_type_id": DEFAULT_PRICE_TYPE_ID,
+        },
+        headers=headers,
+    )
+    assert allowed.status_code == 200, allowed.text
+    assert allowed.json()["full_sync_required"] is False
+
+    denied_warehouse = await client.get(
+        "/api/v1/regos/products/sync",
+        params={
+            "since": since_str,
+            "warehouse_id": OTHER_WAREHOUSE_ID,
+            "price_type_id": DEFAULT_PRICE_TYPE_ID,
+        },
+        headers=headers,
+    )
+    assert denied_warehouse.status_code == 403
+    assert denied_warehouse.json()["code"] == "FORBIDDEN"
+    assert "pos.change_warehouse" in denied_warehouse.json()["detail"]
+
+    denied_price_type = await client.get(
+        "/api/v1/regos/products/sync",
+        params={
+            "since": since_str,
+            "warehouse_id": DEFAULT_WAREHOUSE_ID,
+            "price_type_id": OTHER_PRICE_TYPE_ID,
+        },
+        headers=headers,
+    )
+    assert denied_price_type.status_code == 403
+    assert denied_price_type.json()["code"] == "FORBIDDEN"
+    assert "pos.change_price_type" in denied_price_type.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_sync_products_allows_override_scope_with_change_permissions(
+    client: AsyncClient,
+) -> None:
+    reg = await register_owner(
+        client, email="sync-change-allowed@test.com", company_name="Sync Change Co"
+    )
+    owner_token = reg.json()["access_token"]
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+
+    await client.patch(
+        "/api/v1/company/settings",
+        headers=owner_headers,
+        json={
+            "settings": {
+                "regos_defaults": {
+                    "warehouse": {"id": DEFAULT_WAREHOUSE_ID, "name": "Main warehouse"},
+                    "price_type": {"id": DEFAULT_PRICE_TYPE_ID, "name": "Retail"},
+                }
+            }
+        },
+    )
+
+    employee = await _create_employee(
+        client,
+        owner_token,
+        login="sync-change",
+        permission_rules=[
+            {"code": "pos.change_warehouse", "effect": "allow"},
+            {"code": "pos.change_price_type", "effect": "allow"},
+        ],
+    )
+    assert "pos.change_warehouse" in employee["permissions"]
+    assert "pos.change_price_type" in employee["permissions"]
+
+    token = await _login_employee(client, "sync-change")
+    headers = {"Authorization": f"Bearer {token}"}
+    since_str = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat().replace("+00:00", "Z")
+
+    response = await client.get(
+        "/api/v1/regos/products/sync",
+        params={
+            "since": since_str,
+            "warehouse_id": OTHER_WAREHOUSE_ID,
+            "price_type_id": OTHER_PRICE_TYPE_ID,
+        },
+        headers=headers,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["full_sync_required"] is False

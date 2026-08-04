@@ -2,7 +2,6 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, require_any_permission, require_permission
-from app.core.exceptions import forbidden
 from app.core.regos_api import regos_async_api_request_for_company
 from app.database import get_db
 from app.schemas.catalog import (
@@ -241,10 +240,14 @@ async def get_regos_products(
     current: CurrentUser = Depends(require_permission("pos.access")),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogProductsResponse:
-    if warehouse_id is not None and "pos.change_warehouse" not in current.permissions:
-        raise forbidden("Missing permission: pos.change_warehouse", "FORBIDDEN")
-    if price_type_id is not None and "pos.change_price_type" not in current.permissions:
-        raise forbidden("Missing permission: pos.change_price_type", "FORBIDDEN")
+    await regos_defaults_service.assert_catalog_scope_allowed(
+        session,
+        current.company_id,
+        current.id,
+        current.permissions,
+        warehouse_id=warehouse_id,
+        price_type_id=price_type_id,
+    )
 
     data = await regos_products_service.list_products(
         session,
@@ -273,10 +276,14 @@ async def get_regos_products_by_ids(
     current: CurrentUser = Depends(require_permission("pos.access")),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogProductsResponse:
-    if warehouse_id is not None and "pos.change_warehouse" not in current.permissions:
-        raise forbidden("Missing permission: pos.change_warehouse", "FORBIDDEN")
-    if price_type_id is not None and "pos.change_price_type" not in current.permissions:
-        raise forbidden("Missing permission: pos.change_price_type", "FORBIDDEN")
+    await regos_defaults_service.assert_catalog_scope_allowed(
+        session,
+        current.company_id,
+        current.id,
+        current.permissions,
+        warehouse_id=warehouse_id,
+        price_type_id=price_type_id,
+    )
 
     parsed_ids: list[int] = []
     seen: set[int] = set()
@@ -318,10 +325,14 @@ async def sync_products(
 ) -> SyncProductsResponse:
     from datetime import datetime, timezone
 
-    if warehouse_id is not None and "pos.change_warehouse" not in current.permissions:
-        raise forbidden("Missing permission: pos.change_warehouse", "FORBIDDEN")
-    if price_type_id is not None and "pos.change_price_type" not in current.permissions:
-        raise forbidden("Missing permission: pos.change_price_type", "FORBIDDEN")
+    await regos_defaults_service.assert_catalog_scope_allowed(
+        session,
+        current.company_id,
+        current.id,
+        current.permissions,
+        warehouse_id=warehouse_id,
+        price_type_id=price_type_id,
+    )
 
     try:
         since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
