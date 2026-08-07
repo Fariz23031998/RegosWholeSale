@@ -46,7 +46,9 @@ async def create_user(
         display_name=body.display_name,
         role=body.role,
         permission_rules=(
-            [r.model_dump() for r in body.permission_rules] if body.permission_rules else None
+            [r.model_dump() for r in body.permission_rules]
+            if body.permission_rules is not None
+            else None
         ),
         schedules=schedules,
     )
@@ -82,7 +84,9 @@ async def patch_user(
         role=body.role,
         is_active=body.is_active,
         permission_rules=(
-            [r.model_dump() for r in body.permission_rules] if body.permission_rules else None
+            [r.model_dump() for r in body.permission_rules]
+            if body.permission_rules is not None
+            else None
         ),
         schedules=schedules,
     )

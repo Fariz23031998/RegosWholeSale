@@ -40,6 +40,8 @@ class StockDocument(BaseModel):
     compare_type: str | None = None
     vat_calculation_type: str | None = None
     inout_type: str | None = None
+    full: bool | None = None
+    create_docinout: bool | None = None
 
 
 class StockDocumentsResponse(BaseModel):
@@ -81,6 +83,8 @@ class StockDocumentCreateRequest(BaseModel):
     compare_type: str | None = None
     description: str | None = None
     inout_type: str | None = None
+    full: bool | None = None
+    create_docinout: bool | None = None
 
 
 class StockDocumentUpdateRequest(BaseModel):
@@ -96,6 +100,8 @@ class StockDocumentUpdateRequest(BaseModel):
     compare_type: str | None = None
     description: str | None = None
     inout_type: str | None = None
+    full: bool | None = None
+    create_docinout: bool | None = None
 
 
 class StockDocumentCreateResponse(BaseModel):

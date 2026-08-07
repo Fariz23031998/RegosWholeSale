@@ -3,6 +3,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
+import {
+  acquireModalScrollLock,
+  releaseModalScrollLock,
+} from "./modal-scroll-lock";
 import styles from "./Modal.module.css";
 
 type Props = {
@@ -11,6 +15,8 @@ type Props = {
   title?: string;
   size?: "md" | "lg" | "xl";
   fullscreen?: boolean;
+  /** Vertical placement inside the overlay. Defaults to center. */
+  align?: "center" | "top";
   elevated?: boolean;
   overlayClassName?: string;
   modalClassName?: string;
@@ -25,6 +31,7 @@ export function Modal({
   title,
   size = "md",
   fullscreen = false,
+  align = "center",
   elevated = false,
   overlayClassName,
   modalClassName,
@@ -48,6 +55,12 @@ export function Modal({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
+  useEffect(() => {
+    if (!open) return;
+    acquireModalScrollLock();
+    return () => releaseModalScrollLock();
+  }, [open]);
+
   if (!open || !mounted || typeof document === "undefined") return null;
 
   return createPortal(
@@ -55,9 +68,11 @@ export function Modal({
       className={clsx(
         styles.overlay,
         fullscreen && styles.fullscreenOverlay,
+        !fullscreen && align === "top" && styles.overlayTop,
         elevated && styles.elevatedOverlay,
         overlayClassName,
       )}
+      data-posui-modal-overlay=""
       onMouseDown={(e) => {
         if (e.target === e.currentTarget) {
           e.preventDefault();

@@ -161,6 +161,8 @@ export type PosSettings = {
   tendered_quick_amounts: number[];
   default_category: DefaultCategorySetting;
   auto_open_qty_keypad: boolean;
+  search_transliteration: boolean;
+  search_fuzzy: boolean;
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
   internal_barcode_weight_prefix: string;
   internal_barcode_piece_prefix: string;
@@ -181,6 +183,8 @@ export type PosSettingsPatchRequest = {
   tendered_quick_amounts?: number[];
   default_category?: DefaultCategorySetting;
   auto_open_qty_keypad?: boolean;
+  search_transliteration?: boolean;
+  search_fuzzy?: boolean;
   cross_currency_payment_mode?: CrossCurrencyPaymentMode;
   internal_barcode_weight_prefix?: string;
   internal_barcode_piece_prefix?: string;
@@ -197,6 +201,8 @@ export type UserPosSettings = {
   tendered_quick_amounts: number[];
   default_category: DefaultCategorySetting;
   auto_open_qty_keypad: boolean;
+  search_transliteration: boolean;
+  search_fuzzy: boolean;
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
   internal_barcode_weight_prefix: string;
   internal_barcode_piece_prefix: string;
@@ -213,6 +219,8 @@ export type UserPosSettingsPatchRequest = {
   tendered_quick_amounts?: number[];
   default_category?: DefaultCategorySetting;
   auto_open_qty_keypad?: boolean;
+  search_transliteration?: boolean;
+  search_fuzzy?: boolean;
 };
 
 type TranslateFn = (

@@ -851,6 +851,10 @@
     "users.settings.autoOpenQtyKeypad": "Miqdor klaviaturasini avtomatik ochish",
     "users.settings.autoOpenQtyKeypadDesc": "Mahsulot savatga qo'shilganda miqdor klaviaturasini ochadi.",
     "users.settings.allowOutOfStock": "Tugagan mahsulotlarni sotishga ruxsat",
+    "users.settings.searchTransliteration": "Qidiruv transliteratsiyasi",
+    "users.settings.searchTransliterationDesc": "Lotin va kirill yozuvidagi bir xil nomlarni moslashtirish (masalan, moloko ↔ молоко).",
+    "users.settings.searchFuzzy": "Taxminiy qidiruv",
+    "users.settings.searchFuzzyDesc": "Mahsulot katalogida qidirishda kichik xatolarga ruxsat berish.",
     "users.settings.tenderedShortcuts": "To'lov uchun tezkor summalar",
     "users.settings.resetPos": "POSni kompaniya sozlamalariga qaytarish",
     "users.settings.regosDefaults": "Regos sozlamalari",
@@ -1484,6 +1488,10 @@
     "stock.item.errors.update": "Mahsulotni yangilab bo'lmadi",
     "stock.create.title": "Yangi {{kind}}",
     "stock.create.notSupported": "Bu hujjat turini yaratish qo'llab-quvvatlanmaydi",
+    "stock.fields.fullInventory": "To'liq inventarizatsiya",
+    "stock.fields.fullInventoryHint": "Yopilganda ombordagi noldan farqli qoldiqli barcha mahsulotlar qo'shiladi.",
+    "stock.fields.createDocInout": "Yopilganda chiqim/kirim yaratish",
+    "stock.fields.createDocInoutHint": "Yopilganda inventarizatsiya farqlari bo'yicha chiqim va kirim hujjatlari yaratiladi.",
     "stock.errors.load": "Hujjatlarni yuklab bo'lmadi",
     "stock.errors.loadDetails": "Tafsilotlarni yuklab bo'lmadi",
     "stock.errors.create": "Hujjat yaratib bo'lmadi",
@@ -1501,6 +1509,7 @@
     "meta.movementDetailTitle": "Ko'chirish · Regos Optom",
     "meta.inventoryDetailTitle": "Inventarizatsiya · Regos Optom",
     "meta.inoutDetailTitle": "Kirim/Chiqim · Regos Optom",
-    "stock.searchItemPlaceholder": "Skan yoki qidiruv…"
+    "stock.searchItemPlaceholder": "Skan yoki qidiruv…",
+    "stock.search.noProducts": "Mahsulotlar topilmadi"
   }
 }

@@ -86,6 +86,8 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
       : document.performed
     : false;
 
+  const canAddLines = canWrite && !done;
+
   const title = t("stock.detail.title", "Document #{{code}}", {
     code: document?.code || documentId,
   });
@@ -224,6 +226,10 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
               </div>
             )}
             <div>
+              <span className={styles.detailLabel}>{t("common.description")}</span>
+              <span>{document.description?.trim() ? document.description : "—"}</span>
+            </div>
+            <div>
               <span className={styles.detailLabel}>{t("stock.table.status", "Status")}</span>
               <span>
                 {done
@@ -231,6 +237,30 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
                   : t(def.draftLabelKey, def.draftLabelFallback)}
               </span>
             </div>
+            {kind === "inventory" ? (
+              <>
+                <div>
+                  <span className={styles.detailLabel}>
+                    {t("stock.fields.fullInventory", "Full inventory")}
+                  </span>
+                  <span>
+                    {document.full
+                      ? t("common.yes", "Yes")
+                      : t("common.no", "No")}
+                  </span>
+                </div>
+                <div>
+                  <span className={styles.detailLabel}>
+                    {t("stock.fields.createDocInout", "Create write-off/receipt on close")}
+                  </span>
+                  <span>
+                    {document.create_docinout === false
+                      ? t("common.no", "No")
+                      : t("common.yes", "Yes")}
+                  </span>
+                </div>
+              </>
+            ) : null}
             <div>
               <span className={styles.detailLabel}>{t("common.total")}</span>
               <span>{document.amount != null ? formatCurrency(document.amount) : "—"}</span>
@@ -291,7 +321,7 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
                 <Lock size={18} />
               </Button>
             ) : null}
-            {canWrite && !done ? (
+            {canAddLines ? (
               <Button
                 type="button"
                 className={styles.addLineToolbar}
@@ -421,7 +451,7 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
             )}
           </div>
 
-          {canWrite && !done && (
+          {canAddLines && (
             <>
               <button
                 type="button"
@@ -434,9 +464,13 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
               </button>
               <StockDocAddLineModal
                 open={addOpen}
-                onClose={() => setAddOpen(false)}
-                onPick={(hit) => {
+                searchFocus={!editHit}
+                onClose={() => {
+                  // Keep Add Line mounted under Edit Line; Escape hits both listeners.
+                  if (editHit) return;
                   setAddOpen(false);
+                }}
+                onPick={(hit) => {
                   setEditHit(hit);
                 }}
               />
@@ -445,20 +479,17 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
                 kind={kind}
                 documentId={document.id}
                 hit={editHit}
-                onBack={() => {
-                  setEditHit(null);
-                  setAddOpen(true);
-                }}
-                onClose={() => {
-                  setEditHit(null);
-                  setAddOpen(false);
-                }}
+                onBack={() => setEditHit(null)}
+                onClose={() => setEditHit(null)}
                 onAdded={() => {
                   setEditHit(null);
-                  setAddOpen(true);
                   void reload();
                 }}
               />
+            </>
+          )}
+          {canWrite && !done && (
+            <>
               <StockDocUpdateLineModal
                 open={Boolean(updateLine)}
                 kind={kind}

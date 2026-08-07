@@ -234,6 +234,8 @@ async def set_user_permission_rules(
             )
         )
     await session.flush()
+    # Bulk delete/insert bypasses the identity map; expire so responses reload rules.
+    session.expire(user, ["extra_permissions"])
     if user.role in (UserRole.owner, UserRole.admin):
         return set(ROLE_DEFAULTS[user.role])
     codes = set(ROLE_DEFAULTS.get(user.role, set()))

@@ -19,6 +19,10 @@ export type CatalogQuery = {
   sort?: CatalogSort;
   includeZeroQuantity?: boolean;
   includeZeroPrice?: boolean;
+  /** Latin↔Cyrillic search variants; default true. */
+  searchTransliteration?: boolean;
+  /** Typo-tolerant token matching; default true. */
+  searchFuzzy?: boolean;
 };
 import {
   buildCatalogProductKey,
@@ -486,14 +490,20 @@ export function filterAndSortCachedProducts(
     });
   }
 
-  // 4. Search filtering (transliteration + similarity scoring)
+  // 4. Search filtering (optional transliteration + similarity scoring)
   const searchTerm = query.search?.trim() ?? "";
   const scores = new Map<string, number>();
   if (searchTerm) {
+    const searchOptions = {
+      transliteration: query.searchTransliteration !== false,
+      fuzzy: query.searchFuzzy !== false,
+    };
     const matched: Product[] = [];
     for (const product of filtered) {
-      const index = resolveSearchIndex(product, searchIndexes);
-      const score = scoreCatalogMatch(searchTerm, index, product);
+      const index = searchOptions.transliteration
+        ? resolveSearchIndex(product, searchIndexes)
+        : buildProductSearchIndex(product, { transliteration: false });
+      const score = scoreCatalogMatch(searchTerm, index, product, searchOptions);
       if (score == null) continue;
       scores.set(product.id, score);
       matched.push(product);

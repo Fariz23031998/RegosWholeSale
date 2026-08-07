@@ -276,6 +276,14 @@
   color: var(--color-text-muted);
 }
 
+.docCardDescription {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .docCardAmount {
   font-size: 14px;
   font-weight: 600;
@@ -295,6 +303,14 @@
 .id {
   font-family: "Menlo", monospace;
   font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.descriptionCell {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-text-muted);
 }
 
@@ -508,13 +524,20 @@
 }
 
 .formField select,
-.formField input {
+.formField input,
+.formField textarea {
   width: 100%;
   padding: 8px 10px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   font-size: 14px;
+}
+
+.formField textarea {
+  resize: vertical;
+  min-height: 72px;
+  font-family: inherit;
 }
 
 .dateTimeRow {
@@ -608,6 +631,16 @@
   max-height: 80vh;
 }
 
+@media (max-width: 767px) {
+  .addLineModal {
+    height: 100%;
+    max-height: none;
+    width: 100%;
+    max-width: none;
+    border-radius: 0;
+  }
+}
+
 .addLineModalBody {
   display: flex;
   flex-direction: column;
@@ -634,6 +667,30 @@
   min-height: 0;
   overflow-y: auto;
   background: var(--color-surface);
+}
+
+.addLineEmpty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex: 1;
+  min-height: 120px;
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--color-text-muted);
+  font-size: 14px;
+}
+
+.addLineEmpty p {
+  margin: 0;
+}
+
+@media (max-width: 767px) {
+  .addLineEmpty {
+    transform: translateY(-100px);
+  }
 }
 
 .addLineHitRow {
@@ -712,7 +769,7 @@
 }
 
 @media (max-width: 640px) {
-  .formRow {
+  .formRowStack {
     grid-template-columns: 1fr;
   }
 }

@@ -102,9 +102,13 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [productGroups, setProductGroups] = useState<ProductGroup[]>([]);
   const [companyAllowOutOfStock, setCompanyAllowOutOfStock] = useState(false);
   const [companyAutoOpenQtyKeypad, setCompanyAutoOpenQtyKeypad] = useState(false);
+  const [companySearchTransliteration, setCompanySearchTransliteration] = useState(true);
+  const [companySearchFuzzy, setCompanySearchFuzzy] = useState(true);
   const [companyTenderedAmounts, setCompanyTenderedAmounts] = useState("20, 50, 100");
   const [allowOutOfStock, setAllowOutOfStock] = useState(false);
   const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
+  const [searchTransliteration, setSearchTransliteration] = useState(true);
+  const [searchFuzzy, setSearchFuzzy] = useState(true);
   const [tenderedAmountsInput, setTenderedAmountsInput] = useState("20, 50, 100");
   const [defaultCategoryValue, setDefaultCategoryValue] = useState("all");
   const [companyDefaultCategoryValue, setCompanyDefaultCategoryValue] = useState("all");
@@ -152,6 +156,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           if (cancelled) return;
           setAllowOutOfStock(userPosRes.settings.allow_out_of_stock);
           setAutoOpenQtyKeypad(userPosRes.settings.auto_open_qty_keypad);
+          setSearchTransliteration(userPosRes.settings.search_transliteration ?? true);
+          setSearchFuzzy(userPosRes.settings.search_fuzzy ?? true);
           setTenderedAmountsInput(
             formatTenderedQuickAmounts(userPosRes.settings.tendered_quick_amounts),
           );
@@ -160,6 +166,10 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           );
           setCompanyAllowOutOfStock(companyPosRes.settings.allow_out_of_stock);
           setCompanyAutoOpenQtyKeypad(companyPosRes.settings.auto_open_qty_keypad);
+          setCompanySearchTransliteration(
+            companyPosRes.settings.search_transliteration ?? true,
+          );
+          setCompanySearchFuzzy(companyPosRes.settings.search_fuzzy ?? true);
           setCompanyTenderedAmounts(
             formatTenderedQuickAmounts(companyPosRes.settings.tendered_quick_amounts),
           );
@@ -237,6 +247,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         patchUserPosSettingsById(token, user.id, {
           allow_out_of_stock: allowOutOfStock,
           auto_open_qty_keypad: autoOpenQtyKeypad,
+          search_transliteration: searchTransliteration,
+          search_fuzzy: searchFuzzy,
           tendered_quick_amounts: amounts,
           default_category: selectValueToDefaultCategory(defaultCategoryValue),
         }),
@@ -256,6 +268,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
       ]);
       setAllowOutOfStock(posRes.settings.allow_out_of_stock);
       setAutoOpenQtyKeypad(posRes.settings.auto_open_qty_keypad);
+      setSearchTransliteration(posRes.settings.search_transliteration ?? true);
+      setSearchFuzzy(posRes.settings.search_fuzzy ?? true);
       setTenderedAmountsInput(
         formatTenderedQuickAmounts(posRes.settings.tendered_quick_amounts),
       );
@@ -291,6 +305,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
       const res = await clearUserPosSettings(token, user.id);
       setAllowOutOfStock(res.settings.allow_out_of_stock);
       setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
+      setSearchTransliteration(res.settings.search_transliteration ?? true);
+      setSearchFuzzy(res.settings.search_fuzzy ?? true);
       setTenderedAmountsInput(
         formatTenderedQuickAmounts(res.settings.tendered_quick_amounts),
       );
@@ -439,6 +455,66 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
               <p className={styles.hint}>
                 {t("common.companyDefault", "Company default: {{value}}", {
                   value: companyAllowOutOfStock
+                    ? t("common.on", "on")
+                    : t("common.off", "off"),
+                })}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className={styles.field}>
+          <div className={styles.switchRow}>
+            <label className={styles.switch}>
+              <input
+                type="checkbox"
+                checked={searchTransliteration}
+                disabled={busy}
+                onChange={(e) => setSearchTransliteration(e.target.checked)}
+              />
+              <span className={styles.slider} />
+            </label>
+            <div>
+              <div className={styles.label}>
+                {t("users.settings.searchTransliteration", "Search transliteration")}
+              </div>
+              <p className={styles.hint}>
+                {t(
+                  "users.settings.searchTransliterationDesc",
+                  "Match Latin and Cyrillic spellings of the same product name (e.g. moloko ↔ молоко).",
+                )}{" "}
+                {t("common.companyDefault", "Company default: {{value}}", {
+                  value: companySearchTransliteration
+                    ? t("common.on", "on")
+                    : t("common.off", "off"),
+                })}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className={styles.field}>
+          <div className={styles.switchRow}>
+            <label className={styles.switch}>
+              <input
+                type="checkbox"
+                checked={searchFuzzy}
+                disabled={busy}
+                onChange={(e) => setSearchFuzzy(e.target.checked)}
+              />
+              <span className={styles.slider} />
+            </label>
+            <div>
+              <div className={styles.label}>
+                {t("users.settings.searchFuzzy", "Fuzzy search")}
+              </div>
+              <p className={styles.hint}>
+                {t(
+                  "users.settings.searchFuzzyDesc",
+                  "Allow small typos when searching the product catalog.",
+                )}{" "}
+                {t("common.companyDefault", "Company default: {{value}}", {
+                  value: companySearchFuzzy
                     ? t("common.on", "on")
                     : t("common.off", "off"),
                 })}

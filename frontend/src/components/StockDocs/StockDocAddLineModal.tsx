@@ -24,6 +24,8 @@ import {
   searchStockItems,
   type StockItemSearchHit,
 } from "@/lib/stock-docs-api";
+import { searchStockItemsFromCache } from "@/lib/stock-item-cache-search";
+import { useIsMobile } from "@/hooks/use-mobile";
 import { usePermissions } from "@/hooks/use-permissions";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
@@ -46,6 +48,8 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onPick: (hit: StockItemSearchHit) => void;
+  /** When false (e.g. Edit Line is stacked on top), skip focusing search. */
+  searchFocus?: boolean;
 };
 
 type View = "search" | "form" | "groupForm";
@@ -58,8 +62,14 @@ function isLongDigitBarcode(value: string): boolean {
   return /^\d+$/.test(value) && value.length > 7;
 }
 
-export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
+export function StockDocAddLineModal({
+  open,
+  onClose,
+  onPick,
+  searchFocus = true,
+}: Props) {
   const { t } = useLanguage();
+  const isMobile = useIsMobile();
   const token = useAuth((s) => s.accessToken);
   const companyId = useAuth((s) => s.user?.company_id ?? null);
   const warehouseId = useSellContext((s) => s.warehouseId);
@@ -72,6 +82,7 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
   const [editingItemId, setEditingItemId] = useState<number | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<StockItemSearchHit[]>([]);
+  const [searched, setSearched] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [scannerOpen, setScannerOpen] = useState(false);
@@ -90,6 +101,7 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
   const [groupParentId, setGroupParentId] = useState(0);
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const queryRef = useRef(query);
   queryRef.current = query;
 
@@ -104,6 +116,7 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
     clearDebounce();
     setQuery("");
     setHits([]);
+    setSearched(false);
     setBusy(false);
     setError("");
   };
@@ -134,24 +147,38 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
     const autoPickSingle = opts?.autoPickSingle ?? true;
     if (!token || !term) {
       setHits([]);
+      setSearched(false);
       return;
     }
     setBusy(true);
     setError("");
+    setSearched(false);
     try {
-      const res = await searchStockItems(token, {
-        search: term,
-        stock_id: warehouseId ?? undefined,
-        price_type_id: priceTypeId ?? undefined,
+      const cached = await searchStockItemsFromCache({
+        term,
+        companyId,
+        warehouseId,
+        priceTypeId,
         limit: 20,
       });
-      if (autoPickSingle && res.items.length === 1) {
+      const items =
+        cached ??
+        (
+          await searchStockItems(token, {
+            search: term,
+            stock_id: warehouseId ?? undefined,
+            price_type_id: priceTypeId ?? undefined,
+            limit: 20,
+          })
+        ).items;
+      if (autoPickSingle && items.length === 1) {
         resetAll();
-        onPick(res.items[0]);
+        onPick(items[0]);
         return;
       }
-      setHits(res.items);
-      if (res.items.length === 0 && autoPickSingle && isLongDigitBarcode(term)) {
+      setHits(items);
+      setSearched(true);
+      if (items.length === 0 && autoPickSingle && isLongDigitBarcode(term)) {
         try {
           await maybeOpenCreateFromBarcodeMiss(term);
         } catch (err: unknown) {
@@ -162,6 +189,7 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
       }
     } catch (err: unknown) {
       setHits([]);
+      setSearched(true);
       setError(formatAuthError(err, t("stock.errors.search", "Search failed")));
     } finally {
       setBusy(false);
@@ -189,6 +217,14 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
       setScannerOpen(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || view !== "search" || !searchFocus) return;
+    const id = requestAnimationFrame(() => {
+      searchInputRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(id);
+  }, [open, view, searchFocus]);
 
   const ensureLookups = async () => {
     if (!token || lookupsLoaded) return { groups, units, taxVats };
@@ -266,7 +302,7 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
     setError("");
     try {
       const lookup = await ensureLookups();
-      const seed = hasLetter(query) ? query.trim() : "";
+      const seed = query.trim();
       let defaults: {
         groupId?: number | null;
         unitId?: number | null;
@@ -653,51 +689,58 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
     await search(term);
   };
 
-  const title =
+  const productModalTitle =
     view === "groupForm"
       ? editingGroupId
         ? t("stock.item.group.edit", "Edit group")
         : t("stock.item.group.create", "Create group")
-      : view === "form"
-        ? editingItemId
-          ? t("stock.item.edit", "Edit product")
-          : t("stock.item.create", "Create product")
-        : t("stock.actions.addLine", "Add line");
+      : editingItemId
+        ? t("stock.item.edit", "Edit product")
+        : t("stock.item.create", "Create product");
+
+  const productModalOpen = open && (view === "form" || view === "groupForm");
 
   return (
-    <Modal
-      open={open}
-      onClose={handleClose}
-      title={title}
-      size="lg"
-      modalClassName={styles.addLineModal}
-      bodyClassName={styles.addLineModalBody}
-      headerActions={
-        view === "search" && canCreateItem ? (
-          <Button
-            type="button"
-            size="icon"
-            variant="secondary"
-            disabled={busy}
-            aria-label={t("stock.item.create", "Create product")}
-            title={t("stock.item.create", "Create product")}
-            onClick={() => void openCreate()}
-          >
-            <Plus size={18} />
-          </Button>
-        ) : undefined
-      }
-    >
-      {view === "search" ? (
+    <>
+      <Modal
+        open={open}
+        onClose={() => {
+          // Keep Add Line under Create/Edit product; Escape hits both listeners.
+          if (view !== "search") return;
+          handleClose();
+        }}
+        title={t("stock.actions.addLine", "Add line")}
+        size="lg"
+        fullscreen={isMobile}
+        modalClassName={styles.addLineModal}
+        bodyClassName={styles.addLineModalBody}
+        headerActions={
+          canCreateItem ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="secondary"
+              disabled={busy}
+              aria-label={t("stock.item.create", "Create product")}
+              title={t("stock.item.create", "Create product")}
+              onClick={() => void openCreate()}
+            >
+              <Plus size={18} />
+            </Button>
+          ) : undefined
+        }
+      >
         <div className={styles.addLineSearchView}>
           <div className={styles.addLineSearch}>
             <input
+              ref={searchInputRef}
               className={styles.searchInput}
               style={{ paddingLeft: 12 }}
               value={query}
               onChange={(e) => {
                 setQuery(e.target.value);
                 setHits([]);
+                setSearched(false);
                 setError("");
               }}
               onKeyDown={(e) => {
@@ -733,7 +776,7 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
             </Button>
           </div>
 
-          {hits.length > 0 && (
+          {hits.length > 0 ? (
             <ul className={styles.addLineHits}>
               {hits.map((hit) => {
                 const metaParts = [
@@ -789,11 +832,47 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
                 );
               })}
             </ul>
-          )}
+          ) : null}
 
-          {error ? <div className={styles.errorInline}>{error}</div> : null}
+          {searched && !busy && hits.length === 0 && !error ? (
+            <div className={styles.addLineEmpty}>
+              <p>{t("stock.search.noProducts", "No products found")}</p>
+              {canCreateItem ? (
+                <Button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void openCreate()}
+                >
+                  <Plus size={16} />
+                  {t("stock.item.create", "Create product")}
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
+          {error && view === "search" ? (
+            <div className={styles.errorInline}>{error}</div>
+          ) : null}
         </div>
-      ) : view === "groupForm" ? (
+      </Modal>
+
+      <Modal
+        open={productModalOpen}
+        onClose={() => {
+          if (view === "groupForm") {
+            backToProductForm();
+            return;
+          }
+          backToSearch();
+        }}
+        title={productModalTitle}
+        size="lg"
+        fullscreen={isMobile}
+        elevated
+        modalClassName={styles.addLineModal}
+        bodyClassName={styles.addLineModalBody}
+      >
+        {view === "groupForm" ? (
         <div className={styles.addLineForm}>
           <div className={styles.formField}>
             <label>{t("stock.item.group.fields.name", "Name")}</label>
@@ -861,35 +940,37 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
               onEdit={canEditItem ? openEditGroup : undefined}
             />
           </div>
-          <div className={styles.formField}>
-            <label>{t("stock.item.fields.unit", "Unit")}</label>
-            <select
-              value={form.unit_id}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, unit_id: Number(e.target.value) }))
-              }
-            >
-              {units.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className={styles.formField}>
-            <label>{t("stock.item.fields.vat", "VAT")}</label>
-            <select
-              value={form.vat_id}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, vat_id: Number(e.target.value) }))
-              }
-            >
-              {taxVats.map((v) => (
-                <option key={v.id} value={v.id}>
-                  {v.name}
-                </option>
-              ))}
-            </select>
+          <div className={styles.formRow}>
+            <div className={styles.formField}>
+              <label>{t("stock.item.fields.unit", "Unit")}</label>
+              <select
+                value={form.unit_id}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, unit_id: Number(e.target.value) }))
+                }
+              >
+                {units.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.formField}>
+              <label>{t("stock.item.fields.vat", "VAT")}</label>
+              <select
+                value={form.vat_id}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, vat_id: Number(e.target.value) }))
+                }
+              >
+                {taxVats.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    {v.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
           <div className={styles.formField}>
             <label>{t("stock.item.fields.articul", "SKU")}</label>
@@ -957,7 +1038,7 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
               </div>
             </div>
           </div>
-          <div className={styles.formRow}>
+          <div className={`${styles.formRow} ${styles.formRowStack}`}>
             <div className={styles.formField}>
               <label>{t("stock.item.fields.icps", "IKPU")}</label>
               <input
@@ -1062,6 +1143,8 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
           </div>
         </div>
       )}
+      </Modal>
+
       {scannerOpen ? (
         <Suspense fallback={null}>
           <BarcodeScannerModal
@@ -1071,6 +1154,6 @@ export function StockDocAddLineModal({ open, onClose, onPick }: Props) {
           />
         </Suspense>
       ) : null}
-    </Modal>
+    </>
   );
 }

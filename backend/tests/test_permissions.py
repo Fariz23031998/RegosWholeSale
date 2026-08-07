@@ -207,3 +207,39 @@ async def test_item_mutate_endpoints_require_specific_permissions(
         json=json_body,
     )
     assert response.status_code == 403, response.text
+
+
+@pytest.mark.asyncio
+async def test_patch_user_permission_rules_appear_in_response(client: AsyncClient) -> None:
+    """PATCH must return fresh permission_rules (not a stale ORM collection)."""
+    reg = await register_owner(
+        client,
+        email="patch-rules@test.com",
+        company_name="Patch Rules Co",
+    )
+    owner_token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {owner_token}"}
+
+    employee = await _create_employee(client, owner_token, login="patch-rules-emp")
+    assert employee["permission_rules"] == []
+    assert "documents.print" not in employee["permissions"]
+
+    patched = await client.patch(
+        f"/api/v1/users/{employee['id']}",
+        headers=headers,
+        json={"permission_rules": [{"code": "documents.print", "effect": "allow"}]},
+    )
+    assert patched.status_code == 200, patched.text
+    body = patched.json()
+    assert body["permission_rules"] == [{"code": "documents.print", "effect": "allow"}]
+    assert "documents.print" in body["permissions"]
+
+    cleared = await client.patch(
+        f"/api/v1/users/{employee['id']}",
+        headers=headers,
+        json={"permission_rules": []},
+    )
+    assert cleared.status_code == 200, cleared.text
+    cleared_body = cleared.json()
+    assert cleared_body["permission_rules"] == []
+    assert "documents.print" not in cleared_body["permissions"]

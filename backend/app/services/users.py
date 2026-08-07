@@ -43,17 +43,19 @@ def parse_time(value: str) -> time:
 
 async def apply_schedules(session: AsyncSession, user: User, schedules: list[dict] | None) -> None:
     await session.execute(delete(LoginSchedule).where(LoginSchedule.user_id == user.id))
-    if not schedules:
-        return
-    for item in schedules:
-        session.add(
-            LoginSchedule(
-                user_id=user.id,
-                day_of_week=item["day_of_week"],
-                start_time=parse_time(item["start_time"]),
-                end_time=parse_time(item["end_time"]),
+    if schedules:
+        for item in schedules:
+            session.add(
+                LoginSchedule(
+                    user_id=user.id,
+                    day_of_week=item["day_of_week"],
+                    start_time=parse_time(item["start_time"]),
+                    end_time=parse_time(item["end_time"]),
+                )
             )
-        )
+    await session.flush()
+    # Bulk delete/insert bypasses the identity map; expire so responses reload schedules.
+    session.expire(user, ["login_schedules"])
 
 
 async def list_company_users(session: AsyncSession, company_id: int) -> list[User]:

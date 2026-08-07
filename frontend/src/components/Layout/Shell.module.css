@@ -172,6 +172,10 @@
   overflow: hidden;
 }
 
+:global(html.posui-modal-open) .main {
+  overflow: hidden !important;
+}
+
 .navLink {
   display: flex;
   align-items: center;

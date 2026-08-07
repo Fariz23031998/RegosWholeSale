@@ -14,6 +14,8 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     assert initial.status_code == 200
     assert initial.json()["settings"]["allow_out_of_stock"] is False
     assert initial.json()["settings"]["auto_open_qty_keypad"] is False
+    assert initial.json()["settings"]["search_transliteration"] is True
+    assert initial.json()["settings"]["search_fuzzy"] is True
     assert initial.json()["settings"]["cross_currency_payment_mode"] == "payment_currency"
     assert initial.json()["settings"]["tendered_quick_amounts"] == [20.0, 50.0, 100.0]
     assert initial.json()["settings"]["internal_barcode_weight_prefix"] == "22"

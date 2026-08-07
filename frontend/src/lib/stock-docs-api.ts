@@ -35,6 +35,8 @@ export type StockDocument = {
   compare_type?: string | null;
   vat_calculation_type?: string | null;
   inout_type?: string | null;
+  full?: boolean | null;
+  create_docinout?: boolean | null;
 };
 
 export type StockDocumentsResponse = {
@@ -76,6 +78,8 @@ export type StockDocumentCreateRequest = {
   compare_type?: string;
   description?: string;
   inout_type?: string;
+  full?: boolean;
+  create_docinout?: boolean;
 };
 
 export type StockDocumentUpdateRequest = {
@@ -91,6 +95,8 @@ export type StockDocumentUpdateRequest = {
   compare_type?: string;
   description?: string;
   inout_type?: string;
+  full?: boolean;
+  create_docinout?: boolean;
 };
 
 export type StockDocumentCreateResponse = {

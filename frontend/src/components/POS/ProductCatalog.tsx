@@ -22,6 +22,7 @@ import { isCacheEnabled } from "@/lib/cache-policy";
 import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
 import { canAddProductToCart } from "@/lib/cart-stock";
 import { isBarcodeInput } from "@/lib/barcode";
+import { truncateToastName } from "@/lib/format";
 import {
   isShortNumericCodeSearch,
   prioritizeCatalogProductsByCode,
@@ -148,6 +149,8 @@ export function ProductCatalog() {
     : undefined;
   const internalBarcodeWeightPrefix = usePosConfig((s) => s.internalBarcodeWeightPrefix);
   const internalBarcodePiecePrefix = usePosConfig((s) => s.internalBarcodePiecePrefix);
+  const searchTransliteration = usePosConfig((s) => s.searchTransliteration);
+  const searchFuzzy = usePosConfig((s) => s.searchFuzzy);
   const posConfigHydrated = usePosConfig((s) => s.hydrated);
   const defaultCategory = usePosConfig((s) => s.defaultCategory);
   const hydratePosConfig = usePosConfig((s) => s.hydrate);
@@ -472,6 +475,8 @@ export function ProductCatalog() {
         featuredOnly ? [...featuredIds].sort((a, b) => a - b).join(",") : "",
         includeZeroQuantity ? "1" : "0",
         includeZeroPrice ? "1" : "0",
+        searchTransliteration ? "1" : "0",
+        searchFuzzy ? "1" : "0",
         warehouseId ?? "",
         priceTypeId ?? "",
         `${catalogSort.column}:${catalogSort.direction}`,
@@ -487,6 +492,8 @@ export function ProductCatalog() {
       priceTypeId,
       refreshNonce,
       search,
+      searchFuzzy,
+      searchTransliteration,
       selectedGroupId,
       warehouseId,
     ],
@@ -995,7 +1002,7 @@ export function ProductCatalog() {
         });
         toast.success(
           t("pos.barcode.scanSuccess", "Added {{name}} to cart", {
-            name: result.product.name,
+            name: truncateToastName(result.product.name),
           }),
         );
         setScannerOpen(false);

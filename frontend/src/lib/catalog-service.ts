@@ -19,6 +19,7 @@ import {
 import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
 import { isCacheEnabled } from "@/lib/cache-policy";
 import { setLastSyncTime } from "@/lib/sync-meta-db";
+import { usePosConfig } from "@/store/pos-config";
 import type { CatalogProductsResponse, ProductGroup } from "@/types/catalog";
 
 type CatalogQuery = {
@@ -33,6 +34,8 @@ type CatalogQuery = {
   sort?: CatalogSort;
   includeZeroQuantity?: boolean;
   includeZeroPrice?: boolean;
+  searchTransliteration?: boolean;
+  searchFuzzy?: boolean;
 };
 
 export type CatalogScope = {
@@ -48,6 +51,18 @@ function scopeKeyFor(scope: CatalogScope): string {
   return buildCatalogScopeKey(scope.companyId, scope.warehouseId, scope.priceTypeId);
 }
 
+function withSearchSettings(query: CatalogQuery): CatalogQuery {
+  if (query.searchTransliteration != null && query.searchFuzzy != null) {
+    return query;
+  }
+  const cfg = usePosConfig.getState();
+  return {
+    ...query,
+    searchTransliteration: query.searchTransliteration ?? cfg.searchTransliteration,
+    searchFuzzy: query.searchFuzzy ?? cfg.searchFuzzy,
+  };
+}
+
 export function buildCatalogPageKey(query: CatalogQuery): string {
   const sort = query.sort;
   return [
@@ -56,6 +71,8 @@ export function buildCatalogPageKey(query: CatalogQuery): string {
     query.featuredOnly ? "1" : "0",
     query.includeZeroQuantity ? "1" : "0",
     query.includeZeroPrice ? "1" : "0",
+    query.searchTransliteration === false ? "0" : "1",
+    query.searchFuzzy === false ? "0" : "1",
     sort ? `${sort.column}:${sort.direction}` : "",
     String(query.offset ?? 0),
     String(query.limit ?? 60),
@@ -68,8 +85,9 @@ export async function loadCatalogProducts(
   scope: CatalogScope,
   options?: { forceApi?: boolean },
 ): Promise<CatalogProductsResponse> {
+  const resolvedQuery = withSearchSettings(query);
   const scopeKey = scopeKeyFor(scope);
-  const pageKey = buildCatalogPageKey(query);
+  const pageKey = buildCatalogPageKey(resolvedQuery);
   const inflightKey = `${scopeKey}:${pageKey}`;
 
   // Only call Regos directly when there is no cache to read from. When caching
@@ -81,7 +99,7 @@ export async function loadCatalogProducts(
     const existing = inflightPages.get(inflightKey);
     if (existing) return existing;
 
-    const request = fetchCatalogProducts(token, query)
+    const request = fetchCatalogProducts(token, resolvedQuery)
       .then(async (response) => {
         await saveCachedPage(scopeKey, pageKey, response).catch(() => undefined);
         await upsertProducts(scopeKey, response.products).catch(() => undefined);
@@ -104,7 +122,7 @@ export async function loadCatalogProducts(
       );
       return filterAndSortCachedProducts(
         entries.map((entry) => entry.product),
-        query,
+        resolvedQuery,
         searchIndexes,
       );
     }
@@ -117,7 +135,7 @@ export async function loadCatalogProducts(
     return cached.response;
   }
 
-  return { products: [], next_offset: query.offset ?? 0, total: 0 };
+  return { products: [], next_offset: resolvedQuery.offset ?? 0, total: 0 };
 }
 
 export async function loadProductGroups(

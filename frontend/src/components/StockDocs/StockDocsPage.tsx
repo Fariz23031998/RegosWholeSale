@@ -357,6 +357,7 @@ export function StockDocsPage({ kind }: Props) {
                   )}
                   {kind === "inout" && <th>{t("stock.table.inoutType", "Type")}</th>}
                   {def.supportsPartnerFilter && <th>{t("stock.table.partner", "Partner")}</th>}
+                  <th>{t("common.description")}</th>
                   <th>{t("stock.table.status", "Status")}</th>
                   <th className={styles.right}>{t("common.amount")}</th>
                   {canWrite ? <th className={styles.actionsCol} /> : null}
@@ -385,6 +386,9 @@ export function StockDocsPage({ kind }: Props) {
                         <td>{formatInoutTypeLabel(doc.inout_type, t)}</td>
                       )}
                       {def.supportsPartnerFilter && <td>{doc.partner_name ?? "—"}</td>}
+                      <td className={styles.descriptionCell}>
+                        {doc.description?.trim() ? doc.description : "—"}
+                      </td>
                       <td>
                         <span
                           className={`${styles.badge} ${done ? styles.badgeDone : styles.badgeDraft}`}
@@ -461,6 +465,9 @@ export function StockDocsPage({ kind }: Props) {
                       ) : null}
                       {def.supportsPartnerFilter && doc.partner_name ? (
                         <div className={styles.docCardPlace}>{doc.partner_name}</div>
+                      ) : null}
+                      {doc.description?.trim() ? (
+                        <div className={styles.docCardDescription}>{doc.description}</div>
                       ) : null}
                       <div className={styles.docCardAmount}>
                         {doc.amount != null ? formatCurrency(doc.amount) : "—"}

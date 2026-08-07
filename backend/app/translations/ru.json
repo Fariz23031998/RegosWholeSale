@@ -851,6 +851,10 @@
     "users.settings.autoOpenQtyKeypad": "Автооткрытие клавиатуры количества",
     "users.settings.autoOpenQtyKeypadDesc": "Открывает клавиатуру количества при добавлении товара в корзину.",
     "users.settings.allowOutOfStock": "Разрешить продажу при нулевом остатке",
+    "users.settings.searchTransliteration": "Транслитерация поиска",
+    "users.settings.searchTransliterationDesc": "Искать товары и по латинице, и по кириллице (например, moloko ↔ молоко).",
+    "users.settings.searchFuzzy": "Нечёткий поиск",
+    "users.settings.searchFuzzyDesc": "Допускать небольшие опечатки при поиске в каталоге товаров.",
     "users.settings.tenderedShortcuts": "Быстрые суммы оплаты",
     "users.settings.resetPos": "Сбросить POS до настроек компании",
     "users.settings.regosDefaults": "Настройки Regos",
@@ -1491,6 +1495,10 @@
     "stock.fields.currency": "Валюта",
     "stock.fields.vatCalculationType": "Тип расчёта НДС",
     "stock.fields.compareType": "Тип сопоставления",
+    "stock.fields.fullInventory": "Полная инвентаризация",
+    "stock.fields.fullInventoryHint": "При закрытии добавляются все товары склада с ненулевым остатком.",
+    "stock.fields.createDocInout": "Создавать списание/оприходование при закрытии",
+    "stock.fields.createDocInoutHint": "При закрытии создаются документы списания и оприходования по результатам инвентаризации.",
     "stock.compareType.open_date": "На дату открытия",
     "stock.compareType.close_date": "На дату закрытия",
     "stock.compareType.operation_date": "На дату операции",
@@ -1516,6 +1524,7 @@
     "meta.movementDetailTitle": "Перемещение · Regos Optom",
     "meta.inventoryDetailTitle": "Инвентаризация · Regos Optom",
     "meta.inoutDetailTitle": "Списание/Занесение · Regos Optom",
-    "stock.searchItemPlaceholder": "Скан или поиск…"
+    "stock.searchItemPlaceholder": "Скан или поиск…",
+    "stock.search.noProducts": "Товары не найдены"
   }
 }

@@ -163,6 +163,42 @@ async def test_create_inventory_document_with_compare_type(client: AsyncClient) 
     assert payload["compare_type"] == "close_date"
 
 
+async def test_create_inventory_document_with_flags(client: AsyncClient) -> None:
+    reg = await register_owner(client, email="stock-inv-flags@test.com", company_name="Inv Flags Co")
+    token = reg.json()["access_token"]
+
+    with patch(
+        "app.services.regos_defaults.get_regos_defaults",
+        new_callable=AsyncMock,
+        return_value={
+            "warehouse": {"id": 11, "name": "Main"},
+            "price_type": {"id": 3, "name": "Retail"},
+            "attached_user": {"id": 9, "name": "Cashier"},
+        },
+    ):
+        with patch(
+            "app.services.regos_stock_docs.regos_async_api_request_for_company",
+            new_callable=AsyncMock,
+            return_value={"ok": True, "result": {"new_id": 57, "code": "I-57"}},
+        ) as mock_regos:
+            created = await client.post(
+                "/api/v1/stock/inventory/documents",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "stock_id": 11,
+                    "date": 1_700_000_000,
+                    "price_type_id": 3,
+                    "full": True,
+                    "create_docinout": False,
+                },
+            )
+
+    assert created.status_code == 200, created.text
+    payload = mock_regos.await_args.args[3]
+    assert payload["full"] is True
+    assert payload["create_docinout"] is False
+
+
 @pytest.mark.asyncio
 async def test_create_purchase_document_with_price_type_and_vat(client: AsyncClient) -> None:
     reg = await register_owner(client, email="stock-pur@test.com", company_name="Pur Co")

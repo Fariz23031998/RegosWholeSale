@@ -95,6 +95,18 @@ def _merge_pos_settings(
     else:
         merged["auto_open_qty_keypad"] = bool(company_settings.get("auto_open_qty_keypad", False))
 
+    if "search_transliteration" in user_overrides:
+        merged["search_transliteration"] = bool(user_overrides["search_transliteration"])
+    else:
+        merged["search_transliteration"] = bool(
+            company_settings.get("search_transliteration", True)
+        )
+
+    if "search_fuzzy" in user_overrides:
+        merged["search_fuzzy"] = bool(user_overrides["search_fuzzy"])
+    else:
+        merged["search_fuzzy"] = bool(company_settings.get("search_fuzzy", True))
+
     return merged
 
 
@@ -114,6 +126,12 @@ def _apply_company_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> 
 
     if patch.get("auto_open_qty_keypad") is not None:
         updated["auto_open_qty_keypad"] = bool(patch["auto_open_qty_keypad"])
+
+    if patch.get("search_transliteration") is not None:
+        updated["search_transliteration"] = bool(patch["search_transliteration"])
+
+    if patch.get("search_fuzzy") is not None:
+        updated["search_fuzzy"] = bool(patch["search_fuzzy"])
 
     if patch.get("cross_currency_payment_mode") is not None:
         updated["cross_currency_payment_mode"] = _normalize_cross_currency_payment_mode(
@@ -178,6 +196,12 @@ def _apply_user_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> dic
     if patch.get("auto_open_qty_keypad") is not None:
         updated["auto_open_qty_keypad"] = bool(patch["auto_open_qty_keypad"])
 
+    if patch.get("search_transliteration") is not None:
+        updated["search_transliteration"] = bool(patch["search_transliteration"])
+
+    if patch.get("search_fuzzy") is not None:
+        updated["search_fuzzy"] = bool(patch["search_fuzzy"])
+
     return updated
 
 
@@ -190,6 +214,8 @@ def _normalize_company_pos_settings(raw: Any) -> dict[str, Any]:
         ),
         "default_category": _normalize_default_category(data.get("default_category")),
         "auto_open_qty_keypad": bool(data.get("auto_open_qty_keypad", False)),
+        "search_transliteration": bool(data.get("search_transliteration", True)),
+        "search_fuzzy": bool(data.get("search_fuzzy", True)),
         "cross_currency_payment_mode": _normalize_cross_currency_payment_mode(
             data.get("cross_currency_payment_mode")
         ),

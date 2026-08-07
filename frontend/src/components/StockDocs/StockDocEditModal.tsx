@@ -91,6 +91,11 @@ export function StockDocEditModal({
   const [priceTypeId, setPriceTypeId] = useState(initialPriceType);
   const [vatCalculationType, setVatCalculationType] = useState<VatCalculationType>(initialVat);
   const [compareType, setCompareType] = useState<InventoryCompareType>(initialCompare);
+  const [fullInventory, setFullInventory] = useState(Boolean(document.full));
+  const [createDocInout, setCreateDocInout] = useState(
+    document.create_docinout != null ? Boolean(document.create_docinout) : true,
+  );
+  const [description, setDescription] = useState(document.description ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
 
@@ -143,6 +148,8 @@ export function StockDocEditModal({
           date,
           price_type_id: priceTypeId,
           compare_type: compareType,
+          full: fullInventory,
+          create_docinout: createDocInout,
         };
       } else if (kind === "inout") {
         body = {
@@ -169,6 +176,8 @@ export function StockDocEditModal({
           body.price_type_id = document.price_type_id;
         }
       }
+
+      body.description = description.trim();
 
       await updateStockDocument(token, kind, document.id, body);
       onSaved();
@@ -304,23 +313,71 @@ export function StockDocEditModal({
         ) : null}
 
         {kind === "inventory" ? (
-          <div className={styles.formField}>
-            <label>{t("stock.fields.compareType", "Compare type")}</label>
-            <select
-              value={compareType}
-              onChange={(e) => {
-                const value = e.target.value;
-                if (isValidCompareType(value)) setCompareType(value);
-              }}
-            >
-              {INVENTORY_COMPARE_TYPES.map((value) => (
-                <option key={value} value={value}>
-                  {t(`stock.compareType.${value}`, value)}
-                </option>
-              ))}
-            </select>
-          </div>
+          <>
+            <div className={styles.formField}>
+              <label>{t("stock.fields.compareType", "Compare type")}</label>
+              <select
+                value={compareType}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (isValidCompareType(value)) setCompareType(value);
+                }}
+              >
+                {INVENTORY_COMPARE_TYPES.map((value) => (
+                  <option key={value} value={value}>
+                    {t(`stock.compareType.${value}`, value)}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className={styles.formField}>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={fullInventory}
+                  onChange={(e) => setFullInventory(e.target.checked)}
+                  disabled={busy}
+                />
+                <span>{t("stock.fields.fullInventory", "Full inventory")}</span>
+              </label>
+              <div className={styles.fieldHint}>
+                {t(
+                  "stock.fields.fullInventoryHint",
+                  "When enabled, closing adds all stock items with non-zero balances.",
+                )}
+              </div>
+            </div>
+            <div className={styles.formField}>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={createDocInout}
+                  onChange={(e) => setCreateDocInout(e.target.checked)}
+                  disabled={busy}
+                />
+                <span>
+                  {t("stock.fields.createDocInout", "Create write-off/receipt on close")}
+                </span>
+              </label>
+              <div className={styles.fieldHint}>
+                {t(
+                  "stock.fields.createDocInoutHint",
+                  "When enabled, closing creates write-off and receipt documents from inventory differences.",
+                )}
+              </div>
+            </div>
+          </>
         ) : null}
+
+        <div className={styles.formField}>
+          <label>{t("common.description")}</label>
+          <textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            rows={3}
+            disabled={busy}
+          />
+        </div>
       </div>
       {error ? <div className={styles.error}>{error}</div> : null}
       <div className={styles.formActions}>

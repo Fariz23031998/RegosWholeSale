@@ -851,6 +851,10 @@
     "users.settings.autoOpenQtyKeypad": "Auto-open quantity keypad",
     "users.settings.autoOpenQtyKeypadDesc": "Opens the quantity keypad when a product is added to the cart.",
     "users.settings.allowOutOfStock": "Allow out-of-stock sales",
+    "users.settings.searchTransliteration": "Search transliteration",
+    "users.settings.searchTransliterationDesc": "Match Latin and Cyrillic spellings of the same product name (e.g. moloko ↔ молоко).",
+    "users.settings.searchFuzzy": "Fuzzy search",
+    "users.settings.searchFuzzyDesc": "Allow small typos when searching the product catalog.",
     "users.settings.tenderedShortcuts": "Amount tendered shortcuts",
     "users.settings.resetPos": "Reset POS to company",
     "users.settings.regosDefaults": "Regos defaults",
@@ -1491,6 +1495,10 @@
     "stock.fields.currency": "Currency",
     "stock.fields.vatCalculationType": "VAT calculation type",
     "stock.fields.compareType": "Compare type",
+    "stock.fields.fullInventory": "Full inventory",
+    "stock.fields.fullInventoryHint": "When enabled, closing adds all stock items with non-zero balances.",
+    "stock.fields.createDocInout": "Create write-off/receipt on close",
+    "stock.fields.createDocInoutHint": "When enabled, closing creates write-off and receipt documents from inventory differences.",
     "stock.compareType.open_date": "On open date",
     "stock.compareType.close_date": "On close date",
     "stock.compareType.operation_date": "On operation date",
@@ -1516,6 +1524,7 @@
     "meta.movementDetailTitle": "Movement · Regos Optom",
     "meta.inventoryDetailTitle": "Inventory · Regos Optom",
     "meta.inoutDetailTitle": "In/Out · Regos Optom",
-    "stock.searchItemPlaceholder": "Scan or search…"
+    "stock.searchItemPlaceholder": "Scan or search…",
+    "stock.search.noProducts": "No products found"
   }
 }

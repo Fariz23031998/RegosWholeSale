@@ -315,6 +315,11 @@ def _map_document(kind: StockKind, item: dict[str, Any]) -> dict[str, Any]:
             else None
         ),
     }
+    if kind == "inventory":
+        if "full" in item:
+            mapped["full"] = bool(item.get("full"))
+        if "create_docinout" in item:
+            mapped["create_docinout"] = bool(item.get("create_docinout"))
     if kind == "inout":
         mapped["inout_type"] = parse_inout_type(item)
     currency = _extract_currency_reference(item, "currency")
@@ -583,14 +588,19 @@ async def create_document(
     now_ts = int(time.time())
 
     if kind == "inventory":
-        # DocInventory/Add uses open_date (not date); partial so lines can be added manually.
+        # DocInventory/Add uses open_date (not date).
         body["open_date"] = int(date_val) if date_val is not None else now_ts
         compare_type = payload.get("compare_type") or "open_date"
         if compare_type not in _VALID_COMPARE_TYPES:
             raise bad_request("Invalid compare_type.", "INVALID_COMPARE_TYPE")
         body["compare_type"] = compare_type
-        body["full"] = False
-        body["create_docinout"] = True
+        # Default partial so lines can be added manually; create write-off/receipt on close.
+        body["full"] = bool(payload["full"]) if payload.get("full") is not None else False
+        body["create_docinout"] = (
+            bool(payload["create_docinout"])
+            if payload.get("create_docinout") is not None
+            else True
+        )
 
         stock_id = payload.get("stock_id")
         if stock_id is None and isinstance(defaults.get("warehouse"), dict):
@@ -741,6 +751,10 @@ def _build_update_body(kind: StockKind, document_id: int, payload: dict[str, Any
             body["price_type_id"] = int(payload["price_type_id"])
         if payload.get("attached_user_id") is not None:
             body["attached_user_id"] = int(payload["attached_user_id"])
+        if "full" in payload and payload["full"] is not None:
+            body["full"] = bool(payload["full"])
+        if "create_docinout" in payload and payload["create_docinout"] is not None:
+            body["create_docinout"] = bool(payload["create_docinout"])
     elif kind in {"purchase", "wholesale", "return_to_partner"}:
         if date_val is not None:
             body["date"] = int(date_val)

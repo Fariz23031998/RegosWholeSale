@@ -123,6 +123,19 @@ describe("catalog-text-search scoring", () => {
     expect(score).not.toBeNull();
   });
 
+  it("skips transliteration when disabled", () => {
+    const p = product({ name: "Молоко" });
+    const index = buildProductSearchIndex(p, { transliteration: false });
+    expect(scoreCatalogMatch("moloko", index, p, { transliteration: false })).toBeNull();
+    expect(scoreCatalogMatch("молоко", index, p, { transliteration: false })).not.toBeNull();
+  });
+
+  it("skips fuzzy matching when disabled", () => {
+    const p = product({ name: "Шоколад" });
+    const index = buildProductSearchIndex(p);
+    expect(scoreCatalogMatch("shoklad", index, p, { fuzzy: false })).toBeNull();
+  });
+
   it("returns null when nothing matches", () => {
     const p = product({ name: "Хлеб", code: "9", barcode: "1" });
     expect(scoreCatalogMatch("pizza", buildProductSearchIndex(p), p)).toBeNull();

@@ -851,6 +851,10 @@
     "users.settings.autoOpenQtyKeypad": "Кушодани худкори клавиатураи миқдор",
     "users.settings.autoOpenQtyKeypadDesc": "Ҳангоми иловаи маҳсулот ба сабад клавиатураи миқдорро мекушояд.",
     "users.settings.allowOutOfStock": "Иҷозати фурӯш ҳангоми нолӣ будани боқимонда",
+    "users.settings.searchTransliteration": "Транслитератсияи ҷустуҷӯ",
+    "users.settings.searchTransliterationDesc": "Номҳои лотинӣ ва кириллиро мувофиқ кардан (масалан, moloko ↔ молоко).",
+    "users.settings.searchFuzzy": "Ҷустуҷӯи нодуруст",
+    "users.settings.searchFuzzyDesc": "Ҳангоми ҷустуҷӯ дар каталоги маҳсулот хатоҳои хурдро иҷозат додан.",
     "users.settings.tenderedShortcuts": "Маблағҳои зуди пардохт",
     "users.settings.resetPos": "POS-ро ба танзимоти ширкат барқарор кардан",
     "users.settings.regosDefaults": "Танзимоти Regos",
@@ -1484,6 +1488,10 @@
     "stock.item.errors.update": "Навсозии маҳсулот ноком шуд",
     "stock.create.title": "Нав {{kind}}",
     "stock.create.notSupported": "Эҷоди ин намуди ҳуҷҷат дастгирӣ намешавад",
+    "stock.fields.fullInventory": "Инвентаризацияи пурра",
+    "stock.fields.fullInventoryHint": "Ҳангоми пӯшидан ҳамаи молҳои анбор бо бақияи ғайрисифр илова мешаванд.",
+    "stock.fields.createDocInout": "Ҳангоми пӯшидан баровард/ворид эҷод кунед",
+    "stock.fields.createDocInoutHint": "Ҳангоми пӯшидан ҳуҷҷатҳои баровард ва ворид аз рӯи натиҷаҳои инвентаризация эҷод мешаванд.",
     "stock.errors.load": "Боргирии ҳуҷҷатҳо ноком шуд",
     "stock.errors.loadDetails": "Боргирии тафсилот ноком шуд",
     "stock.errors.create": "Эҷоди ҳуҷҷат ноком шуд",
@@ -1501,6 +1509,7 @@
     "meta.movementDetailTitle": "Ҷойивазкунӣ · Regos Optom",
     "meta.inventoryDetailTitle": "Инвентаризатсия · Regos Optom",
     "meta.inoutDetailTitle": "Ворид/Хориҷ · Regos Optom",
-    "stock.searchItemPlaceholder": "Скан ё ҷустуҷӯ…"
+    "stock.searchItemPlaceholder": "Скан ё ҷустуҷӯ…",
+    "stock.search.noProducts": "Маҳсулот ёфт нашуд"
   }
 }

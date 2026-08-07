@@ -20,6 +20,8 @@ type PosConfigState = {
   allowOutOfStock: boolean;
   tenderedQuickAmounts: number[];
   autoOpenQtyKeypad: boolean;
+  searchTransliteration: boolean;
+  searchFuzzy: boolean;
   crossCurrencyPaymentMode: CrossCurrencyPaymentMode;
   internalBarcodeWeightPrefix: string;
   internalBarcodePiecePrefix: string;
@@ -40,6 +42,8 @@ function applyPosSettings(settings: UserPosSettings) {
     allowOutOfStock: settings.allow_out_of_stock,
     tenderedQuickAmounts: amounts.length > 0 ? amounts : DEFAULT_TENDERED_QUICK_AMOUNTS,
     autoOpenQtyKeypad: settings.auto_open_qty_keypad,
+    searchTransliteration: settings.search_transliteration ?? true,
+    searchFuzzy: settings.search_fuzzy ?? true,
     crossCurrencyPaymentMode: settings.cross_currency_payment_mode ?? "payment_currency",
     internalBarcodeWeightPrefix: settings.internal_barcode_weight_prefix ?? "22",
     internalBarcodePiecePrefix: settings.internal_barcode_piece_prefix ?? "23",
@@ -54,6 +58,8 @@ function defaultPosConfigState() {
     allowOutOfStock: false,
     tenderedQuickAmounts: DEFAULT_TENDERED_QUICK_AMOUNTS,
     autoOpenQtyKeypad: false,
+    searchTransliteration: true,
+    searchFuzzy: true,
     crossCurrencyPaymentMode: "payment_currency" as CrossCurrencyPaymentMode,
     internalBarcodeWeightPrefix: "22",
     internalBarcodePiecePrefix: "23",

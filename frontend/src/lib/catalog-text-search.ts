@@ -137,11 +137,18 @@ export function transliterateCyrToLat(text: string): string {
   return result;
 }
 
-export function expandSearchVariants(query: string): string[] {
+export function expandSearchVariants(
+  query: string,
+  options?: { transliteration?: boolean },
+): string[] {
   const normalized = normalizeSearchText(query);
   if (!normalized) return [];
 
   const variants = new Set<string>([normalized]);
+  if (options?.transliteration === false) {
+    return [...variants];
+  }
+
   const toCyr = normalizeSearchText(transliterateLatToCyr(normalized));
   const toLat = normalizeSearchText(transliterateCyrToLat(normalized));
   if (toCyr) variants.add(toCyr);
@@ -173,12 +180,17 @@ function fieldParts(product: Product): string[] {
  * Precomputed searchable blob: original + Latin + Cyrillic forms of all text fields.
  * Tokens are space-separated for prefix/token matching.
  */
-export function buildProductSearchIndex(product: Product): string {
+export function buildProductSearchIndex(
+  product: Product,
+  options?: { transliteration?: boolean },
+): string {
+  const useTransliteration = options?.transliteration !== false;
   const parts: string[] = [];
   for (const raw of fieldParts(product)) {
     const normalized = normalizeSearchText(raw);
     if (!normalized) continue;
     parts.push(normalized);
+    if (!useTransliteration) continue;
     const lat = normalizeSearchText(transliterateCyrToLat(normalized));
     const cyr = normalizeSearchText(transliterateLatToCyr(normalized));
     if (lat && lat !== normalized) parts.push(lat);
@@ -213,8 +225,16 @@ function maxEditDistance(tokenLength: number): number {
   return 0;
 }
 
-function scoreVariantAgainstIndex(variant: string, index: string, product: Product): number {
+function scoreVariantAgainstIndex(
+  variant: string,
+  index: string,
+  product: Product,
+  options?: CatalogSearchOptions,
+): number {
   if (!variant) return 0;
+
+  const useTransliteration = options?.transliteration !== false;
+  const useFuzzy = options?.fuzzy !== false;
 
   const shortNumeric = isShortNumericCodeSearch(variant);
   const code = product.code != null ? normalizeSearchText(String(product.code)) : "";
@@ -222,8 +242,8 @@ function scoreVariantAgainstIndex(variant: string, index: string, product: Produ
   const barcodeList =
     product.barcode_list != null ? normalizeSearchText(String(product.barcode_list)) : "";
   const name = product.name != null ? normalizeSearchText(String(product.name)) : "";
-  const nameLat = normalizeSearchText(transliterateCyrToLat(name));
-  const nameCyr = normalizeSearchText(transliterateLatToCyr(name));
+  const nameLat = useTransliteration ? normalizeSearchText(transliterateCyrToLat(name)) : "";
+  const nameCyr = useTransliteration ? normalizeSearchText(transliterateLatToCyr(name)) : "";
 
   if (shortNumeric) {
     if (product.code != null && String(product.code).trim() !== "") {
@@ -274,7 +294,7 @@ function scoreVariantAgainstIndex(variant: string, index: string, product: Produ
       best = Math.max(best, SCORE_TOKEN + 50);
     } else if (token.includes(variant)) {
       best = Math.max(best, SCORE_TOKEN);
-    } else {
+    } else if (useFuzzy) {
       const maxDist = maxEditDistance(variant.length);
       if (maxDist > 0 && Math.abs(token.length - variant.length) <= maxDist) {
         const dist = levenshtein(variant, token);
@@ -288,6 +308,11 @@ function scoreVariantAgainstIndex(variant: string, index: string, product: Produ
   return best;
 }
 
+export type CatalogSearchOptions = {
+  transliteration?: boolean;
+  fuzzy?: boolean;
+};
+
 /**
  * Returns a match score, or null when the product does not match the query.
  */
@@ -295,13 +320,14 @@ export function scoreCatalogMatch(
   query: string,
   index: string,
   product: Product,
+  options?: CatalogSearchOptions,
 ): number | null {
-  const variants = expandSearchVariants(query);
+  const variants = expandSearchVariants(query, options);
   if (variants.length === 0) return null;
 
   let best = 0;
   for (const variant of variants) {
-    best = Math.max(best, scoreVariantAgainstIndex(variant, index, product));
+    best = Math.max(best, scoreVariantAgainstIndex(variant, index, product, options));
   }
   return best > 0 ? best : null;
 }
