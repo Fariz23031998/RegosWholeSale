@@ -49,7 +49,9 @@ export function StockDocEditModal({
   const def = getStockDocDefinition(kind);
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
-  const needsPriceType = kind === "purchase" || kind === "inventory";
+  const needsPriceType =
+    kind === "purchase" || kind === "inventory" || kind === "return_to_partner";
+  const needsCurrencyVat = kind === "purchase" || kind === "return_to_partner";
   const vatOptions = useMemo(() => getVatCalculationTypeOptions(t), [t]);
 
   const initialPriceType =
@@ -116,7 +118,11 @@ export function StockDocEditModal({
       setError(t("stock.errors.priceTypeRequired", "Select a price type"));
       return;
     }
-    if (kind === "purchase" && !selectedPriceType?.currency?.id && !document.currency?.id) {
+    if (
+      needsCurrencyVat &&
+      !selectedPriceType?.currency?.id &&
+      !document.currency?.id
+    ) {
       setError(t("stock.errors.currencyRequired", "Selected price type has no currency"));
       return;
     }
@@ -152,6 +158,10 @@ export function StockDocEditModal({
         };
         if (kind === "purchase") {
           body.price_type_id = priceTypeId;
+          body.vat_calculation_type = vatCalculationType;
+          body.currency_id =
+            selectedPriceType?.currency?.id ?? document.currency?.id ?? undefined;
+        } else if (kind === "return_to_partner") {
           body.vat_calculation_type = vatCalculationType;
           body.currency_id =
             selectedPriceType?.currency?.id ?? document.currency?.id ?? undefined;
@@ -271,7 +281,7 @@ export function StockDocEditModal({
           </div>
         ) : null}
 
-        {kind === "purchase" ? (
+        {needsCurrencyVat ? (
           <>
             <div className={styles.formField}>
               <label>{t("stock.fields.currency", "Currency")}</label>

@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from app.schemas.users import _normalize_login
+
 
 class VerificationData(BaseModel):
     email: EmailStr
@@ -99,3 +101,27 @@ class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+
+
+class UpdateProfileRequest(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    login: str | None = Field(default=None, min_length=2, max_length=64)
+    current_password: str | None = None
+    new_password: str | None = Field(default=None, min_length=8, max_length=128)
+
+    @field_validator("login")
+    @classmethod
+    def validate_login(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return _normalize_login(value)
+
+    @field_validator("display_name")
+    @classmethod
+    def normalize_display_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("Display name cannot be empty")
+        return stripped

@@ -206,6 +206,49 @@ async def test_create_purchase_document_with_price_type_and_vat(client: AsyncCli
 
 
 @pytest.mark.asyncio
+async def test_create_return_to_partner_document(client: AsyncClient) -> None:
+    reg = await register_owner(client, email="stock-rtp@test.com", company_name="Rtp Co")
+    token = reg.json()["access_token"]
+
+    with patch(
+        "app.services.regos_defaults.get_regos_defaults",
+        new_callable=AsyncMock,
+        return_value={
+            "warehouse": {"id": 11, "name": "Main"},
+            "partner": {"id": 1, "name": "Supplier"},
+            "currency": {"id": 7, "name": "USD"},
+        },
+    ):
+        with patch(
+            "app.services.regos_stock_docs.regos_async_api_request_for_company",
+            new_callable=AsyncMock,
+            return_value={"ok": True, "result": {"new_id": 4401, "code": "R-4401"}},
+        ) as mock_regos:
+            created = await client.post(
+                "/api/v1/stock/return_to_partner/documents",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "partner_id": 1,
+                    "stock_id": 11,
+                    "date": 1_700_000_000,
+                    "currency_id": 9,
+                    "vat_calculation_type": "Exclude",
+                    "price_type_id": 5,
+                },
+            )
+
+    assert created.status_code == 200, created.text
+    assert mock_regos.await_args.args[2] == "docreturnstopartner/add"
+    payload = mock_regos.await_args.args[3]
+    assert payload["partner_id"] == 1
+    assert payload["stock_id"] == 11
+    assert payload["currency_id"] == 9
+    assert payload["vat_calculation_type"] == "Exclude"
+    assert payload["date"] == 1_700_000_000
+    assert "price_type_id" not in payload
+
+
+@pytest.mark.asyncio
 async def test_update_purchase_document(client: AsyncClient) -> None:
     reg = await register_owner(client, email="stock-edit@test.com", company_name="Edit Co")
     token = reg.json()["access_token"]
@@ -492,8 +535,9 @@ async def test_purchase_write_forbidden(client: AsyncClient) -> None:
     token = await _login_employee(client, "no-purchase-write")
 
     response = await client.post(
-        "/api/v1/stock/purchase/documents/101/perform",
+        "/api/v1/stock/purchase/documents",
         headers={"Authorization": f"Bearer {token}"},
+        json={"partner_id": 1, "stock_id": 11},
     )
     assert response.status_code == 403
 
@@ -713,3 +757,58 @@ async def test_inout_write_forbidden(client: AsyncClient) -> None:
         json={"stock_id": 11, "inout_type": "income"},
     )
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("path", "denied_code"),
+    [
+        ("/api/v1/stock/purchase/documents/101/perform", "purchase.perform"),
+        ("/api/v1/stock/purchase/documents/101/perform-cancel", "purchase.perform_cancel"),
+        ("/api/v1/stock/purchase/documents/101/lock", "purchase.lock"),
+        ("/api/v1/stock/purchase/documents/101/unlock", "purchase.unlock"),
+    ],
+)
+async def test_purchase_action_endpoints_require_specific_permissions(
+    client: AsyncClient,
+    path: str,
+    denied_code: str,
+) -> None:
+    reg = await register_owner(
+        client,
+        email=f"stock-deny-{denied_code.replace('.', '-')}@test.com",
+        company_name=f"Deny {denied_code}",
+    )
+    owner_token = reg.json()["access_token"]
+    login = f"deny-{denied_code.replace('.', '-')}"
+    await _create_employee(
+        client,
+        owner_token,
+        login=login,
+        permission_rules=[{"code": denied_code, "effect": "deny"}],
+    )
+    token = await _login_employee(client, login)
+
+    response = await client.post(path, headers={"Authorization": f"Bearer {token}"})
+    assert response.status_code == 403, response.text
+
+
+@pytest.mark.asyncio
+async def test_employee_defaults_include_stock_action_permissions(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client,
+        email="stock-action-defaults@test.com",
+        company_name="Stock Action Defaults Co",
+    )
+    owner_token = reg.json()["access_token"]
+    employee = await _create_employee(client, owner_token, login="stock-action-defaults")
+    for code in (
+        "purchase.perform",
+        "purchase.perform_cancel",
+        "purchase.lock",
+        "purchase.unlock",
+        "movement.perform",
+        "inventory.perform",
+        "inout.perform",
+    ):
+        assert code in employee["permissions"]

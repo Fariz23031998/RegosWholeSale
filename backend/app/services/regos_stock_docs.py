@@ -1,4 +1,4 @@
-"""Regos stock document CRUD for purchase, movement, inventory, wholesale, and inout drafts."""
+"""Regos stock document CRUD for purchase, movement, inventory, wholesale, inout, and return_to_partner drafts."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from app.services import regos_defaults as regos_defaults_service
 from app.services.document_telegram_format import parse_inout_type
 from app.services.regos_defaults import _extract_currency_reference
 
-StockKind = Literal["purchase", "movement", "inventory", "wholesale", "inout"]
+StockKind = Literal["purchase", "movement", "inventory", "wholesale", "inout", "return_to_partner"]
 
 _EMPTY_DOCUMENT_LIST: dict[str, Any] = {"documents": [], "next_offset": 0, "total": 0}
 
@@ -27,6 +27,7 @@ KIND_READ_PERMISSION: dict[StockKind, str] = {
     "inventory": "inventory.read",
     "wholesale": "sales.read",
     "inout": "inout.read",
+    "return_to_partner": "return_to_partner.read",
 }
 
 KIND_WRITE_PERMISSION: dict[StockKind, str] = {
@@ -35,6 +36,42 @@ KIND_WRITE_PERMISSION: dict[StockKind, str] = {
     "inventory": "inventory.write",
     "wholesale": "sales.write",
     "inout": "inout.write",
+    "return_to_partner": "return_to_partner.write",
+}
+
+StockDocAction = Literal["perform", "perform_cancel", "lock", "unlock"]
+
+KIND_ACTION_PERMISSION: dict[StockKind, dict[StockDocAction, str]] = {
+    "purchase": {
+        "perform": "purchase.perform",
+        "perform_cancel": "purchase.perform_cancel",
+        "lock": "purchase.lock",
+        "unlock": "purchase.unlock",
+    },
+    "movement": {
+        "perform": "movement.perform",
+        "perform_cancel": "movement.perform_cancel",
+        "lock": "movement.lock",
+        "unlock": "movement.unlock",
+    },
+    "inventory": {
+        "perform": "inventory.perform",
+        "perform_cancel": "inventory.perform_cancel",
+        "lock": "inventory.lock",
+        "unlock": "inventory.unlock",
+    },
+    "inout": {
+        "perform": "inout.perform",
+        "perform_cancel": "inout.perform_cancel",
+        "lock": "inout.lock",
+        "unlock": "inout.unlock",
+    },
+    "return_to_partner": {
+        "perform": "return_to_partner.perform",
+        "perform_cancel": "return_to_partner.perform_cancel",
+        "lock": "return_to_partner.lock",
+        "unlock": "return_to_partner.unlock",
+    },
 }
 
 
@@ -143,6 +180,23 @@ ENDPOINTS: dict[StockKind, KindEndpoints] = {
         supports_create=True,
         stock_filter_mode="stock_ids",
     ),
+    "return_to_partner": KindEndpoints(
+        doc_get="docreturnstopartner/get",
+        doc_get_by_ids="docreturnstopartner/get",
+        doc_add="docreturnstopartner/add",
+        doc_edit="docreturnstopartner/edit",
+        doc_perform="docreturnstopartner/perform",
+        doc_perform_cancel="docreturnstopartner/performcancel",
+        doc_lock="docreturnstopartner/lock",
+        doc_unlock="docreturnstopartner/unlock",
+        ops_get="returnstopartneroperation/get",
+        ops_add="returnstopartneroperation/add",
+        ops_edit="returnstopartneroperation/edit",
+        ops_delete="returnstopartneroperation/delete",
+        list_performed_key="performed",
+        supports_create=True,
+        stock_filter_mode="stock_ids",
+    ),
 }
 
 
@@ -158,6 +212,13 @@ def read_permission_for(kind: StockKind) -> str:
 
 def write_permission_for(kind: StockKind) -> str:
     return KIND_WRITE_PERMISSION[kind]
+
+
+def action_permission_for(kind: StockKind, action: StockDocAction) -> str:
+    mapping = KIND_ACTION_PERMISSION.get(kind)
+    if mapping is None:
+        return write_permission_for(kind)
+    return mapping[action]
 
 
 def _regos_inout_type(value: str | None) -> str | None:
@@ -281,7 +342,11 @@ def _map_operation(kind: StockKind, item: dict[str, Any]) -> dict[str, Any]:
             amount = float(qty) * float(price)
         except (TypeError, ValueError):
             amount = None
-    elif amount is None and qty is not None and cost is not None and kind in {"purchase", "inout"}:
+    elif amount is None and qty is not None and cost is not None and kind in {
+        "purchase",
+        "inout",
+        "return_to_partner",
+    }:
         try:
             amount = float(qty) * float(cost)
         except (TypeError, ValueError):
@@ -379,7 +444,7 @@ async def list_documents(
         payload["search"] = search.strip()
     if partner_ids:
         payload["partner_ids"] = partner_ids
-    elif not all_partners and partner and kind in {"purchase", "wholesale"}:
+    elif not all_partners and partner and kind in {"purchase", "wholesale", "return_to_partner"}:
         payload["partner_ids"] = [partner["id"]]
     if kind == "inout" and inout_type:
         payload["inout_type"] = _regos_inout_type(inout_type)
@@ -548,7 +613,7 @@ async def create_document(
             raise bad_request("attached_user_id is required.", "ATTACHED_USER_REQUIRED")
         body["attached_user_id"] = int(attached)
 
-    elif kind in {"purchase", "wholesale"}:
+    elif kind in {"purchase", "wholesale", "return_to_partner"}:
         body["date"] = int(date_val) if date_val is not None else now_ts
 
         partner_id = payload.get("partner_id")
@@ -568,17 +633,29 @@ async def create_document(
         currency_id = payload.get("currency_id")
         if currency_id is None and isinstance(defaults.get("currency"), dict):
             currency_id = defaults["currency"].get("id")
-        if currency_id is not None:
+        if kind == "return_to_partner":
+            if currency_id is None:
+                raise bad_request("currency_id is required.", "CURRENCY_REQUIRED")
+            body["currency_id"] = int(currency_id)
+        elif currency_id is not None:
             body["currency_id"] = int(currency_id)
 
-        price_type_id = payload.get("price_type_id")
-        if price_type_id is None and isinstance(defaults.get("price_type"), dict):
-            price_type_id = defaults["price_type"].get("id")
-        if price_type_id is not None:
-            body["price_type_id"] = int(price_type_id)
+        if kind != "return_to_partner":
+            price_type_id = payload.get("price_type_id")
+            if price_type_id is None and isinstance(defaults.get("price_type"), dict):
+                price_type_id = defaults["price_type"].get("id")
+            if price_type_id is not None:
+                body["price_type_id"] = int(price_type_id)
 
         vat = payload.get("vat_calculation_type")
-        if vat:
+        if kind == "return_to_partner":
+            if not vat:
+                raise bad_request(
+                    "vat_calculation_type is required.",
+                    "VAT_CALCULATION_TYPE_REQUIRED",
+                )
+            body["vat_calculation_type"] = vat
+        elif vat:
             body["vat_calculation_type"] = vat
 
         attached = payload.get("attached_user_id")
@@ -664,7 +741,7 @@ def _build_update_body(kind: StockKind, document_id: int, payload: dict[str, Any
             body["price_type_id"] = int(payload["price_type_id"])
         if payload.get("attached_user_id") is not None:
             body["attached_user_id"] = int(payload["attached_user_id"])
-    elif kind in {"purchase", "wholesale"}:
+    elif kind in {"purchase", "wholesale", "return_to_partner"}:
         if date_val is not None:
             body["date"] = int(date_val)
         if payload.get("partner_id") is not None:
@@ -673,7 +750,7 @@ def _build_update_body(kind: StockKind, document_id: int, payload: dict[str, Any
             body["stock_id"] = int(payload["stock_id"])
         if payload.get("currency_id") is not None:
             body["currency_id"] = int(payload["currency_id"])
-        if payload.get("price_type_id") is not None:
+        if kind != "return_to_partner" and payload.get("price_type_id") is not None:
             body["price_type_id"] = int(payload["price_type_id"])
         if payload.get("vat_calculation_type"):
             body["vat_calculation_type"] = payload["vat_calculation_type"]
@@ -839,13 +916,13 @@ def _build_add_operations(kind: StockKind, operations: list[dict[str, Any]]) -> 
             "item_id": item_id,
             "quantity": float(qty),
         }
-        if kind == "purchase":
+        if kind == "purchase" or kind == "return_to_partner":
             if op.get("cost") is not None:
                 entry["cost"] = float(op["cost"])
             else:
                 entry["cost"] = 0
             entry["vat_value"] = float(op.get("vat_value") or 0)
-            if op.get("price") is not None:
+            if kind == "purchase" and op.get("price") is not None:
                 entry["price"] = float(op["price"])
         elif kind == "wholesale":
             entry["vat_value"] = float(op.get("vat_value") or 0)
@@ -875,9 +952,9 @@ def _build_edit_operations(kind: StockKind, operations: list[dict[str, Any]]) ->
         else:
             if op.get("quantity") is not None:
                 entry["quantity"] = float(op["quantity"])
-            if kind == "purchase" and op.get("cost") is not None:
+            if kind in {"purchase", "return_to_partner"} and op.get("cost") is not None:
                 entry["cost"] = float(op["cost"])
-            if op.get("price") is not None:
+            if kind != "return_to_partner" and op.get("price") is not None:
                 entry["price"] = float(op["price"])
             if op.get("description") is not None:
                 entry["description"] = op["description"]

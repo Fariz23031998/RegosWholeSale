@@ -8,6 +8,10 @@ export type StockDocDefinition = {
   subtitleFallback: string;
   readPermission: string;
   writePermission: string;
+  performPermission: string;
+  performCancelPermission: string;
+  lockPermission: string;
+  unlockPermission: string;
   supportsCreate: boolean;
   supportsPartnerFilter: boolean;
   showCost: boolean;
@@ -30,6 +34,10 @@ export const STOCK_DOC_DEFINITIONS: Record<StockDocKind, StockDocDefinition> = {
     subtitleFallback: "{{count}} documents · {{period}} · {{warehouses}}",
     readPermission: "purchase.read",
     writePermission: "purchase.write",
+    performPermission: "purchase.perform",
+    performCancelPermission: "purchase.perform_cancel",
+    lockPermission: "purchase.lock",
+    unlockPermission: "purchase.unlock",
     supportsCreate: true,
     supportsPartnerFilter: true,
     showCost: true,
@@ -49,6 +57,10 @@ export const STOCK_DOC_DEFINITIONS: Record<StockDocKind, StockDocDefinition> = {
     subtitleFallback: "{{count}} documents · {{period}} · {{warehouses}}",
     readPermission: "movement.read",
     writePermission: "movement.write",
+    performPermission: "movement.perform",
+    performCancelPermission: "movement.perform_cancel",
+    lockPermission: "movement.lock",
+    unlockPermission: "movement.unlock",
     supportsCreate: true,
     supportsPartnerFilter: false,
     showCost: false,
@@ -68,6 +80,10 @@ export const STOCK_DOC_DEFINITIONS: Record<StockDocKind, StockDocDefinition> = {
     subtitleFallback: "{{count}} documents · {{period}} · {{warehouses}}",
     readPermission: "inventory.read",
     writePermission: "inventory.write",
+    performPermission: "inventory.perform",
+    performCancelPermission: "inventory.perform_cancel",
+    lockPermission: "inventory.lock",
+    unlockPermission: "inventory.unlock",
     supportsCreate: true,
     supportsPartnerFilter: false,
     showCost: false,
@@ -87,6 +103,10 @@ export const STOCK_DOC_DEFINITIONS: Record<StockDocKind, StockDocDefinition> = {
     subtitleFallback: "{{count}} documents · {{period}} · {{warehouses}}",
     readPermission: "sales.read",
     writePermission: "sales.write",
+    performPermission: "sales.write",
+    performCancelPermission: "sales.write",
+    lockPermission: "sales.write",
+    unlockPermission: "sales.write",
     supportsCreate: true,
     supportsPartnerFilter: true,
     showCost: false,
@@ -106,10 +126,37 @@ export const STOCK_DOC_DEFINITIONS: Record<StockDocKind, StockDocDefinition> = {
     subtitleFallback: "{{count}} documents · {{period}} · {{warehouses}}",
     readPermission: "inout.read",
     writePermission: "inout.write",
+    performPermission: "inout.perform",
+    performCancelPermission: "inout.perform_cancel",
+    lockPermission: "inout.lock",
+    unlockPermission: "inout.unlock",
     supportsCreate: true,
     supportsPartnerFilter: false,
     showCost: true,
     editableCost: false,
+    showPrice: false,
+    showSenderReceiver: false,
+    performedLabelKey: "stock.status.performed",
+    performedLabelFallback: "Performed",
+    draftLabelKey: "stock.status.draft",
+    draftLabelFallback: "Draft",
+  },
+  return_to_partner: {
+    kind: "return_to_partner",
+    titleKey: "stock.partnerReturn.title",
+    titleFallback: "Returns to partner",
+    subtitleKey: "stock.partnerReturn.subtitle",
+    subtitleFallback: "{{count}} documents · {{period}} · {{warehouses}}",
+    readPermission: "return_to_partner.read",
+    writePermission: "return_to_partner.write",
+    performPermission: "return_to_partner.perform",
+    performCancelPermission: "return_to_partner.perform_cancel",
+    lockPermission: "return_to_partner.lock",
+    unlockPermission: "return_to_partner.unlock",
+    supportsCreate: true,
+    supportsPartnerFilter: true,
+    showCost: true,
+    editableCost: true,
     showPrice: false,
     showSenderReceiver: false,
     performedLabelKey: "stock.status.performed",
@@ -126,10 +173,12 @@ export function getStockDocDefinition(kind: StockDocKind): StockDocDefinition {
 /** List path for a document kind (purchase → /purchases). */
 export function stockDocListPath(
   kind: Exclude<StockDocKind, "wholesale">,
-): "/purchases" | "/movements" | "/inventories" | "/inouts" {
+): "/purchases" | "/partner-returns" | "/movements" | "/inventories" | "/inouts" {
   switch (kind) {
     case "purchase":
       return "/purchases";
+    case "return_to_partner":
+      return "/partner-returns";
     case "movement":
       return "/movements";
     case "inventory":
@@ -142,10 +191,17 @@ export function stockDocListPath(
 /** Detail path template for navigate({ to, params }). */
 export function stockDocDetailTo(
   kind: Exclude<StockDocKind, "wholesale">,
-): "/purchases/$id" | "/movements/$id" | "/inventories/$id" | "/inouts/$id" {
+):
+  | "/purchases/$id"
+  | "/partner-returns/$id"
+  | "/movements/$id"
+  | "/inventories/$id"
+  | "/inouts/$id" {
   switch (kind) {
     case "purchase":
       return "/purchases/$id";
+    case "return_to_partner":
+      return "/partner-returns/$id";
     case "movement":
       return "/movements/$id";
     case "inventory":

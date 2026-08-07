@@ -1,7 +1,13 @@
 import { apiRequest } from "@/lib/api";
 import type { RegosCurrencyOption } from "@/types/settings";
 
-export type StockDocKind = "purchase" | "movement" | "inventory" | "wholesale" | "inout";
+export type StockDocKind =
+  | "purchase"
+  | "movement"
+  | "inventory"
+  | "wholesale"
+  | "inout"
+  | "return_to_partner";
 
 export type StockDocument = {
   id: number;

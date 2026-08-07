@@ -41,6 +41,10 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
   const token = useAuth((s) => s.accessToken);
   const { can } = usePermissions();
   const canWrite = can(def.writePermission);
+  const canPerform = can(def.performPermission);
+  const canPerformCancel = can(def.performCancelPermission);
+  const canLock = can(def.lockPermission);
+  const canUnlock = can(def.unlockPermission);
   const listPath = stockDocListPath(kind);
 
   const [document, setDocument] = useState<StockDocument | null>(null);
@@ -234,74 +238,72 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
           </div>
 
           <div className={styles.detailActions}>
-            {canWrite && (
-              <>
-                {!done ? (
-                  <Button
-                    type="button"
-                    size="icon"
-                    disabled={busy}
-                    aria-label={performLabel}
-                    title={performLabel}
-                    onClick={() => void run(() => performStockDocument(token!, kind, document.id))}
-                  >
-                    <Check size={18} />
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="secondary"
-                    disabled={busy}
-                    aria-label={cancelPerformLabel}
-                    title={cancelPerformLabel}
-                    onClick={() =>
-                      void run(() => performCancelStockDocument(token!, kind, document.id))
-                    }
-                  >
-                    <RotateCcw size={18} />
-                  </Button>
-                )}
-                {document.blocked ? (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="secondary"
-                    disabled={busy}
-                    aria-label={t("stock.actions.unlock", "Unlock")}
-                    title={t("stock.actions.unlock", "Unlock")}
-                    onClick={() => void run(() => unlockStockDocument(token!, kind, document.id))}
-                  >
-                    <Unlock size={18} />
-                  </Button>
-                ) : (
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="secondary"
-                    disabled={busy}
-                    aria-label={t("stock.actions.lock", "Lock")}
-                    title={t("stock.actions.lock", "Lock")}
-                    onClick={() => void run(() => lockStockDocument(token!, kind, document.id))}
-                  >
-                    <Lock size={18} />
-                  </Button>
-                )}
-                {!done && (
-                  <Button
-                    type="button"
-                    className={styles.addLineToolbar}
-                    disabled={busy}
-                    aria-label={t("stock.actions.addLine", "Add line")}
-                    title={t("stock.actions.addLine", "Add line")}
-                    onClick={() => setAddOpen(true)}
-                  >
-                    <Plus size={16} />
-                    {t("stock.actions.addLine", "Add line")}
-                  </Button>
-                )}
-              </>
-            )}
+            {!done && canPerform ? (
+              <Button
+                type="button"
+                size="icon"
+                disabled={busy}
+                aria-label={performLabel}
+                title={performLabel}
+                onClick={() => void run(() => performStockDocument(token!, kind, document.id))}
+              >
+                <Check size={18} />
+              </Button>
+            ) : null}
+            {done && canPerformCancel ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                disabled={busy}
+                aria-label={cancelPerformLabel}
+                title={cancelPerformLabel}
+                onClick={() =>
+                  void run(() => performCancelStockDocument(token!, kind, document.id))
+                }
+              >
+                <RotateCcw size={18} />
+              </Button>
+            ) : null}
+            {document.blocked && canUnlock ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                disabled={busy}
+                aria-label={t("stock.actions.unlock", "Unlock")}
+                title={t("stock.actions.unlock", "Unlock")}
+                onClick={() => void run(() => unlockStockDocument(token!, kind, document.id))}
+              >
+                <Unlock size={18} />
+              </Button>
+            ) : null}
+            {!document.blocked && canLock ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                disabled={busy}
+                aria-label={t("stock.actions.lock", "Lock")}
+                title={t("stock.actions.lock", "Lock")}
+                onClick={() => void run(() => lockStockDocument(token!, kind, document.id))}
+              >
+                <Lock size={18} />
+              </Button>
+            ) : null}
+            {canWrite && !done ? (
+              <Button
+                type="button"
+                className={styles.addLineToolbar}
+                disabled={busy}
+                aria-label={t("stock.actions.addLine", "Add line")}
+                title={t("stock.actions.addLine", "Add line")}
+                onClick={() => setAddOpen(true)}
+              >
+                <Plus size={16} />
+                {t("stock.actions.addLine", "Add line")}
+              </Button>
+            ) : null}
             <div className={styles.detailActionsSearch}>
               <Search size={16} className={styles.searchIcon} aria-hidden />
               <input

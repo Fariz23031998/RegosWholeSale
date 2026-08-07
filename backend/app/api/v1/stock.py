@@ -61,6 +61,18 @@ def _require_kind_write(current: CurrentUser, kind: str) -> stock_docs_service.S
     return parsed
 
 
+def _require_kind_action(
+    current: CurrentUser,
+    kind: str,
+    action: stock_docs_service.StockDocAction,
+) -> stock_docs_service.StockKind:
+    parsed = stock_docs_service.parse_kind(kind)
+    code = stock_docs_service.action_permission_for(parsed, action)
+    if code not in current.permissions:
+        raise forbidden(f"Missing permission: {code}", "FORBIDDEN")
+    return parsed
+
+
 @router.get("/item-info", response_model=StockItemSearchResponse)
 async def search_item_info(
     search: str = Query(min_length=1),
@@ -218,7 +230,7 @@ async def perform_stock_document(
     current: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> StockMutationResponse:
-    parsed = _require_kind_write(current, kind)
+    parsed = _require_kind_action(current, kind, "perform")
     await stock_docs_service.assert_document_stock_access(
         session,
         current.company_id,
@@ -243,7 +255,7 @@ async def perform_cancel_stock_document(
     current: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> StockMutationResponse:
-    parsed = _require_kind_write(current, kind)
+    parsed = _require_kind_action(current, kind, "perform_cancel")
     await stock_docs_service.assert_document_stock_access(
         session,
         current.company_id,
@@ -265,7 +277,7 @@ async def lock_stock_document(
     current: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> StockMutationResponse:
-    parsed = _require_kind_write(current, kind)
+    parsed = _require_kind_action(current, kind, "lock")
     await stock_docs_service.assert_document_stock_access(
         session,
         current.company_id,
@@ -287,7 +299,7 @@ async def unlock_stock_document(
     current: CurrentUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
 ) -> StockMutationResponse:
-    parsed = _require_kind_write(current, kind)
+    parsed = _require_kind_action(current, kind, "unlock")
     await stock_docs_service.assert_document_stock_access(
         session,
         current.company_id,

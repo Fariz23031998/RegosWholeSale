@@ -4,7 +4,14 @@ from pydantic import BaseModel, Field
 
 from app.schemas.settings import RegosCurrencyOption
 
-StockDocKind = Literal["purchase", "movement", "inventory", "wholesale", "inout"]
+StockDocKind = Literal[
+    "purchase",
+    "movement",
+    "inventory",
+    "wholesale",
+    "inout",
+    "return_to_partner",
+]
 
 
 class StockDocument(BaseModel):

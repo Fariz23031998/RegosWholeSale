@@ -22,12 +22,14 @@ import { Route as AppReturnsRouteImport } from './routes/_app.returns'
 import { Route as AppReceiptTemplatesRouteImport } from './routes/_app.receipt-templates'
 import { Route as AppPurchasesRouteImport } from './routes/_app.purchases'
 import { Route as AppPaymentsRouteImport } from './routes/_app.payments'
+import { Route as AppPartnerReturnsRouteImport } from './routes/_app.partner-returns'
 import { Route as AppMovementsRouteImport } from './routes/_app.movements'
 import { Route as AppInventoriesRouteImport } from './routes/_app.inventories'
 import { Route as AppInoutsRouteImport } from './routes/_app.inouts'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
 import { Route as PublicTemplatesTokenRouteImport } from './routes/public.templates.$token'
 import { Route as AppPurchasesIdRouteImport } from './routes/_app.purchases_.$id'
+import { Route as AppPartnerReturnsIdRouteImport } from './routes/_app.partner-returns_.$id'
 import { Route as AppMovementsIdRouteImport } from './routes/_app.movements_.$id'
 import { Route as AppInventoriesIdRouteImport } from './routes/_app.inventories_.$id'
 import { Route as AppInoutsIdRouteImport } from './routes/_app.inouts_.$id'
@@ -96,6 +98,11 @@ const AppPaymentsRoute = AppPaymentsRouteImport.update({
   path: '/payments',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPartnerReturnsRoute = AppPartnerReturnsRouteImport.update({
+  id: '/partner-returns',
+  path: '/partner-returns',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppMovementsRoute = AppMovementsRouteImport.update({
   id: '/movements',
   path: '/movements',
@@ -126,6 +133,11 @@ const AppPurchasesIdRoute = AppPurchasesIdRouteImport.update({
   path: '/purchases/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPartnerReturnsIdRoute = AppPartnerReturnsIdRouteImport.update({
+  id: '/partner-returns_/$id',
+  path: '/partner-returns/$id',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppMovementsIdRoute = AppMovementsIdRouteImport.update({
   id: '/movements_/$id',
   path: '/movements/$id',
@@ -151,6 +163,7 @@ export interface FileRoutesByFullPath {
   '/inouts': typeof AppInoutsRoute
   '/inventories': typeof AppInventoriesRoute
   '/movements': typeof AppMovementsRoute
+  '/partner-returns': typeof AppPartnerReturnsRoute
   '/payments': typeof AppPaymentsRoute
   '/purchases': typeof AppPurchasesRoute
   '/receipt-templates': typeof AppReceiptTemplatesRoute
@@ -162,6 +175,7 @@ export interface FileRoutesByFullPath {
   '/inouts/$id': typeof AppInoutsIdRoute
   '/inventories/$id': typeof AppInventoriesIdRoute
   '/movements/$id': typeof AppMovementsIdRoute
+  '/partner-returns/$id': typeof AppPartnerReturnsIdRoute
   '/purchases/$id': typeof AppPurchasesIdRoute
   '/public/templates/$token': typeof PublicTemplatesTokenRoute
 }
@@ -173,6 +187,7 @@ export interface FileRoutesByTo {
   '/inouts': typeof AppInoutsRoute
   '/inventories': typeof AppInventoriesRoute
   '/movements': typeof AppMovementsRoute
+  '/partner-returns': typeof AppPartnerReturnsRoute
   '/payments': typeof AppPaymentsRoute
   '/purchases': typeof AppPurchasesRoute
   '/receipt-templates': typeof AppReceiptTemplatesRoute
@@ -185,6 +200,7 @@ export interface FileRoutesByTo {
   '/inouts/$id': typeof AppInoutsIdRoute
   '/inventories/$id': typeof AppInventoriesIdRoute
   '/movements/$id': typeof AppMovementsIdRoute
+  '/partner-returns/$id': typeof AppPartnerReturnsIdRoute
   '/purchases/$id': typeof AppPurchasesIdRoute
   '/public/templates/$token': typeof PublicTemplatesTokenRoute
 }
@@ -198,6 +214,7 @@ export interface FileRoutesById {
   '/_app/inouts': typeof AppInoutsRoute
   '/_app/inventories': typeof AppInventoriesRoute
   '/_app/movements': typeof AppMovementsRoute
+  '/_app/partner-returns': typeof AppPartnerReturnsRoute
   '/_app/payments': typeof AppPaymentsRoute
   '/_app/purchases': typeof AppPurchasesRoute
   '/_app/receipt-templates': typeof AppReceiptTemplatesRoute
@@ -210,6 +227,7 @@ export interface FileRoutesById {
   '/_app/inouts_/$id': typeof AppInoutsIdRoute
   '/_app/inventories_/$id': typeof AppInventoriesIdRoute
   '/_app/movements_/$id': typeof AppMovementsIdRoute
+  '/_app/partner-returns_/$id': typeof AppPartnerReturnsIdRoute
   '/_app/purchases_/$id': typeof AppPurchasesIdRoute
   '/public/templates/$token': typeof PublicTemplatesTokenRoute
 }
@@ -224,6 +242,7 @@ export interface FileRouteTypes {
     | '/inouts'
     | '/inventories'
     | '/movements'
+    | '/partner-returns'
     | '/payments'
     | '/purchases'
     | '/receipt-templates'
@@ -235,6 +254,7 @@ export interface FileRouteTypes {
     | '/inouts/$id'
     | '/inventories/$id'
     | '/movements/$id'
+    | '/partner-returns/$id'
     | '/purchases/$id'
     | '/public/templates/$token'
   fileRoutesByTo: FileRoutesByTo
@@ -246,6 +266,7 @@ export interface FileRouteTypes {
     | '/inouts'
     | '/inventories'
     | '/movements'
+    | '/partner-returns'
     | '/payments'
     | '/purchases'
     | '/receipt-templates'
@@ -258,6 +279,7 @@ export interface FileRouteTypes {
     | '/inouts/$id'
     | '/inventories/$id'
     | '/movements/$id'
+    | '/partner-returns/$id'
     | '/purchases/$id'
     | '/public/templates/$token'
   id:
@@ -270,6 +292,7 @@ export interface FileRouteTypes {
     | '/_app/inouts'
     | '/_app/inventories'
     | '/_app/movements'
+    | '/_app/partner-returns'
     | '/_app/payments'
     | '/_app/purchases'
     | '/_app/receipt-templates'
@@ -282,6 +305,7 @@ export interface FileRouteTypes {
     | '/_app/inouts_/$id'
     | '/_app/inventories_/$id'
     | '/_app/movements_/$id'
+    | '/_app/partner-returns_/$id'
     | '/_app/purchases_/$id'
     | '/public/templates/$token'
   fileRoutesById: FileRoutesById
@@ -387,6 +411,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPaymentsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/partner-returns': {
+      id: '/_app/partner-returns'
+      path: '/partner-returns'
+      fullPath: '/partner-returns'
+      preLoaderRoute: typeof AppPartnerReturnsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/movements': {
       id: '/_app/movements'
       path: '/movements'
@@ -429,6 +460,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPurchasesIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/partner-returns_/$id': {
+      id: '/_app/partner-returns_/$id'
+      path: '/partner-returns/$id'
+      fullPath: '/partner-returns/$id'
+      preLoaderRoute: typeof AppPartnerReturnsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/movements_/$id': {
       id: '/_app/movements_/$id'
       path: '/movements/$id'
@@ -458,6 +496,7 @@ interface AppRouteChildren {
   AppInoutsRoute: typeof AppInoutsRoute
   AppInventoriesRoute: typeof AppInventoriesRoute
   AppMovementsRoute: typeof AppMovementsRoute
+  AppPartnerReturnsRoute: typeof AppPartnerReturnsRoute
   AppPaymentsRoute: typeof AppPaymentsRoute
   AppPurchasesRoute: typeof AppPurchasesRoute
   AppReceiptTemplatesRoute: typeof AppReceiptTemplatesRoute
@@ -470,6 +509,7 @@ interface AppRouteChildren {
   AppInoutsIdRoute: typeof AppInoutsIdRoute
   AppInventoriesIdRoute: typeof AppInventoriesIdRoute
   AppMovementsIdRoute: typeof AppMovementsIdRoute
+  AppPartnerReturnsIdRoute: typeof AppPartnerReturnsIdRoute
   AppPurchasesIdRoute: typeof AppPurchasesIdRoute
 }
 
@@ -478,6 +518,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInoutsRoute: AppInoutsRoute,
   AppInventoriesRoute: AppInventoriesRoute,
   AppMovementsRoute: AppMovementsRoute,
+  AppPartnerReturnsRoute: AppPartnerReturnsRoute,
   AppPaymentsRoute: AppPaymentsRoute,
   AppPurchasesRoute: AppPurchasesRoute,
   AppReceiptTemplatesRoute: AppReceiptTemplatesRoute,
@@ -490,6 +531,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppInoutsIdRoute: AppInoutsIdRoute,
   AppInventoriesIdRoute: AppInventoriesIdRoute,
   AppMovementsIdRoute: AppMovementsIdRoute,
+  AppPartnerReturnsIdRoute: AppPartnerReturnsIdRoute,
   AppPurchasesIdRoute: AppPurchasesIdRoute,
 }
 

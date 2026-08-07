@@ -52,7 +52,9 @@ export function StockDocCreateModal({
   const sellPartnerId = useSellContext((s) => s.partnerId);
   const sellPriceTypeId = useSellContext((s) => s.priceTypeId);
 
-  const needsPriceType = kind === "purchase" || kind === "inventory";
+  const needsPriceType =
+    kind === "purchase" || kind === "inventory" || kind === "return_to_partner";
+  const needsCurrencyVat = kind === "purchase" || kind === "return_to_partner";
   const vatOptions = useMemo(() => getVatCalculationTypeOptions(t), [t]);
 
   const defaultStock = useMemo(() => {
@@ -115,7 +117,7 @@ export function StockDocCreateModal({
       setError(t("stock.errors.priceTypeRequired", "Select a price type"));
       return;
     }
-    if (kind === "purchase" && !selectedPriceType?.currency?.id) {
+    if (needsCurrencyVat && !selectedPriceType?.currency?.id) {
       setError(t("stock.errors.currencyRequired", "Selected price type has no currency"));
       return;
     }
@@ -151,6 +153,9 @@ export function StockDocCreateModal({
         };
         if (kind === "purchase") {
           body.price_type_id = priceTypeId;
+          body.vat_calculation_type = vatCalculationType;
+          body.currency_id = selectedPriceType?.currency?.id;
+        } else if (kind === "return_to_partner") {
           body.vat_calculation_type = vatCalculationType;
           body.currency_id = selectedPriceType?.currency?.id;
         } else if (kind === "wholesale" && sellPriceTypeId) {
@@ -269,7 +274,7 @@ export function StockDocCreateModal({
           </div>
         ) : null}
 
-        {kind === "purchase" ? (
+        {needsCurrencyVat ? (
           <>
             <div className={styles.formField}>
               <label>{t("stock.fields.currency", "Currency")}</label>

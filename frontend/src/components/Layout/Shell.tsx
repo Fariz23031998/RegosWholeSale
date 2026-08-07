@@ -3,11 +3,14 @@ import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownUp,
   ArrowLeftRight,
+  ChevronDown,
   ClipboardList,
   LayoutDashboard,
   LogOut,
   Menu,
   MessageCircle,
+  Package,
+  PackageMinus,
   PackagePlus,
   Receipt,
   Settings,
@@ -16,9 +19,11 @@ import {
   Users,
   Wallet,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import clsx from "clsx";
 import { BrandLogo } from "@/components/BrandLogo";
+import { ProfileEditModal } from "@/components/Auth/ProfileEditModal";
 import { CatalogViewToggle } from "@/components/POS/CatalogViewToggle";
 import { SellContextBar } from "@/components/POS/SellContextBar";
 import { LanguageSelector } from "@/components/LanguageSelector";
@@ -31,36 +36,114 @@ import { useAuth } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
 import styles from "./Shell.module.css";
 
-const NAV = [
-  { to: "/", labelKey: "nav.sell", icon: ShoppingCart, permission: "pos.access" },
-  { to: "/sales", labelKey: "nav.sales", icon: Receipt, permission: "sales.read" },
-  { to: "/purchases", labelKey: "nav.purchases", icon: PackagePlus, permission: "purchase.read" },
-  { to: "/movements", labelKey: "nav.movements", icon: ArrowLeftRight, permission: "movement.read" },
-  { to: "/inventories", labelKey: "nav.inventories", icon: ClipboardList, permission: "inventory.read" },
-  { to: "/inouts", labelKey: "nav.inouts", icon: ArrowDownUp, permission: "inout.read" },
-  { to: "/payments", labelKey: "nav.payments", icon: Wallet, permission: "payments.read" },
-  { to: "/returns", labelKey: "nav.returns", icon: Undo2, permission: "returns.manage" },
-  { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, permission: "dashboard.read" },
-  { to: "/users", labelKey: "nav.users", icon: Users, permission: "users.manage" },
-  { to: "/telegram-users", labelKey: "nav.telegramUsers", icon: MessageCircle, permission: "users.manage" },
-  { to: "/settings", labelKey: "nav.settings", icon: Settings, permission: "settings.manage" },
-] as const;
+type NavLinkItem = {
+  kind: "link";
+  to: string;
+  labelKey: string;
+  icon: LucideIcon;
+  permission: string;
+};
+
+type NavGroupItem = {
+  kind: "group";
+  id: string;
+  labelKey: string;
+  icon: LucideIcon;
+  children: Array<{
+    to: string;
+    labelKey: string;
+    icon: LucideIcon;
+    permission: string;
+  }>;
+};
+
+type NavItem = NavLinkItem | NavGroupItem;
+
+const NAV: NavItem[] = [
+  { kind: "link", to: "/", labelKey: "nav.sell", icon: ShoppingCart, permission: "pos.access" },
+  { kind: "link", to: "/sales", labelKey: "nav.sales", icon: Receipt, permission: "sales.read" },
+  {
+    kind: "group",
+    id: "stock",
+    labelKey: "nav.stock",
+    icon: Package,
+    children: [
+      { to: "/purchases", labelKey: "nav.purchases", icon: PackagePlus, permission: "purchase.read" },
+      {
+        to: "/partner-returns",
+        labelKey: "nav.partnerReturns",
+        icon: PackageMinus,
+        permission: "return_to_partner.read",
+      },
+      {
+        to: "/movements",
+        labelKey: "nav.movements",
+        icon: ArrowLeftRight,
+        permission: "movement.read",
+      },
+      {
+        to: "/inventories",
+        labelKey: "nav.inventories",
+        icon: ClipboardList,
+        permission: "inventory.read",
+      },
+      { to: "/inouts", labelKey: "nav.inouts", icon: ArrowDownUp, permission: "inout.read" },
+    ],
+  },
+  { kind: "link", to: "/payments", labelKey: "nav.payments", icon: Wallet, permission: "payments.read" },
+  { kind: "link", to: "/returns", labelKey: "nav.returns", icon: Undo2, permission: "returns.manage" },
+  {
+    kind: "link",
+    to: "/dashboard",
+    labelKey: "nav.dashboard",
+    icon: LayoutDashboard,
+    permission: "dashboard.read",
+  },
+  { kind: "link", to: "/users", labelKey: "nav.users", icon: Users, permission: "users.manage" },
+  {
+    kind: "link",
+    to: "/telegram-users",
+    labelKey: "nav.telegramUsers",
+    icon: MessageCircle,
+    permission: "users.manage",
+  },
+  {
+    kind: "link",
+    to: "/settings",
+    labelKey: "nav.settings",
+    icon: Settings,
+    permission: "settings.manage",
+  },
+];
+
+function isPathActive(pathname: string, to: string) {
+  return to === "/" ? pathname === "/" : pathname.startsWith(to);
+}
 
 export function Shell() {
   const { t } = useLanguage();
 
   const session = useAuth((s) => s.session);
   const user = useAuth((s) => s.user);
+  const accessToken = useAuth((s) => s.accessToken);
+  const setSession = useAuth((s) => s.setSession);
   const logout = useAuth((s) => s.logout);
   const location = useLocation();
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isCompactTopBar, setIsCompactTopBar] = useState(false);
+  const [stockOpen, setStockOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const sellContextHydrated = useSellContext((s) => s.hydrated);
   const { can, canChangePosContext } = usePermissions();
   const isSellPage = location.pathname === "/";
   const showSellContext = isSellPage && canChangePosContext() && sellContextHydrated;
   const showCatalogViewToggle = isSellPage && isCompactTopBar;
+
+  const stockGroup = NAV.find((item): item is NavGroupItem => item.kind === "group" && item.id === "stock");
+  const stockChildActive = Boolean(
+    stockGroup?.children.some((child) => isPathActive(location.pathname, child.to)),
+  );
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
@@ -73,6 +156,10 @@ export function Shell() {
   useEffect(() => {
     setSidebarOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (stockChildActive) setStockOpen(true);
+  }, [stockChildActive]);
 
   useEffect(() => {
     if (!sidebarOpen) return;
@@ -121,24 +208,74 @@ export function Shell() {
           </div>
         </div>
 
-        {NAV.filter((item) => can(item.permission)).map(({ to, labelKey, icon: Icon }) => {
-          const active =
-            to === "/"
-              ? location.pathname === "/"
-              : location.pathname.startsWith(to);
-          return (
-            <Link
-              key={to}
-              to={to}
-              className={clsx(styles.navLink, active && styles.navLinkActive)}
-            >
-              <Icon size={18} />
-              <span>{t(labelKey)}</span>
-            </Link>
-          );
-        })}
+        <nav className={styles.sidebarNav} aria-label={t("nav.main", "Main")}>
+          {NAV.map((item) => {
+            if (item.kind === "link") {
+              if (!can(item.permission)) return null;
+              const active = isPathActive(location.pathname, item.to);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  className={clsx(styles.navLink, active && styles.navLinkActive)}
+                >
+                  <Icon size={18} />
+                  <span>{t(item.labelKey)}</span>
+                </Link>
+              );
+            }
 
-        <div className={styles.spacer} />
+            const visibleChildren = item.children.filter((child) => can(child.permission));
+            if (visibleChildren.length === 0) return null;
+
+            const open = stockOpen;
+            const GroupIcon = item.icon;
+
+            return (
+              <div key={item.id} className={styles.navGroup}>
+                <button
+                  type="button"
+                  className={clsx(
+                    styles.navGroupToggle,
+                    stockChildActive && styles.navGroupToggleActive,
+                  )}
+                  aria-expanded={open}
+                  onClick={() => setStockOpen((prev) => !prev)}
+                >
+                  <GroupIcon size={18} />
+                  <span>{t(item.labelKey, "Stock")}</span>
+                  <ChevronDown
+                    size={16}
+                    className={clsx(styles.navGroupChevron, open && styles.navGroupChevronOpen)}
+                  />
+                </button>
+                {open ? (
+                  <div className={styles.navGroupChildren}>
+                    {visibleChildren.map((child) => {
+                      const active = isPathActive(location.pathname, child.to);
+                      const ChildIcon = child.icon;
+                      return (
+                        <Link
+                          key={child.to}
+                          to={child.to}
+                          className={clsx(
+                            styles.navLink,
+                            styles.navSubLink,
+                            active && styles.navLinkActive,
+                          )}
+                        >
+                          <ChildIcon size={16} />
+                          <span>{t(child.labelKey)}</span>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                ) : null}
+              </div>
+            );
+          })}
+        </nav>
 
         <div className={styles.sidebarFooter}>
           <CacheManagement variant="menu" />
@@ -147,9 +284,16 @@ export function Shell() {
 
           {session && (
             <div className={styles.cashier}>
-              <div className={styles.avatar} style={{ background: session.color }}>
+              <button
+                type="button"
+                className={styles.avatar}
+                style={{ background: session.color }}
+                onClick={() => setProfileOpen(true)}
+                aria-label={t("profile.editTitle", "Edit profile")}
+                title={t("profile.editTitle", "Edit profile")}
+              >
                 {session.initials}
-              </div>
+              </button>
               <div style={{ minWidth: 0 }}>
                 <div className={styles.cashierName}>{session.name}</div>
                 <div className={styles.cashierRole}>{session.role}</div>
@@ -187,6 +331,16 @@ export function Shell() {
         )}
         <Outlet />
       </main>
+
+      {accessToken && user && (
+        <ProfileEditModal
+          open={profileOpen}
+          token={accessToken}
+          user={user}
+          onClose={() => setProfileOpen(false)}
+          onSaved={(updated) => setSession(accessToken, updated)}
+        />
+      )}
     </div>
   );
 }
