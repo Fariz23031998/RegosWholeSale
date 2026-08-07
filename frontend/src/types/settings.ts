@@ -166,6 +166,10 @@ export type PosSettings = {
   internal_barcode_piece_prefix: string;
   postpone_document_type: PostponeDocumentType;
   postpone_order_booked: boolean;
+  tasnif_create_on_barcode_miss: boolean;
+  tasnif_default_group_id: number | null;
+  tasnif_default_unit_id: number | null;
+  tasnif_default_vat_id: number | null;
 };
 
 export type PosSettingsResponse = {
@@ -182,6 +186,10 @@ export type PosSettingsPatchRequest = {
   internal_barcode_piece_prefix?: string;
   postpone_document_type?: PostponeDocumentType;
   postpone_order_booked?: boolean;
+  tasnif_create_on_barcode_miss?: boolean;
+  tasnif_default_group_id?: number | null;
+  tasnif_default_unit_id?: number | null;
+  tasnif_default_vat_id?: number | null;
 };
 
 export type UserPosSettings = {

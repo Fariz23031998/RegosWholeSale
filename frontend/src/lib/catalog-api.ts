@@ -91,6 +91,29 @@ export async function fetchProductGroups(token: string): Promise<CatalogGroupsRe
   return apiRequest("/api/v1/regos/product-groups", { token });
 }
 
+export async function createProductGroup(
+  token: string,
+  body: { name: string; parent_id?: number | null },
+): Promise<{ id: number }> {
+  return apiRequest<{ id: number }>("/api/v1/regos/product-groups", {
+    method: "POST",
+    token,
+    body,
+  });
+}
+
+export async function updateProductGroup(
+  token: string,
+  groupId: number,
+  body: { name?: string; parent_id?: number | null; move_parent?: boolean },
+): Promise<{ row_affected: number }> {
+  return apiRequest<{ row_affected: number }>(`/api/v1/regos/product-groups/${groupId}`, {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
 export type SyncProductsResponse = {
   updated_products: Product[];
   removed_product_ids: number[];

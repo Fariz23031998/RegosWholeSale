@@ -8,6 +8,10 @@ from app.schemas.catalog import (
     CatalogGroupsResponse,
     CatalogProductsResponse,
     PaymentTypesResponse,
+    ProductGroupCreateRequest,
+    ProductGroupCreateResponse,
+    ProductGroupMutationResponse,
+    ProductGroupUpdateRequest,
     SyncMetaResponse,
     SyncMetaSettingsChange,
     SyncProductsResponse,
@@ -35,6 +39,15 @@ from app.schemas.partners import (
     PartnerUpdateRequest,
     PartnersListResponse,
 )
+from app.schemas.items import (
+    ItemCreateRequest,
+    ItemCreateResponse,
+    ItemMutationResponse,
+    ItemUpdateRequest,
+    RegosItemDetail,
+    RegosTaxVatsResponse,
+    RegosUnitsResponse,
+)
 from app.schemas.settings import RegosReferenceOptionsResponse
 from app.services import events_log as events_log_service
 from app.services import catalog_events as catalog_events_service
@@ -42,6 +55,7 @@ from app.services import regos_defaults as regos_defaults_service
 from app.services import regos_fields as regos_fields_service
 from app.services import regos_groups as regos_groups_service
 from app.services import regos_firms as regos_firms_service
+from app.services import regos_items as regos_items_service
 from app.services import regos_partner_balance as regos_partner_balance_service
 from app.services import regos_partner_pay_debt as regos_partner_pay_debt_service
 from app.services import regos_partners as regos_partners_service
@@ -57,6 +71,9 @@ router = APIRouter(prefix="/regos", tags=["regos"])
 _POS_CONTEXT_OR_SETTINGS = ("settings.manage", *POS_CONTEXT_CHANGE_PERMISSIONS)
 _PARTNER_OR_SETTINGS = ("settings.manage", "pos.change_partner")
 _PARTNER_PAY_DEBT = ("sales.write", "settings.manage", "pos.change_partner")
+_ITEM_CREATE = ("settings.manage", "stock.item_create")
+_ITEM_EDIT = ("settings.manage", "stock.item_edit")
+_ITEM_MUTATE = ("settings.manage", "stock.item_create", "stock.item_edit")
 
 
 @router.get("/tokens/status", response_model=RegosTokenStatus)
@@ -433,6 +450,129 @@ async def get_regos_product_groups(
 ) -> CatalogGroupsResponse:
     data = await regos_groups_service.list_groups(session, current.company_id)
     return CatalogGroupsResponse(**data)
+
+
+@router.post("/product-groups", response_model=ProductGroupCreateResponse)
+async def create_regos_product_group(
+    body: ProductGroupCreateRequest,
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_CREATE)),
+    session: AsyncSession = Depends(get_db),
+) -> ProductGroupCreateResponse:
+    data = await regos_groups_service.add_group(
+        session,
+        current.company_id,
+        name=body.name,
+        parent_id=body.parent_id,
+    )
+    catalog_events_service.publish_groups_invalidated(
+        current.company_id,
+        source_action="ItemGroupAdded",
+    )
+    await events_log_service.record_product_changes(
+        session,
+        current.company_id,
+        "groups_invalidated",
+        None,
+        "ItemGroupAdded",
+    )
+    return ProductGroupCreateResponse(**data)
+
+
+@router.patch("/product-groups/{group_id}", response_model=ProductGroupMutationResponse)
+async def update_regos_product_group(
+    group_id: int,
+    body: ProductGroupUpdateRequest,
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_EDIT)),
+    session: AsyncSession = Depends(get_db),
+) -> ProductGroupMutationResponse:
+    data = await regos_groups_service.edit_group(
+        session,
+        current.company_id,
+        group_id,
+        name=body.name,
+        parent_id=body.parent_id,
+        move_parent=body.move_parent,
+    )
+    catalog_events_service.publish_groups_invalidated(
+        current.company_id,
+        source_action="ItemGroupEdited",
+    )
+    await events_log_service.record_product_changes(
+        session,
+        current.company_id,
+        "groups_invalidated",
+        None,
+        "ItemGroupEdited",
+    )
+    return ProductGroupMutationResponse(**data)
+
+
+@router.get("/units", response_model=RegosUnitsResponse)
+async def get_regos_units(
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_MUTATE)),
+    session: AsyncSession = Depends(get_db),
+) -> RegosUnitsResponse:
+    data = await regos_items_service.list_units(session, current.company_id)
+    return RegosUnitsResponse(**data)
+
+
+@router.get("/tax-vats", response_model=RegosTaxVatsResponse)
+async def get_regos_tax_vats(
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_MUTATE)),
+    session: AsyncSession = Depends(get_db),
+) -> RegosTaxVatsResponse:
+    data = await regos_items_service.list_tax_vats(session, current.company_id)
+    return RegosTaxVatsResponse(**data)
+
+
+@router.get("/items/{item_id}", response_model=RegosItemDetail)
+async def get_regos_item(
+    item_id: int,
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_MUTATE)),
+    session: AsyncSession = Depends(get_db),
+) -> RegosItemDetail:
+    data = await regos_items_service.get_item(session, current.company_id, item_id)
+    return RegosItemDetail(**data)
+
+
+@router.post("/items", response_model=ItemCreateResponse)
+async def create_regos_item(
+    body: ItemCreateRequest,
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_CREATE)),
+    session: AsyncSession = Depends(get_db),
+) -> ItemCreateResponse:
+    data = await regos_items_service.add_item(
+        session,
+        current.company_id,
+        body.model_dump(exclude_unset=True),
+    )
+    catalog_events_service.publish_products_updated(
+        current.company_id,
+        regos_item_ids=[data["id"]],
+        source_action="ItemAdded",
+    )
+    return ItemCreateResponse(**data)
+
+
+@router.patch("/items/{item_id}", response_model=ItemMutationResponse)
+async def update_regos_item(
+    item_id: int,
+    body: ItemUpdateRequest,
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_EDIT)),
+    session: AsyncSession = Depends(get_db),
+) -> ItemMutationResponse:
+    data = await regos_items_service.edit_item(
+        session,
+        current.company_id,
+        item_id,
+        body.model_dump(exclude_unset=True),
+    )
+    catalog_events_service.publish_products_updated(
+        current.company_id,
+        regos_item_ids=[item_id],
+        source_action="ItemEdited",
+    )
+    return ItemMutationResponse(**data)
 
 
 @router.get("/payment-types", response_model=PaymentTypesResponse)

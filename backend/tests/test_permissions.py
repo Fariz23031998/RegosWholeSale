@@ -132,3 +132,78 @@ async def test_postpone_requires_sales_postpone_permission(client: AsyncClient) 
         },
     )
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_employee_defaults_include_item_mutate_permissions(client: AsyncClient) -> None:
+    reg = await register_owner(client, email="item-defaults@test.com", company_name="Item Defaults Co")
+    owner_token = reg.json()["access_token"]
+    employee = await _create_employee(client, owner_token, login="item-defaults")
+    assert "stock.item_create" in employee["permissions"]
+    assert "stock.item_edit" in employee["permissions"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path", "denied_code", "json_body"),
+    [
+        (
+            "POST",
+            "/api/v1/regos/items",
+            "stock.item_create",
+            {
+                "name": "Milk",
+                "group_id": 1,
+                "unit_id": 1,
+                "vat_id": 1,
+                "type": "Item",
+            },
+        ),
+        (
+            "PATCH",
+            "/api/v1/regos/items/55",
+            "stock.item_edit",
+            {"name": "Milk 2%"},
+        ),
+        (
+            "POST",
+            "/api/v1/regos/product-groups",
+            "stock.item_create",
+            {"name": "Dairy", "parent_id": 0},
+        ),
+        (
+            "PATCH",
+            "/api/v1/regos/product-groups/10",
+            "stock.item_edit",
+            {"name": "Dairy updated"},
+        ),
+    ],
+)
+async def test_item_mutate_endpoints_require_specific_permissions(
+    client: AsyncClient,
+    method: str,
+    path: str,
+    denied_code: str,
+    json_body: dict,
+) -> None:
+    reg = await register_owner(
+        client,
+        email=f"item-deny-{denied_code.replace('.', '-')}@test.com",
+        company_name=f"Item Deny {denied_code}",
+    )
+    owner_token = reg.json()["access_token"]
+    login = f"deny-{denied_code.replace('.', '-')}"
+    await _create_employee(
+        client,
+        owner_token,
+        login=login,
+        permission_rules=[{"code": denied_code, "effect": "deny"}],
+    )
+    token = await _login_employee(client, login)
+    response = await client.request(
+        method,
+        path,
+        headers={"Authorization": f"Bearer {token}"},
+        json=json_body,
+    )
+    assert response.status_code == 403, response.text

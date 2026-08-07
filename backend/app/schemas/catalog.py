@@ -39,6 +39,25 @@ class CatalogGroupsResponse(BaseModel):
     groups: list[CatalogGroup]
 
 
+class ProductGroupCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    parent_id: int | None = Field(default=None, ge=0)
+
+
+class ProductGroupUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    parent_id: int | None = Field(default=None, ge=0)
+    move_parent: bool = False
+
+
+class ProductGroupCreateResponse(BaseModel):
+    id: int = Field(ge=1)
+
+
+class ProductGroupMutationResponse(BaseModel):
+    row_affected: int = Field(ge=0)
+
+
 class PaymentType(BaseModel):
     id: int = Field(ge=1)
     name: str

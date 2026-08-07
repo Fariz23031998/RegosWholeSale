@@ -63,9 +63,6 @@ export function Modal({
           e.preventDefault();
         }
       }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
     >
       <div
         className={clsx(

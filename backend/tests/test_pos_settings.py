@@ -20,6 +20,10 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     assert initial.json()["settings"]["internal_barcode_piece_prefix"] == "23"
     assert initial.json()["settings"]["postpone_document_type"] == "doc_wholesale"
     assert initial.json()["settings"]["postpone_order_booked"] is True
+    assert initial.json()["settings"]["tasnif_create_on_barcode_miss"] is False
+    assert initial.json()["settings"]["tasnif_default_group_id"] is None
+    assert initial.json()["settings"]["tasnif_default_unit_id"] is None
+    assert initial.json()["settings"]["tasnif_default_vat_id"] is None
     assert initial.json()["settings"]["default_category"] == {
         "mode": "all",
         "group_id": None,
@@ -130,3 +134,45 @@ async def test_employee_can_read_but_not_update_pos_settings(client: AsyncClient
         json={"allow_out_of_stock": False},
     )
     assert denied.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_tasnif_default_group_and_unit_settings(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client,
+        email="pos-tasnif@test.com",
+        company_name="POS Tasnif Co",
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    patched = await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={
+            "tasnif_create_on_barcode_miss": True,
+            "tasnif_default_group_id": 12,
+            "tasnif_default_unit_id": 3,
+            "tasnif_default_vat_id": 7,
+        },
+    )
+    assert patched.status_code == 200
+    assert patched.json()["settings"]["tasnif_create_on_barcode_miss"] is True
+    assert patched.json()["settings"]["tasnif_default_group_id"] == 12
+    assert patched.json()["settings"]["tasnif_default_unit_id"] == 3
+    assert patched.json()["settings"]["tasnif_default_vat_id"] == 7
+
+    cleared = await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={
+            "tasnif_default_group_id": None,
+            "tasnif_default_unit_id": None,
+            "tasnif_default_vat_id": None,
+        },
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["settings"]["tasnif_default_group_id"] is None
+    assert cleared.json()["settings"]["tasnif_default_unit_id"] is None
+    assert cleared.json()["settings"]["tasnif_default_vat_id"] is None
+    assert cleared.json()["settings"]["tasnif_create_on_barcode_miss"] is True

@@ -31,6 +31,10 @@ class PosSettings(BaseModel):
     internal_barcode_piece_prefix: str = DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX
     postpone_document_type: PostponeDocumentType = DEFAULT_POSTPONE_DOCUMENT_TYPE
     postpone_order_booked: bool = True
+    tasnif_create_on_barcode_miss: bool = False
+    tasnif_default_group_id: int | None = Field(default=None, ge=1)
+    tasnif_default_unit_id: int | None = Field(default=None, ge=1)
+    tasnif_default_vat_id: int | None = Field(default=None, ge=1)
 
 
 class UserPosSettings(BaseModel):
@@ -66,6 +70,10 @@ class PosSettingsPatchRequest(BaseModel):
     internal_barcode_piece_prefix: str | None = None
     postpone_document_type: PostponeDocumentType | None = None
     postpone_order_booked: bool | None = None
+    tasnif_create_on_barcode_miss: bool | None = None
+    tasnif_default_group_id: int | None = Field(default=None, ge=1)
+    tasnif_default_unit_id: int | None = Field(default=None, ge=1)
+    tasnif_default_vat_id: int | None = Field(default=None, ge=1)
 
 
 class UserPosSettingsPatchRequest(BaseModel):

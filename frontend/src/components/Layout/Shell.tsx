@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import {
+  ArrowDownUp,
+  ArrowLeftRight,
+  ClipboardList,
   LayoutDashboard,
   LogOut,
   Menu,
   MessageCircle,
+  PackagePlus,
   Receipt,
   Settings,
   ShoppingCart,
@@ -30,6 +34,10 @@ import styles from "./Shell.module.css";
 const NAV = [
   { to: "/", labelKey: "nav.sell", icon: ShoppingCart, permission: "pos.access" },
   { to: "/sales", labelKey: "nav.sales", icon: Receipt, permission: "sales.read" },
+  { to: "/purchases", labelKey: "nav.purchases", icon: PackagePlus, permission: "purchase.read" },
+  { to: "/movements", labelKey: "nav.movements", icon: ArrowLeftRight, permission: "movement.read" },
+  { to: "/inventories", labelKey: "nav.inventories", icon: ClipboardList, permission: "inventory.read" },
+  { to: "/inouts", labelKey: "nav.inouts", icon: ArrowDownUp, permission: "inout.read" },
   { to: "/payments", labelKey: "nav.payments", icon: Wallet, permission: "payments.read" },
   { to: "/returns", labelKey: "nav.returns", icon: Undo2, permission: "returns.manage" },
   { to: "/dashboard", labelKey: "nav.dashboard", icon: LayoutDashboard, permission: "dashboard.read" },
@@ -103,13 +111,13 @@ export function Shell() {
           </div>
           <div className={styles.sidebarActions}>
             <button
-            type="button"
-            className={styles.closeBtn}
-            onClick={() => setSidebarOpen(false)}
-            aria-label={t("nav.closeMenu", "Close menu")}
-          >
-            <X size={20} />
-          </button>
+              type="button"
+              className={styles.closeBtn}
+              onClick={() => setSidebarOpen(false)}
+              aria-label={t("nav.closeMenu", "Close menu")}
+            >
+              <X size={20} />
+            </button>
           </div>
         </div>
 
