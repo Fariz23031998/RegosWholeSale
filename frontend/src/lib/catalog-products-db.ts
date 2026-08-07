@@ -394,6 +394,31 @@ export function isCacheFresh(fetchedAt: number, ttlMs: number = CATALOG_CACHE_TT
   return Date.now() - fetchedAt < ttlMs;
 }
 
+/**
+ * Cheap existence check: reads at most one row for the scope (no full materialization).
+ * Use this instead of loading every entry when you only need to know if the cache is populated.
+ */
+export async function hasCachedProductsInScope(scopeKey: string): Promise<boolean> {
+  if (!isCacheEnabled()) return false;
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(CATALOG_PRODUCTS_STORE, "readonly");
+    const store = tx.objectStore(CATALOG_PRODUCTS_STORE);
+    const index = store.index("scopeKey");
+    const request = index.get(IDBKeyRange.only(scopeKey));
+    request.onerror = () => reject(request.error ?? new Error("Failed to probe cached products"));
+    request.onsuccess = () => {
+      const record = request.result as CachedProductRecord | undefined;
+      resolve(Boolean(record?.product?.id));
+    };
+    tx.oncomplete = () => db.close();
+    tx.onerror = () => {
+      db.close();
+      reject(tx.error ?? new Error("Failed to probe cached products"));
+    };
+  });
+}
+
 export async function getCachedProductEntriesByScope(
   scopeKey: string,
 ): Promise<ProductSearchEntry[]> {

@@ -6,12 +6,22 @@ vi.mock("@/lib/cache-policy", () => ({
   isCacheEnabled: vi.fn(),
 }));
 
+vi.mock("@/store/pos-config", () => ({
+  usePosConfig: {
+    getState: vi.fn(() => ({
+      searchTransliteration: true,
+      searchFuzzy: true,
+    })),
+  },
+}));
+
 vi.mock("@/lib/catalog-products-db", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/catalog-products-db")>();
   return {
     ...actual,
     findProductByBarcode: vi.fn(),
     findProductByCode: vi.fn(),
+    hasCachedProductsInScope: vi.fn(),
     getCachedProductEntriesByScope: vi.fn(),
   };
 });
@@ -21,6 +31,7 @@ import {
   findProductByBarcode,
   findProductByCode,
   getCachedProductEntriesByScope,
+  hasCachedProductsInScope,
 } from "@/lib/catalog-products-db";
 import {
   mapProductToStockItemSearchHit,
@@ -102,6 +113,7 @@ describe("mapProductToStockItemSearchHit", () => {
 describe("searchStockItemsFromCache", () => {
   beforeEach(() => {
     vi.mocked(isCacheEnabled).mockReset().mockReturnValue(true);
+    vi.mocked(hasCachedProductsInScope).mockReset().mockResolvedValue(false);
     vi.mocked(getCachedProductEntriesByScope).mockReset().mockResolvedValue([]);
     vi.mocked(findProductByBarcode).mockReset().mockResolvedValue(null);
     vi.mocked(findProductByCode).mockReset().mockResolvedValue(null);
@@ -119,11 +131,12 @@ describe("searchStockItemsFromCache", () => {
       }),
     ).resolves.toBeNull();
 
+    expect(hasCachedProductsInScope).not.toHaveBeenCalled();
     expect(getCachedProductEntriesByScope).not.toHaveBeenCalled();
   });
 
   it("returns null when the catalog scope has no products", async () => {
-    vi.mocked(getCachedProductEntriesByScope).mockResolvedValue([]);
+    vi.mocked(hasCachedProductsInScope).mockResolvedValue(false);
 
     await expect(
       searchStockItemsFromCache({
@@ -133,11 +146,29 @@ describe("searchStockItemsFromCache", () => {
         priceTypeId: 3,
       }),
     ).resolves.toBeNull();
+
+    expect(hasCachedProductsInScope).toHaveBeenCalledWith("1:2:3");
+    expect(getCachedProductEntriesByScope).not.toHaveBeenCalled();
+  });
+
+  it("returns empty hits when cache is populated but nothing matches", async () => {
+    vi.mocked(hasCachedProductsInScope).mockResolvedValue(true);
+    vi.mocked(getCachedProductEntriesByScope).mockResolvedValue([
+      entryFor(makeProduct({ id: "2", regos_item_id: 2, name: "Хлеб", barcode: "1", code: "2" })),
+    ]);
+
+    await expect(
+      searchStockItemsFromCache({
+        term: "zzzz-no-match",
+        companyId: 1,
+        warehouseId: 2,
+        priceTypeId: 3,
+      }),
+    ).resolves.toEqual([]);
   });
 
   it("returns barcode exact matches from cache without catalog text search", async () => {
     const product = makeProduct();
-    vi.mocked(getCachedProductEntriesByScope).mockResolvedValue([entryFor(product)]);
     vi.mocked(findProductByBarcode).mockResolvedValue(product);
 
     const hits = await searchStockItemsFromCache({
@@ -149,11 +180,14 @@ describe("searchStockItemsFromCache", () => {
 
     expect(hits).toEqual([mapProductToStockItemSearchHit(product)]);
     expect(findProductByBarcode).toHaveBeenCalledWith("1:2:3", "4870001112223");
+    expect(hasCachedProductsInScope).not.toHaveBeenCalled();
+    expect(getCachedProductEntriesByScope).not.toHaveBeenCalled();
   });
 
   it("matches Latin queries to Cyrillic names via catalog transliteration", async () => {
     const milk = makeProduct({ id: "1", regos_item_id: 1, name: "Молоко 3.2%" });
     const other = makeProduct({ id: "2", regos_item_id: 2, name: "Хлеб", barcode: "1", code: "2" });
+    vi.mocked(hasCachedProductsInScope).mockResolvedValue(true);
     vi.mocked(getCachedProductEntriesByScope).mockResolvedValue([
       entryFor(milk),
       entryFor(other),
@@ -169,11 +203,13 @@ describe("searchStockItemsFromCache", () => {
 
     expect(hits?.map((h) => h.id)).toEqual([1]);
     expect(hits?.[0]?.name).toBe("Молоко 3.2%");
+    expect(getCachedProductEntriesByScope).toHaveBeenCalledTimes(1);
   });
 
   it("ranks fuzzy transliterated matches below closer names", async () => {
     const exact = makeProduct({ id: "1", regos_item_id: 1, name: "Молоко", barcode: "1", code: "1" });
     const fuzzy = makeProduct({ id: "2", regos_item_id: 2, name: "Малако", barcode: "2", code: "2" });
+    vi.mocked(hasCachedProductsInScope).mockResolvedValue(true);
     vi.mocked(getCachedProductEntriesByScope).mockResolvedValue([
       entryFor(fuzzy),
       entryFor(exact),

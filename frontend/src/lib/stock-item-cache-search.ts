@@ -3,10 +3,11 @@ import { UNIT_TYPE_PIECE } from "@/lib/cart-stock";
 import {
   findProductByBarcode,
   findProductByCode,
-  getCachedProductEntriesByScope,
+  hasCachedProductsInScope,
 } from "@/lib/catalog-products-db";
 import { loadCatalogProducts } from "@/lib/catalog-service";
 import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
+import { usePosConfig } from "@/store/pos-config";
 import type { StockItemSearchHit } from "@/lib/stock-docs-api";
 import type { Product } from "@/types/catalog";
 
@@ -69,12 +70,9 @@ export async function searchStockItemsFromCache(
     scope.warehouseId,
     scope.priceTypeId,
   );
-  const entries = await getCachedProductEntriesByScope(scopeKey);
-  if (entries.length === 0) return null;
-
   const limit = params.limit ?? 20;
 
-  // Scanner / exact code UX: prefer index hits before fuzzy ranking.
+  // Scanner / exact code UX: prefer index hits before any catalog walk.
   if (isDigitSearch(term)) {
     const byBarcode = await findProductByBarcode(scopeKey, term);
     if (byBarcode) {
@@ -88,7 +86,15 @@ export async function searchStockItemsFromCache(
     }
   }
 
-  // Same as ProductCatalog search: cache-only load with translit + fuzzy scoring.
+  // Cheap existence probe (stops at first row). Do not use download-status
+  // localStorage here — on mobile Safari IDB can be empty while status still
+  // says "completed", which previously returned [] and skipped API + cache
+  // translit/fuzzy entirely.
+  const hasCache = await hasCachedProductsInScope(scopeKey).catch(() => false);
+  if (!hasCache) return null;
+
+  // Same as ProductCatalog: one full-scope load with explicit search settings.
+  const cfg = usePosConfig.getState();
   const filtered = await loadCatalogProducts(
     "",
     {
@@ -97,6 +103,8 @@ export async function searchStockItemsFromCache(
       limit,
       includeZeroQuantity: true,
       includeZeroPrice: true,
+      searchTransliteration: cfg.searchTransliteration,
+      searchFuzzy: cfg.searchFuzzy,
     },
     scope,
   );

@@ -12,12 +12,15 @@ export type MxikPackageOption = {
   name: string;
 };
 
+/** Regos item `name` max length (backend ItemCreate/Update). */
+export const ITEM_NAME_MAX_LENGTH = 150;
+
 function pickName(item: Record<string, unknown>): string | null {
   for (const key of ["mxikName", "attributeName", "brandName"] as const) {
     const value = item[key];
     if (typeof value === "string") {
       const trimmed = value.trim();
-      if (trimmed) return trimmed;
+      if (trimmed) return trimmed.slice(0, ITEM_NAME_MAX_LENGTH);
     }
   }
   return null;

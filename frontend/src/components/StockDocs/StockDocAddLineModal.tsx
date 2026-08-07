@@ -17,7 +17,7 @@ import {
   updateItem,
 } from "@/lib/items-api";
 import { formatCurrency } from "@/lib/format";
-import { lookupByBarcode, listPackagesByIcps, type MxikPackageOption } from "@/lib/mxik";
+import { lookupByBarcode, listPackagesByIcps, type MxikPackageOption, ITEM_NAME_MAX_LENGTH } from "@/lib/mxik";
 import { fetchPosSettings } from "@/lib/settings-api";
 import {
   fetchStockItemInfo,
@@ -206,7 +206,7 @@ export function StockDocAddLineModal({
     debounceRef.current = setTimeout(() => {
       debounceRef.current = null;
       void search(trimmed);
-    }, 500);
+    }, 250);
     return clearDebounce;
   }, [query, open, view]);
 
@@ -366,7 +366,7 @@ export function StockDocAddLineModal({
         lookup.groups,
         lookup.units,
         lookup.taxVats,
-        tasnif?.name ?? "",
+        (tasnif?.name ?? "").slice(0, ITEM_NAME_MAX_LENGTH),
         defaults,
       ),
       barcodes: [term],
@@ -738,9 +738,14 @@ export function StockDocAddLineModal({
               style={{ paddingLeft: 12 }}
               value={query}
               onChange={(e) => {
-                setQuery(e.target.value);
-                setHits([]);
-                setSearched(false);
+                const next = e.target.value;
+                setQuery(next);
+                // Keep prior hits until the next search finishes so typing does not
+                // flash an empty list (same feel as the POS catalog search bar).
+                if (!next.trim()) {
+                  setHits([]);
+                  setSearched(false);
+                }
                 setError("");
               }}
               onKeyDown={(e) => {
@@ -925,6 +930,7 @@ export function StockDocAddLineModal({
             <label>{t("stock.item.fields.name", "Name")}</label>
             <input
               value={form.name}
+              maxLength={ITEM_NAME_MAX_LENGTH}
               onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
               autoFocus
             />
