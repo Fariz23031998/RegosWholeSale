@@ -102,6 +102,69 @@
   cursor: pointer;
 }
 
+.cardList {
+  display: none;
+}
+
+.paymentCard {
+  display: flex;
+  width: 100%;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.paymentCard:last-child {
+  border-bottom: 0;
+}
+
+.paymentCard:hover,
+.paymentCard:active {
+  background: var(--color-surface-2);
+}
+
+.paymentCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.paymentCardDate,
+.paymentCardMeta {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.paymentCardPartner {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paymentCardMeta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.paymentCardAmount {
+  margin-top: 2px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
 .code {
   font-family: "Menlo", monospace;
   font-size: 12px;
@@ -130,6 +193,11 @@
 .outcome {
   background: var(--color-primary-soft);
   color: var(--color-primary);
+}
+
+.draft {
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
 }
 
 .muted {
@@ -243,6 +311,31 @@
 }
 
 @media (max-width: 720px) {
+  .page {
+    padding: var(--space-4) var(--space-4) var(--space-8);
+  }
+
+  .header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .title {
+    font-size: 22px;
+  }
+
+  .table {
+    overflow: visible;
+  }
+
+  .tbl {
+    display: none;
+  }
+
+  .cardList {
+    display: block;
+  }
+
   .detailGrid {
     grid-template-columns: 1fr;
   }

@@ -159,7 +159,7 @@ export function PaymentDetailModal({
             ? t("payments.status.deletedMark", "Marked for deletion")
             : payment.performed
               ? t("payments.status.performed", "Performed")
-              : t("payments.status.draft", "Not performed")}
+              : t("payments.status.draft", "Draft")}
         </div>
       </div>
 

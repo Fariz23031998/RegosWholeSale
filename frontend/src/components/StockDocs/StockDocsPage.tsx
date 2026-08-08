@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type MouseEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import clsx from "clsx";
 import { CalendarRange, Pencil, Plus, Search, Warehouse } from "lucide-react";
@@ -92,6 +92,26 @@ export function StockDocsPage({ kind }: Props) {
   const [search, setSearch] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
 
+  const refreshReferenceOptions = useCallback(async () => {
+    if (!token) {
+      setWarehouses([]);
+      setPartners([]);
+      setPriceTypes([]);
+      return;
+    }
+    const cacheScope = user?.company_id != null ? { companyId: user.company_id } : undefined;
+    try {
+      const res = await fetchRegosReferenceOptions(token, { cacheScope });
+      setWarehouses(res.warehouses ?? []);
+      setPartners(res.partners ?? []);
+      setPriceTypes(res.price_types ?? []);
+    } catch {
+      setWarehouses([]);
+      setPartners([]);
+      setPriceTypes([]);
+    }
+  }, [token, user?.company_id]);
+
   const periodParams = useMemo(
     () => resolveDashboardPeriodParams(periodPreset, customRange),
     [customRange, periodPreset],
@@ -149,19 +169,7 @@ export function StockDocsPage({ kind }: Props) {
     let cancelled = false;
     const cacheScope = user?.company_id != null ? { companyId: user.company_id } : undefined;
     const load = () => {
-      void fetchRegosReferenceOptions(token, { cacheScope })
-        .then((res) => {
-          if (cancelled) return;
-          setWarehouses(res.warehouses ?? []);
-          setPartners(res.partners ?? []);
-          setPriceTypes(res.price_types ?? []);
-        })
-        .catch(() => {
-          if (cancelled) return;
-          setWarehouses([]);
-          setPartners([]);
-          setPriceTypes([]);
-        });
+      if (!cancelled) void refreshReferenceOptions();
       void fetchRegosDefaults(token, { cacheScope })
         .then((res) => {
           if (cancelled) return;
@@ -178,7 +186,7 @@ export function StockDocsPage({ kind }: Props) {
       cancelled = true;
       unsub();
     };
-  }, [token, user?.company_id]);
+  }, [refreshReferenceOptions, token, user?.company_id]);
 
   useEffect(() => {
     if (!token || !warehouseScopeReady) {
@@ -544,6 +552,7 @@ export function StockDocsPage({ kind }: Props) {
           partners={partners}
           priceTypes={priceTypes}
           defaultVatCalculationType={defaultVatCalculationType}
+          onPartnersChanged={refreshReferenceOptions}
           onClose={() => setCreateOpen(false)}
           onCreated={(id) => {
             setCreateOpen(false);
@@ -562,6 +571,7 @@ export function StockDocsPage({ kind }: Props) {
           warehouses={warehouses}
           partners={partners}
           priceTypes={priceTypes}
+          onPartnersChanged={refreshReferenceOptions}
           onClose={() => setEditDoc(null)}
           onSaved={() => {
             setEditDoc(null);

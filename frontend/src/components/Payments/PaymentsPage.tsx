@@ -328,14 +328,18 @@ export function PaymentsPage() {
                     <span
                       className={clsx(
                         styles.badge,
-                        direction === "income" ? styles.income : styles.outcome,
+                        doc.deleted_mark || !doc.performed
+                          ? styles.draft
+                          : direction === "income"
+                            ? styles.income
+                            : styles.outcome,
                       )}
                     >
                       {doc.deleted_mark
                         ? t("payments.status.deletedMark", "Marked for deletion")
                         : doc.performed
                           ? t("payments.status.performed", "Performed")
-                          : t("payments.status.draft", "Not performed")}
+                          : t("payments.status.draft", "Draft")}
                     </span>
                   </td>
                   <td className={styles.right}>
@@ -349,6 +353,57 @@ export function PaymentsPage() {
             )}
           </tbody>
         </table>
+        <div className={styles.cardList}>
+          {loading ? (
+            <div className={styles.empty}>{t("payments.loading", "Loading payments…")}</div>
+          ) : documents.length === 0 ? (
+            <div className={styles.empty}>
+              {t("payments.empty", "No payments match these filters.")}
+            </div>
+          ) : (
+            documents.map((doc) => (
+              <button
+                key={doc.id}
+                type="button"
+                className={styles.paymentCard}
+                onClick={() => setSelected(doc)}
+              >
+                <div className={styles.paymentCardTop}>
+                  <span className={styles.code}>{doc.code}</span>
+                  <span
+                    className={clsx(
+                      styles.badge,
+                      doc.deleted_mark || !doc.performed
+                        ? styles.draft
+                        : direction === "income"
+                          ? styles.income
+                          : styles.outcome,
+                    )}
+                  >
+                    {doc.deleted_mark
+                      ? t("payments.status.deletedMark", "Marked for deletion")
+                      : doc.performed
+                        ? t("payments.status.performed", "Performed")
+                        : t("payments.status.draft", "Draft")}
+                  </span>
+                </div>
+                <div className={styles.paymentCardDate}>
+                  {formatDateTime(new Date(doc.date * 1000).toISOString())}
+                </div>
+                <div className={styles.paymentCardPartner}>{doc.partner_name ?? "—"}</div>
+                <div className={styles.paymentCardMeta}>
+                  {[doc.payment_type_name, doc.category_name, doc.attached_user_name]
+                    .filter(Boolean)
+                    .join(" · ") || "—"}
+                </div>
+                <div className={styles.paymentCardAmount}>
+                  {formatCurrency(doc.amount ?? 0)}
+                  {doc.currency?.code_chr ? ` ${doc.currency.code_chr}` : ""}
+                </div>
+              </button>
+            ))
+          )}
+        </div>
       </div>
 
       {!loading && documents.length > 0 ? (

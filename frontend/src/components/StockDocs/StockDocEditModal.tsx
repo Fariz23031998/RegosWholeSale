@@ -1,4 +1,6 @@
 import { useMemo, useState } from "react";
+import { ChevronDown } from "lucide-react";
+import { PartnerPickerModal } from "@/components/POS/PartnerPickerModal";
 import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
 import { StockDocDateTimeField } from "@/components/StockDocs/StockDocDateTimeField";
@@ -19,6 +21,7 @@ import {
   type InventoryCompareType,
 } from "@/lib/stock-doc-form";
 import { formatAuthError, useAuth } from "@/store/auth";
+import type { Partner } from "@/types/partners";
 import {
   getVatCalculationTypeOptions,
   type RegosDefaultOption,
@@ -33,6 +36,7 @@ type Props = {
   warehouses: RegosDefaultOption[];
   partners: RegosDefaultOption[];
   priceTypes: RegosPriceTypeOption[];
+  onPartnersChanged: () => Promise<void>;
   onClose: () => void;
   onSaved: () => void;
 };
@@ -43,6 +47,7 @@ export function StockDocEditModal({
   warehouses,
   partners,
   priceTypes,
+  onPartnersChanged,
   onClose,
   onSaved,
 }: Props) {
@@ -72,6 +77,7 @@ export function StockDocEditModal({
       : "open_date";
 
   const [partnerId, setPartnerId] = useState(document.partner_id ?? partners[0]?.id ?? 0);
+  const [partnerPickerOpen, setPartnerPickerOpen] = useState(false);
   const [stockId, setStockId] = useState(document.stock_id ?? warehouses[0]?.id ?? 0);
   const [senderId, setSenderId] = useState(
     document.stock_sender_id ?? document.stock_id ?? warehouses[0]?.id ?? 0,
@@ -103,6 +109,15 @@ export function StockDocEditModal({
     () => priceTypes.find((p) => p.id === priceTypeId) ?? null,
     [priceTypeId, priceTypes],
   );
+  const selectedPartnerName = useMemo(
+    () =>
+      partners.find((partner) => partner.id === partnerId)?.name ??
+      (document.partner_id === partnerId ? document.partner_name : null),
+    [document.partner_id, document.partner_name, partnerId, partners],
+  );
+  const handlePartnerSelect = (partner: Partner) => {
+    setPartnerId(partner.id);
+  };
   const currencyLabel = selectedPriceType?.currency
     ? selectedPriceType.currency.code_chr || selectedPriceType.currency.name
     : document.currency?.code_chr || document.currency?.name || "—";
@@ -233,16 +248,18 @@ export function StockDocEditModal({
             {def.supportsPartnerFilter && (
               <div className={styles.formField}>
                 <label>{t("stock.table.partner", "Partner")}</label>
-                <select
-                  value={partnerId}
-                  onChange={(e) => setPartnerId(Number(e.target.value))}
+                <button
+                  type="button"
+                  className={styles.partnerPickerButton}
+                  onClick={() => setPartnerPickerOpen(true)}
+                  disabled={busy}
                 >
-                  {partners.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
+                  <span>
+                    {selectedPartnerName ??
+                      t("pos.sellContext.selectPartner", "Select partner")}
+                  </span>
+                  <ChevronDown size={16} />
+                </button>
               </div>
             )}
             <div className={styles.formField}>
@@ -388,6 +405,16 @@ export function StockDocEditModal({
           {t("common.save", "Save")}
         </Button>
       </div>
+      {token && def.supportsPartnerFilter ? (
+        <PartnerPickerModal
+          open={partnerPickerOpen}
+          onClose={() => setPartnerPickerOpen(false)}
+          token={token}
+          selectedPartnerId={partnerId || null}
+          onSelect={handlePartnerSelect}
+          onPartnersChanged={onPartnersChanged}
+        />
+      ) : null}
     </Modal>
   );
 }
