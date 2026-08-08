@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PartnerPickerModal } from "@/components/POS/PartnerPickerModal";
+import { PaymentDateTimeField } from "@/components/Payments/PaymentDateTimeField";
 import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { createPayment } from "@/lib/payments-api";
 import { fetchFirms } from "@/lib/partners-api";
 import { loadPaymentTypes } from "@/lib/payment-service";
+import { fromDatetimeRuValue, nowDatetimeRuValue } from "@/lib/stock-doc-form";
 import { formatAuthError, useAuth } from "@/store/auth";
 import type { PaymentDirection, PaymentDocument } from "@/types/payments";
 import type { Partner } from "@/types/partners";
@@ -31,6 +33,7 @@ export function PaymentCreateModal({
   const companyId = useAuth((s) => s.user?.company_id ?? null);
 
   const [direction, setDirection] = useState<PaymentDirection>(initialDirection);
+  const [dateTimeValue, setDateTimeValue] = useState(nowDatetimeRuValue);
   const [partner, setPartner] = useState<Partner | null>(null);
   const [firmId, setFirmId] = useState<number | null>(null);
   const [paymentTypeId, setPaymentTypeId] = useState<number | null>(null);
@@ -66,6 +69,7 @@ export function PaymentCreateModal({
   useEffect(() => {
     if (!open) return;
     setDirection(initialDirection);
+    setDateTimeValue(nowDatetimeRuValue());
     setPartner(null);
     setAmount("");
     setDescription("");
@@ -97,6 +101,16 @@ export function PaymentCreateModal({
       setError(t("payments.create.invalidAmount", "Enter a valid amount."));
       return;
     }
+    const date = fromDatetimeRuValue(dateTimeValue);
+    if (date == null) {
+      setError(
+        t(
+          "stock.errors.invalidDate",
+          "Enter a valid date and time (dd.MM.yyyy HH:MM)",
+        ),
+      );
+      return;
+    }
     setSubmitting(true);
     setError("");
     try {
@@ -109,6 +123,7 @@ export function PaymentCreateModal({
         amount: parsedAmount,
         exchange_rate: Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : undefined,
         description: description.trim() || undefined,
+        date,
       });
       toast.success(t("payments.create.success", "Payment created."));
       onCreated(payment);
@@ -139,6 +154,12 @@ export function PaymentCreateModal({
               <option value="outcome">{t("payments.outcome", "Outcome")}</option>
             </select>
           </div>
+
+          <PaymentDateTimeField
+            label={t("payments.table.date", "Date")}
+            value={dateTimeValue}
+            onChange={setDateTimeValue}
+          />
 
           <div className={styles.field}>
             <label>{t("payments.partner", "Partner")}</label>

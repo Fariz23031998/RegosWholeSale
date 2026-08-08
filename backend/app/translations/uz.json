@@ -1,6 +1,6 @@
 {
-  "version": "1.1.5",
-  "last_updated": "2026-08-07",
+  "version": "1.1.6",
+  "last_updated": "2026-08-08",
   "translations": {
     "common.loading": "Yuklanmoqda...",
     "common.save": "Saqlash",
@@ -1397,6 +1397,10 @@
     "payments.create.selectPartner": "Select partner",
     "payments.create.selectFirm": "Select enterprise",
     "payments.create.selectPaymentType": "Select payment type",
+    "payments.create.selectCategory": "Select category",
+    "payments.dateTimeModal.title": "Choose date and time",
+    "payments.dateTimeModal.time": "Time",
+    "payments.dateTimeModal.bothRequired": "Date and time are required.",
     "payments.create.invalidAmount": "Enter a valid amount.",
     "payments.create.submit": "Create payment",
     "payments.create.processing": "Creating…",

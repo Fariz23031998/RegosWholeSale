@@ -274,6 +274,68 @@
   text-align: left;
 }
 
+.dateTimeField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.dateTimeField label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.dateTimeRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.dateTimeRow > input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.dateTimeModalForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-5);
+}
+
+.dateTimeModalField {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+.dateTimeModalField input {
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 400;
+}
+
+.dateTimeModalActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: var(--space-2);
+}
+
 .formActions {
   display: flex;
   gap: 8px;
@@ -293,6 +355,28 @@
   color: var(--color-text-muted);
   font-size: 12px;
   font-weight: 600;
+}
+
+.detailValue {
+  min-width: 0;
+}
+
+.detailValue input,
+.detailValue select,
+.detailValue textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.detailValue textarea {
+  min-height: 72px;
+  resize: vertical;
 }
 
 .detailActions {

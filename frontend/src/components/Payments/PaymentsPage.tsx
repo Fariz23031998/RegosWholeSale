@@ -459,7 +459,15 @@ export function PaymentsPage() {
         canEdit={canEdit}
         canDelete={canDelete}
         onClose={() => setSelected(null)}
-        onChanged={() => setReloadKey((value) => value + 1)}
+        onChanged={(updated) => {
+          if (updated) {
+            setSelected(updated);
+            setDocuments((prev) =>
+              prev.map((doc) => (doc.id === updated.id ? updated : doc)),
+            );
+          }
+          setReloadKey((value) => value + 1);
+        }}
       />
     </div>
   );

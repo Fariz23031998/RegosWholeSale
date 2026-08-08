@@ -1,6 +1,6 @@
 {
-  "version": "1.1.5",
-  "last_updated": "2026-08-07",
+  "version": "1.1.6",
+  "last_updated": "2026-08-08",
   "translations": {
     "common.loading": "Загрузка...",
     "common.save": "Сохранить",
@@ -1397,6 +1397,10 @@
     "payments.create.selectPartner": "Выберите контрагента",
     "payments.create.selectFirm": "Выберите предприятие",
     "payments.create.selectPaymentType": "Выберите тип оплаты",
+    "payments.create.selectCategory": "Выберите категорию",
+    "payments.dateTimeModal.title": "Выберите дату и время",
+    "payments.dateTimeModal.time": "Время",
+    "payments.dateTimeModal.bothRequired": "Укажите дату и время.",
     "payments.create.invalidAmount": "Введите корректную сумму.",
     "payments.create.submit": "Создать платёж",
     "payments.create.processing": "Создание…",
