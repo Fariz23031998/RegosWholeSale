@@ -5,6 +5,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { cartTotals, useCart } from "@/store/cart";
 import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
+import { useBookedOrderContinuation } from "@/hooks/use-booked-order-continuation";
 import { usePermissions } from "@/hooks/use-permissions";
 import { filterCheckoutOverrides } from "@/types/users";
 import { useAuth, formatAuthError } from "@/store/auth";
@@ -12,22 +13,33 @@ import { useSellContext } from "@/store/sell-context";
 import { useCheckoutTabs, getReservedQtyInOtherTabs } from "@/store/checkout-tabs";
 import {
   allowsDecimalQty,
+  applyStockAdjustments,
   clampCartQty,
   canIncreaseCartQty,
+  computePostponeStockAdjustments,
   formatCartQty,
+  getCartAvailabilityStock,
   getProductStock,
   maxCartQty,
   resolveCartUnitType,
+  shouldReserveStockOnPostpone,
+  type StockAdjustOp,
 } from "@/lib/cart-stock";
 import { formatCurrency } from "@/lib/format";
 import { toast } from "sonner";
-import { postponeSale } from "@/lib/sales-api";
-import { buildPrintContextFromCartDraft } from "@/lib/receipt-context-builder";
+import { extractWholesaleDocIdFromError } from "@/lib/checkout-error";
+import { isCacheEnabled } from "@/lib/cache-policy";
+import { enqueuePendingSaleSync } from "@/lib/pending-sales-sync";
+import { buildPendingSalesScopeKey } from "@/types/pending-sale";
+import { postponeSale, type PostponeRequest } from "@/lib/sales-api";
+import { usePendingSales } from "@/store/pending-sales";
+import { buildPrintContextFromCartDraft, loadPrintContextFromCartDraft } from "@/lib/receipt-context-builder";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import { Button } from "@/components/posui/Button";
 import { CheckoutModal } from "@/components/Checkout/CheckoutModal";
 import { ContinueSaleModal } from "@/components/Cart/ContinueSaleModal";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
+import type { PaymentSubmitPayload } from "@/components/Checkout/PaymentPanel";
 import { CheckoutTabs } from "./CheckoutTabs";
 import { CartLineImage } from "./CartLineImage";
 import { QtyKeypad } from "./QtyKeypad";
@@ -46,8 +58,11 @@ export function CartPanel() {
   const clear = useCart((s) => s.clear);
   const postponedWholesaleDocId = useCart((s) => s.postponedWholesaleDocId);
   const postponedDocType = useCart((s) => s.postponedDocType);
+  const setPostponedWholesaleDocId = useCart((s) => s.setPostponedWholesaleDocId);
+  const setPostponedDocType = useCart((s) => s.setPostponedDocType);
   const accessToken = useAuth((s) => s.accessToken);
   const cashier = useAuth((s) => s.cashier);
+  const user = useAuth((s) => s.user);
   const {
     canChangeWarehouse,
     canChangePriceType,
@@ -66,6 +81,7 @@ export function CartPanel() {
       canChangePartner: canChangePartner(),
     });
   const saleCurrency = useSellContext((s) => s.saleCurrency);
+  const priceTypeId = useSellContext((s) => s.priceTypeId);
   const partnerId = useSellContext((s) => s.partnerId);
   const warehouseId = useSellContext((s) => s.warehouseId);
   const partners = useSellContext((s) => s.options.partners);
@@ -76,10 +92,19 @@ export function CartPanel() {
   const checkoutTabs = useCheckoutTabs((s) => s.tabs);
   const activeCheckoutTabId = useCheckoutTabs((s) => s.activeTabId);
   const catalogProducts = useCatalog((s) => s.products);
+  const decrementStock = useCatalog((s) => s.decrementStock);
+  const incrementStock = useCatalog((s) => s.incrementStock);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
+  const postponeDocumentType = usePosConfig((s) => s.postponeDocumentType);
+  const postponeOrderBooked = usePosConfig((s) => s.postponeOrderBooked);
+  const bookedOrderContinuation = useBookedOrderContinuation();
+  const catalogStockOptions = bookedOrderContinuation
+    ? { bookedOrderContinuation: true as const }
+    : undefined;
   const autoOpenKeypad = usePosConfig((s) => s.autoOpenQtyKeypad);
   const [keypadFor, setKeypadFor] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   const totals = cartTotals(items, discountMode, discountValue);
   const keypadItem = items.find((i) => i.productId === keypadFor) ?? null;
   const keypadUnitType = keypadItem
@@ -88,7 +113,11 @@ export function CartPanel() {
   const keypadQtyAllowsDecimals = allowsDecimalQty(keypadUnitType);
   const keypadMaxQty = keypadItem
     ? maxCartQty(
-        getProductStock(catalogProducts, keypadItem.productId),
+        getCartAvailabilityStock(
+          getProductStock(catalogProducts, keypadItem.productId),
+          keypadItem.qty,
+          catalogStockOptions,
+        ),
         allowOutOfStock,
         getReservedQtyInOtherTabs(
           checkoutTabs,
@@ -100,16 +129,43 @@ export function CartPanel() {
   const itemCount = items.reduce((s, i) => s + i.qty, 0);
 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [restorePaymentPayload, setRestorePaymentPayload] =
+    useState<PaymentSubmitPayload | null>(null);
+  const [restoreRetryLocalId, setRestoreRetryLocalId] = useState<string | null>(null);
+  const enqueuePendingSale = usePendingSales((s) => s.enqueue);
+  const upsertPendingSale = usePendingSales((s) => s.upsertRecord);
+  const setActiveRetryLocalId = usePendingSales((s) => s.setActiveRetryLocalId);
+  const activeRetryLocalId = usePendingSales((s) => s.activeRetryLocalId);
+  const checkoutRestoreRequest = usePendingSales((s) => s.checkoutRestoreRequest);
+  const clearCheckoutRestore = usePendingSales((s) => s.clearCheckoutRestore);
   const [continueOpen, setContinueOpen] = useState(false);
   const [postponing, setPostponing] = useState(false);
   const [postponeError, setPostponeError] = useState<string | null>(null);
   const [printContext, setPrintContext] = useState<DocumentPrintContext | null>(null);
   const [printError, setPrintError] = useState<string | null>(null);
+  const [printLoading, setPrintLoading] = useState(false);
   const lastAddedId = useCart((s) => s.lastAddedId);
   const lastAddedAt = useCart((s) => s.lastAddedAt);
   const skipKeypadOnLastAdd = useCart((s) => s.skipKeypadOnLastAdd);
   const clearSkipKeypadOnLastAdd = useCart((s) => s.clearSkipKeypadOnLastAdd);
   const seenAddRef = useRef(0);
+
+  useEffect(() => {
+    if (!checkoutRestoreRequest) return;
+    setRestorePaymentPayload(checkoutRestoreRequest.initialPaymentPayload);
+    setRestoreRetryLocalId(checkoutRestoreRequest.localId);
+    setCheckoutOpen(true);
+    clearCheckoutRestore();
+  }, [checkoutRestoreRequest, clearCheckoutRestore]);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+
   useEffect(() => {
     if (!lastAddedAt || lastAddedAt === seenAddRef.current) return;
     seenAddRef.current = lastAddedAt;
@@ -126,7 +182,7 @@ export function CartPanel() {
   ]);
 
   const openDraftPrint = () => {
-    if (items.length === 0 || postponing) return;
+    if (items.length === 0 || postponing || printLoading) return;
 
     const cartItems = items.filter((item) => item.regosItemId > 0);
     if (cartItems.length !== items.length) {
@@ -137,26 +193,35 @@ export function CartPanel() {
     setPrintError(null);
     const partner = partners.find((entry) => entry.id === partnerId) ?? null;
     const warehouse = warehouses.find((entry) => entry.id === warehouseId) ?? null;
+    const draftInput = {
+      items: cartItems,
+      totals,
+      catalogProducts,
+      saleCurrency,
+      partnerId,
+      partnerName: partner?.name ?? null,
+      stockId: warehouseId,
+      stockName: warehouse?.name ?? null,
+      cashierId: cashier?.id ?? null,
+      cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
+      wholesaleDocId: postponedWholesaleDocId,
+    };
 
-    setPrintContext(
-      buildPrintContextFromCartDraft({
-        items: cartItems,
-        totals,
-        catalogProducts,
-        saleCurrency,
-        partnerId,
-        partnerName: partner?.name ?? null,
-        stockId: warehouseId,
-        stockName: warehouse?.name ?? null,
-        cashierId: cashier?.id ?? null,
-        cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
-        wholesaleDocId: postponedWholesaleDocId,
-      }),
-    );
+    setPrintLoading(true);
+    void loadPrintContextFromCartDraft(accessToken, draftInput)
+      .then((context) => {
+        setPrintContext(context);
+      })
+      .catch(() => {
+        setPrintContext(buildPrintContextFromCartDraft(draftInput));
+      })
+      .finally(() => {
+        setPrintLoading(false);
+      });
   };
 
   const handlePostponeSale = async () => {
-    if (!accessToken || !cashier || items.length === 0 || postponing) return;
+    if (!accessToken || !cashier || !user || items.length === 0 || postponing) return;
 
     const cartItems = items.filter((item) => item.regosItemId > 0);
     if (cartItems.length !== items.length) {
@@ -164,33 +229,112 @@ export function CartPanel() {
       return;
     }
 
+    const scopeKey = buildPendingSalesScopeKey(user.company_id, user.id);
+    if (!scopeKey) return;
+
     setPostponing(true);
     setPostponeError(null);
 
+    const request: PostponeRequest = {
+      items: cartItems.map((item) => ({
+        regos_item_id: item.regosItemId,
+        qty: item.qty,
+        price: item.price,
+      })),
+      discount: totals.discount,
+      total: totals.total,
+      description: `POS ${cashier.name}`,
+      ...(postponedWholesaleDocId
+        ? { wholesale_doc_id: postponedWholesaleDocId }
+        : {}),
+      ...permittedOverrides(),
+    };
+
+    let stockAdjustments: StockAdjustOp[] = [];
+    if (shouldReserveStockOnPostpone(postponeDocumentType, postponeOrderBooked)) {
+      stockAdjustments = computePostponeStockAdjustments(
+        cartItems,
+        postponedWholesaleDocId != null,
+      );
+    }
+
+    const localId = activeRetryLocalId ?? crypto.randomUUID();
+    const record = {
+      localId,
+      scopeKey,
+      kind: "postpone" as const,
+      status: "pending" as const,
+      companyId: user.company_id,
+      userId: user.id,
+      createdAt: Date.now(),
+      lastAttemptAt: null,
+      attemptCount: 0,
+      errorMessage: null,
+      errorCode: null,
+      request,
+      wholesaleDocId: postponedWholesaleDocId,
+      postponedDocType,
+      cartItems: [...cartItems],
+      discountMode,
+      discountValue,
+      totals: { ...totals },
+      sellContext: {
+        warehouseId,
+        priceTypeId,
+        partnerId,
+        saleCurrency,
+      },
+      cashier: { id: cashier.id, name: cashier.name },
+      description: request.description ?? "",
+      stockAdjustments,
+    };
+
     try {
-      await postponeSale(accessToken, {
-        items: cartItems.map((item) => ({
-          regos_item_id: item.regosItemId,
-          qty: item.qty,
-          price: item.price,
-        })),
-        discount: totals.discount,
-        total: totals.total,
-        description: `POS ${cashier.name}`,
-        ...(postponedWholesaleDocId
-          ? { wholesale_doc_id: postponedWholesaleDocId }
-          : {}),
-        ...(permittedOverrides()),
-      });
+      if (activeRetryLocalId || isCacheEnabled()) {
+        if (activeRetryLocalId) {
+          // Upsert so the retried sale is re-created even if the stored record
+          // was removed in the meantime, instead of being silently dropped.
+          await upsertPendingSale(record);
+          setActiveRetryLocalId(null);
+        } else {
+          await enqueuePendingSale(record);
+        }
+        if (stockAdjustments.length > 0) {
+          applyStockAdjustments(stockAdjustments, decrementStock, incrementStock);
+        }
+        toast.success(t("cart.postponeSuccess", "Sale postponed"));
+        clear();
+        clearActiveTabAfterCheckout();
+        setMobileOpen(false);
+        enqueuePendingSaleSync(localId);
+        return;
+      }
+
+      await postponeSale(accessToken, request);
+      if (stockAdjustments.length > 0) {
+        applyStockAdjustments(stockAdjustments, decrementStock, incrementStock);
+      }
       toast.success(t("cart.postponeSuccess", "Sale postponed"));
       clear();
       clearActiveTabAfterCheckout();
       setMobileOpen(false);
     } catch (err: unknown) {
+      if (!activeRetryLocalId && !isCacheEnabled()) {
+        const failedWholesaleDocId = extractWholesaleDocIdFromError(err);
+        if (failedWholesaleDocId !== null) {
+          setPostponedWholesaleDocId(failedWholesaleDocId);
+          setPostponedDocType("wholesale");
+        }
+      }
       setPostponeError(formatAuthError(err, t("cart.errors.postponeFailed", "Failed to postpone sale")));
     } finally {
       setPostponing(false);
     }
+  };
+
+  const handleClearCart = () => {
+    clear();
+    clearActiveTabAfterCheckout();
   };
 
   return (
@@ -226,19 +370,19 @@ export function CartPanel() {
                   type="button"
                   className={styles.printBtn}
                   onClick={openDraftPrint}
-                  disabled={postponing}
+                  disabled={postponing || printLoading}
                   aria-label={t("sales.printModalTitle", "Print sale")}
                   title={t("sales.printModalTitle", "Print sale")}
                 >
                   <Printer size={18} />
                 </button>
-                <button className={styles.clear} onClick={clear}>
+                <button className={styles.clear} onClick={handleClearCart}>
                   {t("cart.clear", "Clear")}
                 </button>
               </>
             )}
             {items.length > 0 && !canPrintDocuments() && (
-              <button className={styles.clear} onClick={clear}>
+              <button className={styles.clear} onClick={handleClearCart}>
                 {t("cart.clear", "Clear")}
               </button>
             )}
@@ -295,6 +439,7 @@ export function CartPanel() {
               catalogProducts,
               allowOutOfStock,
               reservedInOtherTabs,
+              catalogStockOptions,
             );
             return (
             <div key={i.productId} className={styles.line}>
@@ -460,8 +605,21 @@ export function CartPanel() {
 
       <CheckoutModal
         open={checkoutOpen}
-        onClose={() => setCheckoutOpen(false)}
+        onClose={() => {
+          setCheckoutOpen(false);
+          setRestorePaymentPayload(null);
+          setRestoreRetryLocalId(null);
+          setActiveRetryLocalId(null);
+        }}
+        onSuccess={() => {
+          if (isMobile) setMobileOpen(false);
+          setRestorePaymentPayload(null);
+          setRestoreRetryLocalId(null);
+          setActiveRetryLocalId(null);
+        }}
         totals={totals}
+        initialPaymentPayload={restorePaymentPayload}
+        retryLocalId={restoreRetryLocalId}
       />
       <ContinueSaleModal
         open={continueOpen}
@@ -500,6 +658,8 @@ export function CartPanel() {
               allowOutOfStock,
               keypadUnitType,
               reservedInOtherTabs,
+              catalogStockOptions,
+              keypadItem.qty,
             ),
             keypadUnitType,
           );

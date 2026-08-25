@@ -11,19 +11,28 @@ import {
   collectKnownCurrencies,
   currencyLabel,
   currencyWithExchangeRate,
-  paymentAmountFromSaleAmount,
+  paymentAmountFromSaleAmountCeil,
   sameCurrency,
 } from "@/lib/currency-conversion";
 import {
+  cashChangeInPaymentCurrency,
+  canSubmitSplitPayment,
+  capSplitPaymentLinesInSaleCurrency,
   formatAmountWithCurrency,
   isClosingWithoutPayment,
+  isSplitPaymentSettled,
   paymentLineAmountInSaleCurrency,
   paymentPanelLabels,
   remainingBalanceInPaymentCurrency,
+  requiredPaymentAmountInPaymentCurrency,
   resolveAmountPaid,
+  splitPaymentAmountPaid,
   type PaymentPanelMode,
 } from "@/lib/checkout-payments";
-import { fetchPaymentTypes, invalidatePaymentTypesCache } from "@/lib/payment-api";
+import { invalidatePaymentTypesCache } from "@/lib/payment-api";
+import { invalidatePaymentTypes } from "@/lib/payment-types-db";
+import { loadPaymentTypes } from "@/lib/payment-service";
+import { useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import type { CheckoutPaymentLineRequest } from "@/lib/sales-api";
 import type { PaymentType } from "@/types/payment";
@@ -52,6 +61,7 @@ type Props = {
   active: boolean;
   processing?: boolean;
   tenderedQuickAmounts?: number[];
+  initialPaymentPayload?: PaymentSubmitPayload | null;
   onConfirm: (payload: PaymentSubmitPayload) => void;
   onCloseWithoutPayment?: () => void;
 };
@@ -64,19 +74,21 @@ export function PaymentPanel({
   active,
   processing = false,
   tenderedQuickAmounts = [],
+  initialPaymentPayload = null,
   onConfirm,
   onCloseWithoutPayment,
 }: Props) {
   const { t } = useLanguage();
   const labels = paymentPanelLabels(mode, t);
   const totals = useMemo(() => ({ total }), [total]);
+  const companyId = useAuth((s) => s.user?.company_id);
   const priceTypes = useSellContext((s) => s.options.price_types);
   const crossCurrencyPaymentMode = usePosConfig((s) => s.crossCurrencyPaymentMode);
 
   const paymentTypesQuery = useQuery({
     queryKey: ["regos", "payment-types", accessToken],
-    queryFn: () => fetchPaymentTypes(accessToken!),
-    enabled: active && Boolean(accessToken),
+    queryFn: () => loadPaymentTypes(accessToken!, companyId),
+    enabled: active && Boolean(accessToken) && companyId != null,
     staleTime: 5 * 60 * 1000,
   });
 
@@ -146,14 +158,26 @@ export function PaymentPanel({
     : 0;
   const balanceDue = Math.max(0, total - amountPaid);
   const totalInPaymentCurrency = currenciesDiffer
-    ? paymentAmountFromSaleAmount(total, saleCurrency, resolvedPaymentCurrency)
+    ? paymentAmountFromSaleAmountCeil(total, saleCurrency, resolvedPaymentCurrency)
     : total;
   const amountPaidInPaymentCurrency = currenciesDiffer
-    ? paymentAmountFromSaleAmount(amountPaid, saleCurrency, resolvedPaymentCurrency)
+    ? Math.max(0, tenderedNum - cashChangeInPaymentCurrency(
+        tenderedNum,
+        amountPaid,
+        saleCurrency,
+        resolvedPaymentCurrency,
+      ))
     : amountPaid;
-  const changeInPaymentCurrency = currenciesDiffer
-    ? Math.max(0, tenderedNum - totalInPaymentCurrency)
-    : Math.max(0, tenderedNum - total);
+  const changeInPaymentCurrency = selected?.is_cash
+    ? cashChangeInPaymentCurrency(
+        tenderedNum,
+        amountPaid,
+        saleCurrency,
+        resolvedPaymentCurrency,
+      )
+    : currenciesDiffer
+      ? Math.max(0, tenderedNum - totalInPaymentCurrency)
+      : Math.max(0, tenderedNum - total);
   const changeInSaleCurrency = currenciesDiffer
     ? paymentLineAmountInSaleCurrency(changeInPaymentCurrency, resolvedPaymentCurrency, saleCurrency)
     : changeInPaymentCurrency;
@@ -191,21 +215,66 @@ export function PaymentPanel({
     }, 0);
   }, [splitPayment, paymentLines, paymentTypes, saleCurrency, knownCurrencies]);
 
+  const splitCrossCurrencyLineCount = useMemo(() => {
+    if (!splitPayment) return 0;
+    return paymentLines.reduce((count, line) => {
+      const type = paymentTypes.find((t) => t.id === line.paymentTypeId);
+      const lineCurrency = currencyWithExchangeRate(type?.currency ?? null, knownCurrencies);
+      return count + (type && !sameCurrency(saleCurrency, lineCurrency) ? 1 : 0);
+    }, 0);
+  }, [splitPayment, paymentLines, paymentTypes, saleCurrency, knownCurrencies]);
+
+  const splitRoundingLineCount = Math.max(
+    splitCrossCurrencyLineCount,
+    paymentLines.length,
+  );
+
   const splitBalanceDue = Math.max(0, total - splitPaidInSaleCurrency);
+  const splitPaymentSettled = isSplitPaymentSettled(
+    splitPaidInSaleCurrency,
+    total,
+    splitRoundingLineCount,
+  );
   const splitClosingWithoutPayment = splitPayment && isClosingWithoutPayment(splitPaidInSaleCurrency);
   const splitIsPartialPayment =
-    splitPayment && splitPaidInSaleCurrency > 0.009 && splitBalanceDue > 0.009;
+    splitPayment &&
+    splitPaidInSaleCurrency > 0.009 &&
+    !splitPaymentSettled &&
+    splitBalanceDue > 0.009;
   const splitCanCharge = Boolean(
     splitPayment &&
       !processing &&
       !typesLoading &&
       paymentLines.length > 0 &&
       (splitPaidInSaleCurrency > 0.009 || splitClosingWithoutPayment) &&
-      splitPaidInSaleCurrency <= total + 0.02,
+      canSubmitSplitPayment(splitPaidInSaleCurrency, total, splitRoundingLineCount),
   );
+  const splitAmountPaidForDisplay = splitPayment
+    ? splitPaymentAmountPaid(
+        paymentLines.map((line) => {
+          const type = paymentTypes.find((t) => t.id === line.paymentTypeId);
+          const amountNum = parseFloat(line.amount) || 0;
+          return {
+            payment_type_id: line.paymentTypeId,
+            amount_paid: type
+              ? paymentLineAmountInSaleCurrency(
+                  amountNum,
+                  currencyWithExchangeRate(type.currency, knownCurrencies),
+                  saleCurrency,
+                )
+              : 0,
+          };
+        }),
+        total,
+      )
+    : 0;
 
-  const displayAmountPaid = splitPayment ? splitPaidInSaleCurrency : amountPaid;
-  const displayBalanceDue = splitPayment ? splitBalanceDue : balanceDue;
+  const displayAmountPaid = splitPayment ? splitAmountPaidForDisplay : amountPaid;
+  const displayBalanceDue = splitPayment
+    ? splitPaymentSettled
+      ? 0
+      : splitBalanceDue
+    : balanceDue;
   const displayClosingWithoutPayment = splitPayment
     ? splitClosingWithoutPayment
     : closingWithoutPayment;
@@ -235,8 +304,33 @@ export function PaymentPanel({
       setSplitPayment(false);
       setPaymentLines([]);
       prevPaymentCurrencyIdRef.current = null;
+      return;
     }
-  }, [active]);
+
+    if (!initialPaymentPayload) return;
+
+    if (initialPaymentPayload.payments?.length) {
+      setSplitPayment(true);
+      setPaymentLines(
+        initialPaymentPayload.payments.map((line) => ({
+          key: nextLineKey(),
+          paymentTypeId: line.payment_type_id,
+          amount: String(line.amount_paid),
+        })),
+      );
+      return;
+    }
+
+    if (initialPaymentPayload.payment_type_id != null) {
+      setSelectedId(initialPaymentPayload.payment_type_id);
+    }
+    if (initialPaymentPayload.tendered != null) {
+      setTendered(String(initialPaymentPayload.tendered));
+    }
+    if (initialPaymentPayload.amount_paid != null && initialPaymentPayload.tendered == null) {
+      setDebtAmount(String(initialPaymentPayload.amount_paid));
+    }
+  }, [active, initialPaymentPayload]);
 
   useEffect(() => {
     if (!selected) return;
@@ -319,23 +413,26 @@ export function PaymentPanel({
   const buildPayload = (paidOverride?: number): PaymentSubmitPayload | null => {
     if (splitPayment) {
       if (!splitCanCharge) return null;
-      const payments: CheckoutPaymentLineRequest[] = paymentLines.map((line) => {
-        const type = paymentTypes.find((t) => t.id === line.paymentTypeId);
-        const amountNum = parseFloat(line.amount) || 0;
-        return {
-          payment_type_id: line.paymentTypeId,
-          amount_paid: type
-            ? paymentLineAmountInSaleCurrency(
-                amountNum,
-                currencyWithExchangeRate(type.currency, knownCurrencies),
-                saleCurrency,
-              )
-            : 0,
-        };
-      });
+      const payments = capSplitPaymentLinesInSaleCurrency(
+        paymentLines.map((line) => {
+          const type = paymentTypes.find((t) => t.id === line.paymentTypeId);
+          const amountNum = parseFloat(line.amount) || 0;
+          return {
+            payment_type_id: line.paymentTypeId,
+            amount_paid: type
+              ? paymentLineAmountInSaleCurrency(
+                  amountNum,
+                  currencyWithExchangeRate(type.currency, knownCurrencies),
+                  saleCurrency,
+                )
+              : 0,
+          };
+        }),
+        total,
+      );
       return {
         payments,
-        amount_paid: splitPaidInSaleCurrency,
+        amount_paid: splitPaymentAmountPaid(payments, total),
       };
     }
 
@@ -372,14 +469,15 @@ export function PaymentPanel({
     }
   };
 
+  const dueLabel = t("checkout.due", "Due");
   const chargeLabel = displayClosingWithoutPayment
     ? labels.closeWithout
     : displayIsPartialPayment
       ? splitPayment
-        ? `${labels.charge} ${formatAmountWithCurrency(displayAmountPaid, saleCurrency)} · Due ${formatAmountWithCurrency(displayBalanceDue, saleCurrency)}`
+        ? `${labels.charge} ${formatAmountWithCurrency(displayAmountPaid, saleCurrency)} · ${dueLabel} ${formatAmountWithCurrency(displayBalanceDue, saleCurrency)}`
         : currenciesDiffer
-          ? `${labels.charge} ${formatAmountWithCurrency(amountPaidInPaymentCurrency, resolvedPaymentCurrency)} · Due ${formatAmountWithCurrency(balanceDue, saleCurrency)}`
-          : `${labels.charge} ${formatCurrency(amountPaid)} · Due ${formatCurrency(balanceDue)}`
+          ? `${labels.charge} ${formatAmountWithCurrency(amountPaidInPaymentCurrency, resolvedPaymentCurrency)} · ${dueLabel} ${formatAmountWithCurrency(balanceDue, saleCurrency)}`
+          : `${labels.charge} ${formatCurrency(amountPaid)} · ${dueLabel} ${formatCurrency(balanceDue)}`
       : splitPayment
         ? `${labels.charge} ${formatCurrency(Math.min(displayAmountPaid, total))}`
         : currenciesDiffer
@@ -427,6 +525,9 @@ export function PaymentPanel({
             onClick={() => {
               if (!accessToken) return;
               invalidatePaymentTypesCache(accessToken);
+              if (companyId != null) {
+                void invalidatePaymentTypes(companyId);
+              }
               void paymentTypesQuery.refetch();
             }}
           >
@@ -576,7 +677,7 @@ export function PaymentPanel({
                 size="sm"
                 variant="secondary"
                 onClick={addPaymentLine}
-                disabled={processing || splitBalanceDue <= 0.009}
+                disabled={processing || displayBalanceDue <= 0.009}
               >
                 <Plus size={16} />
                 {t("checkout.addPayment", "Add payment")}
@@ -586,10 +687,10 @@ export function PaymentPanel({
                   <span>{labels.payingNow}</span>
                   <span>{formatAmountWithCurrency(displayAmountPaid, saleCurrency)}</span>
                 </div>
-                {splitBalanceDue > 0.009 && (
+                {displayBalanceDue > 0.009 && (
                   <div className={styles.balanceDue}>
                     <span>{t("checkout.remaining", "Remaining")}</span>
-                    <span>{formatAmountWithCurrency(splitBalanceDue, saleCurrency)}</span>
+                    <span>{formatAmountWithCurrency(displayBalanceDue, saleCurrency)}</span>
                   </div>
                 )}
               </div>
@@ -644,7 +745,14 @@ export function PaymentPanel({
                         className={styles.quick}
                         onClick={() =>
                           setTendered(
-                            (currenciesDiffer ? totalInPaymentCurrency : total).toFixed(2),
+                            (currenciesDiffer
+                              ? requiredPaymentAmountInPaymentCurrency(
+                                  total,
+                                  saleCurrency,
+                                  resolvedPaymentCurrency,
+                                )
+                              : total
+                            ).toFixed(2),
                           )
                         }
                       >
@@ -689,7 +797,10 @@ export function PaymentPanel({
                       <span>{labels.payingNow}</span>
                       <span>
                         {currenciesDiffer
-                          ? formatAmountWithCurrency(amountPaid, saleCurrency)
+                          ? formatAmountWithCurrency(
+                              amountPaidInPaymentCurrency,
+                              resolvedPaymentCurrency,
+                            )
                           : formatCurrency(amountPaid)}
                       </span>
                     </div>

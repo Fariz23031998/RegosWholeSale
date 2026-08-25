@@ -26,6 +26,8 @@ from app.schemas.auth import (
 
     SendVerificationResponse,
 
+    UpdateProfileRequest,
+
     UserResponse,
 
     VerificationData,
@@ -219,6 +221,50 @@ async def me(
 
 
         raise not_found("User not found")
+
+    return _user_response(user, user.company, permissions=current.permissions)
+
+
+
+
+
+@router.patch("/me", response_model=UserResponse)
+
+async def update_me(
+
+    body: UpdateProfileRequest,
+
+    current: CurrentUser = Depends(get_current_user),
+
+    session: AsyncSession = Depends(get_db),
+
+) -> UserResponse:
+
+    user = await get_user_with_permissions(session, current.id)
+
+    if not user:
+
+        from app.core.exceptions import not_found
+
+
+
+        raise not_found("User not found")
+
+    await auth_service.update_profile(
+
+        session,
+
+        user,
+
+        display_name=body.display_name,
+
+        login=body.login,
+
+        current_password=body.current_password,
+
+        new_password=body.new_password,
+
+    )
 
     return _user_response(user, user.company, permissions=current.permissions)
 

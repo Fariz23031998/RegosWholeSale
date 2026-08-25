@@ -5,13 +5,37 @@ from app.api.deps import CurrentUser, require_permission
 from app.database import get_db
 from app.schemas.dashboard import (
     DashboardOverviewResponse,
+    DashboardOutOfStockResponse,
     DashboardPaymentsResponse,
     DashboardProductsResponse,
     DashboardStatsResponse,
 )
+from app.services import regos_out_of_stock as out_of_stock_service
 from app.services import regos_dashboard as regos_dashboard_service
+from app.services import regos_defaults as regos_defaults_service
 
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
+
+
+def _permission_set(current: CurrentUser) -> set[str]:
+    return set(current.permissions)
+
+
+async def _scoped_stock_params(
+    session: AsyncSession,
+    current: CurrentUser,
+    *,
+    stock_ids: list[int] | None,
+    all_stocks: bool,
+) -> tuple[list[int] | None, bool]:
+    return await regos_defaults_service.resolve_stock_filter_scope(
+        session,
+        current.company_id,
+        current.id,
+        _permission_set(current),
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
 
 
 @router.get("/overview", response_model=DashboardOverviewResponse)
@@ -22,13 +46,17 @@ async def get_dashboard_overview(
     all_partners: bool = Query(default=True),
     stock_ids: list[int] | None = Query(default=None),
     all_stocks: bool = Query(default=True),
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=regos_dashboard_service.DASHBOARD_PRODUCTS_PAGE_SIZE, ge=1, le=200),
     currency_id: int | None = Query(default=None),
     currency_mode: str = Query(default=regos_dashboard_service.CURRENCY_MODE_ALL),
     current: CurrentUser = Depends(require_permission("dashboard.read")),
     session: AsyncSession = Depends(get_db),
 ) -> DashboardOverviewResponse:
+    scoped_stock_ids, scoped_all_stocks = await _scoped_stock_params(
+        session,
+        current,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
     data = await regos_dashboard_service.get_dashboard_overview(
         session,
         current.company_id,
@@ -37,10 +65,8 @@ async def get_dashboard_overview(
         end_date=end_date,
         partner_ids=partner_ids,
         all_partners=all_partners,
-        stock_ids=stock_ids,
-        all_stocks=all_stocks,
-        offset=offset,
-        limit=limit,
+        stock_ids=scoped_stock_ids,
+        all_stocks=scoped_all_stocks,
         currency_id=currency_id,
         currency_mode=currency_mode,
     )
@@ -60,6 +86,12 @@ async def get_dashboard_stats(
     current: CurrentUser = Depends(require_permission("dashboard.read")),
     session: AsyncSession = Depends(get_db),
 ) -> DashboardStatsResponse:
+    scoped_stock_ids, scoped_all_stocks = await _scoped_stock_params(
+        session,
+        current,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
     data = await regos_dashboard_service.get_dashboard_stats(
         session,
         current.company_id,
@@ -68,8 +100,8 @@ async def get_dashboard_stats(
         end_date=end_date,
         partner_ids=partner_ids,
         all_partners=all_partners,
-        stock_ids=stock_ids,
-        all_stocks=all_stocks,
+        stock_ids=scoped_stock_ids,
+        all_stocks=scoped_all_stocks,
         currency_id=currency_id,
         currency_mode=currency_mode,
     )
@@ -84,13 +116,17 @@ async def get_dashboard_products(
     all_partners: bool = Query(default=True),
     stock_ids: list[int] | None = Query(default=None),
     all_stocks: bool = Query(default=True),
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=regos_dashboard_service.DASHBOARD_PRODUCTS_PAGE_SIZE, ge=1, le=200),
     currency_id: int | None = Query(default=None),
     currency_mode: str = Query(default=regos_dashboard_service.CURRENCY_MODE_ALL),
     current: CurrentUser = Depends(require_permission("dashboard.read")),
     session: AsyncSession = Depends(get_db),
 ) -> DashboardProductsResponse:
+    scoped_stock_ids, scoped_all_stocks = await _scoped_stock_params(
+        session,
+        current,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
     data = await regos_dashboard_service.get_dashboard_products(
         session,
         current.company_id,
@@ -99,10 +135,8 @@ async def get_dashboard_products(
         end_date=end_date,
         partner_ids=partner_ids,
         all_partners=all_partners,
-        stock_ids=stock_ids,
-        all_stocks=all_stocks,
-        offset=offset,
-        limit=limit,
+        stock_ids=scoped_stock_ids,
+        all_stocks=scoped_all_stocks,
         currency_id=currency_id,
         currency_mode=currency_mode,
     )
@@ -117,13 +151,17 @@ async def get_dashboard_payments(
     all_partners: bool = Query(default=True),
     stock_ids: list[int] | None = Query(default=None),
     all_stocks: bool = Query(default=True),
-    offset: int = Query(default=0, ge=0),
-    limit: int = Query(default=regos_dashboard_service.DASHBOARD_PAYMENTS_PAGE_SIZE, ge=1, le=200),
     currency_id: int | None = Query(default=None),
     currency_mode: str = Query(default=regos_dashboard_service.CURRENCY_MODE_ALL),
     current: CurrentUser = Depends(require_permission("dashboard.read")),
     session: AsyncSession = Depends(get_db),
 ) -> DashboardPaymentsResponse:
+    scoped_stock_ids, scoped_all_stocks = await _scoped_stock_params(
+        session,
+        current,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
     data = await regos_dashboard_service.get_dashboard_payments(
         session,
         current.company_id,
@@ -132,11 +170,33 @@ async def get_dashboard_payments(
         end_date=end_date,
         partner_ids=partner_ids,
         all_partners=all_partners,
-        stock_ids=stock_ids,
-        all_stocks=all_stocks,
-        offset=offset,
-        limit=limit,
+        stock_ids=scoped_stock_ids,
+        all_stocks=scoped_all_stocks,
         currency_id=currency_id,
         currency_mode=currency_mode,
     )
     return DashboardPaymentsResponse(**data)
+
+
+@router.get("/out-of-stock", response_model=DashboardOutOfStockResponse)
+async def get_dashboard_out_of_stock(
+    stock_ids: list[int] | None = Query(default=None),
+    all_stocks: bool = Query(default=True),
+    current: CurrentUser = Depends(require_permission("dashboard.read")),
+    session: AsyncSession = Depends(get_db),
+) -> DashboardOutOfStockResponse:
+    scoped_stock_ids, scoped_all_stocks = await _scoped_stock_params(
+        session,
+        current,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
+    if not scoped_all_stocks and not scoped_stock_ids:
+        return DashboardOutOfStockResponse(products=[], total=0)
+    products = await out_of_stock_service.get_out_of_stock_report(
+        session,
+        current.company_id,
+        stock_ids=scoped_stock_ids,
+        all_stocks=scoped_all_stocks,
+    )
+    return DashboardOutOfStockResponse(products=products, total=len(products))

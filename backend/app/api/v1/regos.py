@@ -2,13 +2,19 @@ from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, require_any_permission, require_permission
-from app.core.exceptions import forbidden
 from app.core.regos_api import regos_async_api_request_for_company
 from app.database import get_db
 from app.schemas.catalog import (
     CatalogGroupsResponse,
     CatalogProductsResponse,
     PaymentTypesResponse,
+    ProductGroupCreateRequest,
+    ProductGroupCreateResponse,
+    ProductGroupMutationResponse,
+    ProductGroupUpdateRequest,
+    SyncMetaResponse,
+    SyncMetaSettingsChange,
+    SyncProductsResponse,
 )
 from app.schemas.regos import (
     RegosCustomField,
@@ -28,26 +34,46 @@ from app.schemas.partners import (
     PartnerCreateResponse,
     PartnerGroupsResponse,
     PartnerMutationResponse,
+    PartnerPayDebtRequest,
+    PartnerPayDebtResponse,
     PartnerUpdateRequest,
     PartnersListResponse,
 )
+from app.schemas.items import (
+    ItemCreateRequest,
+    ItemCreateResponse,
+    ItemMutationResponse,
+    ItemUpdateRequest,
+    RegosItemDetail,
+    RegosTaxVatsResponse,
+    RegosUnitsResponse,
+)
 from app.schemas.settings import RegosReferenceOptionsResponse
+from app.services import events_log as events_log_service
+from app.services import catalog_events as catalog_events_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services import regos_fields as regos_fields_service
 from app.services import regos_groups as regos_groups_service
 from app.services import regos_firms as regos_firms_service
+from app.services import regos_items as regos_items_service
 from app.services import regos_partner_balance as regos_partner_balance_service
+from app.services import regos_partner_pay_debt as regos_partner_pay_debt_service
 from app.services import regos_partners as regos_partners_service
 from app.services import regos_payment_linking as regos_payment_linking_service
 from app.services import regos_payment_types as regos_payment_types_service
 from app.services import regos_products as regos_products_service
 from app.services import regos_tokens as regos_tokens_service
+from app.services.settings_change import notify_settings_updated
 from app.services.permissions import POS_CONTEXT_CHANGE_PERMISSIONS
 
 router = APIRouter(prefix="/regos", tags=["regos"])
 
 _POS_CONTEXT_OR_SETTINGS = ("settings.manage", *POS_CONTEXT_CHANGE_PERMISSIONS)
 _PARTNER_OR_SETTINGS = ("settings.manage", "pos.change_partner")
+_PARTNER_PAY_DEBT = ("sales.write", "settings.manage", "pos.change_partner")
+_ITEM_CREATE = ("settings.manage", "stock.item_create")
+_ITEM_EDIT = ("settings.manage", "stock.item_edit")
+_ITEM_MUTATE = ("settings.manage", "stock.item_create", "stock.item_edit")
 
 
 @router.get("/tokens/status", response_model=RegosTokenStatus)
@@ -80,6 +106,11 @@ async def upsert_regos_token(
         body.token,
         body.is_replicable,
     )
+    await notify_settings_updated(session, 
+        current.company_id,
+        scope="company",
+        namespace="regos_token",
+    )
     return RegosTokenMessage(
         message="Regos token saved successfully",
         is_replicable=body.is_replicable,
@@ -92,9 +123,28 @@ async def delete_regos_token(
     session: AsyncSession = Depends(get_db),
 ) -> RegosTokenMessage:
     deleted = await regos_tokens_service.delete_token(session, current.company_id)
+    await notify_settings_updated(session, 
+        current.company_id,
+        scope="company",
+        namespace="regos_token",
+    )
     if not deleted:
         return RegosTokenMessage(message="No Regos token configured")
     return RegosTokenMessage(message="Regos token deleted successfully")
+
+
+@router.post("/tokens/update-integration", response_model=RegosTokenMessage)
+async def update_regos_integration(
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> RegosTokenMessage:
+    data = await regos_tokens_service.update_integration(session, current.company_id)
+    await notify_settings_updated(session, 
+        current.company_id,
+        scope="company",
+        namespace="regos_token",
+    )
+    return RegosTokenMessage(**data)
 
 
 @router.get("/reference-options", response_model=RegosReferenceOptionsResponse)
@@ -136,6 +186,11 @@ async def create_doc_payment_sale_id_field(
     data = await regos_fields_service.ensure_doc_payment_sale_id_field(
         session, current.company_id
     )
+    await notify_settings_updated(session, 
+        current.company_id,
+        scope="company",
+        namespace="doc_payment_sale_id",
+    )
     field = data.get("field")
     return RegosDocPaymentSaleIdFieldResponse(
         configured=bool(data.get("configured")),
@@ -171,6 +226,11 @@ async def patch_payment_linking_settings(
     data = await regos_payment_linking_service.set_payment_linking_mode(
         session, current.company_id, body.mode
     )
+    await notify_settings_updated(session, 
+        current.company_id,
+        scope="company",
+        namespace="payment_linking",
+    )
     sale_id_field = data.get("sale_id_field")
     return RegosPaymentLinkingResponse(
         mode=str(data["mode"]),
@@ -184,19 +244,27 @@ async def patch_payment_linking_settings(
 @router.get("/products", response_model=CatalogProductsResponse)
 async def get_regos_products(
     offset: int = Query(0, ge=0),
-    limit: int = Query(60, ge=1, le=200),
+    limit: int = Query(60, ge=1, le=500),
     search: str | None = Query(default=None, max_length=255),
     group_id: int | None = Query(default=None, ge=1),
     featured_only: bool = Query(default=False),
     warehouse_id: int | None = Query(default=None, ge=1),
     price_type_id: int | None = Query(default=None, ge=1),
+    zero_quantity: bool | None = Query(default=None),
+    zero_price: bool | None = Query(default=None),
+    sort_column: str | None = Query(default=None, max_length=64),
+    sort_direction: str | None = Query(default=None, max_length=8),
     current: CurrentUser = Depends(require_permission("pos.access")),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogProductsResponse:
-    if warehouse_id is not None and "pos.change_warehouse" not in current.permissions:
-        raise forbidden("Missing permission: pos.change_warehouse", "FORBIDDEN")
-    if price_type_id is not None and "pos.change_price_type" not in current.permissions:
-        raise forbidden("Missing permission: pos.change_price_type", "FORBIDDEN")
+    await regos_defaults_service.assert_catalog_scope_allowed(
+        session,
+        current.company_id,
+        current.id,
+        current.permissions,
+        warehouse_id=warehouse_id,
+        price_type_id=price_type_id,
+    )
 
     data = await regos_products_service.list_products(
         session,
@@ -209,8 +277,170 @@ async def get_regos_products(
         user_id=current.id,
         warehouse_id=warehouse_id,
         price_type_id=price_type_id,
+        include_zero_quantity=zero_quantity,
+        include_zero_price=zero_price,
+        sort_column=sort_column,
+        sort_direction=sort_direction,
     )
     return CatalogProductsResponse(**data)
+
+
+@router.get("/products/by-ids", response_model=CatalogProductsResponse)
+async def get_regos_products_by_ids(
+    ids: str = Query(..., min_length=1, max_length=4000),
+    warehouse_id: int | None = Query(default=None, ge=1),
+    price_type_id: int | None = Query(default=None, ge=1),
+    current: CurrentUser = Depends(require_permission("pos.access")),
+    session: AsyncSession = Depends(get_db),
+) -> CatalogProductsResponse:
+    await regos_defaults_service.assert_catalog_scope_allowed(
+        session,
+        current.company_id,
+        current.id,
+        current.permissions,
+        warehouse_id=warehouse_id,
+        price_type_id=price_type_id,
+    )
+
+    parsed_ids: list[int] = []
+    seen: set[int] = set()
+    for part in ids.split(","):
+        trimmed = part.strip()
+        if not trimmed:
+            continue
+        try:
+            parsed = int(trimmed)
+        except ValueError:
+            continue
+        if parsed <= 0 or parsed in seen:
+            continue
+        seen.add(parsed)
+        parsed_ids.append(parsed)
+
+    products = await regos_products_service.get_products_by_ids(
+        session,
+        current.company_id,
+        current.id,
+        parsed_ids,
+        warehouse_id=warehouse_id,
+        price_type_id=price_type_id,
+    )
+    return CatalogProductsResponse(
+        products=products,
+        next_offset=0,
+        total=len(products),
+    )
+
+
+@router.get("/products/sync", response_model=SyncProductsResponse)
+async def sync_products(
+    since: str = Query(..., min_length=1, max_length=64),
+    warehouse_id: int | None = Query(default=None, ge=1),
+    price_type_id: int | None = Query(default=None, ge=1),
+    current: CurrentUser = Depends(require_permission("pos.access")),
+    session: AsyncSession = Depends(get_db),
+) -> SyncProductsResponse:
+    from datetime import datetime, timezone
+
+    await regos_defaults_service.assert_catalog_scope_allowed(
+        session,
+        current.company_id,
+        current.id,
+        current.permissions,
+        warehouse_id=warehouse_id,
+        price_type_id=price_type_id,
+    )
+
+    try:
+        since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        from app.core.exceptions import bad_request
+        raise bad_request("Invalid 'since' timestamp. Use ISO 8601 format.", "INVALID_TIMESTAMP")
+
+    synced_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    has_history = await events_log_service.has_history_since(
+        session, current.company_id, since_dt,
+    )
+    if not has_history:
+        return SyncProductsResponse(
+            synced_at=synced_at,
+            full_sync_required=True,
+        )
+
+    changes = await events_log_service.get_changes_since(
+        session, current.company_id, since_dt,
+    )
+
+    updated_products = []
+    if changes.updated_item_ids:
+        products = await regos_products_service.get_products_by_ids(
+            session,
+            current.company_id,
+            current.id,
+            changes.updated_item_ids,
+            warehouse_id=warehouse_id,
+            price_type_id=price_type_id,
+        )
+        updated_products = products
+
+    return SyncProductsResponse(
+        updated_products=updated_products,
+        removed_product_ids=changes.removed_item_ids,
+        groups_invalidated=changes.groups_invalidated,
+        synced_at=synced_at,
+        full_sync_required=False,
+    )
+
+
+@router.get("/meta/sync", response_model=SyncMetaResponse)
+async def sync_meta(
+    since: str = Query(..., min_length=1, max_length=64),
+    current: CurrentUser = Depends(require_permission("pos.access")),
+    session: AsyncSession = Depends(get_db),
+) -> SyncMetaResponse:
+    """Catch up warehouses, price types, partners, payment types, and settings after downtime."""
+    from datetime import datetime, timezone
+
+    try:
+        since_dt = datetime.fromisoformat(since.replace("Z", "+00:00"))
+        if since_dt.tzinfo is None:
+            since_dt = since_dt.replace(tzinfo=timezone.utc)
+    except (ValueError, TypeError):
+        from app.core.exceptions import bad_request
+        raise bad_request("Invalid 'since' timestamp. Use ISO 8601 format.", "INVALID_TIMESTAMP")
+
+    synced_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+    has_history = await events_log_service.has_history_since(
+        session, current.company_id, since_dt,
+    )
+    if not has_history:
+        return SyncMetaResponse(
+            synced_at=synced_at,
+            full_sync_required=True,
+        )
+
+    changes = await events_log_service.get_meta_changes_since(
+        session, current.company_id, since_dt,
+    )
+
+    return SyncMetaResponse(
+        synced_at=synced_at,
+        full_sync_required=False,
+        reference_kinds=changes.reference_kinds,
+        payment_types_invalidated=changes.payment_types_invalidated,
+        settings=[
+            SyncMetaSettingsChange(
+                scope=item.scope,
+                namespace=item.namespace,
+                user_id=item.user_id,
+            )
+            for item in changes.settings
+        ],
+    )
 
 
 @router.get("/product-groups", response_model=CatalogGroupsResponse)
@@ -220,6 +450,129 @@ async def get_regos_product_groups(
 ) -> CatalogGroupsResponse:
     data = await regos_groups_service.list_groups(session, current.company_id)
     return CatalogGroupsResponse(**data)
+
+
+@router.post("/product-groups", response_model=ProductGroupCreateResponse)
+async def create_regos_product_group(
+    body: ProductGroupCreateRequest,
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_CREATE)),
+    session: AsyncSession = Depends(get_db),
+) -> ProductGroupCreateResponse:
+    data = await regos_groups_service.add_group(
+        session,
+        current.company_id,
+        name=body.name,
+        parent_id=body.parent_id,
+    )
+    catalog_events_service.publish_groups_invalidated(
+        current.company_id,
+        source_action="ItemGroupAdded",
+    )
+    await events_log_service.record_product_changes(
+        session,
+        current.company_id,
+        "groups_invalidated",
+        None,
+        "ItemGroupAdded",
+    )
+    return ProductGroupCreateResponse(**data)
+
+
+@router.patch("/product-groups/{group_id}", response_model=ProductGroupMutationResponse)
+async def update_regos_product_group(
+    group_id: int,
+    body: ProductGroupUpdateRequest,
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_EDIT)),
+    session: AsyncSession = Depends(get_db),
+) -> ProductGroupMutationResponse:
+    data = await regos_groups_service.edit_group(
+        session,
+        current.company_id,
+        group_id,
+        name=body.name,
+        parent_id=body.parent_id,
+        move_parent=body.move_parent,
+    )
+    catalog_events_service.publish_groups_invalidated(
+        current.company_id,
+        source_action="ItemGroupEdited",
+    )
+    await events_log_service.record_product_changes(
+        session,
+        current.company_id,
+        "groups_invalidated",
+        None,
+        "ItemGroupEdited",
+    )
+    return ProductGroupMutationResponse(**data)
+
+
+@router.get("/units", response_model=RegosUnitsResponse)
+async def get_regos_units(
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_MUTATE)),
+    session: AsyncSession = Depends(get_db),
+) -> RegosUnitsResponse:
+    data = await regos_items_service.list_units(session, current.company_id)
+    return RegosUnitsResponse(**data)
+
+
+@router.get("/tax-vats", response_model=RegosTaxVatsResponse)
+async def get_regos_tax_vats(
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_MUTATE)),
+    session: AsyncSession = Depends(get_db),
+) -> RegosTaxVatsResponse:
+    data = await regos_items_service.list_tax_vats(session, current.company_id)
+    return RegosTaxVatsResponse(**data)
+
+
+@router.get("/items/{item_id}", response_model=RegosItemDetail)
+async def get_regos_item(
+    item_id: int,
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_MUTATE)),
+    session: AsyncSession = Depends(get_db),
+) -> RegosItemDetail:
+    data = await regos_items_service.get_item(session, current.company_id, item_id)
+    return RegosItemDetail(**data)
+
+
+@router.post("/items", response_model=ItemCreateResponse)
+async def create_regos_item(
+    body: ItemCreateRequest,
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_CREATE)),
+    session: AsyncSession = Depends(get_db),
+) -> ItemCreateResponse:
+    data = await regos_items_service.add_item(
+        session,
+        current.company_id,
+        body.model_dump(exclude_unset=True),
+    )
+    catalog_events_service.publish_products_updated(
+        current.company_id,
+        regos_item_ids=[data["id"]],
+        source_action="ItemAdded",
+    )
+    return ItemCreateResponse(**data)
+
+
+@router.patch("/items/{item_id}", response_model=ItemMutationResponse)
+async def update_regos_item(
+    item_id: int,
+    body: ItemUpdateRequest,
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_EDIT)),
+    session: AsyncSession = Depends(get_db),
+) -> ItemMutationResponse:
+    data = await regos_items_service.edit_item(
+        session,
+        current.company_id,
+        item_id,
+        body.model_dump(exclude_unset=True),
+    )
+    catalog_events_service.publish_products_updated(
+        current.company_id,
+        regos_item_ids=[item_id],
+        source_action="ItemEdited",
+    )
+    return ItemMutationResponse(**data)
 
 
 @router.get("/payment-types", response_model=PaymentTypesResponse)
@@ -283,6 +636,14 @@ async def create_regos_partner(
         current.company_id,
         body.model_dump(exclude_unset=True),
     )
+    catalog_events_service.publish_reference_options_invalidated(
+        current.company_id,
+        kinds=["partner"],
+        source_action="PartnerAdded",
+    )
+    await events_log_service.record_reference_options_invalidated(
+        session, current.company_id, ["partner"], "PartnerAdded",
+    )
     return PartnerCreateResponse(**data)
 
 
@@ -298,6 +659,14 @@ async def update_regos_partner(
         current.company_id,
         partner_id,
         body.model_dump(exclude_unset=True),
+    )
+    catalog_events_service.publish_reference_options_invalidated(
+        current.company_id,
+        kinds=["partner"],
+        source_action="PartnerEdited",
+    )
+    await events_log_service.record_reference_options_invalidated(
+        session, current.company_id, ["partner"], "PartnerEdited",
     )
     return PartnerMutationResponse(**data)
 
@@ -335,6 +704,27 @@ async def get_regos_partner_balance(
     return PartnerBalanceResponse(**data)
 
 
+@router.post(
+    "/partners/{partner_id}/pay-debt",
+    response_model=PartnerPayDebtResponse,
+)
+async def pay_regos_partner_debt(
+    partner_id: int,
+    body: PartnerPayDebtRequest,
+    current: CurrentUser = Depends(require_any_permission(*_PARTNER_PAY_DEBT)),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerPayDebtResponse:
+    data = await regos_partner_pay_debt_service.pay_partner_debt(
+        session,
+        current.company_id,
+        current.id,
+        partner_id=partner_id,
+        firm_id=body.firm_id,
+        payments=[line.model_dump() for line in body.payments],
+    )
+    return PartnerPayDebtResponse(**data)
+
+
 @router.post("/partners/{partner_id}/delete-mark", response_model=PartnerMutationResponse)
 async def delete_mark_regos_partner(
     partner_id: int,
@@ -346,7 +736,51 @@ async def delete_mark_regos_partner(
         current.company_id,
         partner_id,
     )
+    catalog_events_service.publish_reference_options_invalidated(
+        current.company_id,
+        kinds=["partner"],
+        source_action="PartnerDeleted",
+    )
+    await events_log_service.record_reference_options_invalidated(
+        session, current.company_id, ["partner"], "PartnerDeleted",
+    )
     return PartnerMutationResponse(**data)
+
+
+@router.post("/proxy/Item/Get")
+async def proxy_item_get(
+    request: Request,
+    current: CurrentUser = Depends(require_permission("pos.access")),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    return await regos_async_api_request_for_company(
+        session,
+        current.company_id,
+        "Item/Get",
+        data,
+    )
+
+
+@router.post("/proxy/itemprice/get")
+async def proxy_itemprice_get(
+    request: Request,
+    current: CurrentUser = Depends(require_permission("pos.access")),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    try:
+        data = await request.json()
+    except Exception:
+        data = {}
+    return await regos_async_api_request_for_company(
+        session,
+        current.company_id,
+        "itemprice/get",
+        data,
+    )
 
 
 @router.post("/proxy/{endpoint:path}")

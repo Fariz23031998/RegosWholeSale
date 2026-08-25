@@ -27,6 +27,34 @@ export type PartnerBalanceResponse = {
 
 export type PartnerBalanceMode = "native" | "base_currency";
 
+export type PartnerPayDebtPaymentLine = {
+  currency_id: number;
+  amount: number;
+  payment_type_id: number;
+  exchange_rate?: number | null;
+  currency_name?: string | null;
+  currency_code?: string | null;
+};
+
+export type PartnerPayDebtRequest = {
+  firm_id: number;
+  payments: PartnerPayDebtPaymentLine[];
+};
+
+export type PartnerPayDebtPaymentResult = {
+  payment_type_id: number;
+  payment_doc_id: number;
+  currency_id: number;
+  amount: number;
+  payment_amount?: number | null;
+  payment_currency?: RegosCurrencyOption | null;
+};
+
+export type PartnerPayDebtResponse = {
+  payment_doc_ids: number[];
+  payments: PartnerPayDebtPaymentResult[];
+};
+
 export type PartnerLegalStatus = "Legal" | "Natural";
 
 export type Partner = {

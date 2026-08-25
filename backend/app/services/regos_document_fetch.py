@@ -9,6 +9,8 @@ from app.core.regos_api import regos_async_api_request_for_company
 
 logger = logging.getLogger("regos.backend")
 
+OPERATIONS_PAGE_SIZE = 1000
+
 
 def _first_result_item(result: Any) -> dict[str, Any] | None:
     if not result:
@@ -65,13 +67,27 @@ async def fetch_operations(
     document_id: int,
 ) -> list[dict[str, Any]] | None:
     try:
-        response = await regos_async_api_request_for_company(
-            session,
-            company_id,
-            endpoint,
-            {"document_ids": [document_id]},
-        )
-        operations = _result_list(response.get("result"))
+        operations: list[dict[str, Any]] = []
+        offset = 0
+        while True:
+            response = await regos_async_api_request_for_company(
+                session,
+                company_id,
+                endpoint,
+                {
+                    "document_ids": [document_id],
+                    "limit": OPERATIONS_PAGE_SIZE,
+                    "offset": offset,
+                },
+            )
+            page = _result_list(response.get("result"))
+            if not page:
+                break
+            operations.extend(page)
+            if len(page) < OPERATIONS_PAGE_SIZE:
+                break
+            offset += OPERATIONS_PAGE_SIZE
+
         if not operations:
             logger.warning("No operations found at %s for document %s", endpoint, document_id)
             return None
@@ -126,6 +142,43 @@ def stock_name_from_document(document: dict[str, Any]) -> str | None:
     return None
 
 
+def _stock_id_from_nested(document: dict[str, Any], key: str) -> int | None:
+    stock_obj = document.get(key)
+    if isinstance(stock_obj, dict) and stock_obj.get("id") is not None:
+        return int(stock_obj["id"])
+    return None
+
+
+def stock_sender_id_from_document(document: dict[str, Any]) -> int | None:
+    return _stock_id_from_nested(document, "stock_sender")
+
+
+def stock_receiver_id_from_document(document: dict[str, Any]) -> int | None:
+    return _stock_id_from_nested(document, "stock_receiver")
+
+
+def item_ids_from_operations(operations: list[dict[str, Any]]) -> list[int]:
+    item_ids: list[int] = []
+    seen: set[int] = set()
+    for operation in operations:
+        item_id = operation.get("item_id")
+        if item_id is None:
+            item = operation.get("item")
+            if isinstance(item, dict):
+                item_id = item.get("id")
+        if item_id is None:
+            continue
+        try:
+            parsed = int(item_id)
+        except (TypeError, ValueError):
+            continue
+        if parsed <= 0 or parsed in seen:
+            continue
+        seen.add(parsed)
+        item_ids.append(parsed)
+    return item_ids
+
+
 @dataclass(frozen=True)
 class OperationDocumentSpec:
     doc_endpoint: str
@@ -152,4 +205,6 @@ WHOLESALE_RETURN_SPEC = OperationDocumentSpec(
 )
 INOUT_SPEC = OperationDocumentSpec("DocInOut/Get", "InOutOperation/Get", "inout")
 MOVEMENT_SPEC = OperationDocumentSpec("DocMovement/Get", "MovementOperation/Get", "movement")
+SET_PRICE_SPEC = OperationDocumentSpec("DocSetPrice/Get", "SetPriceOperation/Get", "set_price")
+INVENTORY_SPEC = OperationDocumentSpec("DocInventory/Get", "InventoryOperation/Get", "inventory")
 PAYMENT_DOC_ENDPOINT = "DocPayment/Get"

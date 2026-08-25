@@ -312,3 +312,138 @@ async def test_update_user_login(client: AsyncClient) -> None:
         json={"login": "owner-user", "password": "password123"},
     )
     assert owner_username_login.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_update_own_profile_display_name(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client,
+        email="profile-name@test.com",
+        display_name="Owner User",
+        company_name="Profile Name Co",
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    patch = await client.patch(
+        "/api/v1/auth/me",
+        headers=headers,
+        json={"display_name": "Fariz"},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["display_name"] == "Fariz"
+
+    me = await client.get("/api/v1/auth/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["display_name"] == "Fariz"
+
+
+@pytest.mark.asyncio
+async def test_update_own_profile_login_conflict(client: AsyncClient) -> None:
+    owner_a = await register_owner(
+        client,
+        email="profile-login-a@test.com",
+        company_name="Profile Login A",
+    )
+    owner_b = await register_owner(
+        client,
+        email="profile-login-b@test.com",
+        company_name="Profile Login B",
+    )
+    token_a = owner_a.json()["access_token"]
+    token_b = owner_b.json()["access_token"]
+
+    create = await client.post(
+        "/api/v1/users",
+        headers={"Authorization": f"Bearer {token_a}"},
+        json={
+            "login": "taken-login",
+            "password": "employee123",
+            "display_name": "Employee",
+            "role": "employee",
+        },
+    )
+    assert create.status_code == 201
+
+    conflict = await client.patch(
+        "/api/v1/auth/me",
+        headers={"Authorization": f"Bearer {token_b}"},
+        json={"login": "taken-login"},
+    )
+    assert conflict.status_code == 409
+    assert conflict.json()["code"] == "LOGIN_EXISTS"
+
+
+@pytest.mark.asyncio
+async def test_update_own_profile_change_password(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client,
+        email="profile-pass@test.com",
+        company_name="Profile Pass Co",
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    wrong = await client.patch(
+        "/api/v1/auth/me",
+        headers=headers,
+        json={"current_password": "wrong-password", "new_password": "newpassword99"},
+    )
+    assert wrong.status_code == 401
+    assert wrong.json()["code"] == "INVALID_CURRENT_PASSWORD"
+
+    missing_current = await client.patch(
+        "/api/v1/auth/me",
+        headers=headers,
+        json={"new_password": "newpassword99"},
+    )
+    assert missing_current.status_code == 400
+    assert missing_current.json()["code"] == "CURRENT_PASSWORD_REQUIRED"
+
+    ok = await client.patch(
+        "/api/v1/auth/me",
+        headers=headers,
+        json={"current_password": "password123", "new_password": "newpassword99"},
+    )
+    assert ok.status_code == 200
+
+    old_login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "profile-pass@test.com", "password": "password123"},
+    )
+    assert old_login.status_code == 401
+
+    new_login = await client.post(
+        "/api/v1/auth/login",
+        json={"email": "profile-pass@test.com", "password": "newpassword99"},
+    )
+    assert new_login.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_update_own_profile_login_and_empty_patch(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client,
+        email="profile-login@test.com",
+        company_name="Profile Login Co",
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    patch = await client.patch(
+        "/api/v1/auth/me",
+        headers=headers,
+        json={"login": "my-owner-login"},
+    )
+    assert patch.status_code == 200
+    assert patch.json()["login"] == "my-owner-login"
+
+    login = await client.post(
+        "/api/v1/auth/login",
+        json={"login": "my-owner-login", "password": "password123"},
+    )
+    assert login.status_code == 200
+
+    empty = await client.patch("/api/v1/auth/me", headers=headers, json={})
+    assert empty.status_code == 400
+    assert empty.json()["code"] == "NO_PROFILE_CHANGES"

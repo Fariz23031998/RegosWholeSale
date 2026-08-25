@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentPlatformAdmin, get_current_platform_admin
 from app.database import get_db
 from app.schemas.platform import (
+    ChangePlatformPasswordRequest,
     PlatformAdminResponse,
     PlatformAuthResponse,
     PlatformLoginRequest,
@@ -17,6 +18,7 @@ def _admin_response(admin) -> PlatformAdminResponse:
     return PlatformAdminResponse(
         id=admin.id,
         email=admin.email,
+        username=admin.username,
         display_name=admin.display_name,
         is_active=admin.is_active,
         created_at=admin.created_at,
@@ -44,4 +46,24 @@ async def platform_me(
         from app.core.exceptions import not_found
 
         raise not_found("Admin not found")
+    return _admin_response(admin)
+
+
+@router.post("/change-password", response_model=PlatformAdminResponse)
+async def change_platform_password(
+    body: ChangePlatformPasswordRequest,
+    current: CurrentPlatformAdmin = Depends(get_current_platform_admin),
+    session: AsyncSession = Depends(get_db),
+) -> PlatformAdminResponse:
+    admin = await platform_service.get_platform_admin(session, current.id)
+    if not admin:
+        from app.core.exceptions import not_found
+
+        raise not_found("Admin not found")
+    admin = await platform_service.change_platform_admin_password(
+        session,
+        admin,
+        current_password=body.current_password,
+        new_password=body.new_password,
+    )
     return _admin_response(admin)

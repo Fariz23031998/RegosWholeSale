@@ -5,8 +5,15 @@
   padding: var(--space-5);
   position: relative;
   background:
-    radial-gradient(1000px 600px at 80% -10%, rgba(124, 58, 237, 0.12), transparent 60%),
-    radial-gradient(800px 500px at -10% 110%, rgba(79, 70, 229, 0.14), transparent 60%),
+    radial-gradient(1000px 600px at 80% -10%, rgba(0, 95, 237, 0.1), transparent 60%),
+    radial-gradient(800px 500px at -10% 110%, rgba(0, 95, 237, 0.12), transparent 60%),
+    var(--color-bg);
+}
+
+:global(.dark) .wrap {
+  background:
+    radial-gradient(1000px 600px at 80% -10%, rgba(59, 130, 246, 0.08), transparent 60%),
+    radial-gradient(800px 500px at -10% 110%, rgba(59, 130, 246, 0.1), transparent 60%),
     var(--color-bg);
 }
 
@@ -14,6 +21,7 @@
   position: absolute;
   top: var(--space-5);
   right: var(--space-5);
+  z-index: 20;
 }
 
 .card {
@@ -31,16 +39,6 @@
 }
 
 .brand {
-  width: 56px;
-  height: 56px;
-  border-radius: 16px;
-  background: linear-gradient(135deg, var(--color-primary), #7c3aed);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: white;
-  font-weight: 700;
-  font-size: 22px;
   margin-bottom: var(--space-4);
 }
 

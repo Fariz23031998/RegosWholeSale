@@ -1,7 +1,14 @@
 .page {
   padding: var(--space-6) var(--space-6) var(--space-10);
-  max-width: 1200px;
+  width: 80%;
+  max-width: 100%;
   margin: 0 auto;
+}
+
+@media (max-width: 1499px) {
+  .page {
+    width: 100%;
+  }
 }
 .header {
   display: flex;
@@ -29,9 +36,9 @@
 }
 .filter:hover { color: var(--color-text); }
 .filterActive {
-  background: var(--color-text);
-  border-color: var(--color-text);
-  color: white;
+  background: var(--color-filter-active-bg);
+  border-color: var(--color-filter-active-border);
+  color: var(--color-filter-active-text);
 }
 
 .table {
@@ -76,6 +83,24 @@
 }
 .cash { background: var(--color-success-soft); color: var(--color-success); }
 .card { background: var(--color-primary-soft); color: var(--color-primary); }
+
+.listFooter {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 12px;
+}
+
+.listFooterMuted {
+  color: var(--color-text-muted);
+  font-size: 12px;
+}
+
+.scrollSentinel {
+  width: 100%;
+  height: 1px;
+}
 
 .empty {
   padding: var(--space-10);
@@ -273,5 +298,73 @@
   .rowActions {
     justify-content: flex-end;
     width: 100%;
+  }
+
+  .detailMeta {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px 12px;
+    margin-bottom: 16px;
+  }
+
+  .detailMeta > div {
+    min-width: 0;
+    word-break: break-word;
+  }
+
+  .detailSection {
+    margin-top: 16px;
+  }
+
+  .detailTableWrap {
+    overflow: visible;
+    border: none;
+  }
+
+  .detailTable {
+    min-width: 0;
+  }
+
+  .detailTable thead {
+    display: none;
+  }
+
+  .detailTable tbody {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .detailTable tr {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+  }
+
+  .detailTable td {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12px;
+    padding: 0;
+    border-bottom: none;
+    text-align: left !important;
+  }
+
+  .detailTable td::before {
+    content: attr(data-label);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--color-text-subtle);
+    flex-shrink: 0;
+    max-width: 48%;
+  }
+
+  .detailTable td.right {
+    justify-content: space-between;
   }
 }

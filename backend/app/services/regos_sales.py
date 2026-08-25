@@ -11,15 +11,28 @@ from app.core.regos_api import regos_async_api_request_for_company
 from app.core.regos_batch import regos_batch_request_chunks_for_company, regos_batch_request_for_company
 from app.services import pos_settings as pos_settings_service
 from app.services import regos_defaults as regos_defaults_service
-from app.services.regos_defaults import _extract_currency_reference
+from app.services.regos_defaults import _extract_currency_reference, _normalize_option
 from app.services import regos_fields as regos_fields_service
 from app.services import regos_payment_linking as regos_payment_linking_service
 from app.services import regos_payment_types as regos_payment_types_service
 from app.services import regos_products as regos_products_service
+from app.regos.doc_order_from_partner_statuses import (
+    DOC_ORDER_FROM_PARTNER_CONTINUABLE_STATUS_IDS,
+    DOC_ORDER_FROM_PARTNER_DEFAULT_STATUS_ID,
+    DOC_ORDER_FROM_PARTNER_STATUS_FINISHED,
+)
 from app.utils.currency_conversion import convert_between_rates, parse_exchange_rate, same_currency
 
 WHOLESALE_RETURN_SOURCE_PREFIX = "pulse:ws:"
 WHOLESALE_RETURN_MANUAL_PREFIX = "pulse:manual"
+
+_EMPTY_DOCUMENT_LIST: dict[str, Any] = {"documents": [], "next_offset": 0, "total": 0}
+
+_DOCUMENT_STOCK_REGOS_PATHS = {
+    "wholesale": "docwholesale/get",
+    "order_from_partner": "docorderfrompartner/get",
+    "wholesale_return": "docwholesalereturn/get",
+}
 
 
 async def complete_checkout(
@@ -150,6 +163,16 @@ async def complete_checkout(
                 )
             )
 
+        order_from_partner_doc_id = payload.get("order_from_partner_doc_id")
+        if (
+            order_from_partner_doc_id is not None
+            and pos_settings.get("postpone_document_type", "doc_wholesale")
+            == "doc_order_from_partner"
+        ):
+            await _finish_order_from_partner_document(
+                session, company_id, int(order_from_partner_doc_id)
+            )
+
         wholesale_code = str(doc_id)
 
         return {
@@ -249,6 +272,24 @@ async def postpone_sale(
         raise
 
 
+def _apply_stock_filter_to_payload(
+    payload: dict[str, Any],
+    *,
+    stock_ids: list[int] | None,
+    all_stocks: bool,
+    warehouse: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    if stock_ids:
+        payload["stock_ids"] = stock_ids
+        return payload
+    if all_stocks:
+        return payload
+    if warehouse and warehouse.get("id"):
+        payload["stock_ids"] = [warehouse["id"]]
+        return payload
+    return None
+
+
 async def _build_filtered_document_list_payload(
     session: AsyncSession,
     company_id: int,
@@ -263,7 +304,7 @@ async def _build_filtered_document_list_payload(
     performed: bool | None = None,
     offset: int = 0,
     limit: int = 50,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     defaults = await regos_defaults_service.get_regos_defaults(
         session, company_id, user_id=user_id
     )
@@ -285,11 +326,12 @@ async def _build_filtered_document_list_payload(
         payload["partner_ids"] = partner_ids
     elif not all_partners and partner:
         payload["partner_ids"] = [partner["id"]]
-    if stock_ids:
-        payload["stock_ids"] = stock_ids
-    elif not all_stocks and warehouse:
-        payload["stock_ids"] = [warehouse["id"]]
-    return payload
+    return _apply_stock_filter_to_payload(
+        payload,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+        warehouse=warehouse,
+    )
 
 
 async def _build_order_document_list_payload(
@@ -305,7 +347,7 @@ async def _build_order_document_list_payload(
     all_stocks: bool = False,
     offset: int = 0,
     limit: int = 50,
-) -> dict[str, Any]:
+) -> dict[str, Any] | None:
     defaults = await regos_defaults_service.get_regos_defaults(
         session, company_id, user_id=user_id
     )
@@ -326,11 +368,12 @@ async def _build_order_document_list_payload(
         payload["partner_ids"] = partner_ids
     elif not all_partners and partner:
         payload["partner_ids"] = [partner["id"]]
-    if stock_ids:
-        payload["stock_ids"] = stock_ids
-    elif not all_stocks and warehouse:
-        payload["stock_ids"] = [warehouse["id"]]
-    return payload
+    return _apply_stock_filter_to_payload(
+        payload,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+        warehouse=warehouse,
+    )
 
 
 def _parse_document_list_response(
@@ -369,6 +412,9 @@ async def fetch_period_document_lists_batch(
         all_stocks=all_stocks,
         limit=limit,
     )
+    if payload is None:
+        empty = dict(_EMPTY_DOCUMENT_LIST)
+        return empty, dict(empty), dict(empty)
     responses = await regos_batch_request_for_company(
         session,
         company_id,
@@ -414,6 +460,8 @@ async def list_wholesale_documents(
         offset=offset,
         limit=limit,
     )
+    if payload is None:
+        return dict(_EMPTY_DOCUMENT_LIST)
 
     response = await _regos_call(session, company_id, "docwholesale/get", payload)
     return _parse_document_list_response(response, _map_wholesale_document)
@@ -432,6 +480,7 @@ async def list_order_from_partner_documents(
     all_stocks: bool = False,
     offset: int = 0,
     limit: int = 50,
+    continuable_only: bool = False,
 ) -> dict[str, Any]:
     payload = await _build_order_document_list_payload(
         session,
@@ -446,9 +495,20 @@ async def list_order_from_partner_documents(
         offset=offset,
         limit=limit,
     )
+    if payload is None:
+        return dict(_EMPTY_DOCUMENT_LIST)
 
     response = await _regos_call(session, company_id, "docorderfrompartner/get", payload)
-    return _parse_document_list_response(response, _map_order_from_partner_document)
+    data = _parse_document_list_response(response, _map_order_from_partner_document)
+    if continuable_only:
+        documents = [
+            document
+            for document in data["documents"]
+            if document.get("status_id") in DOC_ORDER_FROM_PARTNER_CONTINUABLE_STATUS_IDS
+        ]
+        data["documents"] = documents
+        data["total"] = len(documents)
+    return data
 
 
 async def list_wholesale_operations(
@@ -637,6 +697,8 @@ async def list_payment_documents(
         offset=offset,
         limit=limit,
     )
+    if payload is None:
+        return dict(_EMPTY_DOCUMENT_LIST)
 
     response = await _regos_call(session, company_id, "docpayment/get", payload)
     return _parse_document_list_response(response, _map_payment_document)
@@ -670,6 +732,8 @@ async def list_wholesale_return_documents(
         offset=offset,
         limit=limit,
     )
+    if payload is None:
+        return dict(_EMPTY_DOCUMENT_LIST)
 
     response = await _regos_call(session, company_id, "docwholesalereturn/get", payload)
     return _parse_document_list_response(response, _map_wholesale_return_document)
@@ -848,6 +912,120 @@ async def get_wholesale_return_summary(
     return {"wholesale_doc_id": wholesale_doc_id, "items": items}
 
 
+async def _fetch_wholesale_document_by_id(
+    session: AsyncSession,
+    company_id: int,
+    document_id: int,
+) -> dict[str, Any]:
+    return await _fetch_regos_document_by_id(
+        session,
+        company_id,
+        document_id,
+        regos_path="docwholesale/get",
+        not_found_message=f"Wholesale sale {document_id} was not found.",
+        not_found_code="WHOLESALE_DOCUMENT_NOT_FOUND",
+    )
+
+
+async def _fetch_regos_document_by_id(
+    session: AsyncSession,
+    company_id: int,
+    document_id: int,
+    *,
+    regos_path: str,
+    not_found_message: str,
+    not_found_code: str,
+) -> dict[str, Any]:
+    response = await _regos_call(session, company_id, regos_path, {"ids": [document_id]})
+    result = response.get("result")
+    if isinstance(result, list) and result:
+        document = result[0]
+        if isinstance(document, dict):
+            return document
+    if isinstance(result, dict) and result.get("id"):
+        return result
+    raise bad_request(not_found_message, not_found_code)
+
+
+def _document_stock_id(document: dict[str, Any]) -> int | None:
+    stock = document.get("stock")
+    if isinstance(stock, dict):
+        stock_id = stock.get("id")
+        if isinstance(stock_id, int):
+            return stock_id
+    return None
+
+
+async def assert_document_stock_access(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    permissions: set[str],
+    document_id: int,
+    *,
+    document_kind: str = "wholesale",
+) -> None:
+    if "pos.change_warehouse" in permissions:
+        return
+
+    defaults = await regos_defaults_service.get_regos_defaults(
+        session, company_id, user_id=user_id
+    )
+    warehouse = defaults.get("warehouse")
+    allowed_stock_id = warehouse.get("id") if isinstance(warehouse, dict) else None
+    if not isinstance(allowed_stock_id, int):
+        raise forbidden("Document is not accessible for your warehouse scope.", "FORBIDDEN")
+
+    regos_path = _DOCUMENT_STOCK_REGOS_PATHS.get(document_kind)
+    if regos_path is None:
+        raise bad_request(f"Unsupported document kind: {document_kind}", "INVALID_DOCUMENT_KIND")
+
+    document = await _fetch_regos_document_by_id(
+        session,
+        company_id,
+        document_id,
+        regos_path=regos_path,
+        not_found_message=f"Document {document_id} was not found.",
+        not_found_code="DOCUMENT_NOT_FOUND",
+    )
+    doc_stock_id = _document_stock_id(document)
+    if doc_stock_id != allowed_stock_id:
+        raise forbidden("Document is not accessible for your warehouse scope.", "FORBIDDEN")
+
+
+async def _apply_source_wholesale_document_defaults(
+    session: AsyncSession,
+    company_id: int,
+    defaults: dict[str, Any],
+    source_document: dict[str, Any],
+) -> dict[str, Any]:
+    updated = dict(defaults)
+
+    currency = _extract_currency_reference(source_document, "currency")
+    if currency:
+        updated["currency"] = currency
+
+    price_type = _normalize_option(source_document.get("price_type"))
+    if price_type:
+        updated["price_type"] = price_type
+    elif currency and isinstance(currency.get("id"), int):
+        matched = await regos_defaults_service.find_price_type_for_currency(
+            session,
+            company_id,
+            int(currency["id"]),
+        )
+        if matched:
+            updated["price_type"] = matched
+
+    stock = source_document.get("stock")
+    if isinstance(stock, dict):
+        warehouse = _normalize_option(stock)
+        if warehouse:
+            updated["warehouse"] = warehouse
+
+    return updated
+
+
 async def complete_wholesale_return(
     session: AsyncSession,
     company_id: int,
@@ -950,6 +1128,14 @@ async def complete_wholesale_return(
         if wholesale_doc_id <= 0:
             raise bad_request("Invalid wholesale document id.", "INVALID_DOCUMENT_ID")
 
+        source_document = await _fetch_wholesale_document_by_id(
+            session, company_id, wholesale_doc_id
+        )
+        defaults = await _apply_source_wholesale_document_defaults(
+            session, company_id, defaults, source_document
+        )
+        sale_currency = defaults.get("currency")
+
         sale_ops = await list_wholesale_operations(session, company_id, wholesale_doc_id)
         sold_by_item = {
             int(op["item_id"]): op for op in sale_ops["operations"] if int(op["item_id"]) > 0
@@ -991,7 +1177,7 @@ async def complete_wholesale_return(
             operative_price = operative_operation_price(
                 price,
                 price2,
-                defaults.get("currency"),
+                sale_currency,
             )
             expected_total += qty * operative_price
             lines.append(
@@ -1193,6 +1379,73 @@ async def _resolve_wholesale_document_defaults(
     return defaults, None
 
 
+def _nested_option_id(value: Any) -> int | None:
+    if not isinstance(value, dict):
+        return None
+    raw_id = value.get("id")
+    return int(raw_id) if isinstance(raw_id, int) and raw_id > 0 else None
+
+
+async def _sync_draft_document_context(
+    session: AsyncSession,
+    company_id: int,
+    document_id: int,
+    defaults: dict[str, Any],
+    *,
+    regos_path: str,
+    edit_path: str,
+    include_price_type: bool,
+) -> None:
+    existing = await _fetch_regos_document_by_id(
+        session,
+        company_id,
+        document_id,
+        regos_path=regos_path,
+        not_found_message=f"Document {document_id} was not found.",
+        not_found_code="DOCUMENT_NOT_FOUND",
+    )
+
+    edit_payload: dict[str, Any] = {"id": document_id}
+
+    desired_partner_id = _nested_option_id(defaults.get("partner"))
+    current_partner_id = _nested_option_id(existing.get("partner"))
+    if desired_partner_id is not None and desired_partner_id != current_partner_id:
+        edit_payload["partner_id"] = desired_partner_id
+
+    desired_stock_id = _nested_option_id(defaults.get("warehouse"))
+    current_stock_id = _nested_option_id(existing.get("stock"))
+    if desired_stock_id is not None and desired_stock_id != current_stock_id:
+        edit_payload["stock_id"] = desired_stock_id
+
+    if include_price_type:
+        desired_price_type_id = _nested_option_id(defaults.get("price_type"))
+        current_price_type_id = _nested_option_id(existing.get("price_type"))
+        if (
+            desired_price_type_id is not None
+            and desired_price_type_id != current_price_type_id
+        ):
+            edit_payload["price_type_id"] = desired_price_type_id
+
+    desired_currency = defaults.get("currency")
+    if isinstance(desired_currency, dict) and isinstance(desired_currency.get("id"), int):
+        current_currency = _extract_currency_reference(existing, "currency")
+        desired_currency_id = int(desired_currency["id"])
+        current_currency_id = (
+            int(current_currency["id"])
+            if isinstance(current_currency, dict)
+            and isinstance(current_currency.get("id"), int)
+            else None
+        )
+        if desired_currency_id != current_currency_id:
+            edit_payload["currency_id"] = desired_currency_id
+            exchange_rate = parse_exchange_rate(desired_currency.get("exchange_rate"))
+            if exchange_rate != 1.0:
+                edit_payload["exchange_rate"] = exchange_rate
+
+    if len(edit_payload) > 1:
+        await _regos_call(session, company_id, edit_path, edit_payload)
+
+
 async def _upsert_wholesale_draft(
     session: AsyncSession,
     company_id: int,
@@ -1223,6 +1476,15 @@ async def _upsert_wholesale_draft(
         doc_id = existing_doc_id
         await _regos_call(session, company_id, "docwholesale/lock", {"ids": [doc_id]})
         try:
+            await _sync_draft_document_context(
+                session,
+                company_id,
+                doc_id,
+                document_defaults,
+                regos_path="docwholesale/get",
+                edit_path="docwholesale/edit",
+                include_price_type=True,
+            )
             await _sync_wholesale_operations(session, company_id, doc_id, lines)
         finally:
             await _regos_call(session, company_id, "docwholesale/unlock", {"ids": [doc_id]})
@@ -1266,6 +1528,15 @@ async def _upsert_order_from_partner_draft(
         doc_id = existing_doc_id
         await _regos_call(session, company_id, "docorderfrompartner/lock", {"ids": [doc_id]})
         try:
+            await _sync_draft_document_context(
+                session,
+                company_id,
+                doc_id,
+                defaults,
+                regos_path="docorderfrompartner/get",
+                edit_path="docorderfrompartner/edit",
+                include_price_type=False,
+            )
             await _sync_order_from_partner_operations(session, company_id, doc_id, lines)
         finally:
             await _regos_call(session, company_id, "docorderfrompartner/unlock", {"ids": [doc_id]})
@@ -1530,15 +1801,12 @@ async def _add_order_from_partner_document(
     *,
     booked: bool = True,
 ) -> dict[str, Any]:
-    status_id = await regos_defaults_service.get_doc_order_from_partner_default_status_id(
-        session, company_id
-    )
     payload: dict[str, Any] = {
         "date": int(time.time()),
         "partner_id": defaults["partner"]["id"],
         "stock_id": defaults["warehouse"]["id"],
         "currency_id": defaults["currency"]["id"],
-        "status_id": status_id,
+        "status_id": DOC_ORDER_FROM_PARTNER_DEFAULT_STATUS_ID,
         "vat_calculation_type": defaults.get(
             "vat_calculation_type", regos_defaults_service.DEFAULT_VAT_CALCULATION_TYPE
         ),
@@ -1557,6 +1825,25 @@ async def _add_order_from_partner_document(
 
     response = await _regos_call(session, company_id, "docorderfrompartner/add", payload)
     return _extract_new_document(response)
+
+
+async def _finish_order_from_partner_document(
+    session: AsyncSession,
+    company_id: int,
+    doc_id: int,
+) -> None:
+    if doc_id <= 0:
+        raise bad_request("Invalid order document id.", "INVALID_DOCUMENT_ID")
+    await _regos_call(session, company_id, "docorderfrompartner/lock", {"ids": [doc_id]})
+    try:
+        await _regos_call(
+            session,
+            company_id,
+            "docorderfrompartner/edit",
+            {"id": doc_id, "status_id": DOC_ORDER_FROM_PARTNER_STATUS_FINISHED},
+        )
+    finally:
+        await _regos_call(session, company_id, "docorderfrompartner/unlock", {"ids": [doc_id]})
 
 
 async def _add_order_from_partner_operations(
@@ -1595,6 +1882,14 @@ async def _add_wholesale_return_document(
         ),
         "description": description,
     }
+    price_type = defaults.get("price_type")
+    if isinstance(price_type, dict) and price_type.get("id"):
+        payload["price_type_id"] = price_type["id"]
+    currency = defaults.get("currency")
+    if isinstance(currency, dict):
+        exchange_rate = parse_exchange_rate(currency.get("exchange_rate"))
+        if exchange_rate != 1.0:
+            payload["exchange_rate"] = exchange_rate
     attached_user = defaults.get("attached_user")
     if attached_user:
         payload["attached_user_id"] = attached_user["id"]
@@ -1627,41 +1922,47 @@ async def _add_payment_document(
     company_id: int,
     defaults: dict[str, Any],
     *,
-    source_document_id: int,
-    document_type_id: int,
+    source_document_id: int | None,
+    document_type_id: int | None,
     payment_type_id: int,
     amount: float,
     exchange_rate: float,
     category_id: int,
     document_date: int,
+    description: str | None = None,
 ) -> dict[str, Any]:
     payload: dict[str, Any] = {
         "type_id": payment_type_id,
-        "document": source_document_id,
-        "document_type_id": document_type_id,
         "firm_id": defaults["firm"]["id"],
         "partner_id": defaults["partner"]["id"],
         "category_id": category_id,
         "amount": amount,
         "exchange_rate": exchange_rate,
-        "description": str(source_document_id),
+        "description": description
+        if description is not None
+        else (str(source_document_id) if source_document_id is not None else ""),
         "date": document_date,
     }
+    if source_document_id is not None:
+        payload["document"] = source_document_id
+    if document_type_id is not None:
+        payload["document_type_id"] = document_type_id
     attached_user = defaults.get("attached_user")
     if attached_user:
         payload["attached_user_id"] = attached_user["id"]
 
-    linking_settings = await regos_payment_linking_service.get_payment_linking_settings(
-        session, company_id
-    )
-    if linking_settings["mode"] == "sale_id_field":
-        sale_id_fields = await regos_fields_service.build_doc_payment_sale_id_fields(
-            session,
-            company_id,
-            source_document_id=source_document_id,
+    if source_document_id is not None:
+        linking_settings = await regos_payment_linking_service.get_payment_linking_settings(
+            session, company_id
         )
-        if sale_id_fields:
-            payload["fields"] = sale_id_fields
+        if linking_settings["mode"] == "sale_id_field":
+            sale_id_fields = await regos_fields_service.build_doc_payment_sale_id_fields(
+                session,
+                company_id,
+                source_document_id=source_document_id,
+            )
+            if sale_id_fields:
+                payload["fields"] = sale_id_fields
 
     response = await _regos_call(session, company_id, "docpayment/add", payload)
     return _extract_new_document(response)
@@ -1766,6 +2067,9 @@ def _extract_return_overrides(
     is_sale_linked: bool,
 ) -> dict[str, int]:
     overrides = _extract_session_overrides(payload, permissions)
+    if is_sale_linked:
+        overrides.pop("price_type_id", None)
+        overrides.pop("warehouse_id", None)
     if is_sale_linked and payload.get("partner_id") is not None and "pos.change_partner" in permissions:
         overrides["partner_id"] = int(payload["partner_id"])
     return overrides
@@ -1959,6 +2263,7 @@ async def _resolve_payment_posting(
     is_return: bool,
     source_document_id: int,
     document_date: int,
+    transfer_description: str | None = None,
 ) -> dict[str, Any]:
     payment_currency = selected_payment_type.get("currency")
     payment_type_id = int(selected_payment_type["id"])
@@ -2031,11 +2336,14 @@ async def _resolve_payment_posting(
         amount_sended = line_amount_paid
         amount_received = amount_in_payment_currency
 
-    description = (
-        f"POS return #{source_document_id}"
-        if is_return
-        else f"POS sale #{source_document_id}"
-    )
+    if transfer_description is not None:
+        description = transfer_description
+    else:
+        description = (
+            f"POS return #{source_document_id}"
+            if is_return
+            else f"POS sale #{source_document_id}"
+        )
 
     return {
         "payment_type_id": int(settlement_payment_type["id"]),
@@ -2268,15 +2576,31 @@ def _partner_phone_from_row(partner: dict[str, Any]) -> str | None:
     return None
 
 
+def _extract_document_status_id(item: dict[str, Any]) -> int | None:
+    status_id = item.get("status_id")
+    if isinstance(status_id, int) and status_id > 0:
+        return status_id
+    status = item.get("status")
+    if isinstance(status, dict):
+        raw_id = status.get("id")
+        if isinstance(raw_id, int) and raw_id > 0:
+            return raw_id
+    return None
+
+
 def _map_order_from_partner_document(item: dict[str, Any]) -> dict[str, Any]:
     mapped = _map_wholesale_document(item)
     mapped["performed"] = False
+    status_id = _extract_document_status_id(item)
+    if status_id is not None:
+        mapped["status_id"] = status_id
     return mapped
 
 
 def _map_wholesale_document(item: dict[str, Any]) -> dict[str, Any]:
     partner = item.get("partner") if isinstance(item.get("partner"), dict) else {}
     stock = item.get("stock") if isinstance(item.get("stock"), dict) else {}
+    price_type = item.get("price_type") if isinstance(item.get("price_type"), dict) else {}
     attached_user_id, attached_user_name = _attached_user_fields(item)
     mapped: dict[str, Any] = {
         "id": int(item.get("id") or 0),
@@ -2287,6 +2611,9 @@ def _map_wholesale_document(item: dict[str, Any]) -> dict[str, Any]:
         "partner_phone": _partner_phone_from_row(partner),
         "stock_id": stock.get("id") if isinstance(stock.get("id"), int) else None,
         "stock_name": stock.get("name") if isinstance(stock.get("name"), str) else None,
+        "price_type_id": (
+            price_type.get("id") if isinstance(price_type.get("id"), int) else None
+        ),
         "attached_user_id": attached_user_id,
         "attached_user_name": attached_user_name,
         "amount": float(item["amount"]) if item.get("amount") is not None else None,

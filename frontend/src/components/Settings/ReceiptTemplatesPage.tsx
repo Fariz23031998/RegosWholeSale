@@ -6,6 +6,7 @@ import {
   fetchReceiptTemplates,
   patchReceiptTemplates,
 } from "@/lib/receipt-templates-api";
+import { subscribeSettingsEvents } from "@/lib/settings-events";
 import {
   cloneReceiptTemplate,
   createNakladnayaTemplate,
@@ -32,6 +33,10 @@ export function ReceiptTemplatesPage() {
   const user = useAuth((s) => s.user);
   const companyName = user?.company?.name ?? t("settings.companyFallback", "Company");
   const canManageSettings = Boolean(user?.permissions.includes("settings.manage"));
+  const cacheScope =
+    user?.company_id != null
+      ? { companyId: user.company_id, userId: user.id }
+      : undefined;
 
   const [templates, setTemplates] = useState<ReceiptTemplate[]>([]);
   const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null);
@@ -40,13 +45,14 @@ export function ReceiptTemplatesPage() {
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<EditorState>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
+  const loadTemplatesRef = useRef<() => Promise<void>>(async () => undefined);
 
   const loadTemplates = async () => {
     if (!token) return;
     setLoading(true);
     setError("");
     try {
-      const response = await fetchReceiptTemplates(token);
+      const response = await fetchReceiptTemplates(token, { force: true, cacheScope });
       setTemplates(normalizeReceiptTemplates(response.settings.templates));
       setDefaultTemplateId(response.settings.default_template_id);
     } catch (err: unknown) {
@@ -61,9 +67,18 @@ export function ReceiptTemplatesPage() {
     }
   };
 
+  loadTemplatesRef.current = loadTemplates;
+
   useEffect(() => {
     void loadTemplates();
   }, [token]);
+
+  useEffect(() => {
+    return subscribeSettingsEvents((event) => {
+      if (event.scope !== "company" || event.namespace !== "receipt_templates") return;
+      void loadTemplatesRef.current();
+    });
+  }, []);
 
   const persistTemplates = async (
     nextTemplates: ReceiptTemplate[],
@@ -76,10 +91,14 @@ export function ReceiptTemplatesPage() {
       const normalized = normalizeDefaultFlag(nextTemplates, nextDefaultId);
       const resolvedDefaultId =
         normalized.find((template) => template.is_default)?.id ?? null;
-      const response = await patchReceiptTemplates(token, {
-        templates: normalized,
-        default_template_id: resolvedDefaultId,
-      });
+      const response = await patchReceiptTemplates(
+        token,
+        {
+          templates: normalized,
+          default_template_id: resolvedDefaultId,
+        },
+        cacheScope,
+      );
       setTemplates(normalizeReceiptTemplates(response.settings.templates));
       setDefaultTemplateId(response.settings.default_template_id);
     } catch (err: unknown) {

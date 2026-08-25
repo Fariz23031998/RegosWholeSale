@@ -13,13 +13,20 @@ type Props = {
   context: DocumentPrintContext;
   className?: string;
   preview?: boolean;
+  previewFill?: boolean;
 };
 
 export function printAreaClassName(format: ReceiptFormat): string {
   return format === "a4" ? printStyles.printAreaA4 : printStyles.printArea80mm;
 }
 
-export function TemplatedReceiptView({ template, context, className, preview }: Props) {
+export function TemplatedReceiptView({
+  template,
+  context,
+  className,
+  preview,
+  previewFill,
+}: Props) {
   const sortedContext = useMemo(
     () => applyTemplateLineSort(context, template.line_sort),
     [context, template.line_sort],
@@ -34,7 +41,12 @@ export function TemplatedReceiptView({ template, context, className, preview }: 
       )}
     >
       {template.engine === "html" ? (
-        <HtmlReceiptLayout template={template} context={sortedContext} preview={preview} />
+        <HtmlReceiptLayout
+          template={template}
+          context={sortedContext}
+          preview={preview}
+          previewFill={previewFill}
+        />
       ) : template.format === "a4" ? (
         <InvoiceA4Layout template={template} context={sortedContext} />
       ) : (

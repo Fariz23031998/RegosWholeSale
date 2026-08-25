@@ -1,0 +1,86 @@
+<div class="receipt">
+  {{#if logos.length}}
+  <div class="center logos">
+    {{#each logos}}
+    <img src="{{src}}" alt="{{name}}"{{#if max_width}} style="max-width:{{max_width}}px;height:auto;"{{/if}} />
+    {{/each}}
+  </div>
+  {{/if}}
+
+  <div class="center company-name">{{header.company_name}}</div>
+  {{#if header.address}}<div class="center muted">{{header.address}}</div>{{/if}}
+  {{#if header.phone}}<div class="center muted">{{header.phone}}</div>{{/if}}
+  {{#if header.tax_id}}<div class="center muted">ИНН {{header.tax_id}}</div>{{/if}}
+
+  {{#if (eq kind "return")}}
+  <div class="center doc-type">*** ВОЗВРАТ ***</div>
+  {{/if}}
+
+  <hr />
+
+  <div class="meta">
+    <div class="row"><span>Чек №</span><span>{{document.code}}</span></div>
+    <div class="row"><span>Дата</span><span>{{#if sale.createdAt}}{{formatDateTime sale.createdAt}}{{else}}{{formatRegosDate document.date}}{{/if}}</span></div>
+    {{#if document.attached_user_name}}
+    <div class="row"><span>Кассир</span><span>{{document.attached_user_name}}</span></div>
+    {{/if}}
+    {{#if stock_name}}
+    <div class="row"><span>Склад</span><span>{{stock_name}}</span></div>
+    {{/if}}
+    {{#if document.partner_name}}
+    <div class="row"><span>Покупатель</span><span>{{document.partner_name}}</span></div>
+    {{/if}}
+  </div>
+
+  <hr />
+
+  {{#each operations}}
+  <div class="line">
+    <div class="name">{{add @index 1}}. {{item_name}}</div>
+    <div class="row qty">
+      <span>{{quantity}} {{item_unit_name}} × {{formatCurrency price}}</span>
+      <span>{{formatCurrency amount}}</span>
+    </div>
+  </div>
+  {{/each}}
+
+  <hr />
+
+  {{#if (gt totals.discount 0)}}
+  <div class="row"><span>Сумма без скидки</span><span>{{formatCurrency totals.amount_gross}}</span></div>
+  <div class="row"><span>Скидка</span><span>−{{formatCurrency totals.discount}}</span></div>
+  {{/if}}
+
+  <div class="row total">
+    <span>ИТОГО</span>
+    <span>{{formatCurrency totals.amount}}{{#if document.currency.code_chr}} {{document.currency.code_chr}}{{/if}}</span>
+  </div>
+  {{#if total_in_words}}<div class="in-words">{{total_in_words}}</div>{{/if}}
+  <div class="row items-count"><span>Позиций</span><span>{{totals.quantity}}</span></div>
+
+  {{#each payments}}
+  <div class="row"><span>{{payment_type_name}}</span><span>{{formatCurrency amount}}{{#if currency.code_chr}} {{currency.code_chr}}{{/if}}</span></div>
+  {{/each}}
+
+  {{#if (gt sale.tendered 0)}}
+  <div class="row"><span>Наличными</span><span>{{formatCurrency sale.tendered}}</span></div>
+  <div class="row"><span>Сдача</span><span>{{formatCurrency sale.change}}</span></div>
+  {{/if}}
+
+  {{#if (gt sale.balanceDue 0)}}
+  <div class="row"><span>Оплачено</span><span>{{formatCurrency sale.amountPaid}}</span></div>
+  <div class="row balance"><span>Остаток к оплате</span><span>{{formatCurrency sale.balanceDue}}</span></div>
+  {{/if}}
+
+  {{#if (eq kind "return")}}
+  {{#if document.reason}}
+  <hr />
+  <div class="reason">Причина возврата: {{document.reason}}</div>
+  {{/if}}
+  {{/if}}
+
+  {{#if footer_text}}
+  <hr />
+  <div class="center thanks">{{footer_text}}</div>
+  {{/if}}
+</div>

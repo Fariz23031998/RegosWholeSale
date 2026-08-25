@@ -91,7 +91,7 @@ export function LanguageSelector({ className, variant = "icon" }: LanguageSelect
         <div
           className={clsx(
             styles.menu,
-            variant === "menu" ? styles.menuAbove : styles.menuBelow,
+            variant === "menu" ? styles.menuAbove : styles.menuBelowIcon,
           )}
           role="menu"
         >

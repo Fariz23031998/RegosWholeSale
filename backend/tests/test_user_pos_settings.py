@@ -18,6 +18,8 @@ async def test_user_pos_settings_default_category(client: AsyncClient) -> None:
     }
     assert initial.json()["settings"]["allow_out_of_stock"] is False
     assert initial.json()["settings"]["auto_open_qty_keypad"] is False
+    assert initial.json()["settings"]["search_transliteration"] is True
+    assert initial.json()["settings"]["search_fuzzy"] is True
     assert initial.json()["settings"]["tendered_quick_amounts"] == [20.0, 50.0, 100.0]
 
     patched = await client.patch(
@@ -60,7 +62,10 @@ async def test_user_pos_settings_fallback_to_company(client: AsyncClient) -> Non
         json={
             "allow_out_of_stock": True,
             "auto_open_qty_keypad": True,
+            "search_transliteration": False,
+            "search_fuzzy": False,
             "tendered_quick_amounts": [500.0, 1000.0],
+            "default_category": {"mode": "featured", "group_id": None},
         },
     )
 
@@ -68,16 +73,26 @@ async def test_user_pos_settings_fallback_to_company(client: AsyncClient) -> Non
     assert effective.status_code == 200
     assert effective.json()["settings"]["allow_out_of_stock"] is True
     assert effective.json()["settings"]["auto_open_qty_keypad"] is True
+    assert effective.json()["settings"]["search_transliteration"] is False
+    assert effective.json()["settings"]["search_fuzzy"] is False
     assert effective.json()["settings"]["tendered_quick_amounts"] == [500.0, 1000.0]
+    assert effective.json()["settings"]["default_category"]["mode"] == "featured"
 
     user_patch = await client.patch(
         "/api/v1/me/settings/pos",
         headers=headers,
-        json={"allow_out_of_stock": False, "auto_open_qty_keypad": False},
+        json={
+            "allow_out_of_stock": False,
+            "auto_open_qty_keypad": False,
+            "search_transliteration": True,
+            "search_fuzzy": True,
+        },
     )
     assert user_patch.status_code == 200
     assert user_patch.json()["settings"]["allow_out_of_stock"] is False
     assert user_patch.json()["settings"]["auto_open_qty_keypad"] is False
+    assert user_patch.json()["settings"]["search_transliteration"] is True
+    assert user_patch.json()["settings"]["search_fuzzy"] is True
     assert user_patch.json()["settings"]["tendered_quick_amounts"] == [500.0, 1000.0]
 
     user_amounts = await client.patch(

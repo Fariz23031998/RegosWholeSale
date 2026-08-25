@@ -2,10 +2,11 @@ from typing import Any
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import bad_request, not_found
+from app.core.exceptions import bad_request, forbidden, not_found
 from app.core.regos_api import regos_async_api_request_for_company
 from app.models import Company, User
 from app.services import settings as settings_service
+from app.services import regos_firms as regos_firms_service
 
 REGOS_DEFAULTS_KEY = "regos_defaults"
 USER_REGOS_DEFAULTS_KEY = "regos_defaults"
@@ -44,40 +45,41 @@ REFERENCE_NAMES = {
 
 DEFAULT_VAT_CALCULATION_TYPE = "Exclude"
 VAT_CALCULATION_TYPES = frozenset({"No", "Exclude", "Include"})
+REFERENCE_OPTIONS_PAGE_SIZE = 200
 
 REFERENCE_REQUESTS = {
     "warehouse": {
         "deleted_mark": False,
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "Name", "direction": "asc"}],
     },
     "price_type": {
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "Name", "direction": "asc"}],
     },
     "partner": {
         "deleted_mark": False,
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "Name", "direction": "asc"}],
     },
     "payment_category": {
         "positive": True,
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "Name", "direction": "asc"}],
     },
     "refund_payment_category": {
         "positive": False,
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "Name", "direction": "asc"}],
     },
     "attached_user": {
         "active": True,
-        "limit": 1000,
+        "limit": REFERENCE_OPTIONS_PAGE_SIZE,
         "offset": 0,
         "sort_orders": [{"column": "FirstName", "direction": "asc"}],
     },
@@ -150,23 +152,6 @@ def _find_document_type_id(
     return None
 
 
-def _pick_default_document_status_id(items: list[Any]) -> int | None:
-    parsed: list[tuple[int, int]] = []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        status_id = _parse_regos_id(item.get("id"))
-        if not status_id:
-            continue
-        order = item.get("order")
-        order_val = order if isinstance(order, int) else 0
-        parsed.append((order_val, status_id))
-    if not parsed:
-        return None
-    parsed.sort()
-    return parsed[0][1]
-
-
 async def _fetch_document_types(
     session: AsyncSession,
     company_id: int,
@@ -201,33 +186,6 @@ async def _resolve_document_type_id(
     if option_id is None:
         raise bad_request(not_found_message, not_found_code)
     return option_id
-
-
-async def _infer_order_from_partner_status_id_from_documents(
-    session: AsyncSession,
-    company_id: int,
-) -> int | None:
-    response = await regos_async_api_request_for_company(
-        session,
-        company_id,
-        "docorderfrompartner/get",
-        {
-            "limit": 1,
-            "offset": 0,
-            "deleted_mark": False,
-            "sort_orders": [{"column": "Date", "direction": "desc"}],
-        },
-    )
-    items = response.get("result") or []
-    for item in items:
-        if not isinstance(item, dict):
-            continue
-        status = item.get("status")
-        if isinstance(status, dict):
-            status_id = _parse_regos_id(status.get("id"))
-            if status_id:
-                return status_id
-    return None
 
 
 async def get_doc_wholesale_document_type_id(
@@ -291,43 +249,66 @@ async def get_doc_order_from_partner_document_type_id(
     )
 
 
-async def get_doc_order_from_partner_default_status_id(
-    session: AsyncSession, company_id: int
-) -> int:
-    document_type_id = await get_doc_order_from_partner_document_type_id(
-        session, company_id
-    )
-    response = await regos_async_api_request_for_company(
-        session,
-        company_id,
-        "documentstatus/get",
-        {"document_type_id": document_type_id},
-    )
-    items = response.get("result") or []
-    status_id = _pick_default_document_status_id(items)
-    if status_id is not None:
-        return status_id
-
-    status_id = await _infer_order_from_partner_status_id_from_documents(
-        session, company_id
-    )
-    if status_id is not None:
-        return status_id
-
-    raise bad_request(
-        "DocOrderFromPartner document status was not found in Regos. "
-        "Configure order document statuses in Regos settings, or create one "
-        "order from partner document manually first.",
-        "REGOS_DOC_ORDER_FROM_PARTNER_STATUS_NOT_FOUND",
-    )
-
-
 async def get_regos_defaults(
     session: AsyncSession, company_id: int, *, user_id: int | None = None
 ) -> dict[str, Any]:
     if user_id is None:
         return await get_stored_regos_defaults(session, company_id)
     return await get_effective_stored_regos_defaults(session, user_id, company_id)
+
+
+async def resolve_stock_filter_scope(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    permissions: set[str] | list[str],
+    *,
+    stock_ids: list[int] | None,
+    all_stocks: bool,
+) -> tuple[list[int] | None, bool]:
+    if "pos.change_warehouse" in permissions:
+        return stock_ids, all_stocks
+    defaults = await get_regos_defaults(session, company_id, user_id=user_id)
+    warehouse = defaults.get("warehouse")
+    if warehouse and warehouse.get("id"):
+        return [int(warehouse["id"])], False
+    return [], False
+
+
+def _default_option_id(defaults: dict[str, Any], key: str) -> int | None:
+    option = defaults.get(key)
+    if not isinstance(option, dict):
+        return None
+    option_id = option.get("id")
+    if not isinstance(option_id, int) or option_id <= 0:
+        return None
+    return option_id
+
+
+async def assert_catalog_scope_allowed(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    permissions: set[str] | list[str],
+    *,
+    warehouse_id: int | None = None,
+    price_type_id: int | None = None,
+) -> None:
+    """Allow catalog scope params when they match defaults; forbid true overrides."""
+    needs_warehouse_check = (
+        warehouse_id is not None and "pos.change_warehouse" not in permissions
+    )
+    needs_price_type_check = (
+        price_type_id is not None and "pos.change_price_type" not in permissions
+    )
+    if not needs_warehouse_check and not needs_price_type_check:
+        return
+
+    defaults = await get_regos_defaults(session, company_id, user_id=user_id)
+    if needs_warehouse_check and warehouse_id != _default_option_id(defaults, "warehouse"):
+        raise forbidden("Missing permission: pos.change_warehouse", "FORBIDDEN")
+    if needs_price_type_check and price_type_id != _default_option_id(defaults, "price_type"):
+        raise forbidden("Missing permission: pos.change_price_type", "FORBIDDEN")
 
 
 async def get_effective_stored_regos_defaults(
@@ -436,6 +417,7 @@ async def list_reference_options(session: AsyncSession, company_id: int) -> dict
         session, company_id, "refund_payment_category"
     )
     attached_users = await _fetch_reference_options(session, company_id, "attached_user")
+    firms_data = await regos_firms_service.list_firms(session, company_id)
     return {
         "warehouses": warehouses,
         "price_types": price_types,
@@ -443,6 +425,7 @@ async def list_reference_options(session: AsyncSession, company_id: int) -> dict
         "payment_categories": payment_categories,
         "refund_payment_categories": refund_payment_categories,
         "attached_users": attached_users,
+        "firms": firms_data["firms"],
     }
 
 
@@ -640,18 +623,43 @@ async def _enrich_price_type_options(
 async def _fetch_reference_options(
     session: AsyncSession, company_id: int, kind: str
 ) -> list[dict[str, Any]]:
-    response = await regos_async_api_request_for_company(
-        session,
-        company_id,
-        REFERENCE_ENDPOINTS[kind],
-        dict(REFERENCE_REQUESTS[kind]),
-    )
-    items = response.get("result") or []
-    return [
-        _map_reference_item(item, kind)
-        for item in items
-        if isinstance(item, dict) and item.get("id")
-    ]
+    base_payload = dict(REFERENCE_REQUESTS[kind])
+    page_size = int(base_payload.pop("limit", REFERENCE_OPTIONS_PAGE_SIZE))
+    offset = int(base_payload.pop("offset", 0))
+    endpoint = REFERENCE_ENDPOINTS[kind]
+    collected: list[dict[str, Any]] = []
+
+    while True:
+        payload = {**base_payload, "limit": page_size, "offset": offset}
+        response = await regos_async_api_request_for_company(
+            session,
+            company_id,
+            endpoint,
+            payload,
+        )
+        items = response.get("result") or []
+        page = [
+            _map_reference_item(item, kind)
+            for item in items
+            if isinstance(item, dict) and item.get("id")
+        ]
+        collected.extend(page)
+
+        if not page:
+            break
+
+        total = response.get("total")
+        next_offset = response.get("next_offset")
+        if isinstance(total, int) and len(collected) >= total:
+            break
+        if isinstance(next_offset, int) and next_offset > offset:
+            offset = next_offset
+            continue
+        if len(page) < page_size:
+            break
+        offset += len(page)
+
+    return collected
 
 
 def _request_for_ids(kind: str, value: int) -> dict[str, Any]:
@@ -768,6 +776,10 @@ def _map_currency_item(raw: dict[str, Any]) -> dict[str, Any] | None:
                 currency["exchange_rate"] = rate
         except (TypeError, ValueError):
             pass
+    if "is_base" in raw:
+        currency["is_base"] = bool(raw.get("is_base"))
+    if "deleted" in raw:
+        currency["deleted"] = bool(raw.get("deleted"))
     return currency
 
 

@@ -132,3 +132,114 @@ async def test_postpone_requires_sales_postpone_permission(client: AsyncClient) 
         },
     )
     assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_employee_defaults_include_item_mutate_permissions(client: AsyncClient) -> None:
+    reg = await register_owner(client, email="item-defaults@test.com", company_name="Item Defaults Co")
+    owner_token = reg.json()["access_token"]
+    employee = await _create_employee(client, owner_token, login="item-defaults")
+    assert "stock.item_create" in employee["permissions"]
+    assert "stock.item_edit" in employee["permissions"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("method", "path", "denied_code", "json_body"),
+    [
+        (
+            "POST",
+            "/api/v1/regos/items",
+            "stock.item_create",
+            {
+                "name": "Milk",
+                "group_id": 1,
+                "unit_id": 1,
+                "vat_id": 1,
+                "type": "Item",
+            },
+        ),
+        (
+            "PATCH",
+            "/api/v1/regos/items/55",
+            "stock.item_edit",
+            {"name": "Milk 2%"},
+        ),
+        (
+            "POST",
+            "/api/v1/regos/product-groups",
+            "stock.item_create",
+            {"name": "Dairy", "parent_id": 0},
+        ),
+        (
+            "PATCH",
+            "/api/v1/regos/product-groups/10",
+            "stock.item_edit",
+            {"name": "Dairy updated"},
+        ),
+    ],
+)
+async def test_item_mutate_endpoints_require_specific_permissions(
+    client: AsyncClient,
+    method: str,
+    path: str,
+    denied_code: str,
+    json_body: dict,
+) -> None:
+    reg = await register_owner(
+        client,
+        email=f"item-deny-{denied_code.replace('.', '-')}@test.com",
+        company_name=f"Item Deny {denied_code}",
+    )
+    owner_token = reg.json()["access_token"]
+    login = f"deny-{denied_code.replace('.', '-')}"
+    await _create_employee(
+        client,
+        owner_token,
+        login=login,
+        permission_rules=[{"code": denied_code, "effect": "deny"}],
+    )
+    token = await _login_employee(client, login)
+    response = await client.request(
+        method,
+        path,
+        headers={"Authorization": f"Bearer {token}"},
+        json=json_body,
+    )
+    assert response.status_code == 403, response.text
+
+
+@pytest.mark.asyncio
+async def test_patch_user_permission_rules_appear_in_response(client: AsyncClient) -> None:
+    """PATCH must return fresh permission_rules (not a stale ORM collection)."""
+    reg = await register_owner(
+        client,
+        email="patch-rules@test.com",
+        company_name="Patch Rules Co",
+    )
+    owner_token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {owner_token}"}
+
+    employee = await _create_employee(client, owner_token, login="patch-rules-emp")
+    assert employee["permission_rules"] == []
+    assert "documents.print" not in employee["permissions"]
+
+    patched = await client.patch(
+        f"/api/v1/users/{employee['id']}",
+        headers=headers,
+        json={"permission_rules": [{"code": "documents.print", "effect": "allow"}]},
+    )
+    assert patched.status_code == 200, patched.text
+    body = patched.json()
+    assert body["permission_rules"] == [{"code": "documents.print", "effect": "allow"}]
+    assert "documents.print" in body["permissions"]
+
+    cleared = await client.patch(
+        f"/api/v1/users/{employee['id']}",
+        headers=headers,
+        json={"permission_rules": []},
+    )
+    assert cleared.status_code == 200, cleared.text
+    cleared_body = cleared.json()
+    assert cleared_body["permission_rules"] == []
+    assert "documents.print" not in cleared_body["permissions"]

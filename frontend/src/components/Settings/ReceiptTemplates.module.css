@@ -200,6 +200,13 @@
   border-radius: var(--radius-sm);
 }
 
+.previewReceipt {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 .modalActions {
   display: flex;
   justify-content: flex-end;

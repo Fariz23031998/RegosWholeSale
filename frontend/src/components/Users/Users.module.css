@@ -277,6 +277,12 @@
   font-size: 13px;
 }
 
+.settingsModalForm .select {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 @media (max-width: 900px) {
   .page {
     padding: var(--space-4) var(--space-4) var(--space-8);
@@ -361,6 +367,41 @@
 
   .actions {
     justify-content: flex-end;
+    width: 100%;
+  }
+
+  .settingsModalForm .hint,
+  .settingsModalForm .label,
+  .settingsModalForm .rowDesc,
+  .settingsModalForm .rowTitle {
+    word-break: break-word;
+    line-height: 1.45;
+  }
+
+  .settingsModalForm .row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+  }
+
+  .settingsModalForm .row > div {
+    min-width: 0;
+  }
+
+  .settingsModalForm .switchRow {
+    align-items: flex-start;
+  }
+
+  .settingsModalForm .switch {
+    align-self: flex-start;
+  }
+
+  .settingsModalForm .modalActions {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+
+  .settingsModalForm .modalActions > * {
     width: 100%;
   }
 }

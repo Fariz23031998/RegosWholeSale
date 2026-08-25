@@ -111,3 +111,31 @@ class PartnerBalanceRow(BaseModel):
 
 class PartnerBalanceResponse(BaseModel):
     rows: list[PartnerBalanceRow]
+
+
+class PartnerPayDebtPaymentLine(BaseModel):
+    currency_id: int = Field(ge=1)
+    amount: float = Field(gt=0)
+    payment_type_id: int = Field(ge=1)
+    exchange_rate: float | None = Field(default=None, gt=0)
+    currency_name: str | None = None
+    currency_code: str | None = None
+
+
+class PartnerPayDebtRequest(BaseModel):
+    firm_id: int = Field(ge=1)
+    payments: list[PartnerPayDebtPaymentLine] = Field(min_length=1)
+
+
+class PartnerPayDebtPaymentResult(BaseModel):
+    payment_type_id: int
+    payment_doc_id: int
+    currency_id: int
+    amount: float
+    payment_amount: float | None = None
+    payment_currency: RegosCurrencyOption | None = None
+
+
+class PartnerPayDebtResponse(BaseModel):
+    payment_doc_ids: list[int]
+    payments: list[PartnerPayDebtPaymentResult]

@@ -1,4 +1,5 @@
 from app.models.company import Company
+from app.models.events_log import EventsLog
 from app.models.permission import Permission, UserPermission
 from app.models.platform_admin import PlatformAdmin
 from app.models.schedule import LoginSchedule
@@ -10,10 +11,13 @@ from app.models.regos_token import RegosToken
 from app.models.telegram_bot import TelegramBot
 from app.models.telegram_user import TelegramUser
 from app.models.user_featured_product import UserFeaturedProduct
+from app.models.out_of_stock_product import OutOfStockProduct
 from app.models.verification_code import VerificationCode
+from app.models.receipt_share import ReceiptShare
 
 __all__ = [
     "Company",
+    "EventsLog",
     "SubscriptionStatus",
     "SubscriptionPayment",
     "PlatformAdmin",
@@ -24,8 +28,10 @@ __all__ = [
     "LoginSchedule",
     "UserSetting",
     "UserFeaturedProduct",
+    "OutOfStockProduct",
     "VerificationCode",
     "RegosToken",
     "TelegramBot",
     "TelegramUser",
+    "ReceiptShare",
 ]

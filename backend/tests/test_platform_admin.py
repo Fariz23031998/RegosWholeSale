@@ -18,6 +18,7 @@ async def seed_platform_admin(session_factory: async_sessionmaker[AsyncSession])
             await create_platform_admin(
                 session,
                 email="platform@test.com",
+                username="platform-admin",
                 password="platform-pass-123",
                 display_name="Test Platform Admin",
             )
@@ -76,6 +77,7 @@ async def test_platform_admin_crud(client: AsyncClient) -> None:
         headers=headers,
         json={
             "email": "second-admin@test.com",
+            "username": "second-admin",
             "password": "second-pass-123",
             "display_name": "Second Admin",
         },
@@ -92,10 +94,40 @@ async def test_platform_admin_crud(client: AsyncClient) -> None:
 async def test_platform_login_with_username(client: AsyncClient) -> None:
     login = await client.post(
         "/api/v1/platform/auth/login",
-        json={"login": "Test Platform Admin", "password": "platform-pass-123"},
+        json={"login": "platform-admin", "password": "platform-pass-123"},
     )
     assert login.status_code == 200
     assert login.json()["admin"]["email"] == "platform@test.com"
+
+
+@pytest.mark.asyncio
+async def test_platform_change_password(client: AsyncClient) -> None:
+    login = await client.post(
+        "/api/v1/platform/auth/login",
+        json={"login": "platform@test.com", "password": "platform-pass-123"},
+    )
+    token = login.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    bad = await client.post(
+        "/api/v1/platform/auth/change-password",
+        headers=headers,
+        json={"current_password": "wrong", "new_password": "new-pass-12345"},
+    )
+    assert bad.status_code == 401
+
+    ok = await client.post(
+        "/api/v1/platform/auth/change-password",
+        headers=headers,
+        json={"current_password": "platform-pass-123", "new_password": "new-pass-12345"},
+    )
+    assert ok.status_code == 200
+
+    relogin = await client.post(
+        "/api/v1/platform/auth/login",
+        json={"login": "platform-admin", "password": "new-pass-12345"},
+    )
+    assert relogin.status_code == 200
 
 
 @pytest.mark.asyncio

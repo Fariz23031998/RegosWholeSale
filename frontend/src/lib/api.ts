@@ -117,3 +117,61 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
 
   return data as T;
 }
+
+type UploadOptions = {
+  token?: string | null;
+  timeoutMs?: number;
+};
+
+export async function apiUpload<T>(path: string, formData: FormData, options: UploadOptions = {}): Promise<T> {
+  const apiBase = getApiBaseUrl();
+  if (!apiBase) {
+    throw new ApiError(0, "API URL not configured (set VITE_API_BASE_URL)");
+  }
+
+  const headers: Record<string, string> = {};
+  if (options.token) {
+    headers.Authorization = `Bearer ${options.token}`;
+  }
+
+  const { signal, clear } = abortSignalForTimeout(options.timeoutMs ?? DEFAULT_TIMEOUT_MS);
+
+  let res: Response;
+  try {
+    res = await fetch(`${apiBase}${path}`, {
+      method: "POST",
+      headers,
+      body: formData,
+      signal,
+    });
+  } catch (err) {
+    clear();
+    if (err instanceof DOMException && err.name === "AbortError") {
+      throw new ApiError(0, "Request timed out. Check your connection and try again.");
+    }
+    if (err instanceof TypeError) {
+      throw new ApiError(0, "Unable to reach the server. Check your connection and try again.");
+    }
+    throw err;
+  } finally {
+    clear();
+  }
+
+  let data: unknown = null;
+  const text = await res.text();
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = { detail: text };
+    }
+  }
+
+  if (!res.ok) {
+    const err = data as ApiErrorBody | null;
+    const message = err?.detail ? parseApiDetail(err.detail) : res.statusText;
+    throw new ApiError(res.status, message, err?.code);
+  }
+
+  return data as T;
+}

@@ -19,11 +19,12 @@ import {
   type DashboardPeriodPreset,
 } from "@/lib/dashboard-api";
 import { usePermissions } from "@/hooks/use-permissions";
+import { useWarehouseScope } from "@/hooks/use-warehouse-scope";
 import { filterCheckoutOverrides } from "@/types/users";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
-import { fetchCatalogProducts } from "@/lib/catalog-api";
+import { loadCatalogProducts } from "@/lib/catalog-service";
 import {
   findProductByBarcode,
   findProductByCode,
@@ -32,6 +33,7 @@ import {
   parseInternalBarcode,
 } from "@/lib/barcode";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
+import { operativeOperationPrice } from "@/lib/currency-conversion";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import {
   fetchWholesaleDocuments,
@@ -70,8 +72,10 @@ const SALE_PERIOD_PRESETS: SalePeriodPreset[] = ["today", "week", "month", "all"
 export function ReturnModal({ open, onClose }: Props) {
   const { t } = useLanguage();
   const accessToken = useAuth((s) => s.accessToken);
+  const user = useAuth((s) => s.user);
   const { canChangePartner } = usePermissions();
   const canChangePartnerPerm = canChangePartner();
+  const { ready: warehouseScopeReady, scopedStockQueryParams } = useWarehouseScope();
   const posSaleCurrency = useSellContext((s) => s.saleCurrency);
   const partnerId = useSellContext((s) => s.partnerId);
   const checkoutOverrides = useSellContext((s) => s.checkoutOverrides);
@@ -96,11 +100,6 @@ export function ReturnModal({ open, onClose }: Props) {
   const [documents, setDocuments] = useState<WholesaleDocument[]>([]);
   const [documentsLoading, setDocumentsLoading] = useState(false);
   const [selectedSale, setSelectedSale] = useState<WholesaleDocument | null>(null);
-
-  const periodParams = useMemo(
-    () => resolveDashboardPeriodParams(periodPreset, customRange),
-    [customRange, periodPreset],
-  );
 
   const periodModalRange = useMemo(() => {
     if (periodPreset === "custom" && customRange) return customRange;
@@ -150,11 +149,17 @@ export function ReturnModal({ open, onClose }: Props) {
   };
 
   useEffect(() => {
-    if (!open || !accessToken || sourceMode !== "sale") return;
+    if (!open || !accessToken || sourceMode !== "sale" || !warehouseScopeReady) return;
 
     let cancelled = false;
     setDocumentsLoading(true);
-    void fetchWholesaleDocuments(accessToken, { ...periodParams, performed: true, limit: 100 })
+    const params = resolveDashboardPeriodParams(periodPreset, customRange);
+    void fetchWholesaleDocuments(accessToken, {
+      ...params,
+      performed: true,
+      limit: 100,
+      ...scopedStockQueryParams({ allStocks: true, stockIds: [] }),
+    })
       .then((res) => {
         if (!cancelled) setDocuments(res.documents);
       })
@@ -168,7 +173,7 @@ export function ReturnModal({ open, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, accessToken, sourceMode, periodParams, t]);
+  }, [open, accessToken, sourceMode, periodPreset, customRange, scopedStockQueryParams, t, warehouseScopeReady]);
 
   useEffect(() => {
     if (!open || !accessToken) return;
@@ -200,12 +205,15 @@ export function ReturnModal({ open, onClose }: Props) {
     let cancelled = false;
     setSearchLoading(true);
     const query = catalogQuery();
-    void fetchCatalogProducts(accessToken, {
-      search: q,
-      limit: 20,
-      warehouseId: query.warehouseId,
-      priceTypeId: query.priceTypeId,
-    })
+    void loadCatalogProducts(
+      accessToken,
+      { search: q, limit: 20, warehouseId: query.warehouseId, priceTypeId: query.priceTypeId },
+      {
+        companyId: user?.company_id,
+        warehouseId: query.warehouseId,
+        priceTypeId: query.priceTypeId,
+      },
+    )
       .then((res) => {
         if (!cancelled) setSearchResults(res.products);
       })
@@ -227,6 +235,7 @@ export function ReturnModal({ open, onClose }: Props) {
     open,
     sourceMode,
     t,
+    user?.company_id,
   ]);
 
   const filteredDocuments = useMemo(() => {
@@ -258,7 +267,7 @@ export function ReturnModal({ open, onClose }: Props) {
       setLines(
         opsRes.operations
           .filter((op) => op.item_id > 0)
-          .map((op) => mapOperationToLine(op, returnedByItem.get(op.item_id) ?? 0)),
+          .map((op) => mapOperationToLine(op, returnedByItem.get(op.item_id) ?? 0, doc.currency)),
       );
     } catch (err: unknown) {
       setError(formatAuthError(err, t("returns.errors.loadDetails")));
@@ -269,13 +278,14 @@ export function ReturnModal({ open, onClose }: Props) {
   const mapOperationToLine = (
     op: WholesaleOperationLine,
     returnedQty: number,
+    saleCurrency?: WholesaleDocument["currency"],
   ): ReturnLine => {
     const soldQty = op.quantity;
     const remaining = Math.max(0, soldQty - returnedQty);
     return {
       regosItemId: op.item_id,
       name: op.item_name ?? t("sales.itemFallback", undefined, { id: op.item_id }),
-      price: op.price,
+      price: operativeOperationPrice(op.price, op.price2, saleCurrency),
       qty: 0,
       maxQty: remaining,
       soldQty,
@@ -333,15 +343,19 @@ export function ReturnModal({ open, onClose }: Props) {
     };
     const parsedInternal = parseInternalBarcode(term, prefixes);
     const query = catalogQuery();
+    const scope = {
+      companyId: user?.company_id,
+      warehouseId: query.warehouseId,
+      priceTypeId: query.priceTypeId,
+    };
 
     try {
       if (parsedInternal) {
-        const res = await fetchCatalogProducts(accessToken, {
-          search: parsedInternal.productCode,
-          limit: 20,
-          warehouseId: query.warehouseId,
-          priceTypeId: query.priceTypeId,
-        });
+        const res = await loadCatalogProducts(
+          accessToken,
+          { search: parsedInternal.productCode, limit: 20, warehouseId: query.warehouseId, priceTypeId: query.priceTypeId },
+          scope,
+        );
         const product = findProductByCode(res.products, parsedInternal.productCode);
         if (!product) {
           setError(
@@ -365,12 +379,11 @@ export function ReturnModal({ open, onClose }: Props) {
         return;
       }
 
-      const res = await fetchCatalogProducts(accessToken, {
-        search: term,
-        limit: 20,
-        warehouseId: query.warehouseId,
-        priceTypeId: query.priceTypeId,
-      });
+      const res = await loadCatalogProducts(
+        accessToken,
+        { search: term, limit: 20, warehouseId: query.warehouseId, priceTypeId: query.priceTypeId },
+        scope,
+      );
       const product = findProductByBarcode(res.products, term);
       if (!product) {
         setError(
@@ -630,7 +643,7 @@ export function ReturnModal({ open, onClose }: Props) {
                                 </div>
                               </div>
                               <div className={styles.saleAmount}>
-                                {formatCurrency(doc.amount ?? 0)}
+                                {formatAmountWithCurrency(doc.amount ?? 0, doc.currency)}
                               </div>
                             </button>
                           ))}
@@ -669,7 +682,7 @@ export function ReturnModal({ open, onClose }: Props) {
                                   )}
                                 </div>
                                 <div className={styles.itemMeta}>
-                                  {formatCurrency(line.price)} {t("returns.modal.ea")} · {t("returns.modal.sold")} {line.soldQty}
+                                  {formatAmountWithCurrency(line.price, returnCurrency)} {t("returns.modal.ea")} · {t("returns.modal.sold")} {line.soldQty}
                                   {(line.returnedQty ?? 0) > 0 &&
                                     ` · ${line.returnedQty} ${t("returns.modal.alreadyReturned")}`}
                                 </div>
@@ -684,7 +697,7 @@ export function ReturnModal({ open, onClose }: Props) {
                               </button>
                               <div className={styles.itemMeta}>/ {max}</div>
                               <div className={styles.amount}>
-                                {formatCurrency(line.price * line.qty)}
+                                {formatAmountWithCurrency(line.price * line.qty, returnCurrency)}
                               </div>
                             </div>
                           );

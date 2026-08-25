@@ -41,6 +41,14 @@
   display: flex;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  align-items: center;
+}
+
+.catalogToolbarActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-shrink: 0;
 }
 
 .search {
@@ -71,11 +79,11 @@
 .searchScanBtn {
   display: inline-flex;
   position: absolute;
-  right: 6px;
+  right: 4px;
   top: 50%;
   transform: translateY(-50%);
-  width: 32px;
-  height: 32px;
+  width: 44px;
+  height: 44px;
   align-items: center;
   justify-content: center;
   border: none;
@@ -86,7 +94,7 @@
 }
 
 .searchWithScan .searchInput {
-  padding-right: 38px;
+  padding-right: 52px;
 }
 
 .searchScanBtn:active {
@@ -137,9 +145,94 @@
   display: inline;
 }
 
-@media (max-width: 900px) {
+.sortMenuWrap {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.sortMenu {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 11rem;
+  width: max-content;
+  padding: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.sortMenuLabel {
+  padding: 6px 10px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--color-text-subtle);
+}
+
+.sortMenuItem {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.sortMenuItem:hover {
+  background: var(--color-surface-2);
+}
+
+.sortMenuItemActive {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.sortMenuItemActive:hover {
+  background: var(--color-primary-soft);
+}
+
+@media (max-width: 1299px) {
   .catalogFilterBtnLabel {
     display: none;
+  }
+
+  .catalogFilterBtn {
+    padding: 0 10px;
+    gap: 0;
+  }
+}
+
+@media (max-width: 900px) {
+  .searchRow {
+    flex-wrap: wrap;
+  }
+
+  .catalogToolbarActions {
+    order: 1;
+    flex: 1 1 100%;
+    justify-content: flex-start;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .searchRow > .search {
+    order: 2;
+    flex: 1 1 100%;
   }
 }
 
@@ -194,6 +287,14 @@
 .sellContextPartnerIcon {
   flex-shrink: 0;
   color: var(--color-text-muted);
+}
+
+.sellContextMobileActions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
 }
 
 .sellContextMobileBtn {
@@ -333,11 +434,32 @@
   align-items: center;
   gap: var(--space-3);
   margin-bottom: var(--space-4);
+  flex-wrap: wrap;
 }
 
 .partnerModalToolbar .categoryModalSearch {
   flex: 1;
+  min-width: 160px;
   margin-bottom: 0;
+}
+
+.partnerGroupFilter {
+  flex-shrink: 0;
+  height: 40px;
+  min-width: 140px;
+  max-width: 220px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 13px;
+  outline: none;
+}
+
+.partnerGroupFilter:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
 }
 
 .partnerModalError {
@@ -736,6 +858,240 @@
   }
 }
 
+.partnerDebtBanner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--color-danger, #ef4444) 35%, var(--color-border));
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-danger, #ef4444) 8%, var(--color-surface));
+}
+
+.partnerDebtBannerFirmOnly {
+  border-color: color-mix(in srgb, var(--color-success, #22c55e) 35%, var(--color-border));
+  background: color-mix(in srgb, var(--color-success, #22c55e) 8%, var(--color-surface));
+}
+
+.partnerDebtSummary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px 16px;
+  min-width: 0;
+}
+
+.partnerDebtLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-danger, #ef4444);
+}
+
+.partnerFirmDebtLabel {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-success, #16a34a);
+}
+
+.partnerDebtList,
+.partnerFirmDebtList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.partnerDebtBaseTotals {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  width: 100%;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
+
+.partnerDebtNet {
+  font-weight: 700;
+  color: var(--color-danger, #ef4444);
+}
+
+.partnerPayDebtModal {
+  max-width: 640px;
+}
+
+.partnerPayDebtBody {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+}
+
+.partnerPayDebtOffsetSummary {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  font-size: 13px;
+  color: var(--color-text);
+}
+
+.partnerPayDebtCreditList {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.partnerPayDebtOffsetHint {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.partnerPayDebtModes {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+
+.partnerPayDebtMode,
+.partnerPayDebtModeActive {
+  flex: 1;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  background: transparent;
+  color: var(--color-text-muted);
+}
+
+.partnerPayDebtModeActive {
+  background: var(--color-surface);
+  color: var(--color-text);
+  box-shadow: var(--shadow-sm, 0 1px 2px rgb(0 0 0 / 8%));
+}
+
+.partnerPayDebtLines {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.partnerPayDebtLine {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+}
+
+.partnerPayDebtLineHeader {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.partnerPayDebtPayments {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.partnerPayDebtPayment {
+  display: grid;
+  gap: 6px;
+}
+
+.partnerPayDebtLineFields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+  align-items: end;
+}
+
+.partnerPayDebtField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.partnerPayDebtField input,
+.partnerPayDebtField select {
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 14px;
+}
+
+.partnerPayDebtPaymentActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+}
+
+.partnerPayDebtRemove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.partnerPayDebtRemove:hover {
+  color: var(--color-danger, #b42318);
+  border-color: currentColor;
+}
+
+.partnerPayDebtConverted {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.partnerPayDebtSummary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.partnerPayDebtActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+}
+
 .partnerForm {
   display: grid;
   gap: var(--space-4);
@@ -820,11 +1176,11 @@
   flex-shrink: 0;
   transition: all 0.15s;
 }
-.chip:hover { color: var(--color-text); }
+.chip:not(.chipActive):hover { color: var(--color-text); }
 .chipActive {
-  background: var(--color-text);
-  border-color: var(--color-text);
-  color: white;
+  background: var(--color-filter-active-bg);
+  border-color: var(--color-filter-active-border);
+  color: var(--color-filter-active-text);
 }
 .chipIcon {
   display: inline-flex;
@@ -892,16 +1248,12 @@
 .cardMedia {
   position: relative;
   flex-shrink: 0;
-  height: 180px;
   background: var(--color-surface-2);
   overflow: hidden;
 }
 .cardImg {
   width: 100%;
-  height: 100%;
-  flex-shrink: 0;
-  object-fit: cover;
-  object-position: center;
+  height: auto;
   display: block;
 }
 .featureBtn {
@@ -1027,8 +1379,7 @@
   font-size: 13px;
   color: var(--color-text-muted);
 }
-.retryBtn,
-.loadMoreBtn {
+.retryBtn {
   justify-self: center;
   min-height: 40px;
   padding: 0 16px;
@@ -1038,8 +1389,7 @@
   color: var(--color-text);
   cursor: pointer;
 }
-.retryBtn:hover,
-.loadMoreBtn:hover {
+.retryBtn:hover {
   border-color: var(--color-primary);
 }
 .loadingMore {
@@ -1145,15 +1495,13 @@
   .gridSingle .cardMedia,
   .gridDouble .cardMedia {
     height: auto;
-    aspect-ratio: 4 / 3;
-    min-height: 120px;
+    min-height: 0;
   }
 
   .gridSingle .cardImg,
   .gridDouble .cardImg {
     width: 100%;
-    height: 100%;
-    object-fit: cover;
+    height: auto;
   }
 
   .gridList .card {

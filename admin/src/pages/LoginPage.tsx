@@ -29,7 +29,7 @@ export function LoginPage() {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-md rounded-xl border border-slate-200 bg-white p-8 shadow-sm">
         <h1 className="text-xl font-semibold text-slate-900">Platform Admin</h1>
-        <p className="mt-1 text-sm text-slate-500">Sign in to manage companies and subscriptions</p>
+        <p className="mt-1 text-sm text-slate-500">Sign in with your email or username</p>
         <form className="mt-6 space-y-4" onSubmit={submit}>
           <div>
             <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="login">
@@ -39,6 +39,7 @@ export function LoginPage() {
               id="login"
               type="text"
               autoComplete="username"
+              placeholder="you@example.com or your-username"
               className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
               value={loginValue}
               onChange={(e) => setLoginValue(e.target.value)}

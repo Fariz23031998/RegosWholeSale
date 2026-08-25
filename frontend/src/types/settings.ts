@@ -53,6 +53,7 @@ export type RegosReferenceOptionsResponse = {
   payment_categories: RegosDefaultOption[];
   refund_payment_categories: RegosDefaultOption[];
   attached_users: RegosDefaultOption[];
+  firms: RegosDefaultOption[];
 };
 
 export type RegosTokenConfig = {
@@ -98,18 +99,79 @@ export type RegosPaymentLinkingPatchRequest = {
   mode: PaymentLinkingMode;
 };
 
+export type ExchangeRateSyncRule = {
+  currency_id: number;
+  currency_code: string;
+  formula: string;
+  enabled: boolean;
+};
+
+export type ExchangeRateSyncRunStatus = "success" | "partial" | "failed" | "skipped";
+
+export type ExchangeRateSyncSettings = {
+  enabled: boolean;
+  rules: ExchangeRateSyncRule[];
+  last_run_at?: string | null;
+  last_run_status?: ExchangeRateSyncRunStatus | null;
+  last_run_results?: Array<Record<string, unknown>>;
+  last_run_trigger?: string | null;
+  last_run_message?: string | null;
+};
+
+export type ExchangeRateSyncResponse = {
+  settings: ExchangeRateSyncSettings;
+};
+
+export type ExchangeRateSyncPatchRequest = {
+  enabled?: boolean;
+  rules?: ExchangeRateSyncRule[];
+};
+
+export type ExchangeRateSyncRunResponse = {
+  company_id: number;
+  trigger: string;
+  status: ExchangeRateSyncRunStatus;
+  message?: string | null;
+  results: Array<Record<string, unknown>>;
+};
+
+export type ExchangeRateFormulaPreviewRequest = {
+  formula: string;
+  currency_code?: string | null;
+  sample_rate?: number | null;
+};
+
+export type ExchangeRateFormulaPreviewResponse = {
+  formula: string;
+  currency_code?: string | null;
+  official_rate: number;
+  calculated_rate: number;
+};
+
 export type CrossCurrencyPaymentMode = "payment_currency" | "sale_currency_transfer";
 export type PostponeDocumentType = "doc_wholesale" | "doc_order_from_partner";
+
+export type DefaultCategorySetting = {
+  mode: "all" | "featured" | "group";
+  group_id: number | null;
+};
 
 export type PosSettings = {
   allow_out_of_stock: boolean;
   tendered_quick_amounts: number[];
+  default_category: DefaultCategorySetting;
   auto_open_qty_keypad: boolean;
+  search_transliteration: boolean;
+  search_fuzzy: boolean;
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
   internal_barcode_weight_prefix: string;
   internal_barcode_piece_prefix: string;
   postpone_document_type: PostponeDocumentType;
   postpone_order_booked: boolean;
+  tasnif_create_on_barcode_miss: boolean;
+  tasnif_default_group_id: number | null;
+  tasnif_default_unit_id: number | null;
+  tasnif_default_vat_id: number | null;
 };
 
 export type PosSettingsResponse = {
@@ -119,17 +181,19 @@ export type PosSettingsResponse = {
 export type PosSettingsPatchRequest = {
   allow_out_of_stock?: boolean;
   tendered_quick_amounts?: number[];
+  default_category?: DefaultCategorySetting;
   auto_open_qty_keypad?: boolean;
+  search_transliteration?: boolean;
+  search_fuzzy?: boolean;
   cross_currency_payment_mode?: CrossCurrencyPaymentMode;
   internal_barcode_weight_prefix?: string;
   internal_barcode_piece_prefix?: string;
   postpone_document_type?: PostponeDocumentType;
   postpone_order_booked?: boolean;
-};
-
-export type DefaultCategorySetting = {
-  mode: "all" | "featured" | "group";
-  group_id: number | null;
+  tasnif_create_on_barcode_miss?: boolean;
+  tasnif_default_group_id?: number | null;
+  tasnif_default_unit_id?: number | null;
+  tasnif_default_vat_id?: number | null;
 };
 
 export type UserPosSettings = {
@@ -137,6 +201,8 @@ export type UserPosSettings = {
   tendered_quick_amounts: number[];
   default_category: DefaultCategorySetting;
   auto_open_qty_keypad: boolean;
+  search_transliteration: boolean;
+  search_fuzzy: boolean;
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
   internal_barcode_weight_prefix: string;
   internal_barcode_piece_prefix: string;
@@ -153,6 +219,8 @@ export type UserPosSettingsPatchRequest = {
   tendered_quick_amounts?: number[];
   default_category?: DefaultCategorySetting;
   auto_open_qty_keypad?: boolean;
+  search_transliteration?: boolean;
+  search_fuzzy?: boolean;
 };
 
 type TranslateFn = (

@@ -8,7 +8,9 @@ export type Product = {
   stock: number;
   image: string;
   sku: string;
+  articul?: string;
   barcode?: string;
+  barcode_list?: string;
   code?: string;
   unit_name?: string;
   unit_type?: number | null;

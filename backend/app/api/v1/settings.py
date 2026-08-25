@@ -14,6 +14,14 @@ from app.schemas.receipt_templates import (
     ReceiptTemplatesPatchRequest,
     ReceiptTemplatesResponse,
 )
+from app.schemas.exchange_rate_sync import (
+    ExchangeRateFormulaPreviewRequest,
+    ExchangeRateFormulaPreviewResponse,
+    ExchangeRateSyncPatchRequest,
+    ExchangeRateSyncResponse,
+    ExchangeRateSyncRunResponse,
+    ExchangeRateSyncSettings,
+)
 from app.schemas.settings import (
     RegosDefaultsPatchRequest,
     RegosDefaultsResponse,
@@ -21,11 +29,13 @@ from app.schemas.settings import (
     SettingsResponse,
 )
 from app.services import featured_products as featured_products_service
+from app.services import exchange_rate_sync as exchange_rate_sync_service
 from app.services import pos_settings as pos_settings_service
 from app.services import receipt_templates as receipt_templates_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services import settings as settings_service
 from app.services.permissions import get_user_with_permissions
+from app.services.settings_change import notify_settings_updated
 
 router = APIRouter(tags=["settings"])
 
@@ -70,6 +80,11 @@ async def patch_company_regos_defaults(
         session,
         current.company_id,
         body.model_dump(exclude_unset=True),
+    )
+    await notify_settings_updated(session, 
+        current.company_id,
+        scope="company",
+        namespace="regos_defaults",
     )
     return RegosDefaultsResponse(defaults=defaults)
 
@@ -125,6 +140,12 @@ async def patch_my_regos_defaults(
         user,
         body.model_dump(exclude_unset=True),
     )
+    await notify_settings_updated(session, 
+        current.company_id,
+        scope="employee",
+        namespace="regos_defaults",
+        user_id=current.id,
+    )
     return RegosDefaultsResponse(defaults=defaults)
 
 
@@ -155,6 +176,12 @@ async def patch_my_pos_settings(
         user,
         body.model_dump(exclude_unset=True),
     )
+    await notify_settings_updated(session, 
+        current.company_id,
+        scope="employee",
+        namespace="pos",
+        user_id=current.id,
+    )
     return UserPosSettingsResponse(settings=settings)
 
 
@@ -177,6 +204,11 @@ async def patch_company_pos_settings(
         session,
         current.company_id,
         body.model_dump(exclude_unset=True),
+    )
+    await notify_settings_updated(session, 
+        current.company_id,
+        scope="company",
+        namespace="pos",
     )
     return PosSettingsResponse(settings=settings)
 
@@ -205,7 +237,75 @@ async def patch_company_receipt_templates(
         current.company_id,
         body.model_dump(exclude_unset=True),
     )
+    await notify_settings_updated(session, 
+        current.company_id,
+        scope="company",
+        namespace="receipt_templates",
+    )
     return ReceiptTemplatesResponse(settings=settings)
+
+
+@router.get("/company/settings/exchange-rate-sync", response_model=ExchangeRateSyncResponse)
+async def get_company_exchange_rate_sync_settings(
+    current: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> ExchangeRateSyncResponse:
+    settings = await exchange_rate_sync_service.get_exchange_rate_sync_settings(
+        session, current.company_id
+    )
+    return ExchangeRateSyncResponse(settings=ExchangeRateSyncSettings.model_validate(settings))
+
+
+@router.patch("/company/settings/exchange-rate-sync", response_model=ExchangeRateSyncResponse)
+async def patch_company_exchange_rate_sync_settings(
+    body: ExchangeRateSyncPatchRequest,
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> ExchangeRateSyncResponse:
+    settings = await exchange_rate_sync_service.patch_exchange_rate_sync_settings(
+        session,
+        current.company_id,
+        body.model_dump(exclude_unset=True),
+    )
+    await notify_settings_updated(session, 
+        current.company_id,
+        scope="company",
+        namespace="exchange_rate_sync",
+    )
+    return ExchangeRateSyncResponse(settings=ExchangeRateSyncSettings.model_validate(settings))
+
+
+@router.post("/company/settings/exchange-rate-sync/run", response_model=ExchangeRateSyncRunResponse)
+async def run_company_exchange_rate_sync(
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> ExchangeRateSyncRunResponse:
+    result = await exchange_rate_sync_service.sync_exchange_rates_for_company(
+        session,
+        current.company_id,
+        trigger="manual",
+    )
+    await session.commit()
+    return ExchangeRateSyncRunResponse.model_validate(result)
+
+
+@router.post(
+    "/company/settings/exchange-rate-sync/preview",
+    response_model=ExchangeRateFormulaPreviewResponse,
+)
+async def preview_company_exchange_rate_formula(
+    body: ExchangeRateFormulaPreviewRequest,
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> ExchangeRateFormulaPreviewResponse:
+    preview = await exchange_rate_sync_service.preview_exchange_rate_formula(
+        session,
+        current.company_id,
+        formula=body.formula,
+        currency_code=body.currency_code,
+        sample_rate=body.sample_rate,
+    )
+    return ExchangeRateFormulaPreviewResponse.model_validate(preview)
 
 
 @router.get("/me/featured-products", response_model=FeaturedProductsResponse)

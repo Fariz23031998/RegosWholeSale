@@ -3,13 +3,27 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from app.core.exceptions import AppError
-from app.core.regos_api import regos_async_api_request
+from app.core.regos_api import regos_async_api_request, with_item_get_defaults
 from app.core.regos_rate_limit import (
     REGOS_RATE_LIMIT_BURST,
     RegosRateLimiter,
     is_regos_rate_limit_error,
     regos_rate_limiter,
 )
+
+
+def test_with_item_get_defaults_adds_compound_false() -> None:
+    assert with_item_get_defaults("item/get", {"ids": [1]}) == {
+        "ids": [1],
+        "compound": False,
+    }
+    assert with_item_get_defaults("item/getext", {"search": "abc"}) == {
+        "search": "abc",
+        "compound": False,
+    }
+    assert with_item_get_defaults("item/get", {"compound": True}) == {"compound": False}
+    assert with_item_get_defaults("docwholesale/get", {"limit": 10}) == {"limit": 10}
+    assert with_item_get_defaults("item/get", []) == []
 
 
 def test_is_regos_rate_limit_error_accepts_int_and_str() -> None:
@@ -64,6 +78,7 @@ async def test_regos_api_retries_on_rate_limit_error(mock_post: AsyncMock) -> No
     assert result == {"ok": True, "result": [{"id": 1}]}
     assert mock_acquire.await_count == 2
     mock_exhausted.assert_awaited_once_with("integration-token")
+    assert mock_post.await_args.kwargs["request_data"] == {"compound": False}
 
 
 @pytest.mark.asyncio
@@ -81,3 +96,25 @@ async def test_regos_api_raises_after_rate_limit_retries_exhausted(mock_post: As
                     await regos_async_api_request("item/get", {}, "integration-token")
 
     assert exc_info.value.detail["code"] == "REGOS_API_RATE_LIMIT"
+
+
+@pytest.mark.asyncio
+@patch("app.core.regos_api._post_regos_api", new_callable=AsyncMock)
+async def test_regos_api_accepts_null_result(mock_post: AsyncMock) -> None:
+    mock_post.return_value = {"ok": True, "result": None}
+
+    with patch.object(regos_rate_limiter, "acquire", new_callable=AsyncMock):
+        result = await regos_async_api_request("integration/edit", {}, "integration-token")
+
+    assert result == {"ok": True, "result": None}
+
+
+@pytest.mark.asyncio
+@patch("app.core.regos_api._post_regos_api", new_callable=AsyncMock)
+async def test_regos_api_accepts_success_without_result_key(mock_post: AsyncMock) -> None:
+    mock_post.return_value = {"ok": True}
+
+    with patch.object(regos_rate_limiter, "acquire", new_callable=AsyncMock):
+        result = await regos_async_api_request("integration/edit", {}, "integration-token")
+
+    assert result == {"ok": True}

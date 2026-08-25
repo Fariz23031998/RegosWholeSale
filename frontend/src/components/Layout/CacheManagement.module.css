@@ -1,0 +1,162 @@
+.root {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.rootOpen {
+  z-index: 200;
+}
+
+.menuTrigger {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-size: 14px;
+  background: transparent;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.menuTrigger:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.menu {
+  z-index: 200;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+}
+
+.menuFixed {
+  position: fixed;
+  z-index: 300;
+  width: max-content;
+  max-width: min(320px, calc(100vw - 24px));
+}
+
+.menuToggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  padding: 8px 10px;
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.menuDivider {
+  height: 1px;
+  margin: 2px 4px;
+  background: var(--color-border);
+}
+
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 22px;
+  flex-shrink: 0;
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.slider {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--color-border);
+  transition: background 0.15s;
+}
+
+.slider::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  transition: transform 0.15s;
+}
+
+.switch input:checked + .slider {
+  background: var(--color-primary, #2563eb);
+}
+
+.switch input:disabled + .slider {
+  opacity: 0.6;
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(18px);
+}
+
+.menuItem {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--color-text);
+  font-size: 14px;
+  font-weight: 500;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+  background: transparent;
+  transition: background 0.15s, color 0.15s;
+}
+
+.menuItem svg {
+  flex-shrink: 0;
+}
+
+.menuItemLabel {
+  min-width: 0;
+}
+
+.menuItem:hover {
+  background: var(--color-surface-2);
+}
+
+.menuItem:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.menuItem:disabled:hover {
+  background: transparent;
+}
+
+.danger {
+  color: var(--color-danger, #ef4444);
+}
+
+.danger:hover {
+  background: var(--color-danger-soft, #fef2f2);
+  color: var(--color-danger, #ef4444);
+}

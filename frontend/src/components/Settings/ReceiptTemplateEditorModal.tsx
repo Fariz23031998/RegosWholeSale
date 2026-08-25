@@ -557,7 +557,9 @@ export function ReceiptTemplateEditorModal({
               <TemplatedReceiptView
                 template={draft}
                 context={SAMPLE_RECEIPT_CONTEXT}
+                className={styles.previewReceipt}
                 preview
+                previewFill
               />
             </ReceiptTemplatePreviewBoundary>
           </div>

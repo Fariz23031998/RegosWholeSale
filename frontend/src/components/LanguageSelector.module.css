@@ -46,8 +46,6 @@
 
 .menu {
   position: absolute;
-  left: 0;
-  right: 0;
   z-index: 60;
   display: flex;
   flex-direction: column;
@@ -61,10 +59,16 @@
 
 .menuAbove {
   bottom: calc(100% + 6px);
+  left: 0;
+  right: 0;
 }
 
-.menuBelow {
+.menuBelowIcon {
   top: calc(100% + 6px);
+  right: 0;
+  left: auto;
+  min-width: 11rem;
+  width: max-content;
 }
 
 .menuItem {
@@ -78,6 +82,7 @@
   font-size: 14px;
   font-weight: 500;
   text-align: left;
+  white-space: nowrap;
   cursor: pointer;
   background: transparent;
   transition: background 0.15s, color 0.15s;

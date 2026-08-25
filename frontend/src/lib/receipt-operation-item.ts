@@ -40,6 +40,7 @@ export const EMPTY_RECEIPT_OPERATION_ITEM: ReceiptOperationItem = {
 type CatalogProductLike = {
   name?: string;
   sku?: string;
+  articul?: string;
   barcode?: string;
   category?: string;
 };
@@ -51,10 +52,12 @@ export function receiptOperationItemFromCatalogProduct(
     return { ...EMPTY_RECEIPT_OPERATION_ITEM };
   }
 
+  const articul = product.articul?.trim() || product.sku?.trim() || null;
+
   return {
     ...EMPTY_RECEIPT_OPERATION_ITEM,
     fullname: product.name?.trim() || null,
-    articul: product.sku?.trim() || null,
+    articul,
     base_barcode: product.barcode?.trim() || null,
     department: { name: product.category?.trim() || null },
   };

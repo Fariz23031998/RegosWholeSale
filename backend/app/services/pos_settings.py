@@ -86,12 +86,26 @@ def _merge_pos_settings(
             user_overrides["default_category"]
         )
     else:
-        merged["default_category"] = _normalize_default_category(None)
+        merged["default_category"] = _normalize_default_category(
+            company_settings.get("default_category")
+        )
 
     if "auto_open_qty_keypad" in user_overrides:
         merged["auto_open_qty_keypad"] = bool(user_overrides["auto_open_qty_keypad"])
     else:
         merged["auto_open_qty_keypad"] = bool(company_settings.get("auto_open_qty_keypad", False))
+
+    if "search_transliteration" in user_overrides:
+        merged["search_transliteration"] = bool(user_overrides["search_transliteration"])
+    else:
+        merged["search_transliteration"] = bool(
+            company_settings.get("search_transliteration", True)
+        )
+
+    if "search_fuzzy" in user_overrides:
+        merged["search_fuzzy"] = bool(user_overrides["search_fuzzy"])
+    else:
+        merged["search_fuzzy"] = bool(company_settings.get("search_fuzzy", True))
 
     return merged
 
@@ -107,8 +121,17 @@ def _apply_company_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> 
             patch["tendered_quick_amounts"]
         )
 
+    if patch.get("default_category") is not None:
+        updated["default_category"] = _normalize_default_category(patch["default_category"])
+
     if patch.get("auto_open_qty_keypad") is not None:
         updated["auto_open_qty_keypad"] = bool(patch["auto_open_qty_keypad"])
+
+    if patch.get("search_transliteration") is not None:
+        updated["search_transliteration"] = bool(patch["search_transliteration"])
+
+    if patch.get("search_fuzzy") is not None:
+        updated["search_fuzzy"] = bool(patch["search_fuzzy"])
 
     if patch.get("cross_currency_payment_mode") is not None:
         updated["cross_currency_payment_mode"] = _normalize_cross_currency_payment_mode(
@@ -135,6 +158,24 @@ def _apply_company_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> 
     if patch.get("postpone_order_booked") is not None:
         updated["postpone_order_booked"] = bool(patch["postpone_order_booked"])
 
+    if patch.get("tasnif_create_on_barcode_miss") is not None:
+        updated["tasnif_create_on_barcode_miss"] = bool(patch["tasnif_create_on_barcode_miss"])
+
+    if "tasnif_default_group_id" in patch:
+        updated["tasnif_default_group_id"] = _normalize_optional_positive_id(
+            patch.get("tasnif_default_group_id")
+        )
+
+    if "tasnif_default_unit_id" in patch:
+        updated["tasnif_default_unit_id"] = _normalize_optional_positive_id(
+            patch.get("tasnif_default_unit_id")
+        )
+
+    if "tasnif_default_vat_id" in patch:
+        updated["tasnif_default_vat_id"] = _normalize_optional_positive_id(
+            patch.get("tasnif_default_vat_id")
+        )
+
     return updated
 
 
@@ -155,6 +196,12 @@ def _apply_user_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> dic
     if patch.get("auto_open_qty_keypad") is not None:
         updated["auto_open_qty_keypad"] = bool(patch["auto_open_qty_keypad"])
 
+    if patch.get("search_transliteration") is not None:
+        updated["search_transliteration"] = bool(patch["search_transliteration"])
+
+    if patch.get("search_fuzzy") is not None:
+        updated["search_fuzzy"] = bool(patch["search_fuzzy"])
+
     return updated
 
 
@@ -165,7 +212,10 @@ def _normalize_company_pos_settings(raw: Any) -> dict[str, Any]:
         "tendered_quick_amounts": _normalize_tendered_quick_amounts(
             data.get("tendered_quick_amounts")
         ),
+        "default_category": _normalize_default_category(data.get("default_category")),
         "auto_open_qty_keypad": bool(data.get("auto_open_qty_keypad", False)),
+        "search_transliteration": bool(data.get("search_transliteration", True)),
+        "search_fuzzy": bool(data.get("search_fuzzy", True)),
         "cross_currency_payment_mode": _normalize_cross_currency_payment_mode(
             data.get("cross_currency_payment_mode")
         ),
@@ -181,6 +231,16 @@ def _normalize_company_pos_settings(raw: Any) -> dict[str, Any]:
             data.get("postpone_document_type")
         ),
         "postpone_order_booked": bool(data.get("postpone_order_booked", True)),
+        "tasnif_create_on_barcode_miss": bool(data.get("tasnif_create_on_barcode_miss", False)),
+        "tasnif_default_group_id": _normalize_optional_positive_id(
+            data.get("tasnif_default_group_id")
+        ),
+        "tasnif_default_unit_id": _normalize_optional_positive_id(
+            data.get("tasnif_default_unit_id")
+        ),
+        "tasnif_default_vat_id": _normalize_optional_positive_id(
+            data.get("tasnif_default_vat_id")
+        ),
     }
 
 
@@ -208,6 +268,28 @@ def _normalize_default_category(raw: Any) -> dict[str, Any]:
         group_id = None
 
     return {"mode": mode, "group_id": group_id}
+
+
+def _normalize_optional_positive_id(raw: Any) -> int | None:
+    if raw is None or raw == "" or raw is False:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, int):
+        return raw if raw > 0 else None
+    if isinstance(raw, float) and raw.is_integer():
+        value = int(raw)
+        return value if value > 0 else None
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return None
+        try:
+            value = int(text)
+        except ValueError:
+            return None
+        return value if value > 0 else None
+    return None
 
 
 def _normalize_tendered_quick_amounts(raw: Any) -> list[float]:

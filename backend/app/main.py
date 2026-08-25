@@ -18,7 +18,13 @@ from app.core.exceptions import AppError
 from app.database import async_session_factory, init_db
 from app.services.permissions import seed_permissions
 from app.core.regos_oauth import regos_oauth_configured, regos_oauth_service
+from app.services.scheduled_tasks import (
+    exchange_rate_sync_loop,
+    out_of_stock_cleanup_loop,
+    receipt_share_cleanup_loop,
+)
 from app.services.verification import clean_verification_data
+from app.services import telegram as telegram_service
 
 logger = logging.getLogger("regos.backend")
 
@@ -31,7 +37,7 @@ async def _verification_cleanup_loop() -> None:
                 await clean_verification_data(session)
                 await session.commit()
         except Exception:
-            pass
+            logger.warning("Verification cleanup failed", exc_info=True)
 
 
 @asynccontextmanager
@@ -43,18 +49,35 @@ async def lifespan(_app: FastAPI):
 
         await bootstrap_platform_admin(session)
         await session.commit()
+    try:
+        async with async_session_factory() as session:
+            await telegram_service.sync_all_bot_webhooks(session)
+    except Exception:
+        logger.warning("Telegram webhook startup sync failed", exc_info=True)
     if regos_oauth_configured():
         try:
             await regos_oauth_service.acquire_access_token(force=True)
         except Exception:
             logger.warning("Regos OAuth startup token acquisition failed", exc_info=True)
-    cleanup_task = asyncio.create_task(_verification_cleanup_loop())
+    verification_cleanup_task = asyncio.create_task(_verification_cleanup_loop())
+    out_of_stock_cleanup_task = asyncio.create_task(out_of_stock_cleanup_loop())
+    receipt_share_cleanup_task = asyncio.create_task(receipt_share_cleanup_loop())
+    exchange_rate_sync_task = asyncio.create_task(exchange_rate_sync_loop())
     yield
-    cleanup_task.cancel()
-    try:
-        await cleanup_task
-    except asyncio.CancelledError:
-        pass
+    verification_cleanup_task.cancel()
+    out_of_stock_cleanup_task.cancel()
+    receipt_share_cleanup_task.cancel()
+    exchange_rate_sync_task.cancel()
+    for task in (
+        verification_cleanup_task,
+        out_of_stock_cleanup_task,
+        receipt_share_cleanup_task,
+        exchange_rate_sync_task,
+    ):
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
 
 def create_app() -> FastAPI:

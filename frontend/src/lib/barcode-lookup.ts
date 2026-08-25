@@ -1,4 +1,8 @@
-import { fetchCatalogProducts } from "@/lib/catalog-api";
+import { loadCatalogProducts, type CatalogScope } from "@/lib/catalog-service";
+import {
+  findProductByBarcode as findCachedProductByBarcode,
+  findProductByCode as findCachedProductByCode,
+} from "./catalog-products-db";
 import { canAddProductToCart, clampCartQty } from "@/lib/cart-stock";
 import { CATALOG_PAGE_SIZE } from "@/lib/catalog-pagination";
 import {
@@ -19,7 +23,11 @@ export type BarcodeLookupResult =
 export type BarcodeLookupOptions = {
   prefixes: InternalBarcodePrefixes;
   catalogOverrides: { warehouseId?: number; priceTypeId?: number };
+  scopeKey?: string;
+  /** Used to route the cache-miss fallback search through loadCatalogProducts (cache-first, no direct Regos call when caching is enabled). */
+  scope: CatalogScope;
   allowOutOfStock: boolean;
+  bookedOrderContinuation?: boolean;
   getInCartQty: (productId: string) => number;
   getReservedInOtherTabs: (productId: string) => number;
 };
@@ -34,8 +42,19 @@ export async function lookupProductForBarcode(
     return { ok: false, reason: "not_found" };
   }
 
-  const { prefixes, catalogOverrides, allowOutOfStock, getInCartQty, getReservedInOtherTabs } =
-    options;
+  const {
+    prefixes,
+    catalogOverrides,
+    scopeKey,
+    scope,
+    allowOutOfStock,
+    bookedOrderContinuation = false,
+    getInCartQty,
+    getReservedInOtherTabs,
+  } = options;
+  const catalogStockOptions = bookedOrderContinuation
+    ? { bookedOrderContinuation: true as const }
+    : undefined;
   const parsedInternal = parseInternalBarcode(term, prefixes);
   const fetchParams = {
     offset: 0,
@@ -46,11 +65,18 @@ export async function lookupProductForBarcode(
   };
 
   if (parsedInternal) {
-    const res = await fetchCatalogProducts(token, {
-      ...fetchParams,
-      search: parsedInternal.productCode,
-    });
-    const product = findProductByCode(res.products, parsedInternal.productCode);
+    let product: Product | null | undefined =
+      scopeKey != null
+        ? await findCachedProductByCode(scopeKey, parsedInternal.productCode)
+        : null;
+    if (!product) {
+      const res = await loadCatalogProducts(
+        token,
+        { ...fetchParams, search: parsedInternal.productCode },
+        scope,
+      );
+      product = findProductByCode(res.products, parsedInternal.productCode);
+    }
     if (!product) {
       return { ok: false, reason: "not_found" };
     }
@@ -68,6 +94,8 @@ export async function lookupProductForBarcode(
       allowOutOfStock,
       product.unit_type,
       reservedInOtherTabs,
+      catalogStockOptions,
+      inCart,
     );
     const qtyToAdd = clampedTotal - inCart;
     if (qtyToAdd <= 0) {
@@ -77,11 +105,12 @@ export async function lookupProductForBarcode(
     return { ok: true, product, qty: qtyToAdd };
   }
 
-  const res = await fetchCatalogProducts(token, {
-    ...fetchParams,
-    search: term,
-  });
-  const product = findProductByBarcode(res.products, term);
+  let product: Product | null | undefined =
+    scopeKey != null ? await findCachedProductByBarcode(scopeKey, term) : null;
+  if (!product) {
+    const res = await loadCatalogProducts(token, { ...fetchParams, search: term }, scope);
+    product = findProductByBarcode(res.products, term);
+  }
   if (
     !product ||
     !canAddProductToCart(
@@ -89,6 +118,7 @@ export async function lookupProductForBarcode(
       getInCartQty(product.id),
       allowOutOfStock,
       getReservedInOtherTabs(product.id),
+      catalogStockOptions,
     )
   ) {
     return { ok: false, reason: "not_found" };

@@ -10,13 +10,24 @@ describe("receipt operation item", () => {
     const item = receiptOperationItemFromCatalogProduct({
       name: "Widget",
       sku: "WDG-1",
+      articul: "ART-1",
       barcode: "123",
       category: "Parts",
     });
     expect(item.fullname).toBe("Widget");
-    expect(item.articul).toBe("WDG-1");
+    expect(item.articul).toBe("ART-1");
     expect(item.base_barcode).toBe("123");
     expect(item.department.name).toBe("Parts");
+  });
+
+  it("falls back to sku when articul is missing", () => {
+    const item = receiptOperationItemFromCatalogProduct({
+      name: "Widget",
+      sku: "WDG-1",
+      barcode: "123",
+      category: "Parts",
+    });
+    expect(item.articul).toBe("WDG-1");
   });
 
   it("normalizes nested item fields", () => {

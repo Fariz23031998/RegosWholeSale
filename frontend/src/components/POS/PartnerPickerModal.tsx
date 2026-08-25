@@ -1,18 +1,30 @@
 import clsx from "clsx";
-import { ArrowLeft, Pencil, Plus, Scale, Search, Trash2 } from "lucide-react";
+import { ArrowLeft, Pencil, Plus, RefreshCw, Scale, Search, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { PartnerBalanceModal } from "@/components/POS/PartnerBalanceModal";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
-import { formatAuthError } from "@/store/auth";
+import { formatAuthError, useAuth } from "@/store/auth";
 import {
   createPartner,
   deleteMarkPartner,
   fetchPartnerGroups,
   fetchPartners,
+  fetchAllPartners,
   updatePartner,
 } from "@/lib/partners-api";
+import {
+  loadCachedPartners,
+  saveCachedPartners,
+  invalidateCachedPartners,
+  loadCachedPartnerGroups,
+  saveCachedPartnerGroups,
+  invalidateCachedPartnerGroups,
+  loadPartnerGroupFilter,
+  savePartnerGroupFilter,
+} from "@/lib/partners-db";
+import { subscribeReferenceOptionsEvents } from "@/lib/catalog-events";
 import type { Partner, PartnerFormValues, PartnerGroup } from "@/types/partners";
 import {
   EMPTY_PARTNER_FORM,
@@ -45,6 +57,8 @@ export function PartnerPickerModal({
   const [view, setView] = useState<View>("list");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [groupFilterId, setGroupFilterId] = useState<number | null>(null);
+  const [groupFilterReady, setGroupFilterReady] = useState(false);
   const [partners, setPartners] = useState<Partner[]>([]);
   const [groups, setGroups] = useState<PartnerGroup[]>([]);
   const [loading, setLoading] = useState(false);
@@ -77,39 +91,156 @@ export function PartnerPickerModal({
     resetListState();
   }, [open, resetListState]);
 
-  const loadPartners = useCallback(async () => {
+  const companyId = useAuth((s) => s.user?.company_id);
+
+  useEffect(() => {
+    if (!open || !companyId) {
+      setGroupFilterReady(false);
+      return;
+    }
+    let cancelled = false;
+    setGroupFilterReady(false);
+    void loadPartnerGroupFilter(companyId)
+      .then((savedGroupId) => {
+        if (!cancelled) setGroupFilterId(savedGroupId);
+      })
+      .catch(() => {
+        if (!cancelled) setGroupFilterId(null);
+      })
+      .finally(() => {
+        if (!cancelled) setGroupFilterReady(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [companyId, open]);
+
+  const handleGroupFilterChange = (value: string) => {
+    const nextGroupId = value ? Number(value) : null;
+    const normalized =
+      nextGroupId != null && Number.isFinite(nextGroupId) && nextGroupId > 0
+        ? nextGroupId
+        : null;
+    setGroupFilterId(normalized);
+    if (companyId) {
+      void savePartnerGroupFilter(companyId, normalized).catch(() => undefined);
+    }
+  };
+
+  const loadPartnersFromDb = useCallback(async (forceApiFetch = false) => {
+    if (!companyId) return;
     setLoading(true);
     setError("");
     try {
-      const response = await fetchPartners(token, {
-        search: debouncedSearch || undefined,
-        limit: 100,
-      });
-      setPartners(response.partners);
+      let data: Partner[] = [];
+      if (!forceApiFetch) {
+        const cached = await loadCachedPartners(companyId);
+        if (cached && cached.partners.length > 0) {
+          data = cached.partners;
+        }
+      }
+      if (data.length === 0) {
+        data = await fetchAllPartners(token);
+        await saveCachedPartners(companyId, data);
+      }
+      setPartners(data);
     } catch (err) {
       setError(formatAuthError(err, t("partners.errors.loadPartners", "Failed to load partners.")));
       setPartners([]);
     } finally {
       setLoading(false);
     }
-  }, [debouncedSearch, token]);
+  }, [companyId, token, t]);
 
-  useEffect(() => {
-    if (!open || view !== "list") return;
-    void loadPartners();
-  }, [loadPartners, open, view]);
-
-  const loadGroups = useCallback(async () => {
+  const loadGroups = useCallback(async (forceApiFetch = false) => {
+    if (!companyId) {
+      try {
+        const response = await fetchPartnerGroups(token);
+        setGroups(response.groups);
+        return response.groups;
+      } catch (err) {
+        setError(formatAuthError(err, t("partners.errors.loadGroups", "Failed to load partner groups.")));
+        setGroups([]);
+        return [];
+      }
+    }
     try {
-      const response = await fetchPartnerGroups(token);
-      setGroups(response.groups);
-      return response.groups;
+      let data: PartnerGroup[] = [];
+      if (!forceApiFetch) {
+        const cached = await loadCachedPartnerGroups(companyId);
+        if (cached && cached.groups.length > 0) {
+          data = cached.groups;
+        }
+      }
+      if (data.length === 0) {
+        const response = await fetchPartnerGroups(token);
+        data = response.groups;
+        await saveCachedPartnerGroups(companyId, data);
+      }
+      setGroups(data);
+      return data;
     } catch (err) {
       setError(formatAuthError(err, t("partners.errors.loadGroups", "Failed to load partner groups.")));
       setGroups([]);
       return [];
     }
-  }, [token]);
+  }, [companyId, token, t]);
+
+  const handleForceRefresh = useCallback(async () => {
+    if (!companyId) return;
+    setLoading(true);
+    setError("");
+    try {
+      await Promise.all([
+        invalidateCachedPartners(companyId).catch(() => undefined),
+        invalidateCachedPartnerGroups(companyId).catch(() => undefined),
+      ]);
+      await Promise.all([loadPartnersFromDb(true), loadGroups(true)]);
+    } catch (err) {
+      setError(formatAuthError(err, t("partners.errors.loadPartners", "Failed to load partners.")));
+    } finally {
+      setLoading(false);
+    }
+  }, [companyId, loadGroups, loadPartnersFromDb, t]);
+
+  useEffect(() => {
+    if (!open || view !== "list") return;
+    void loadPartnersFromDb();
+  }, [loadPartnersFromDb, open, view]);
+
+  useEffect(() => {
+    if (!open) return;
+    const unsubscribe = subscribeReferenceOptionsEvents((event) => {
+      if (event.kinds.includes("partner")) {
+        void loadPartnersFromDb();
+        void loadGroups();
+      }
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [open, loadGroups, loadPartnersFromDb]);
+
+  const filteredPartners = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return partners.filter((p) => {
+      if (groupFilterId != null && p.group_id !== groupFilterId) return false;
+      if (!q) return true;
+      return (
+        p.name.toLowerCase().includes(q) ||
+        (p.fullname && p.fullname.toLowerCase().includes(q)) ||
+        (p.phones && p.phones.toLowerCase().includes(q)) ||
+        (p.inn && p.inn.toLowerCase().includes(q)) ||
+        (p.boss_name && p.boss_name.toLowerCase().includes(q))
+      );
+    });
+  }, [groupFilterId, partners, search]);
+
+  useEffect(() => {
+    if (!open || view !== "list") return;
+    if (groups.length) return;
+    void loadGroups();
+  }, [groups.length, loadGroups, open, view]);
 
   const openCreateForm = async () => {
     setError("");
@@ -162,7 +293,7 @@ export function PartnerPickerModal({
       if (editingPartner) {
         await updatePartner(token, editingPartner.id, formValuesToUpdateRequest(form));
         await onPartnersChanged();
-        await loadPartners();
+        await loadPartnersFromDb(true);
         setView("list");
         setEditingPartner(null);
         setForm(EMPTY_PARTNER_FORM);
@@ -189,6 +320,7 @@ export function PartnerPickerModal({
           vat_index: form.vat_index.trim() || null,
           deleted_mark: false,
         };
+        void loadPartnersFromDb(true);
         onSelect(createdPartner);
         onClose();
       }
@@ -211,7 +343,7 @@ export function PartnerPickerModal({
     try {
       await deleteMarkPartner(token, editingPartner.id);
       await onPartnersChanged();
-      await loadPartners();
+      await loadPartnersFromDb(true);
       setView("list");
       setEditingPartner(null);
       setForm(EMPTY_PARTNER_FORM);
@@ -253,10 +385,36 @@ export function PartnerPickerModal({
                 aria-label={t("partners.searchAria", "Search partners")}
               />
             </div>
-            <Button type="button" size="sm" onClick={() => void openCreateForm()}>
-              <Plus size={14} />
-              {t("common.add", "Add")}
-            </Button>
+            <select
+              className={styles.partnerGroupFilter}
+              value={groupFilterId ?? ""}
+              onChange={(event) => handleGroupFilterChange(event.target.value)}
+              disabled={!groupFilterReady}
+              aria-label={t("partners.groupFilterAria", "Filter by group")}
+            >
+              <option value="">{t("partners.groupFilterAll", "All groups")}</option>
+              {groups.map((group) => (
+                <option key={group.id} value={group.id}>
+                  {group.name}
+                </option>
+              ))}
+            </select>
+            <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={() => void handleForceRefresh()}
+                disabled={loading}
+                title={t("partners.refreshTitle", "Force Refresh")}
+              >
+                <RefreshCw size={14} className={clsx(loading && styles.partnerBalanceSpin)} />
+              </Button>
+              <Button type="button" size="sm" onClick={() => void openCreateForm()}>
+                <Plus size={14} />
+                {t("common.add", "Add")}
+              </Button>
+            </div>
           </div>
 
           {error ? <div className={styles.partnerModalError}>{error}</div> : null}
@@ -264,12 +422,12 @@ export function PartnerPickerModal({
           <div className={styles.partnerModalList} role="listbox" aria-label={t("partners.listAria", "Partners")}>
             {loading ? (
               <div className={styles.categoryModalEmpty}>{t("partners.loading", "Loading partners...")}</div>
-            ) : partners.length === 0 ? (
+            ) : filteredPartners.length === 0 ? (
               <div className={styles.categoryModalEmpty}>
                 {t("partners.empty", "No partners match your search.")}
               </div>
             ) : (
-              partners.map((partner) => {
+              filteredPartners.map((partner) => {
                 const isActive = selectedPartnerId === partner.id;
                 return (
                   <div

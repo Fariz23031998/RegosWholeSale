@@ -2,13 +2,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import conflict, unauthorized
+from app.core.exceptions import bad_request, unauthorized
 from app.core.security import create_access_token, hash_password, verify_password
 from app.models import Company, User, UserPermission, UserRole
 from app.services.permissions import effective_permission_codes, seed_permissions
 from app.services.schedules import is_within_login_schedule
 from app.services.subscriptions import is_subscription_active, start_trial
-from app.services.users import slugify, unique_company_slug
+from app.services.users import ensure_login_available, slugify, unique_company_slug
 
 
 async def register_owner(
@@ -123,6 +123,44 @@ async def reset_password(
         raise unauthorized("Invalid credentials")
     user.password_hash = hash_password(new_password)
     await session.flush()
+
+
+async def update_profile(
+    session: AsyncSession,
+    user: User,
+    *,
+    display_name: str | None = None,
+    login: str | None = None,
+    current_password: str | None = None,
+    new_password: str | None = None,
+) -> User:
+    changed = False
+
+    if display_name is not None and display_name != user.display_name:
+        user.display_name = display_name
+        changed = True
+
+    if login is not None and login != user.login:
+        await ensure_login_available(session, login, exclude_user_id=user.id)
+        user.login = login
+        changed = True
+
+    if new_password is not None:
+        if not current_password:
+            raise bad_request(
+                "Current password is required to set a new password",
+                "CURRENT_PASSWORD_REQUIRED",
+            )
+        if not verify_password(current_password, user.password_hash):
+            raise unauthorized("Current password is incorrect", "INVALID_CURRENT_PASSWORD")
+        user.password_hash = hash_password(new_password)
+        changed = True
+
+    if not changed:
+        raise bad_request("No profile changes provided", "NO_PROFILE_CHANGES")
+
+    await session.flush()
+    return user
 
 
 def _issue_token(user: User) -> str:

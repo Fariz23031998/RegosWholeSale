@@ -5,10 +5,10 @@ import { languageService } from "@/services/language";
 export const Route = createFileRoute("/_app/dashboard")({
   head: () => ({
     meta: [
-      { title: languageService.t("meta.dashboardTitle", "Dashboard · Regos Optom") },
+      { title: languageService.t("meta.dashboardTitle", "Reports · Regos Optom") },
       {
         name: "description",
-        content: languageService.t("meta.dashboardDescription", "Sales analytics and KPIs."),
+        content: languageService.t("meta.dashboardDescription", "Sales reports and KPIs."),
       },
     ],
   }),

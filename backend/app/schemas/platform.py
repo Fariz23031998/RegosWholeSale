@@ -11,6 +11,7 @@ class PlatformLoginRequest(BaseModel):
 class PlatformAdminResponse(BaseModel):
     id: int
     email: str
+    username: str
     display_name: str
     is_active: bool
     created_at: datetime
@@ -24,14 +25,21 @@ class PlatformAuthResponse(BaseModel):
 
 class CreatePlatformAdminRequest(BaseModel):
     email: EmailStr
+    username: str = Field(min_length=2, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
     password: str = Field(min_length=8, max_length=128)
     display_name: str = Field(min_length=1, max_length=255)
 
 
 class UpdatePlatformAdminRequest(BaseModel):
     display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    username: str | None = Field(default=None, min_length=2, max_length=64, pattern=r"^[a-zA-Z0-9_-]+$")
     password: str | None = Field(default=None, min_length=8, max_length=128)
     is_active: bool | None = None
+
+
+class ChangePlatformPasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class CompanyOwnerSummary(BaseModel):

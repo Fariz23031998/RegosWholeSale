@@ -35,3 +35,10 @@ export const formatDate = (iso: string) => {
   const { day, month, year } = formatDateParts(date);
   return `${day}.${month}.${year}`;
 };
+
+/** Shorten product names for toast notifications. */
+export const truncateToastName = (name: string, max = 25): string => {
+  const trimmed = name.trim();
+  if (trimmed.length <= max) return trimmed;
+  return `${trimmed.slice(0, max)}...`;
+};

@@ -1,4 +1,4 @@
-import { Camera, ImageOff, Search, Undo2 } from "lucide-react";
+import { ArrowUpDown, Camera, CircleDollarSign, ImageOff, PackageX, Search, Undo2 } from "lucide-react";
 import {
   lazy,
   startTransition,
@@ -11,10 +11,22 @@ import {
 } from "react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useBookedOrderContinuation } from "@/hooks/use-booked-order-continuation";
 import { usePermissions } from "@/hooks/use-permissions";
-import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
+import { loadCatalogProducts, loadProductGroups } from "@/lib/catalog-service";
+import {
+  applyIncrementalSyncToCatalog,
+  performIncrementalSync,
+} from "@/lib/catalog-incremental-sync";
+import { isCacheEnabled } from "@/lib/cache-policy";
+import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
 import { canAddProductToCart } from "@/lib/cart-stock";
 import { isBarcodeInput } from "@/lib/barcode";
+import { truncateToastName } from "@/lib/format";
+import {
+  isShortNumericCodeSearch,
+  prioritizeCatalogProductsByCode,
+} from "@/lib/catalog-search";
 import {
   lookupProductForBarcode,
   type BarcodeLookupFailureReason,
@@ -24,6 +36,10 @@ import {
   fetchFeaturedProductIds,
   removeFeaturedProduct,
 } from "@/lib/featured-api";
+import {
+  fetchMyRegosDefaults,
+  patchMyRegosDefaults,
+} from "@/lib/settings-api";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useCatalog } from "@/store/catalog";
 import { useCheckoutTabs, getReservedQtyInOtherTabs } from "@/store/checkout-tabs";
@@ -31,6 +47,11 @@ import { useCart } from "@/store/cart";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { applyDefaultCategory } from "@/lib/default-category";
+import {
+  catalogSortFromOptionId,
+  catalogSortToOptionId,
+  CATALOG_SORT_OPTIONS,
+} from "@/lib/catalog-sort";
 import {
   catalogCanLoadMore,
   catalogEffectiveNextOffset,
@@ -102,21 +123,34 @@ function getInCartQty(productId: string): number {
 export function ProductCatalog() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
-  const { canChangeWarehouse, canChangePriceType, canChangePosContext } = usePermissions();
+  const user = useAuth((s) => s.user);
+  const { canChangeWarehouse, canChangePriceType, canChangePosContext, can } = usePermissions();
   const canChangeWarehousePerm = canChangeWarehouse();
   const canChangePriceTypePerm = canChangePriceType();
   const canChangePosContextPerm = canChangePosContext();
+  const canAccessUserSettings = can("users.manage");
   const products = useCatalog((s) => s.products);
   const setProducts = useCatalog((s) => s.setProducts);
   const appendProducts = useCatalog((s) => s.appendProducts);
+  const patchProducts = useCatalog((s) => s.patchProducts);
+  const removeCatalogProducts = useCatalog((s) => s.removeProducts);
   const refreshNonce = useCatalog((s) => s.refreshNonce);
+  const requestRefresh = useCatalog((s) => s.requestRefresh);
+  const groupsRefreshNonce = useCatalog((s) => s.groupsRefreshNonce);
+  const requestGroupsRefresh = useCatalog((s) => s.requestGroupsRefresh);
   const add = useCart((s) => s.add);
   const addWithQty = useCart((s) => s.addWithQty);
   const checkoutTabs = useCheckoutTabs((s) => s.tabs);
   const activeCheckoutTabId = useCheckoutTabs((s) => s.activeTabId);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
+  const bookedOrderContinuation = useBookedOrderContinuation();
+  const catalogStockOptions = bookedOrderContinuation
+    ? { bookedOrderContinuation: true as const }
+    : undefined;
   const internalBarcodeWeightPrefix = usePosConfig((s) => s.internalBarcodeWeightPrefix);
   const internalBarcodePiecePrefix = usePosConfig((s) => s.internalBarcodePiecePrefix);
+  const searchTransliteration = usePosConfig((s) => s.searchTransliteration);
+  const searchFuzzy = usePosConfig((s) => s.searchFuzzy);
   const posConfigHydrated = usePosConfig((s) => s.hydrated);
   const defaultCategory = usePosConfig((s) => s.defaultCategory);
   const hydratePosConfig = usePosConfig((s) => s.hydrate);
@@ -131,16 +165,25 @@ export function ProductCatalog() {
   const isCatalogReloadingRef = useRef(false);
   const catalogLoadTokenRef = useRef("");
   const lastRequestedOffsetRef = useRef<number | null>(null);
+  const forceNextCatalogLoadRef = useRef(false);
   const [q, setQ] = useState("");
   const [groups, setGroups] = useState<ProductGroup[]>([]);
   const [selectedGroupId, setSelectedGroupId] = useState<number | null>(null);
   const [featuredOnly, setFeaturedOnly] = useState(false);
   const hideCardImages = useCatalog((s) => s.hideCardImages);
   const setHideCardImages = useCatalog((s) => s.setHideCardImages);
+  const catalogSort = useCatalog((s) => s.catalogSort);
+  const setCatalogSort = useCatalog((s) => s.setCatalogSort);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [sortOpen, setSortOpen] = useState(false);
+  const sortMenuRef = useRef<HTMLDivElement | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [categoryReady, setCategoryReady] = useState(false);
   const [featuredIds, setFeaturedIds] = useState<Set<number>>(() => new Set());
+  const [includeZeroQuantity, setIncludeZeroQuantity] = useState(false);
+  const [includeZeroPrice, setIncludeZeroPrice] = useState(false);
+  const [catalogFiltersReady, setCatalogFiltersReady] = useState(false);
+  const [savingCatalogFilter, setSavingCatalogFilter] = useState(false);
   const view = useCatalog((s) => s.mobileViewMode);
   const [isMobile, setIsMobile] = useState(false);
   const [search, setSearch] = useState("");
@@ -152,8 +195,15 @@ export function ProductCatalog() {
   const [total, setTotal] = useState(0);
   const [lastPageProductCount, setLastPageProductCount] = useState(0);
 
-  const isPreparing = Boolean(token && (!categoryReady || !sellContextHydrated || !posConfigHydrated));
+  const isPreparing = Boolean(
+    token && (!categoryReady || !sellContextHydrated || !posConfigHydrated || !catalogFiltersReady),
+  );
   const isBarcodeMode = isBarcodeInput(q);
+
+  const displayProducts = useMemo(() => {
+    if (!isShortNumericCodeSearch(search)) return products;
+    return prioritizeCatalogProductsByCode(products, search);
+  }, [products, search]);
 
   useEffect(() => {
     if (isBarcodeMode) return;
@@ -162,12 +212,67 @@ export function ProductCatalog() {
   }, [isBarcodeMode, q]);
 
   useEffect(() => {
+    if (!sortOpen) return;
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (sortMenuRef.current?.contains(event.target as Node)) return;
+      setSortOpen(false);
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSortOpen(false);
+    };
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [sortOpen]);
+
+  useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
     const update = () => setIsMobile(mq.matches);
     update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
+
+  useEffect(() => {
+    if (!token) {
+      setIncludeZeroQuantity(false);
+      setIncludeZeroPrice(false);
+      setCatalogFiltersReady(true);
+      return;
+    }
+
+    let cancelled = false;
+    setCatalogFiltersReady(false);
+    const cacheScope =
+      user?.company_id != null && user?.id != null
+        ? { companyId: user.company_id, userId: user.id }
+        : undefined;
+
+    void fetchMyRegosDefaults(token, { cacheScope })
+      .then((res) => {
+        if (cancelled) return;
+        setIncludeZeroQuantity(Boolean(res.defaults.zero_quantity));
+        setIncludeZeroPrice(Boolean(res.defaults.zero_price));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setIncludeZeroQuantity(false);
+        setIncludeZeroPrice(false);
+      })
+      .finally(() => {
+        if (!cancelled) setCatalogFiltersReady(true);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, user?.company_id, user?.id]);
 
   useEffect(() => {
     if (!token) {
@@ -207,12 +312,28 @@ export function ProductCatalog() {
 
     const timer = window.setTimeout(() => {
       setCategoryReady(true);
-      void hydrateSellContext(token, canChangePosContextPerm, { force: true });
-      void hydratePosConfig(token, { force: true });
+      void hydrateSellContext(token, canChangePosContextPerm, {
+        force: true,
+        userId: user?.id,
+        companyId: user?.company_id,
+      });
+      void hydratePosConfig(token, {
+        force: true,
+        userId: user?.id,
+        companyId: user?.company_id,
+      });
     }, PREPARE_TIMEOUT_MS);
 
     return () => window.clearTimeout(timer);
-  }, [canChangePosContextPerm, hydratePosConfig, hydrateSellContext, isPreparing, token]);
+  }, [
+    canChangePosContextPerm,
+    hydratePosConfig,
+    hydrateSellContext,
+    isPreparing,
+    token,
+    user?.company_id,
+    user?.id,
+  ]);
 
   const selectedGroup = useMemo(
     () => groups.find((group) => group.id === selectedGroupId) ?? null,
@@ -242,9 +363,10 @@ export function ProductCatalog() {
         inCart,
         allowOutOfStock,
         getReservedInOtherTabs(product.id),
+        catalogStockOptions,
       );
     },
-    [allowOutOfStock, getReservedInOtherTabs],
+    [allowOutOfStock, catalogStockOptions, getReservedInOtherTabs],
   );
 
   const firstAddableProduct = (items: Product[]) =>
@@ -258,6 +380,7 @@ export function ProductCatalog() {
           getInCartQty(product.id),
           allowOutOfStock,
           getReservedInOtherTabs(product.id),
+          catalogStockOptions,
         )
       ) {
         return;
@@ -266,7 +389,7 @@ export function ProductCatalog() {
         add(product);
       });
     },
-    [add, allowOutOfStock, getReservedInOtherTabs],
+    [add, allowOutOfStock, catalogStockOptions, getReservedInOtherTabs],
   );
 
   const catalogFetchParams = useCallback(
@@ -276,10 +399,72 @@ export function ProductCatalog() {
       search,
       groupId: isGlobalSearch ? null : selectedGroupId,
       featuredOnly: isGlobalSearch ? false : featuredOnly,
+      featuredProductIds: featuredOnly && !isGlobalSearch ? [...featuredIds] : undefined,
+      sort: catalogSort,
+      includeZeroQuantity,
+      includeZeroPrice,
       ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
     }),
-    [catalogOverrides, featuredOnly, isGlobalSearch, search, selectedGroupId],
+    [
+      catalogOverrides,
+      catalogSort,
+      featuredIds,
+      featuredOnly,
+      includeZeroPrice,
+      includeZeroQuantity,
+      isGlobalSearch,
+      search,
+      selectedGroupId,
+    ],
   );
+
+  const catalogScope = useMemo(
+    () => ({
+      companyId: user?.company_id,
+      warehouseId: catalogOverrides.warehouseId,
+      priceTypeId: catalogOverrides.priceTypeId,
+    }),
+    [catalogOverrides.priceTypeId, catalogOverrides.warehouseId, user?.company_id],
+  );
+
+  // Pulls the latest deltas into the IndexedDB cache before a manual Retry.
+  // The grid itself never reads Regos directly when caching is enabled — this is the
+  // only sanctioned way to freshen the cache on demand from the catalog error path.
+  const resyncCatalogFromServer = useCallback(async () => {
+    if (!token || !isCacheEnabled() || user?.company_id == null) return;
+    const scopeKey = buildCatalogScopeKey(
+      user.company_id,
+      catalogOverrides.warehouseId,
+      catalogOverrides.priceTypeId,
+    );
+    try {
+      const syncResult = await performIncrementalSync(
+        token,
+        scopeKey,
+        {
+          companyId: user.company_id,
+          warehouseId: catalogOverrides.warehouseId,
+          priceTypeId: catalogOverrides.priceTypeId,
+        },
+        { force: true },
+      );
+      applyIncrementalSyncToCatalog(syncResult, {
+        patchProducts,
+        removeProducts: removeCatalogProducts,
+        requestGroupsRefresh,
+      });
+    } catch {
+      // Best-effort resync — the cache-only read that follows still runs either way.
+    }
+  }, [
+    catalogOverrides.priceTypeId,
+    catalogOverrides.warehouseId,
+    patchProducts,
+    removeCatalogProducts,
+    requestGroupsRefresh,
+    token,
+    user?.company_id,
+  ]);
 
   const catalogQueryKey = useMemo(
     () =>
@@ -287,11 +472,31 @@ export function ProductCatalog() {
         search,
         selectedGroupId ?? "",
         featuredOnly ? "1" : "0",
+        featuredOnly ? [...featuredIds].sort((a, b) => a - b).join(",") : "",
+        includeZeroQuantity ? "1" : "0",
+        includeZeroPrice ? "1" : "0",
+        searchTransliteration ? "1" : "0",
+        searchFuzzy ? "1" : "0",
         warehouseId ?? "",
         priceTypeId ?? "",
+        `${catalogSort.column}:${catalogSort.direction}`,
         refreshNonce,
       ].join("|"),
-    [featuredOnly, priceTypeId, refreshNonce, search, selectedGroupId, warehouseId],
+    [
+      catalogSort.column,
+      catalogSort.direction,
+      featuredIds,
+      featuredOnly,
+      includeZeroPrice,
+      includeZeroQuantity,
+      priceTypeId,
+      refreshNonce,
+      search,
+      searchFuzzy,
+      searchTransliteration,
+      selectedGroupId,
+      warehouseId,
+    ],
   );
 
   const catalogCursorRef = useRef(0);
@@ -309,7 +514,7 @@ export function ProductCatalog() {
   );
 
   const ensureMinimumGridProducts = useCallback(
-    async (startOffset: number, mode: "replace" | "append") => {
+    async (startOffset: number, mode: "replace" | "append", options?: { forceApi?: boolean }) => {
       if (!token || isEnsuringGridRef.current) return;
 
       isEnsuringGridRef.current = true;
@@ -323,7 +528,7 @@ export function ProductCatalog() {
 
       try {
         for (let round = 0; round < maxGridFillRounds && loadedCount < PAGE_SIZE; round++) {
-          const res = await fetchCatalogProducts(token, catalogFetchParams(cursor));
+          const res = await loadCatalogProducts(token, catalogFetchParams(cursor), catalogScope, options);
           const countBefore = loadedCount;
 
           loadedCount = applyCatalogPage(
@@ -341,6 +546,10 @@ export function ProductCatalog() {
 
           const hasMore = catalogHasMore(res, cursor, loadedCount);
           if (!hasMore) break;
+
+          if (res.products.length === 0 && !options?.forceApi) {
+            break;
+          }
 
           const nextCursor = nextCatalogCursor(
             cursor,
@@ -366,7 +575,7 @@ export function ProductCatalog() {
         isEnsuringGridRef.current = false;
       }
     },
-    [appendProducts, applyCatalogResponse, catalogFetchParams, isGlobalSearch, setProducts, token],
+    [appendProducts, applyCatalogResponse, catalogFetchParams, catalogScope, isGlobalSearch, setProducts, token],
   );
 
   const prevCatalogContextRef = useRef({ warehouseId, priceTypeId });
@@ -392,9 +601,9 @@ export function ProductCatalog() {
 
     let cancelled = false;
 
-    void fetchProductGroups(token)
-      .then((groupsRes) => {
-        if (!cancelled) setGroups(groupsRes.groups);
+    void loadProductGroups(token, user?.company_id)
+      .then((loadedGroups) => {
+        if (!cancelled) setGroups(loadedGroups);
       })
       .catch(() => {
         if (!cancelled) setGroups([]);
@@ -403,10 +612,10 @@ export function ProductCatalog() {
     return () => {
       cancelled = true;
     };
-  }, [categoryReady, sellContextHydrated, token]);
+  }, [categoryReady, groupsRefreshNonce, sellContextHydrated, token, user?.company_id]);
 
   useEffect(() => {
-    if (!token || !categoryReady || !sellContextHydrated) {
+    if (!token || !categoryReady || !sellContextHydrated || !catalogFiltersReady) {
       if (!token) {
         setProducts([]);
         setNextOffset(0);
@@ -432,7 +641,9 @@ export function ProductCatalog() {
       setError("");
       setLoadMoreError("");
       try {
-        await ensureMinimumGridProducts(0, "replace");
+        const forceApi = forceNextCatalogLoadRef.current;
+        forceNextCatalogLoadRef.current = false;
+        await ensureMinimumGridProducts(0, "replace", forceApi ? { forceApi: true } : undefined);
       } catch (err) {
         if (cancelled || catalogLoadTokenRef.current !== loadToken) return;
         lastRequestedOffsetRef.current = null;
@@ -457,6 +668,7 @@ export function ProductCatalog() {
       }
     };
   }, [
+    catalogFiltersReady,
     catalogQueryKey,
     categoryReady,
     ensureMinimumGridProducts,
@@ -507,7 +719,11 @@ export function ProductCatalog() {
           return;
         }
 
-        const res = await fetchCatalogProducts(token, catalogFetchParams(requestOffset));
+        const res = await loadCatalogProducts(
+          token,
+          catalogFetchParams(requestOffset),
+          catalogScope,
+        );
         if (res.products.length > 0) {
           appendProducts(res.products);
         }
@@ -524,6 +740,7 @@ export function ProductCatalog() {
       appendProducts,
       applyCatalogResponse,
       catalogFetchParams,
+      catalogScope,
       ensureMinimumGridProducts,
       isGlobalSearch,
       lastPageProductCount,
@@ -534,6 +751,8 @@ export function ProductCatalog() {
       total,
     ],
   );
+
+
 
   const fillViewportIfNeeded = useCallback(() => {
     if (isCatalogReloadingRef.current || loading || loadingMore) return;
@@ -602,13 +821,13 @@ export function ProductCatalog() {
     }
   };
 
-  const fetchCatalogPage = async () => {
+  const fetchCatalogPage = async (options?: { forceApi?: boolean }) => {
     if (!token) return;
 
     lastRequestedOffsetRef.current = null;
-    const groupsRes = await fetchProductGroups(token);
-    setGroups(groupsRes.groups);
-    await ensureMinimumGridProducts(0, "replace");
+    const loadedGroups = await loadProductGroups(token, user?.company_id);
+    setGroups(loadedGroups);
+    await ensureMinimumGridProducts(0, "replace", options);
   };
 
   const retry = async () => {
@@ -617,7 +836,8 @@ export function ProductCatalog() {
     setError("");
     setLoadMoreError("");
     try {
-      await fetchCatalogPage();
+      await resyncCatalogFromServer();
+      await fetchCatalogPage({ forceApi: true });
     } catch (err) {
       lastRequestedOffsetRef.current = null;
       setProducts([]);
@@ -635,8 +855,16 @@ export function ProductCatalog() {
     setError("");
     setLoadMoreError("");
     setCategoryReady(false);
-    void hydrateSellContext(token, canChangePosContextPerm, { force: true });
-    void hydratePosConfig(token, { force: true });
+    void hydrateSellContext(token, canChangePosContextPerm, {
+      force: true,
+      userId: user?.id,
+      companyId: user?.company_id,
+    });
+    void hydratePosConfig(token, {
+      force: true,
+      userId: user?.id,
+      companyId: user?.company_id,
+    });
   };
 
   const toggleFeatured = useCallback(
@@ -668,18 +896,26 @@ export function ProductCatalog() {
     let firstProduct: Product | undefined;
 
     if (search === term && !loading) {
-      firstProduct = firstAddableProduct(products);
+      firstProduct = firstAddableProduct(
+        prioritizeCatalogProductsByCode(products, term),
+      );
     } else {
       try {
-        const res = await fetchCatalogProducts(token, {
-          offset: 0,
-          limit: PAGE_SIZE,
-          search: term,
-          groupId: null,
-          featuredOnly: false,
-          ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
-        });
-        firstProduct = firstAddableProduct(res.products);
+        const res = await loadCatalogProducts(
+          token,
+          {
+            offset: 0,
+            limit: PAGE_SIZE,
+            search: term,
+            groupId: null,
+            featuredOnly: false,
+            ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
+          },
+          catalogScope,
+        );
+        firstProduct = firstAddableProduct(
+          prioritizeCatalogProductsByCode(res.products, term),
+        );
       } catch (err) {
         setError(formatAuthError(err));
         return;
@@ -698,16 +934,26 @@ export function ProductCatalog() {
         piecePrefix: internalBarcodePiecePrefix,
       },
       catalogOverrides,
+      scopeKey: buildCatalogScopeKey(
+        user?.company_id,
+        catalogOverrides.warehouseId,
+        catalogOverrides.priceTypeId,
+      ),
+      scope: catalogScope,
       allowOutOfStock,
+      bookedOrderContinuation,
       getInCartQty,
       getReservedInOtherTabs,
     }),
     [
       allowOutOfStock,
+      bookedOrderContinuation,
       catalogOverrides,
+      catalogScope,
       getReservedInOtherTabs,
       internalBarcodePiecePrefix,
       internalBarcodeWeightPrefix,
+      user?.company_id,
     ],
   );
 
@@ -756,7 +1002,7 @@ export function ProductCatalog() {
         });
         toast.success(
           t("pos.barcode.scanSuccess", "Added {{name}} to cart", {
-            name: result.product.name,
+            name: truncateToastName(result.product.name),
           }),
         );
         setScannerOpen(false);
@@ -773,6 +1019,60 @@ export function ProductCatalog() {
       return;
     }
     await submitSearchAddFirst(term);
+  };
+
+  const toggleCatalogFilter = async (field: "zero_quantity" | "zero_price") => {
+    if (!token || savingCatalogFilter) return;
+
+    const nextZeroQuantity =
+      field === "zero_quantity" ? !includeZeroQuantity : includeZeroQuantity;
+    const nextZeroPrice = field === "zero_price" ? !includeZeroPrice : includeZeroPrice;
+    const previousZeroQuantity = includeZeroQuantity;
+    const previousZeroPrice = includeZeroPrice;
+
+    setIncludeZeroQuantity(nextZeroQuantity);
+    setIncludeZeroPrice(nextZeroPrice);
+    setSavingCatalogFilter(true);
+
+    const cacheScope =
+      user?.company_id != null && user?.id != null
+        ? { companyId: user.company_id, userId: user.id }
+        : undefined;
+
+    try {
+      const res = await patchMyRegosDefaults(
+        token,
+        {
+          zero_quantity: nextZeroQuantity,
+          zero_price: nextZeroPrice,
+        },
+        cacheScope,
+      );
+      setIncludeZeroQuantity(Boolean(res.defaults.zero_quantity));
+      setIncludeZeroPrice(Boolean(res.defaults.zero_price));
+      if (
+        !isCacheEnabled() &&
+        ((Boolean(res.defaults.zero_quantity) && !previousZeroQuantity) ||
+          (Boolean(res.defaults.zero_price) && !previousZeroPrice))
+      ) {
+        // Cache-backed reads already include zero-qty/zero-price items and apply this
+        // filter client-side (see filterAndSortCachedProducts), so no API bypass is
+        // needed there. Only force a direct fetch when there's no cache to filter.
+        forceNextCatalogLoadRef.current = true;
+      }
+      requestRefresh();
+    } catch (err) {
+      setIncludeZeroQuantity(previousZeroQuantity);
+      setIncludeZeroPrice(previousZeroPrice);
+      toast.error(
+        formatAuthError(
+          err,
+          t("pos.catalogFilter.saveFailed", "Failed to update catalog filters."),
+        ),
+      );
+    } finally {
+      setSavingCatalogFilter(false);
+    }
   };
 
   return (
@@ -800,33 +1100,124 @@ export function ProductCatalog() {
               title={t("pos.scanBarcode", "Scan barcode")}
               onClick={() => setScannerOpen(true)}
             >
-              <Camera size={16} />
+              <Camera size={24} />
             </button>
           </div>
-          <button
-            type="button"
-            className={clsx(
-              styles.catalogFilterBtn,
-              hideCardImages && styles.catalogFilterBtnActive,
-            )}
-            aria-label={t("pos.hideImagesAria", "Hide product images")}
-            aria-pressed={hideCardImages}
-            title={t("pos.hideImages", "Hide images")}
-            onClick={() => setHideCardImages(!hideCardImages)}
-          >
-            <ImageOff size={16} />
-            <span className={styles.catalogFilterBtnLabel}>{t("pos.hideImages", "Hide images")}</span>
-          </button>
-          <button
-            type="button"
-            className={clsx(styles.catalogFilterBtn, styles.catalogFilterBtnReturn)}
-            aria-label={t("pos.returnAria", "Return products")}
-            title={t("pos.return", "Return")}
-            onClick={() => setReturnOpen(true)}
-          >
-            <Undo2 size={16} />
-            <span className={styles.catalogFilterBtnLabel}>{t("pos.return", "Return")}</span>
-          </button>
+          <div className={styles.catalogToolbarActions}>
+            {canAccessUserSettings ? (
+              <>
+                <button
+                  type="button"
+                  className={clsx(
+                    styles.catalogFilterBtn,
+                    includeZeroQuantity && styles.catalogFilterBtnActive,
+                  )}
+                  aria-label={t(
+                    "settings.defaults.zeroQuantity",
+                    "Include zero quantity products",
+                  )}
+                  aria-pressed={includeZeroQuantity}
+                  title={t(
+                    "settings.defaults.zeroQuantity",
+                    "Include zero quantity products",
+                  )}
+                  disabled={savingCatalogFilter}
+                  onClick={() => void toggleCatalogFilter("zero_quantity")}
+                >
+                  <PackageX size={16} />
+                  <span className={styles.catalogFilterBtnLabel}>
+                    {t("pos.includeZeroQuantityShort", "Zero qty")}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  className={clsx(
+                    styles.catalogFilterBtn,
+                    includeZeroPrice && styles.catalogFilterBtnActive,
+                  )}
+                  aria-label={t("settings.defaults.zeroPrice", "Include zero price products")}
+                  aria-pressed={includeZeroPrice}
+                  title={t("settings.defaults.zeroPrice", "Include zero price products")}
+                  disabled={savingCatalogFilter}
+                  onClick={() => void toggleCatalogFilter("zero_price")}
+                >
+                  <CircleDollarSign size={16} />
+                  <span className={styles.catalogFilterBtnLabel}>
+                    {t("pos.includeZeroPriceShort", "Zero price")}
+                  </span>
+                </button>
+              </>
+            ) : null}
+            <div ref={sortMenuRef} className={styles.sortMenuWrap}>
+              <button
+                type="button"
+                className={clsx(
+                  styles.catalogFilterBtn,
+                  (catalogSort.column !== "name" || catalogSort.direction !== "asc") &&
+                    styles.catalogFilterBtnActive,
+                )}
+                aria-label={t("pos.sortAria", "Sort products")}
+                aria-haspopup="menu"
+                aria-expanded={sortOpen}
+                title={t("pos.sort", "Sort")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setSortOpen((open) => !open);
+                }}
+              >
+                <ArrowUpDown size={16} />
+                <span className={styles.catalogFilterBtnLabel}>{t("pos.sort", "Sort")}</span>
+              </button>
+              {sortOpen ? (
+                <div className={styles.sortMenu} role="menu" aria-label={t("pos.sortBy", "Sort by")}>
+                  <div className={styles.sortMenuLabel}>{t("pos.sortBy", "Sort by")}</div>
+                  {CATALOG_SORT_OPTIONS.map((option) => {
+                    const isActive = catalogSortToOptionId(catalogSort) === option.id;
+                    return (
+                      <button
+                        key={option.id}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={isActive}
+                        className={clsx(styles.sortMenuItem, isActive && styles.sortMenuItemActive)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setCatalogSort(catalogSortFromOptionId(option.id));
+                          setSortOpen(false);
+                        }}
+                      >
+                        {t(option.labelKey, option.fallback)}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : null}
+            </div>
+            <button
+              type="button"
+              className={clsx(
+                styles.catalogFilterBtn,
+                hideCardImages && styles.catalogFilterBtnActive,
+              )}
+              aria-label={t("pos.hideImagesAria", "Hide product images")}
+              aria-pressed={hideCardImages}
+              title={t("pos.hideImages", "Hide images")}
+              onClick={() => setHideCardImages(!hideCardImages)}
+            >
+              <ImageOff size={16} />
+              <span className={styles.catalogFilterBtnLabel}>{t("pos.hideImages", "Hide images")}</span>
+            </button>
+            <button
+              type="button"
+              className={clsx(styles.catalogFilterBtn, styles.catalogFilterBtnReturn)}
+              aria-label={t("pos.returnAria", "Return products")}
+              title={t("pos.return", "Return")}
+              onClick={() => setReturnOpen(true)}
+            >
+              <Undo2 size={16} />
+              <span className={styles.catalogFilterBtnLabel}>{t("pos.return", "Return")}</span>
+            </button>
+          </div>
         </form>
 
         <CategoryBar
@@ -876,11 +1267,6 @@ export function ProductCatalog() {
             {featuredOnly
               ? t("pos.emptyFeatured", "No featured products yet. Star items to add them here.")
               : t("pos.emptySearch", "No products match your search.")}
-            <div className={styles.statusActions}>
-              <button type="button" className={styles.retryBtn} onClick={() => void retry()}>
-                {t("pos.refresh", "Refresh")}
-              </button>
-            </div>
           </div>
         ) : (
           <>
@@ -893,7 +1279,7 @@ export function ProductCatalog() {
                 isMobile && view === "list" && styles.gridList,
               )}
             >
-              {products.map((p) => (
+              {displayProducts.map((p) => (
                 <CatalogProductCard
                   key={p.id}
                   product={p}
@@ -904,6 +1290,7 @@ export function ProductCatalog() {
                   view={view}
                   allowOutOfStock={allowOutOfStock}
                   reservedInOtherTabs={getReservedInOtherTabs(p.id)}
+                  bookedOrderContinuation={bookedOrderContinuation}
                   onAdd={handleAddToCart}
                   onToggleFeatured={toggleFeatured}
                 />
@@ -933,9 +1320,6 @@ export function ProductCatalog() {
                         "",
                       )}
                 </p>
-                <button type="button" className={styles.loadMoreBtn} onClick={() => void loadMore()}>
-                  {t("pos.loadMore", "Load more")}
-                </button>
               </div>
             ) : null}
           </>

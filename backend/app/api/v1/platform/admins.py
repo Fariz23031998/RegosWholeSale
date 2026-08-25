@@ -18,6 +18,7 @@ def _admin_response(admin) -> PlatformAdminResponse:
     return PlatformAdminResponse(
         id=admin.id,
         email=admin.email,
+        username=admin.username,
         display_name=admin.display_name,
         is_active=admin.is_active,
         created_at=admin.created_at,
@@ -42,6 +43,7 @@ async def create_admin(
     admin = await platform_service.create_platform_admin(
         session,
         email=body.email,
+        username=body.username,
         password=body.password,
         display_name=body.display_name,
     )
@@ -65,6 +67,7 @@ async def update_admin(
         session,
         admin,
         display_name=body.display_name,
+        username=body.username,
         password=body.password,
         is_active=body.is_active,
     )

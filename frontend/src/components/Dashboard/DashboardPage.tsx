@@ -19,17 +19,14 @@ import {
 } from "recharts";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { useWarehouseScope } from "@/hooks/use-warehouse-scope";
 import {
-  DASHBOARD_PRODUCTS_PAGE_SIZE,
-  DASHBOARD_PAYMENTS_PAGE_SIZE,
   buildDashboardCurrencyFilterOptions,
+  buildDashboardStockFilterParams,
   collectDashboardCurrencies,
   currencyFilterKey,
+  fetchDashboardOutOfStock,
   fetchDashboardOverview,
-  fetchDashboardProducts,
-  fetchDashboardPayments,
-  fetchAllDashboardProducts,
-  fetchAllDashboardPayments,
   formatDashboardPeriodLabel,
   getPeriodLabel,
   parseCurrencyFilterKey,
@@ -39,6 +36,7 @@ import {
   serializeDashboardQueryParams,
   type DashboardCustomRange,
   type DashboardCurrencyFilter,
+  type DashboardOutOfStockRow,
   type DashboardPeriodPreset,
   type DashboardPaymentRow,
   type DashboardProductRow,
@@ -61,6 +59,7 @@ import {
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import { exportDashboardProductsToExcel } from "@/lib/export-dashboard-products";
 import { exportDashboardPaymentsToExcel } from "@/lib/export-dashboard-payments";
+import { exportDashboardOutOfStockToExcel } from "@/lib/export-dashboard-out-of-stock";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
 import { currencyLabel } from "@/lib/currency-conversion";
 import type { RegosCurrencyOption } from "@/types/settings";
@@ -72,9 +71,9 @@ const TOP_PRODUCT_LABEL_LINE_HEIGHT = 15;
 const TOP_PRODUCT_LABEL_MAX_CHARS = 38;
 
 type PresetPeriod = Exclude<DashboardPeriodPreset, "custom">;
-type DashboardTab = "totals" | "payments" | "products";
+type DashboardTab = "totals" | "payments" | "products" | "outOfStock";
 
-const DASHBOARD_TABS: DashboardTab[] = ["totals", "payments", "products"];
+const DASHBOARD_TABS: DashboardTab[] = ["totals", "payments", "products", "outOfStock"];
 
 function formatPaymentDate(timestamp: number): string {
   if (timestamp <= 0) return "—";
@@ -84,6 +83,21 @@ function formatPaymentDate(timestamp: number): string {
 function formatQty(value: number): string {
   if (Number.isInteger(value)) return String(value);
   return value.toFixed(2);
+}
+
+function outOfStockMatchesSearch(row: DashboardOutOfStockRow, query: string): boolean {
+  if (!query) return true;
+  const haystack = [
+    row.product_name,
+    row.code,
+    row.barcode,
+    String(row.product_id),
+    row.stock_name,
+    String(row.stock_id),
+  ]
+    .join(" ")
+    .toLowerCase();
+  return haystack.includes(query);
 }
 
 function formatOptionalCurrency(value: number | null | undefined): string {
@@ -385,6 +399,14 @@ function BestSellersSection({
 export function DashboardPage() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
+  const companyId = useAuth((s) => s.user?.company_id);
+  const {
+    canChangeWarehouse,
+    defaultWarehouse,
+    ready: warehouseScopeReady,
+    scopedStockFilters,
+    warehousesForLabel,
+  } = useWarehouseScope();
   const [periodPreset, setPeriodPreset] = useState<DashboardPeriodPreset>("week");
   const [customRange, setCustomRange] = useState<DashboardCustomRange | null>(null);
   const [periodModalOpen, setPeriodModalOpen] = useState(false);
@@ -400,23 +422,25 @@ export function DashboardPage() {
   const [products, setProducts] = useState<DashboardProductRow[]>([]);
   const [productsTotals, setProductsTotals] = useState<DashboardProductTotals | null>(null);
   const [productsTotal, setProductsTotal] = useState(0);
-  const [productsNextOffset, setProductsNextOffset] = useState(0);
-  const [loadingMoreProducts, setLoadingMoreProducts] = useState(false);
   const [error, setError] = useState("");
   const [productsError, setProductsError] = useState("");
   const [productsSearch, setProductsSearch] = useState("");
   const [exportingProducts, setExportingProducts] = useState(false);
   const [incomePayments, setIncomePayments] = useState<DashboardPaymentRow[]>([]);
   const [outcomePayments, setOutcomePayments] = useState<DashboardPaymentRow[]>([]);
-  const [incomePaymentsCount, setIncomePaymentsCount] = useState(0);
-  const [outcomePaymentsCount, setOutcomePaymentsCount] = useState(0);
   const [incomePaymentCategoryName, setIncomePaymentCategoryName] = useState<string | null>(null);
   const [outcomePaymentCategoryName, setOutcomePaymentCategoryName] = useState<string | null>(null);
-  const [paymentsNextOffset, setPaymentsNextOffset] = useState(0);
-  const [loadingMorePayments, setLoadingMorePayments] = useState(false);
   const [paymentsError, setPaymentsError] = useState("");
   const [paymentsSearch, setPaymentsSearch] = useState("");
   const [exportingPayments, setExportingPayments] = useState(false);
+  const [incomePaymentsTotal, setIncomePaymentsTotal] = useState(0);
+  const [outcomePaymentsTotal, setOutcomePaymentsTotal] = useState(0);
+  const [outOfStockSearch, setOutOfStockSearch] = useState("");
+  const [exportingOutOfStock, setExportingOutOfStock] = useState(false);
+  const [outOfStockExportError, setOutOfStockExportError] = useState("");
+  const [outOfStockWarehouseModalOpen, setOutOfStockWarehouseModalOpen] = useState(false);
+  const [outOfStockAllStocks, setOutOfStockAllStocks] = useState(true);
+  const [outOfStockSelectedStockIds, setOutOfStockSelectedStockIds] = useState<number[]>([]);
   const [activeTab, setActiveTab] = useState<DashboardTab>("totals");
   const [isNarrow, setIsNarrow] = useState(
     () => typeof window !== "undefined" && window.matchMedia("(max-width: 900px)").matches,
@@ -430,22 +454,42 @@ export function DashboardPage() {
     [customRange, periodPreset],
   );
 
+  const effectiveStockFilters = useMemo(
+    () => scopedStockFilters({ allStocks, stockIds: selectedStockIds }),
+    [allStocks, scopedStockFilters, selectedStockIds],
+  );
+
+  const effectiveOutOfStockFilters = useMemo(
+    () =>
+      scopedStockFilters({
+        allStocks: outOfStockAllStocks,
+        stockIds: outOfStockSelectedStockIds,
+      }),
+    [outOfStockAllStocks, outOfStockSelectedStockIds, scopedStockFilters],
+  );
+
+  const warehouseLabelWarehouses = canChangeWarehouse ? warehouses : warehousesForLabel;
+  const warehouseLabelFilters = canChangeWarehouse
+    ? { allStocks, stockIds: selectedStockIds }
+    : effectiveStockFilters;
+  const outOfStockLabelFilters = canChangeWarehouse
+    ? { allStocks: outOfStockAllStocks, stockIds: outOfStockSelectedStockIds }
+    : effectiveOutOfStockFilters;
+
   const queryParams = useMemo(
     () =>
       resolveDashboardQueryParams(periodParams, {
-        allStocks,
-        stockIds: selectedStockIds,
+        ...effectiveStockFilters,
         allPartners,
         partnerIds: selectedPartnerIds,
         currencyFilter,
       }),
     [
       allPartners,
-      allStocks,
       currencyFilter,
+      effectiveStockFilters,
       periodParams,
       allPartners ? undefined : selectedPartnerIds,
-      allStocks ? undefined : selectedStockIds,
     ],
   );
 
@@ -453,14 +497,26 @@ export function DashboardPage() {
     () => serializeDashboardQueryParams(queryParams),
     [
       allPartners,
-      allStocks,
+      effectiveStockFilters.allStocks,
       periodParams.start_date,
       periodParams.end_date,
       allPartners ? "" : selectedPartnerIds.join(","),
-      allStocks ? "" : selectedStockIds.join(","),
+      effectiveStockFilters.allStocks ? "" : effectiveStockFilters.stockIds.join(","),
       currencyFilter?.currencyId,
       currencyFilter?.mode,
+      warehouseScopeReady,
     ],
+  );
+
+  const outOfStockStockFilterParams = useMemo(
+    () => buildDashboardStockFilterParams(effectiveOutOfStockFilters),
+    [effectiveOutOfStockFilters],
+  );
+
+  const outOfStockStockFilterKey = useMemo(
+    () =>
+      `${effectiveOutOfStockFilters.allStocks}:${effectiveOutOfStockFilters.allStocks ? "" : effectiveOutOfStockFilters.stockIds.join(",")}`,
+    [effectiveOutOfStockFilters],
   );
 
   const currencyFilterOptions = useMemo(
@@ -499,7 +555,6 @@ export function DashboardPage() {
   );
   const loadedPaymentsCount = incomePayments.length + outcomePayments.length;
   const filteredPaymentsCount = filteredIncomePayments.length + filteredOutcomePayments.length;
-  const totalPaymentsCount = incomePaymentsCount + outcomePaymentsCount;
 
   useEffect(() => {
     if (!token) {
@@ -511,11 +566,27 @@ export function DashboardPage() {
 
     let cancelled = false;
     setDefaultsReady(false);
-    void Promise.all([fetchRegosReferenceOptions(token), fetchRegosDefaults(token)])
+    void Promise.all([
+      fetchRegosReferenceOptions(token, {
+        cacheScope: companyId != null ? { companyId } : undefined,
+      }),
+      fetchRegosDefaults(token),
+    ])
       .then(([options, defaultsResponse]) => {
         if (cancelled) return;
-        setWarehouses(options.warehouses);
         setPartners(options.partners);
+        if (canChangeWarehouse) {
+          setWarehouses(options.warehouses);
+          setSelectedStockIds((current) =>
+            current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
+          );
+          setOutOfStockSelectedStockIds((current) =>
+            current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
+          );
+        }
+        setSelectedPartnerIds((current) =>
+          current.length > 0 ? current : options.partners.map((partner) => partner.id),
+        );
         const currencies = collectDashboardCurrencies(
           options.price_types,
           defaultsResponse.defaults.currency,
@@ -527,12 +598,6 @@ export function DashboardPage() {
           if (!defaultCurrency?.id) return null;
           return { currencyId: defaultCurrency.id, mode: "all" };
         });
-        setSelectedStockIds((current) =>
-          current.length > 0 ? current : options.warehouses.map((warehouse) => warehouse.id),
-        );
-        setSelectedPartnerIds((current) =>
-          current.length > 0 ? current : options.partners.map((partner) => partner.id),
-        );
       })
       .catch(() => {
         if (!cancelled) {
@@ -547,20 +612,44 @@ export function DashboardPage() {
     return () => {
       cancelled = true;
     };
-  }, [token]);
+  }, [canChangeWarehouse, companyId, token]);
+
+  useEffect(() => {
+    if (!warehouseScopeReady || canChangeWarehouse) return;
+    if (defaultWarehouse?.id) {
+      setAllStocks(false);
+      setSelectedStockIds([defaultWarehouse.id]);
+      setOutOfStockAllStocks(false);
+      setOutOfStockSelectedStockIds([defaultWarehouse.id]);
+    }
+  }, [canChangeWarehouse, defaultWarehouse, warehouseScopeReady]);
+
+  const filtersReady = defaultsReady && warehouseScopeReady;
 
   const dashboardDataQuery = useQuery({
     queryKey: ["dashboard", "initial", token, dashboardQueryKey],
-    queryFn: async () => {
-      const [overview, payments] = await Promise.all([
-        fetchDashboardOverview(token!, queryParams),
-        fetchDashboardPayments(token!, queryParams),
-      ]);
-      return { overview, payments };
-    },
-    enabled: Boolean(token) && defaultsReady,
+    queryFn: async () => fetchDashboardOverview(token!, queryParams),
+    enabled: Boolean(token) && filtersReady,
     staleTime: 30_000,
   });
+
+  const outOfStockQuery = useQuery({
+    queryKey: ["dashboard", "out-of-stock", token, outOfStockStockFilterKey],
+    queryFn: async () => fetchDashboardOutOfStock(token!, outOfStockStockFilterParams),
+    enabled: Boolean(token) && filtersReady && activeTab === "outOfStock",
+    staleTime: 30_000,
+  });
+
+  const outOfStockProducts = outOfStockQuery.data?.products ?? [];
+  const outOfStockSearchQuery = outOfStockSearch.trim().toLowerCase();
+  const filteredOutOfStockProducts = useMemo(
+    () => outOfStockProducts.filter((row) => outOfStockMatchesSearch(row, outOfStockSearchQuery)),
+    [outOfStockProducts, outOfStockSearchQuery],
+  );
+  const outOfStockError = outOfStockQuery.error
+    ? formatAuthError(outOfStockQuery.error, t("dashboard.outOfStock.loadError"))
+    : "";
+  const outOfStockLoading = outOfStockQuery.isPending;
 
   const loading = dashboardDataQuery.isPending;
   const productsLoading = dashboardDataQuery.isPending;
@@ -570,21 +659,19 @@ export function DashboardPage() {
     : "";
 
   useEffect(() => {
-    if (!token || !defaultsReady) return;
+    if (!token || !filtersReady) return;
 
     setStats(null);
     setProducts([]);
     setProductsTotals(null);
     setProductsTotal(0);
-    setProductsNextOffset(0);
     setIncomePayments([]);
     setOutcomePayments([]);
-    setIncomePaymentsCount(0);
-    setOutcomePaymentsCount(0);
     setIncomePaymentCategoryName(null);
     setOutcomePaymentCategoryName(null);
-    setPaymentsNextOffset(0);
-  }, [dashboardQueryKey, defaultsReady, token]);
+    setIncomePaymentsTotal(0);
+    setOutcomePaymentsTotal(0);
+  }, [dashboardQueryKey, filtersReady, token]);
 
   useEffect(() => {
     if (!token) {
@@ -592,14 +679,14 @@ export function DashboardPage() {
       setProducts([]);
       setProductsTotals(null);
       setProductsTotal(0);
-      setProductsNextOffset(0);
       setIncomePayments([]);
       setOutcomePayments([]);
       setIncomePaymentsCount(0);
       setOutcomePaymentsCount(0);
       setIncomePaymentCategoryName(null);
       setOutcomePaymentCategoryName(null);
-      setPaymentsNextOffset(0);
+      setIncomePaymentsTotal(0);
+      setOutcomePaymentsTotal(0);
       setError("");
       setProductsError("");
       setPaymentsError("");
@@ -613,141 +700,85 @@ export function DashboardPage() {
     const data = dashboardDataQuery.data;
     if (!data) return;
 
-    const { overview, payments } = data;
-    setStats(overview.stats);
-    setProducts(overview.products);
-    setProductsTotals(overview.totals);
-    setProductsTotal(overview.total);
-    setProductsNextOffset(overview.next_offset);
+    const payments = data.payments;
+    setStats(data.stats);
+    setProducts(data.products);
+    setProductsTotals(data.totals);
+    setProductsTotal(data.total);
     setIncomePayments(payments.income_payments);
     setOutcomePayments(payments.outcome_payments);
-    setIncomePaymentsCount(payments.income_total);
-    setOutcomePaymentsCount(payments.outcome_total);
     setIncomePaymentCategoryName(payments.income_payment_category_name);
     setOutcomePaymentCategoryName(payments.outcome_payment_category_name);
-    setPaymentsNextOffset(payments.next_offset);
+    setIncomePaymentsTotal(payments.income_payments_total);
+    setOutcomePaymentsTotal(payments.outcome_payments_total);
   }, [dashboardDataQuery.data, loadError, token]);
 
-  const loadMoreProducts = () => {
-    if (!token || !productsNextOffset || loadingMoreProducts) return;
-
-    setLoadingMoreProducts(true);
-    setProductsError("");
-
-    void fetchDashboardProducts(token, { ...queryParams, offset: productsNextOffset })
-      .then((res) => {
-        setProducts((current) => {
-          const seen = new Set(current.map((row) => row.item_id));
-          const merged = [...current];
-          for (const row of res.products) {
-            if (!seen.has(row.item_id)) {
-              seen.add(row.item_id);
-              merged.push(row);
-            }
-          }
-          return merged;
-        });
-        setProductsTotal(res.total);
-        setProductsNextOffset(res.next_offset);
-      })
-      .catch((err: unknown) => {
-        setProductsError(formatAuthError(err, t("dashboard.errors.loadMoreProducts")));
-      })
-      .finally(() => {
-        setLoadingMoreProducts(false);
-      });
-  };
-
   const exportProducts = () => {
-    if (!token || exportingProducts) return;
+    if (exportingProducts || !productsTotals) return;
 
     setExportingProducts(true);
     setProductsError("");
 
-    void fetchAllDashboardProducts(token, queryParams)
-      .then(({ products: allProducts, totals }) => {
-        exportDashboardProductsToExcel(
-          allProducts,
-          totals,
-          t,
-          formatDashboardPeriodLabel(periodPreset, customRange, t),
-        );
-      })
-      .catch((err: unknown) => {
-        setProductsError(formatAuthError(err, t("dashboard.products.exportError")));
-      })
-      .finally(() => {
-        setExportingProducts(false);
-      });
-  };
-
-  const loadMorePayments = () => {
-    if (!token || !paymentsNextOffset || loadingMorePayments) return;
-
-    setLoadingMorePayments(true);
-    setPaymentsError("");
-
-    void fetchDashboardPayments(token, { ...queryParams, offset: paymentsNextOffset })
-      .then((res) => {
-        setIncomePayments((current) => {
-          const seen = new Set(current.map((row) => row.id));
-          const merged = [...current];
-          for (const row of res.income_payments) {
-            if (!seen.has(row.id)) {
-              seen.add(row.id);
-              merged.push(row);
-            }
-          }
-          return merged;
-        });
-        setOutcomePayments((current) => {
-          const seen = new Set(current.map((row) => row.id));
-          const merged = [...current];
-          for (const row of res.outcome_payments) {
-            if (!seen.has(row.id)) {
-              seen.add(row.id);
-              merged.push(row);
-            }
-          }
-          return merged;
-        });
-        setIncomePaymentsCount(res.income_total);
-        setOutcomePaymentsCount(res.outcome_total);
-        setPaymentsNextOffset(res.next_offset);
-      })
-      .catch((err: unknown) => {
-        setPaymentsError(formatAuthError(err, t("dashboard.errors.loadMorePayments")));
-      })
-      .finally(() => {
-        setLoadingMorePayments(false);
-      });
+    try {
+      exportDashboardProductsToExcel(
+        products,
+        productsTotals,
+        t,
+        formatDashboardPeriodLabel(periodPreset, customRange, t),
+      );
+    } catch (err: unknown) {
+      setProductsError(formatAuthError(err, t("dashboard.products.exportError")));
+    } finally {
+      setExportingProducts(false);
+    }
   };
 
   const exportPayments = () => {
-    if (!token || exportingPayments) return;
+    if (exportingPayments) return;
 
     setExportingPayments(true);
     setPaymentsError("");
 
-    void fetchAllDashboardPayments(token, queryParams)
-      .then((payments) => {
-        exportDashboardPaymentsToExcel(
-          payments.income_payments,
-          payments.outcome_payments,
-          payments.income_payments_total,
-          payments.outcome_payments_total,
-          payments.income_payment_category_name,
-          payments.outcome_payment_category_name,
+    try {
+      exportDashboardPaymentsToExcel(
+        incomePayments,
+        outcomePayments,
+        incomePaymentsTotal,
+        outcomePaymentsTotal,
+        incomePaymentCategoryName,
+        outcomePaymentCategoryName,
+        t,
+        formatDashboardPeriodLabel(periodPreset, customRange, t),
+      );
+    } catch (err: unknown) {
+      setPaymentsError(formatAuthError(err, t("dashboard.payments.exportError")));
+    } finally {
+      setExportingPayments(false);
+    }
+  };
+
+  const exportOutOfStock = () => {
+    if (exportingOutOfStock || outOfStockProducts.length === 0) return;
+
+    setExportingOutOfStock(true);
+    setOutOfStockExportError("");
+
+    try {
+      exportDashboardOutOfStockToExcel(
+        outOfStockProducts,
+        t,
+        formatWarehouseFilterLabel(
+          outOfStockLabelFilters.allStocks,
+          outOfStockLabelFilters.stockIds,
+          warehouseLabelWarehouses,
           t,
-          formatDashboardPeriodLabel(periodPreset, customRange, t),
-        );
-      })
-      .catch((err: unknown) => {
-        setPaymentsError(formatAuthError(err, t("dashboard.payments.exportError")));
-      })
-      .finally(() => {
-        setExportingPayments(false);
-      });
+        ),
+      );
+    } catch (err: unknown) {
+      setOutOfStockExportError(formatAuthError(err, t("dashboard.outOfStock.exportError")));
+    } finally {
+      setExportingOutOfStock(false);
+    }
   };
 
   const topPartners = stats?.top_partners.map((entry) => ({
@@ -763,7 +794,8 @@ export function DashboardPage() {
   const dashboardTabLabel = (tab: DashboardTab) => {
     if (tab === "totals") return t("dashboard.tabs.totals");
     if (tab === "payments") return t("dashboard.tabs.payments");
-    return t("dashboard.tabs.products");
+    if (tab === "products") return t("dashboard.tabs.products");
+    return t("dashboard.tabs.outOfStock");
   };
 
   return (
@@ -774,7 +806,7 @@ export function DashboardPage() {
           <div className={styles.subtitle}>
             {loading
               ? t("common.loadingFromRegos")
-              : `${formatDashboardPeriodLabel(periodPreset, customRange, t)} · ${formatPartnerFilterLabel(allPartners, selectedPartnerIds, partners, t)} · ${formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}`}
+              : `${formatDashboardPeriodLabel(periodPreset, customRange, t)} · ${formatPartnerFilterLabel(allPartners, selectedPartnerIds, partners, t)} · ${formatWarehouseFilterLabel(warehouseLabelFilters.allStocks, warehouseLabelFilters.stockIds, warehouseLabelWarehouses, t)}`}
           </div>
         </div>
         <div className={styles.filters}>
@@ -811,14 +843,26 @@ export function DashboardPage() {
             <Users size={14} />
             {formatPartnerFilterLabel(allPartners, selectedPartnerIds, partners, t)}
           </button>
-          <button
-            type="button"
-            className={clsx(styles.filter, styles.filterMenu)}
-            onClick={() => setWarehouseModalOpen(true)}
-          >
-            <Warehouse size={14} />
-            {formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}
-          </button>
+          {canChangeWarehouse ? (
+            <button
+              type="button"
+              className={clsx(styles.filter, styles.filterMenu)}
+              onClick={() => setWarehouseModalOpen(true)}
+            >
+              <Warehouse size={14} />
+              {formatWarehouseFilterLabel(allStocks, selectedStockIds, warehouses, t)}
+            </button>
+          ) : (
+            <span className={clsx(styles.filter, styles.filterMenu)}>
+              <Warehouse size={14} />
+              {formatWarehouseFilterLabel(
+                warehouseLabelFilters.allStocks,
+                warehouseLabelFilters.stockIds,
+                warehouseLabelWarehouses,
+                t,
+              )}
+            </span>
+          )}
           {currencyFilterOptions.length > 0 && (
             <label className={clsx(styles.filter, styles.filterMenu, styles.currencyFilter)}>
               <Coins size={14} />
@@ -879,17 +923,32 @@ export function DashboardPage() {
           setSelectedPartnerIds(partnerIds);
         }}
       />
-      <DashboardWarehousesModal
-        open={warehouseModalOpen}
-        onClose={() => setWarehouseModalOpen(false)}
-        warehouses={warehouses}
-        allStocks={allStocks}
-        selectedStockIds={selectedStockIds}
-        onApply={({ allStocks: nextAllStocks, stockIds }) => {
-          setAllStocks(nextAllStocks);
-          setSelectedStockIds(stockIds);
-        }}
-      />
+      {canChangeWarehouse ? (
+        <>
+          <DashboardWarehousesModal
+            open={warehouseModalOpen}
+            onClose={() => setWarehouseModalOpen(false)}
+            warehouses={warehouses}
+            allStocks={allStocks}
+            selectedStockIds={selectedStockIds}
+            onApply={({ allStocks: nextAllStocks, stockIds }) => {
+              setAllStocks(nextAllStocks);
+              setSelectedStockIds(stockIds);
+            }}
+          />
+          <DashboardWarehousesModal
+            open={outOfStockWarehouseModalOpen}
+            onClose={() => setOutOfStockWarehouseModalOpen(false)}
+            warehouses={warehouses}
+            allStocks={outOfStockAllStocks}
+            selectedStockIds={outOfStockSelectedStockIds}
+            onApply={({ allStocks: nextAllStocks, stockIds }) => {
+              setOutOfStockAllStocks(nextAllStocks);
+              setOutOfStockSelectedStockIds(stockIds);
+            }}
+          />
+        </>
+      ) : null}
 
       {error && <div className={styles.empty}>{error}</div>}
 
@@ -1177,13 +1236,13 @@ export function DashboardPage() {
           <div className={styles.cardTitle}>{t("dashboard.tabs.payments")}</div>
           <div className={styles.cardSub}>
             {formatDashboardPeriodLabel(periodPreset, customRange, t)}
-            {totalPaymentsCount > 0
+            {loadedPaymentsCount > 0
               ? paymentsSearchQuery
                 ? ` · ${t("dashboard.payments.shown", undefined, {
                     n: filteredPaymentsCount,
                     m: loadedPaymentsCount,
                   })}`
-                : ` · ${loadedPaymentsCount} of ${totalPaymentsCount}`
+                : ` · ${loadedPaymentsCount}`
               : ""}
           </div>
           {loadedPaymentsCount > 0 && (
@@ -1262,20 +1321,6 @@ export function DashboardPage() {
               )}
             </div>
           </div>
-          {paymentsNextOffset > 0 && (
-            <div className={styles.productsFooter}>
-              <button
-                type="button"
-                className={styles.loadMore}
-                onClick={loadMorePayments}
-                disabled={loadingMorePayments}
-              >
-                {loadingMorePayments
-                  ? t("common.loading")
-                  : t("dashboard.payments.loadMore", undefined, { n: DASHBOARD_PAYMENTS_PAGE_SIZE })}
-              </button>
-            </div>
-          )}
         </div>
       ) : null}
 
@@ -1292,7 +1337,7 @@ export function DashboardPage() {
           {productsTotal > 0
             ? productsSearchQuery
               ? ` · ${t("dashboard.products.shown", undefined, { n: filteredProducts.length, m: products.length })}`
-              : ` · ${products.length} of ${productsTotal}`
+              : ` · ${productsTotal}`
             : ""}
         </div>
         {products.length > 0 && (
@@ -1405,21 +1450,128 @@ export function DashboardPage() {
             </table>
           </div>
         )}
-        {productsNextOffset > 0 && (
-          <div className={styles.productsFooter}>
-            <button
-              type="button"
-              className={styles.loadMore}
-              onClick={loadMoreProducts}
-              disabled={loadingMoreProducts}
-            >
-              {loadingMoreProducts
-                ? t("common.loading")
-                : t("dashboard.products.loadMore", undefined, { n: DASHBOARD_PRODUCTS_PAGE_SIZE })}
-            </button>
-          </div>
-        )}
       </div>
+      ) : null}
+
+      {activeTab === "outOfStock" ? (
+        <div
+          id="dashboard-panel-outOfStock"
+          role="tabpanel"
+          aria-labelledby="dashboard-tab-outOfStock"
+          className={clsx(styles.dashboardPanel, styles.card, styles.productsCard)}
+        >
+          <div className={styles.cardTitle}>{t("dashboard.outOfStock.title")}</div>
+          <div className={styles.cardSub}>
+            {outOfStockProducts.length > 0
+              ? outOfStockSearchQuery
+                ? t("dashboard.outOfStock.shown", undefined, {
+                    n: filteredOutOfStockProducts.length,
+                    m: outOfStockProducts.length,
+                  })
+                : String(outOfStockProducts.length)
+              : ""}
+          </div>
+          <div className={styles.productsToolbar}>
+            {canChangeWarehouse ? (
+              <button
+                type="button"
+                className={styles.exportButton}
+                onClick={() => setOutOfStockWarehouseModalOpen(true)}
+              >
+                <Warehouse size={14} />
+                {formatWarehouseFilterLabel(
+                  outOfStockAllStocks,
+                  outOfStockSelectedStockIds,
+                  warehouses,
+                  t,
+                )}
+              </button>
+            ) : (
+              <span className={styles.exportButton}>
+                <Warehouse size={14} />
+                {formatWarehouseFilterLabel(
+                  outOfStockLabelFilters.allStocks,
+                  outOfStockLabelFilters.stockIds,
+                  warehouseLabelWarehouses,
+                  t,
+                )}
+              </span>
+            )}
+            {outOfStockProducts.length > 0 && (
+              <div className={styles.productsSearch}>
+                <Search size={16} className={styles.productsSearchIcon} />
+                <input
+                  className={styles.productsSearchInput}
+                  type="search"
+                  placeholder={t("dashboard.outOfStock.searchPlaceholder")}
+                  value={outOfStockSearch}
+                  onChange={(event) => setOutOfStockSearch(event.target.value)}
+                  aria-label={t("dashboard.outOfStock.searchAria")}
+                />
+              </div>
+            )}
+            {outOfStockProducts.length > 0 && (
+              <button
+                type="button"
+                className={styles.exportButton}
+                onClick={exportOutOfStock}
+                disabled={exportingOutOfStock || outOfStockLoading}
+              >
+                <Download size={14} />
+                {exportingOutOfStock
+                  ? t("dashboard.outOfStock.exporting")
+                  : t("dashboard.outOfStock.exportExcel")}
+              </button>
+            )}
+          </div>
+          {(outOfStockError || outOfStockExportError) && (
+            <div className={styles.empty}>{outOfStockError || outOfStockExportError}</div>
+          )}
+          {outOfStockLoading && outOfStockProducts.length === 0 ? (
+            <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
+              {t("dashboard.outOfStock.loading")}
+            </div>
+          ) : filteredOutOfStockProducts.length === 0 && !outOfStockLoading && !outOfStockError ? (
+            <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
+              {outOfStockSearchQuery
+                ? t("dashboard.outOfStock.emptySearch")
+                : t("dashboard.outOfStock.empty")}
+            </div>
+          ) : (
+            <div className={styles.productsTableWrap}>
+              <table className={styles.productsTable}>
+                <thead>
+                  <tr>
+                    <th>{t("dashboard.outOfStock.columns.product")}</th>
+                    <th>{t("dashboard.outOfStock.columns.code")}</th>
+                    <th>{t("dashboard.outOfStock.columns.barcode")}</th>
+                    <th>{t("dashboard.outOfStock.columns.warehouse")}</th>
+                    <th className={styles.num}>{t("dashboard.outOfStock.columns.quantity")}</th>
+                    <th className={styles.num}>{t("dashboard.outOfStock.columns.minQuantity")}</th>
+                    <th className={styles.num}>{t("dashboard.outOfStock.columns.lastPurchaseCost")}</th>
+                    <th className={styles.num}>{t("dashboard.outOfStock.columns.price")}</th>
+                    <th>{t("dashboard.outOfStock.columns.detectedAt")}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredOutOfStockProducts.map((row) => (
+                    <tr key={`${row.product_id}-${row.stock_id}`}>
+                      <td className={styles.nameCell}>{row.product_name}</td>
+                      <td>{row.code || "—"}</td>
+                      <td>{row.barcode || "—"}</td>
+                      <td>{row.stock_name}</td>
+                      <td className={styles.num}>{formatQty(row.quantity)}</td>
+                      <td className={styles.num}>{formatQty(row.min_quantity)}</td>
+                      <td className={styles.num}>{formatOptionalCurrency(row.last_purchase_cost)}</td>
+                      <td className={styles.num}>{formatCurrency(row.price)}</td>
+                      <td>{formatDateTime(row.detected_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       ) : null}
     </div>
   );

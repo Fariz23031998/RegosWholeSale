@@ -2,6 +2,15 @@ import { create } from "zustand";
 import type { Product } from "@/types/catalog";
 import { normalizeCartQty } from "@/lib/cart-stock";
 
+export type CartItemPrintMeta = {
+  itemCode?: string | null;
+  itemArticul?: string | null;
+  itemGroupId?: number | null;
+  itemGroupName?: string | null;
+  itemUnitName?: string | null;
+  itemBrand?: string | null;
+};
+
 export type CartItem = {
   productId: string;
   regosItemId: number;
@@ -10,7 +19,19 @@ export type CartItem = {
   qty: number;
   image: string;
   unitType?: number | null;
-};
+  /** Qty from the postponed document when continuing a sale. */
+  postponedQty?: number;
+} & CartItemPrintMeta;
+
+export function cartItemPrintMetaFromProduct(product: Product): CartItemPrintMeta {
+  return {
+    itemCode: product.code?.trim() || null,
+    itemArticul: product.articul?.trim() || null,
+    itemGroupId: product.group_id ?? null,
+    itemGroupName: product.category?.trim() || null,
+    itemUnitName: product.unit_name?.trim() || null,
+  };
+}
 
 export type DiscountMode = "percent" | "amount";
 export type PostponedDocType = "wholesale" | "order_from_partner" | null;
@@ -117,6 +138,7 @@ export const useCart = create<CartState>((set, get) => ({
             qty: normalizedQty,
             image: p.image,
             unitType,
+            ...cartItemPrintMetaFromProduct(p),
           },
         ],
       };

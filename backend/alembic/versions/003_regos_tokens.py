@@ -23,7 +23,7 @@ def upgrade() -> None:
         sa.Column("id", sa.Integer(), autoincrement=True, nullable=False),
         sa.Column("company_id", sa.Integer(), nullable=False),
         sa.Column("integration_token", sa.String(length=32), nullable=False),
-        sa.Column("is_replicable", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("is_replicable", sa.Boolean(), nullable=False, server_default=sa.false()),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.text("(CURRENT_TIMESTAMP)"), nullable=False),
         sa.ForeignKeyConstraint(["company_id"], ["companies.id"], ondelete="CASCADE"),

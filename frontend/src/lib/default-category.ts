@@ -36,3 +36,23 @@ export function applyDefaultCategory(category: DefaultCategory): {
   }
   return { featuredOnly: false, selectedGroupId: null };
 }
+
+type DefaultCategoryGroup = {
+  id: number;
+  name: string;
+  path?: string;
+};
+
+export function formatDefaultCategorySelectLabel(
+  value: string,
+  groups: DefaultCategoryGroup[],
+  t: (key: string, fallback: string) => string,
+): string {
+  if (value === "featured") return t("users.settings.featured", "Featured");
+  if (value.startsWith("group:")) {
+    const groupId = Number.parseInt(value.slice(6), 10);
+    const group = groups.find((item) => item.id === groupId);
+    return group?.path || group?.name || value;
+  }
+  return t("common.all", "All");
+}

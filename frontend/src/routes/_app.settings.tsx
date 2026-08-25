@@ -1,7 +1,9 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { ExchangeRateSyncSection } from "@/components/Settings/ExchangeRateSyncSection";
+import { ThemeSelector } from "@/components/ThemeSelector";
 import {
   createDocPaymentSaleIdField,
   deleteRegosToken,
@@ -11,10 +13,14 @@ import {
   fetchRegosDefaults,
   fetchRegosReferenceOptions,
   fetchRegosTokenConfig,
+  invalidateRegosDefaultsCache,
+  invalidateRegosReferenceOptionsCache,
   patchPaymentLinking,
   patchPosSettings,
   patchRegosDefaults,
   saveRegosToken,
+  SETTINGS_QUERY_KEYS,
+  updateRegosIntegration,
 } from "@/lib/settings-api";
 import {
   deleteTelegramBot,
@@ -39,7 +45,17 @@ import type {
 } from "@/types/settings";
 import { getVatCalculationTypeOptions } from "@/types/settings";
 import { Link } from "@tanstack/react-router";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, RefreshCw } from "lucide-react";
+import clsx from "clsx";
+import { fetchProductGroups } from "@/lib/catalog-api";
+import { fetchUnits, fetchTaxVats } from "@/lib/items-api";
+import {
+  defaultCategoryToSelectValue,
+  selectValueToDefaultCategory,
+} from "@/lib/default-category";
+import { extractRegosIntegrationToken } from "@/lib/regos-integration-token";
+import type { ProductGroup } from "@/types/catalog";
+import type { RegosTaxVat, RegosUnit } from "@/types/items";
 import styles from "./settings.module.css";
 
 export const Route = createFileRoute("/_app/settings")({
@@ -55,12 +71,81 @@ const EMPTY_OPTIONS: RegosReferenceOptionsResponse = {
   attached_users: [],
 };
 
+type SettingsSectionId =
+  | "appearance"
+  | "pos"
+  | "receiptTemplates"
+  | "regos"
+  | "telegram"
+  | "defaults"
+  | "exchangeRateSync";
+
+type SettingsNavItem = {
+  id: SettingsSectionId;
+  titleKey: string;
+  titleFallback: string;
+  requiresManage?: boolean;
+  to?: "/receipt-templates";
+};
+
+const SETTINGS_NAV: SettingsNavItem[] = [
+  {
+    id: "appearance",
+    titleKey: "settings.appearance.title",
+    titleFallback: "Appearance",
+  },
+  {
+    id: "pos",
+    titleKey: "settings.pos.title",
+    titleFallback: "Company POS defaults",
+    requiresManage: true,
+  },
+  {
+    id: "receiptTemplates",
+    titleKey: "settings.receiptTemplates.title",
+    titleFallback: "Receipt templates",
+    requiresManage: true,
+    to: "/receipt-templates",
+  },
+  {
+    id: "regos",
+    titleKey: "settings.regos.title",
+    titleFallback: "Regos integration",
+    requiresManage: true,
+  },
+  {
+    id: "telegram",
+    titleKey: "settings.telegram.title",
+    titleFallback: "Telegram bot",
+    requiresManage: true,
+  },
+  {
+    id: "defaults",
+    titleKey: "settings.defaults.title",
+    titleFallback: "Regos defaults",
+    requiresManage: true,
+  },
+  {
+    id: "exchangeRateSync",
+    titleKey: "settings.exchangeRateSync.title",
+    titleFallback: "Exchange rate sync",
+    requiresManage: true,
+  },
+];
+
 function SettingsPage() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
 
   const canManageSettings = Boolean(user?.permissions.includes("settings.manage"));
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>("appearance");
+
+  const visibleNav = useMemo(
+    () =>
+      SETTINGS_NAV.filter((item) => !item.requiresManage || canManageSettings),
+    [canManageSettings],
+  );
 
   const [options, setOptions] = useState<RegosReferenceOptionsResponse>(EMPTY_OPTIONS);
   const [integrationToken, setIntegrationToken] = useState("");
@@ -89,10 +174,20 @@ function SettingsPage() {
   const [postponeDocumentType, setPostponeDocumentType] =
     useState<PostponeDocumentType>("doc_wholesale");
   const [postponeOrderBooked, setPostponeOrderBooked] = useState(true);
+  const [tasnifCreateOnBarcodeMiss, setTasnifCreateOnBarcodeMiss] = useState(false);
+  const [tasnifDefaultGroupId, setTasnifDefaultGroupId] = useState<number | null>(null);
+  const [tasnifDefaultUnitId, setTasnifDefaultUnitId] = useState<number | null>(null);
+  const [tasnifDefaultVatId, setTasnifDefaultVatId] = useState<number | null>(null);
+  const [defaultCategoryValue, setDefaultCategoryValue] = useState("all");
+  const [productGroups, setProductGroups] = useState<ProductGroup[]>([]);
+  const [units, setUnits] = useState<RegosUnit[]>([]);
+  const [taxVats, setTaxVats] = useState<RegosTaxVat[]>([]);
   const [savingPosSettings, setSavingPosSettings] = useState(false);
   const [posSettingsError, setPosSettingsError] = useState("");
   const [savingToken, setSavingToken] = useState(false);
+  const [updatingIntegration, setUpdatingIntegration] = useState(false);
   const [savingRegosDefaults, setSavingRegosDefaults] = useState(false);
+  const [refreshingRegosDefaults, setRefreshingRegosDefaults] = useState(false);
   const [tokenError, setTokenError] = useState("");
   const [tokenInfo, setTokenInfo] = useState("");
   const [regosError, setRegosError] = useState("");
@@ -169,25 +264,32 @@ function SettingsPage() {
 
   const queryClient = useQueryClient();
   const settingsEnabled = Boolean(token) && canManageSettings;
+  const cacheScope = useMemo(
+    () =>
+      user?.company_id != null
+        ? { companyId: user.company_id, userId: user.id }
+        : undefined,
+    [user?.company_id, user?.id],
+  );
 
   const posSettingsQuery = useQuery({
-    queryKey: ["settings", "pos", token],
-    queryFn: () => fetchPosSettings(token!),
+    queryKey: SETTINGS_QUERY_KEYS.pos(token),
+    queryFn: () => fetchPosSettings(token!, { cacheScope }),
     enabled: settingsEnabled,
     staleTime: 30_000,
   });
 
   const regosBootstrapQuery = useQuery({
-    queryKey: ["settings", "regos-bootstrap", token],
+    queryKey: SETTINGS_QUERY_KEYS.regosBootstrap(token),
     queryFn: async () => {
-      const config = await fetchRegosTokenConfig(token!);
+      const config = await fetchRegosTokenConfig(token!, { cacheScope });
       if (!config.configured) {
         return { config, regos: null };
       }
 
       const [defaults, nextOptions] = await Promise.all([
-        fetchRegosDefaults(token!),
-        fetchRegosReferenceOptions(token!),
+        fetchRegosDefaults(token!, { cacheScope }),
+        fetchRegosReferenceOptions(token!, { cacheScope }),
       ]);
 
       const defaultSaleIdFieldStatus: RegosDocPaymentSaleIdFieldResponse = {
@@ -207,8 +309,8 @@ function SettingsPage() {
       let paymentLinkingLoadError = "";
 
       const [saleIdFieldResult, paymentLinkingResult] = await Promise.allSettled([
-        fetchDocPaymentSaleIdField(token!),
-        fetchPaymentLinking(token!),
+        fetchDocPaymentSaleIdField(token!, { cacheScope }),
+        fetchPaymentLinking(token!, { cacheScope }),
       ]);
 
       if (saleIdFieldResult.status === "fulfilled") {
@@ -275,7 +377,51 @@ function SettingsPage() {
     setInternalBarcodePiecePrefix(res.settings.internal_barcode_piece_prefix ?? "23");
     setPostponeDocumentType(res.settings.postpone_document_type ?? "doc_wholesale");
     setPostponeOrderBooked(res.settings.postpone_order_booked ?? true);
+    setTasnifCreateOnBarcodeMiss(res.settings.tasnif_create_on_barcode_miss ?? false);
+    setTasnifDefaultGroupId(res.settings.tasnif_default_group_id ?? null);
+    setTasnifDefaultUnitId(res.settings.tasnif_default_unit_id ?? null);
+    setTasnifDefaultVatId(res.settings.tasnif_default_vat_id ?? null);
+    setDefaultCategoryValue(defaultCategoryToSelectValue(res.settings.default_category));
   }, [posSettingsQuery.data]);
+
+  useEffect(() => {
+    if (!token || !tokenConfigured) {
+      setProductGroups([]);
+      setUnits([]);
+      setTaxVats([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    void fetchProductGroups(token)
+      .then((res) => {
+        if (!cancelled) setProductGroups(res.groups);
+      })
+      .catch(() => {
+        if (!cancelled) setProductGroups([]);
+      });
+
+    void fetchUnits(token)
+      .then((list) => {
+        if (!cancelled) setUnits(list);
+      })
+      .catch(() => {
+        if (!cancelled) setUnits([]);
+      });
+
+    void fetchTaxVats(token)
+      .then((list) => {
+        if (!cancelled) setTaxVats(list.filter((vat) => vat.enabled));
+      })
+      .catch(() => {
+        if (!cancelled) setTaxVats([]);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [token, tokenConfigured]);
 
   useEffect(() => {
     const data = regosBootstrapQuery.data;
@@ -378,7 +524,7 @@ function SettingsPage() {
   const handleSaveRegosToken = async () => {
     if (!token) return;
 
-    const nextToken = integrationToken.trim();
+    const nextToken = extractRegosIntegrationToken(integrationToken);
     setSavingToken(true);
     setTokenError("");
     setTokenInfo("");
@@ -397,18 +543,46 @@ function SettingsPage() {
         return;
       }
 
-      await saveRegosToken(token, {
-        token: nextToken || null,
-        is_replicable: isReplicable,
-      });
+      await saveRegosToken(
+        token,
+        {
+          token: nextToken || null,
+          is_replicable: isReplicable,
+        },
+        cacheScope,
+      );
       setIntegrationToken("");
       setTokenInfo(t("settings.regos.tokenSaved", "Regos integration token saved."));
       setRegosError("");
-      await queryClient.invalidateQueries({ queryKey: ["settings", "regos-bootstrap", token] });
+      await queryClient.invalidateQueries({
+        queryKey: SETTINGS_QUERY_KEYS.regosBootstrap(token),
+      });
     } catch (err) {
       setTokenError(formatAuthError(err));
     } finally {
       setSavingToken(false);
+    }
+  };
+
+  const handleUpdateIntegration = async () => {
+    if (!token) return;
+
+    setUpdatingIntegration(true);
+    setTokenError("");
+    setTokenInfo("");
+
+    try {
+      await updateRegosIntegration(token, cacheScope);
+      setTokenInfo(
+        t(
+          "settings.regos.updateIntegrationSuccess",
+          "Regos integration updated successfully.",
+        ),
+      );
+    } catch (err) {
+      setTokenError(formatAuthError(err));
+    } finally {
+      setUpdatingIntegration(false);
     }
   };
 
@@ -419,11 +593,13 @@ function SettingsPage() {
     setTokenError("");
     setTokenInfo("");
     try {
-      await deleteRegosToken(token);
+      await deleteRegosToken(token, cacheScope);
       setTokenInfo(t("settings.regos.tokenRemoved", "Regos integration token removed."));
       setRegosError("");
       setRegosInfo("");
-      await queryClient.invalidateQueries({ queryKey: ["settings", "regos-bootstrap", token] });
+      await queryClient.invalidateQueries({
+        queryKey: SETTINGS_QUERY_KEYS.regosBootstrap(token),
+      });
     } catch (err) {
       setTokenError(formatAuthError(err));
     } finally {
@@ -438,7 +614,7 @@ function SettingsPage() {
     setSaleIdFieldError("");
     setSaleIdFieldInfo("");
     try {
-      const res = await createDocPaymentSaleIdField(token);
+      const res = await createDocPaymentSaleIdField(token, cacheScope);
       setSaleIdFieldConfigured(res.configured);
       setSaleIdField(res.field);
       setSaleIdFieldInfo(
@@ -463,7 +639,7 @@ function SettingsPage() {
     setPaymentLinkingError("");
     setPaymentLinkingInfo("");
     try {
-      const res = await patchPaymentLinking(token, { mode: nextMode });
+      const res = await patchPaymentLinking(token, { mode: nextMode }, cacheScope);
       setPaymentLinkingMode(res.mode);
       setSaleIdFieldConfigured(res.sale_id_field_configured);
       setSaleIdField(res.sale_id_field);
@@ -485,25 +661,69 @@ function SettingsPage() {
     setRegosInfo("");
 
     try {
-      const res = await patchRegosDefaults(token, {
-        warehouse_id: warehouseId ? Number(warehouseId) : null,
-        price_type_id: priceTypeId ? Number(priceTypeId) : null,
-        partner_id: partnerId ? Number(partnerId) : null,
-        payment_category_id: paymentCategoryId ? Number(paymentCategoryId) : null,
-        refund_payment_category_id: refundPaymentCategoryId
-          ? Number(refundPaymentCategoryId)
-          : null,
-        attached_user_id: attachedUserId ? Number(attachedUserId) : null,
-        vat_calculation_type: vatCalculationType,
-        zero_quantity: zeroQuantity,
-        zero_price: zeroPrice,
-      });
+      const res = await patchRegosDefaults(
+        token,
+        {
+          warehouse_id: warehouseId ? Number(warehouseId) : null,
+          price_type_id: priceTypeId ? Number(priceTypeId) : null,
+          partner_id: partnerId ? Number(partnerId) : null,
+          payment_category_id: paymentCategoryId ? Number(paymentCategoryId) : null,
+          refund_payment_category_id: refundPaymentCategoryId
+            ? Number(refundPaymentCategoryId)
+            : null,
+          attached_user_id: attachedUserId ? Number(attachedUserId) : null,
+          vat_calculation_type: vatCalculationType,
+          zero_quantity: zeroQuantity,
+          zero_price: zeroPrice,
+        },
+        cacheScope,
+      );
       applyDefaults(res.defaults);
       setRegosInfo(t("settings.defaults.saved", "Regos defaults saved"));
     } catch (err) {
       setRegosError(formatAuthError(err));
     } finally {
       setSavingRegosDefaults(false);
+    }
+  };
+
+  const handleRefreshRegosDefaults = async () => {
+    if (!token || !tokenConfigured || refreshingRegosDefaults) return;
+
+    setRefreshingRegosDefaults(true);
+    setRegosError("");
+    setRegosInfo("");
+
+    try {
+      invalidateRegosDefaultsCache(token);
+      await invalidateRegosReferenceOptionsCache(token, user?.company_id);
+      const [defaults, nextOptions] = await Promise.all([
+        fetchRegosDefaults(token, { force: true, cacheScope }),
+        fetchRegosReferenceOptions(token, { force: true, cacheScope }),
+      ]);
+      applyDefaults(defaults.defaults);
+      setOptions(nextOptions);
+      queryClient.setQueryData(
+        SETTINGS_QUERY_KEYS.regosBootstrap(token),
+        (old: typeof regosBootstrapQuery.data) => {
+          if (!old?.regos) return old;
+          return {
+            ...old,
+            regos: {
+              ...old.regos,
+              defaults,
+              nextOptions,
+            },
+          };
+        },
+      );
+      setRegosInfo(
+        t("settings.defaults.refreshed", "Regos defaults updated from Regos"),
+      );
+    } catch (err) {
+      setRegosError(formatAuthError(err));
+    } finally {
+      setRefreshingRegosDefaults(false);
     }
   };
 
@@ -524,7 +744,7 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { tendered_quick_amounts: amounts });
+      const res = await patchPosSettings(token, { tendered_quick_amounts: amounts }, cacheScope);
       setTenderedAmountsInput(
         formatTenderedQuickAmounts(res.settings.tendered_quick_amounts),
       );
@@ -542,7 +762,7 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { allow_out_of_stock: checked });
+      const res = await patchPosSettings(token, { allow_out_of_stock: checked }, cacheScope);
       setAllowOutOfStock(res.settings.allow_out_of_stock);
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
@@ -559,11 +779,35 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { auto_open_qty_keypad: checked });
+      const res = await patchPosSettings(token, { auto_open_qty_keypad: checked }, cacheScope);
       setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
       setAutoOpenQtyKeypad((prev) => !checked);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
+  const handleDefaultCategoryChange = async (value: string) => {
+    if (!token || !canManageSettings) return;
+
+    const previous = defaultCategoryValue;
+    setDefaultCategoryValue(value);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(
+        token,
+        {
+          default_category: selectValueToDefaultCategory(value),
+        },
+        cacheScope,
+      );
+      setDefaultCategoryValue(defaultCategoryToSelectValue(res.settings.default_category));
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setDefaultCategoryValue(previous);
     } finally {
       setSavingPosSettings(false);
     }
@@ -577,7 +821,7 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { cross_currency_payment_mode: mode });
+      const res = await patchPosSettings(token, { cross_currency_payment_mode: mode }, cacheScope);
       setCrossCurrencyPaymentMode(res.settings.cross_currency_payment_mode);
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
@@ -595,7 +839,7 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { postpone_document_type: value });
+      const res = await patchPosSettings(token, { postpone_document_type: value }, cacheScope);
       setPostponeDocumentType(res.settings.postpone_document_type);
       setPostponeOrderBooked(res.settings.postpone_order_booked ?? true);
     } catch (err) {
@@ -614,11 +858,102 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, { postpone_order_booked: checked });
+      const res = await patchPosSettings(token, { postpone_order_booked: checked }, cacheScope);
       setPostponeOrderBooked(res.settings.postpone_order_booked);
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
       setPostponeOrderBooked(previous);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
+  const handleTasnifCreateOnBarcodeMissChange = async (checked: boolean) => {
+    if (!token || !canManageSettings) return;
+
+    const previous = tasnifCreateOnBarcodeMiss;
+    setTasnifCreateOnBarcodeMiss(checked);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(
+        token,
+        { tasnif_create_on_barcode_miss: checked },
+        cacheScope,
+      );
+      setTasnifCreateOnBarcodeMiss(res.settings.tasnif_create_on_barcode_miss);
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setTasnifCreateOnBarcodeMiss(previous);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
+  const handleTasnifDefaultGroupChange = async (value: string) => {
+    if (!token || !canManageSettings) return;
+
+    const next = value ? Number(value) : null;
+    const previous = tasnifDefaultGroupId;
+    setTasnifDefaultGroupId(next);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(
+        token,
+        { tasnif_default_group_id: next },
+        cacheScope,
+      );
+      setTasnifDefaultGroupId(res.settings.tasnif_default_group_id ?? null);
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setTasnifDefaultGroupId(previous);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
+  const handleTasnifDefaultUnitChange = async (value: string) => {
+    if (!token || !canManageSettings) return;
+
+    const next = value ? Number(value) : null;
+    const previous = tasnifDefaultUnitId;
+    setTasnifDefaultUnitId(next);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(
+        token,
+        { tasnif_default_unit_id: next },
+        cacheScope,
+      );
+      setTasnifDefaultUnitId(res.settings.tasnif_default_unit_id ?? null);
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setTasnifDefaultUnitId(previous);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
+  const handleTasnifDefaultVatChange = async (value: string) => {
+    if (!token || !canManageSettings) return;
+
+    const next = value ? Number(value) : null;
+    const previous = tasnifDefaultVatId;
+    setTasnifDefaultVatId(next);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(
+        token,
+        { tasnif_default_vat_id: next },
+        cacheScope,
+      );
+      setTasnifDefaultVatId(res.settings.tasnif_default_vat_id ?? null);
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setTasnifDefaultVatId(previous);
     } finally {
       setSavingPosSettings(false);
     }
@@ -630,10 +965,14 @@ function SettingsPage() {
     setSavingPosSettings(true);
     setPosSettingsError("");
     try {
-      const res = await patchPosSettings(token, {
-        internal_barcode_weight_prefix: internalBarcodeWeightPrefix,
-        internal_barcode_piece_prefix: internalBarcodePiecePrefix,
-      });
+      const res = await patchPosSettings(
+        token,
+        {
+          internal_barcode_weight_prefix: internalBarcodeWeightPrefix,
+          internal_barcode_piece_prefix: internalBarcodePiecePrefix,
+        },
+        cacheScope,
+      );
       setInternalBarcodeWeightPrefix(res.settings.internal_barcode_weight_prefix);
       setInternalBarcodePiecePrefix(res.settings.internal_barcode_piece_prefix);
     } catch (err) {
@@ -652,8 +991,60 @@ function SettingsPage() {
         </p>
       </header>
 
-      {canManageSettings ? (
-        <>
+      <div className={styles.layout}>
+        <nav className={styles.sideNav} aria-label={t("settings.title", "Settings")}>
+          {visibleNav.map((item) => {
+            const label = t(item.titleKey, item.titleFallback);
+            if (item.to) {
+              return (
+                <Link
+                  key={item.id}
+                  to={item.to}
+                  className={clsx(styles.navItem, styles.navItemExternal)}
+                >
+                  <span>{label}</span>
+                  <ChevronRight size={16} aria-hidden />
+                </Link>
+              );
+            }
+            return (
+              <button
+                key={item.id}
+                type="button"
+                className={clsx(
+                  styles.navItem,
+                  activeSection === item.id && styles.navItemActive,
+                )}
+                aria-current={activeSection === item.id ? "page" : undefined}
+                onClick={() => setActiveSection(item.id)}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </nav>
+
+        <div className={styles.content}>
+          {activeSection === "appearance" ? (
+            <section className={styles.section}>
+              <div className={styles.sectionHeader}>
+                <div>
+                  <h2 className={styles.sectionTitle}>
+                    {t("settings.appearance.title", "Appearance")}
+                  </h2>
+                  <p className={styles.sectionDesc}>
+                    {t(
+                      "settings.appearance.subtitle",
+                      "Choose how Regos Optom looks on this device.",
+                    )}
+                  </p>
+                </div>
+              </div>
+              <ThemeSelector variant="segmented" />
+            </section>
+          ) : null}
+
+          {canManageSettings && activeSection === "pos" ? (
           <section className={styles.section}>
             <h2 className={styles.sectionTitle}>
               {t("settings.pos.title", "Company POS defaults")}
@@ -710,6 +1101,139 @@ function SettingsPage() {
                 <span className={styles.slider} />
               </span>
             </label>
+
+            <label className={styles.row}>
+              <div>
+                <div className={styles.rowTitle}>
+                  {t(
+                    "settings.pos.tasnifCreateOnBarcodeMiss",
+                    "Create product from Tasnif when barcode not found",
+                  )}
+                </div>
+                <div className={styles.rowDesc}>
+                  {t(
+                    "settings.pos.tasnifCreateOnBarcodeMissDesc",
+                    "On Add Line, if a long barcode search finds no product, open Create with Tasnif data.",
+                  )}
+                </div>
+              </div>
+              <span className={styles.switch}>
+                <input
+                  type="checkbox"
+                  checked={tasnifCreateOnBarcodeMiss}
+                  disabled={loadingPosSettings || savingPosSettings}
+                  onChange={(e) => void handleTasnifCreateOnBarcodeMissChange(e.target.checked)}
+                />
+                <span className={styles.slider} />
+              </span>
+            </label>
+
+            <div className={styles.fieldBlock}>
+              <div className={styles.rowTitle}>
+                {t("settings.pos.tasnifDefaultGroup", "Tasnif default category")}
+              </div>
+              <div className={styles.rowDesc}>
+                {t(
+                  "settings.pos.tasnifDefaultGroupDesc",
+                  "Product group preselected when creating a product from Tasnif.",
+                )}
+              </div>
+              <select
+                className={styles.select}
+                value={tasnifDefaultGroupId ?? ""}
+                disabled={loadingPosSettings || savingPosSettings || !tokenConfigured}
+                onChange={(e) => void handleTasnifDefaultGroupChange(e.target.value)}
+              >
+                <option value="">
+                  {t("settings.pos.tasnifDefaultNone", "Not set")}
+                </option>
+                {productGroups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.path || group.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.fieldBlock}>
+              <div className={styles.rowTitle}>
+                {t("settings.pos.tasnifDefaultUnit", "Tasnif default unit")}
+              </div>
+              <div className={styles.rowDesc}>
+                {t(
+                  "settings.pos.tasnifDefaultUnitDesc",
+                  "Unit of measure preselected when creating a product from Tasnif.",
+                )}
+              </div>
+              <select
+                className={styles.select}
+                value={tasnifDefaultUnitId ?? ""}
+                disabled={loadingPosSettings || savingPosSettings || !tokenConfigured}
+                onChange={(e) => void handleTasnifDefaultUnitChange(e.target.value)}
+              >
+                <option value="">
+                  {t("settings.pos.tasnifDefaultNone", "Not set")}
+                </option>
+                {units.map((unit) => (
+                  <option key={unit.id} value={unit.id}>
+                    {unit.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.fieldBlock}>
+              <div className={styles.rowTitle}>
+                {t("settings.pos.tasnifDefaultVat", "Tasnif default VAT")}
+              </div>
+              <div className={styles.rowDesc}>
+                {t(
+                  "settings.pos.tasnifDefaultVatDesc",
+                  "VAT rate preselected when creating a product from Tasnif.",
+                )}
+              </div>
+              <select
+                className={styles.select}
+                value={tasnifDefaultVatId ?? ""}
+                disabled={loadingPosSettings || savingPosSettings || !tokenConfigured}
+                onChange={(e) => void handleTasnifDefaultVatChange(e.target.value)}
+              >
+                <option value="">
+                  {t("settings.pos.tasnifDefaultNone", "Not set")}
+                </option>
+                {taxVats.map((vat) => (
+                  <option key={vat.id} value={vat.id}>
+                    {vat.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className={styles.fieldBlock}>
+              <div className={styles.rowTitle}>
+                {t("settings.pos.defaultCategory", "Default category")}
+              </div>
+              <div className={styles.rowDesc}>
+                {t(
+                  "settings.pos.defaultCategoryHint",
+                  "Category selected automatically when users open the Sell screen.",
+                )}
+              </div>
+              <select
+                className={styles.select}
+                value={defaultCategoryValue}
+                disabled={loadingPosSettings || savingPosSettings || !tokenConfigured}
+                onChange={(e) => void handleDefaultCategoryChange(e.target.value)}
+              >
+                <option value="all">{t("common.all", "All")}</option>
+                <option value="featured">{t("users.settings.featured", "Featured")}</option>
+                {productGroups.map((group) => (
+                  <option key={group.id} value={`group:${group.id}`}>
+                    {group.path || group.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             <div className={styles.fieldBlock}>
               <div className={styles.rowTitle}>
@@ -898,24 +1422,9 @@ function SettingsPage() {
               <p className={styles.error}>{posSettingsError || posSettingsFetchError}</p>
             ) : null}
           </section>
+          ) : null}
 
-          <section className={styles.section}>
-            <Link to="/receipt-templates" className={styles.settingsNavLink}>
-              <div>
-                <div className={styles.rowTitle}>
-                  {t("settings.receiptTemplates.title", "Receipt templates")}
-                </div>
-                <div className={styles.rowDesc}>
-                  {t(
-                    "settings.receiptTemplates.settingsLinkDesc",
-                    "Manage 80mm receipts, A4 invoices, and custom HTML templates.",
-                  )}
-                </div>
-              </div>
-              <ChevronRight size={18} aria-hidden />
-            </Link>
-          </section>
-
+          {canManageSettings && activeSection === "regos" ? (
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
               <div>
@@ -948,7 +1457,9 @@ function SettingsPage() {
                   disabled={loadingToken || savingToken}
                   autoComplete="off"
                   spellCheck={false}
-                  onChange={(e) => setIntegrationToken(e.target.value)}
+                  onChange={(e) =>
+                    setIntegrationToken(extractRegosIntegrationToken(e.target.value))
+                  }
                   placeholder={
                     tokenConfigured
                       ? t(
@@ -985,6 +1496,36 @@ function SettingsPage() {
                   <span className={styles.slider} />
                 </span>
               </label>
+
+              {!isReplicable ? (
+                <div className={styles.subsection}>
+                  <div className={styles.rowTitle}>
+                    {t("settings.regos.updateIntegration", "Update integration")}
+                  </div>
+                  <p className={styles.rowDesc}>
+                    {t(
+                      "settings.regos.updateIntegrationDesc",
+                      "Sync the integration name, webhook endpoint, and required event list in Regos.",
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    className={styles.btnSecondary}
+                    disabled={
+                      loadingToken ||
+                      savingToken ||
+                      updatingIntegration ||
+                      !tokenConfigured ||
+                      !regosWebhookUrl
+                    }
+                    onClick={() => void handleUpdateIntegration()}
+                  >
+                    {updatingIntegration
+                      ? t("common.saving", "Saving…")
+                      : t("settings.regos.updateIntegration", "Update integration")}
+                  </button>
+                </div>
+              ) : null}
             </div>
 
             <div className={styles.actions}>
@@ -1020,7 +1561,7 @@ function SettingsPage() {
                         )
                       : t(
                           "settings.regos.tokenSavedNoWebhookUrl",
-                          "Token {{masked}} saved. Set TELEGRAM_WEBHOOK_BASE_URL on the server to show the REGOS webhook URL.",
+                          "Token {{masked}} saved. Set REGOS_WEBHOOK_URL on the server to show the REGOS webhook URL.",
                           { masked: regosTokenMasked },
                         )
                     : t("settings.regos.noToken", "No integration token saved yet.")}
@@ -1142,7 +1683,9 @@ function SettingsPage() {
               ) : null}
             </div>
           </section>
+          ) : null}
 
+          {canManageSettings && activeSection === "telegram" ? (
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
               <div>
@@ -1188,7 +1731,7 @@ function SettingsPage() {
               </label>
             </div>
 
-            <div className={styles.actions}>
+            <div className={styles.telegramFooter}>
               <div className={styles.buttonRow}>
                 <button
                   type="button"
@@ -1209,36 +1752,57 @@ function SettingsPage() {
                   {t("settings.telegram.removeBot", "Remove bot")}
                 </button>
               </div>
-              <p className={styles.note}>
-                {loadingTelegramBot
-                  ? t("settings.telegram.loading", "Loading Telegram bot...")
-                  : telegramBotConfigured
-                    ? telegramBotUsername
-                      ? t(
-                          "settings.telegram.connectedWebhook",
-                          "Connected as @{{username}}. Webhook: {{webhook}}",
-                          {
-                            username: telegramBotUsername,
-                            webhook: telegramWebhookUrl ?? "registered",
-                          },
-                        )
-                      : t("settings.telegram.configured", "Telegram bot is configured.")
+
+              {loadingTelegramBot ? (
+                <p className={styles.note}>
+                  {t("settings.telegram.loading", "Loading Telegram bot...")}
+                </p>
+              ) : telegramBotConfigured && telegramBotUsername ? (
+                <div className={styles.telegramStatus}>
+                  <p className={styles.telegramMeta}>
+                    {t(
+                      "settings.telegram.connectedAs",
+                      "Connected as @{{username}}",
+                      { username: telegramBotUsername },
+                    )}
+                  </p>
+                  {telegramWebhookUrl ? (
+                    <div className={styles.telegramMeta}>
+                      <span className={styles.telegramLabel}>
+                        {t("settings.telegram.webhook", "Webhook")}
+                      </span>
+                      <code className={styles.telegramUrl}>{telegramWebhookUrl}</code>
+                    </div>
+                  ) : null}
+                  <p className={styles.telegramMeta}>
+                    {t("settings.telegram.botLink", "Bot link:")}{" "}
+                    <a href={`https://t.me/${telegramBotUsername}`} target="_blank" rel="noreferrer">
+                      t.me/{telegramBotUsername}
+                    </a>
+                  </p>
+                  <p className={styles.telegramMeta}>
+                    {t(
+                      "settings.telegram.groupInstructions",
+                      "For groups: add the bot to a group, then send /start@{{username}} in the group. Activate the group on the Telegram subscribers page.",
+                      { username: telegramBotUsername },
+                    )}
+                  </p>
+                </div>
+              ) : (
+                <p className={styles.note}>
+                  {telegramBotConfigured
+                    ? t("settings.telegram.configured", "Telegram bot is configured.")
                     : t(
                         "settings.telegram.noWebhookBaseUrl",
                         "No Telegram bot saved yet. TELEGRAM_WEBHOOK_BASE_URL must be set on the server.",
                       )}
-              </p>
-              {telegramBotConfigured && telegramBotUsername ? (
-                <p className={styles.note}>
-                  {t("settings.telegram.botLink", "Bot link:")}{" "}
-                  <a href={`https://t.me/${telegramBotUsername}`} target="_blank" rel="noreferrer">
-                    t.me/{telegramBotUsername}
-                  </a>
                 </p>
-              ) : null}
+              )}
             </div>
           </section>
+          ) : null}
 
+          {canManageSettings && activeSection === "defaults" ? (
           <section className={styles.section}>
             <div className={styles.sectionHeader}>
               <div>
@@ -1252,6 +1816,26 @@ function SettingsPage() {
                   )}
                 </p>
               </div>
+              <button
+                type="button"
+                className={styles.btnIcon}
+                disabled={
+                  !tokenConfigured ||
+                  loadingRegos ||
+                  loadingToken ||
+                  savingRegosDefaults ||
+                  refreshingRegosDefaults
+                }
+                aria-label={t("settings.defaults.refresh", "Update from Regos")}
+                title={t("settings.defaults.refresh", "Update from Regos")}
+                onClick={() => void handleRefreshRegosDefaults()}
+              >
+                <RefreshCw
+                  size={18}
+                  aria-hidden
+                  className={refreshingRegosDefaults ? styles.spin : undefined}
+                />
+              </button>
             </div>
 
             {regosError && <p className={styles.error}>{regosError}</p>}
@@ -1266,7 +1850,11 @@ function SettingsPage() {
                   className={styles.select}
                   value={warehouseId}
                   disabled={
-                    !tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults
+                    !tokenConfigured ||
+                    loadingRegos ||
+                    loadingToken ||
+                    savingRegosDefaults ||
+                    refreshingRegosDefaults
                   }
                   onChange={(e) => setWarehouseId(e.target.value)}
                 >
@@ -1287,7 +1875,11 @@ function SettingsPage() {
                   className={styles.select}
                   value={priceTypeId}
                   disabled={
-                    !tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults
+                    !tokenConfigured ||
+                    loadingRegos ||
+                    loadingToken ||
+                    savingRegosDefaults ||
+                    refreshingRegosDefaults
                   }
                   onChange={(e) => setPriceTypeId(e.target.value)}
                 >
@@ -1308,7 +1900,11 @@ function SettingsPage() {
                   className={styles.select}
                   value={partnerId}
                   disabled={
-                    !tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults
+                    !tokenConfigured ||
+                    loadingRegos ||
+                    loadingToken ||
+                    savingRegosDefaults ||
+                    refreshingRegosDefaults
                   }
                   onChange={(e) => setPartnerId(e.target.value)}
                 >
@@ -1351,7 +1947,11 @@ function SettingsPage() {
                   className={styles.select}
                   value={paymentCategoryId}
                   disabled={
-                    !tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults
+                    !tokenConfigured ||
+                    loadingRegos ||
+                    loadingToken ||
+                    savingRegosDefaults ||
+                    refreshingRegosDefaults
                   }
                   onChange={(e) => setPaymentCategoryId(e.target.value)}
                 >
@@ -1372,7 +1972,11 @@ function SettingsPage() {
                   className={styles.select}
                   value={refundPaymentCategoryId}
                   disabled={
-                    !tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults
+                    !tokenConfigured ||
+                    loadingRegos ||
+                    loadingToken ||
+                    savingRegosDefaults ||
+                    refreshingRegosDefaults
                   }
                   onChange={(e) => setRefundPaymentCategoryId(e.target.value)}
                 >
@@ -1393,7 +1997,11 @@ function SettingsPage() {
                   className={styles.select}
                   value={attachedUserId}
                   disabled={
-                    !tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults
+                    !tokenConfigured ||
+                    loadingRegos ||
+                    loadingToken ||
+                    savingRegosDefaults ||
+                    refreshingRegosDefaults
                   }
                   onChange={(e) => setAttachedUserId(e.target.value)}
                 >
@@ -1414,7 +2022,11 @@ function SettingsPage() {
                   className={styles.select}
                   value={vatCalculationType}
                   disabled={
-                    !tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults
+                    !tokenConfigured ||
+                    loadingRegos ||
+                    loadingToken ||
+                    savingRegosDefaults ||
+                    refreshingRegosDefaults
                   }
                   onChange={(e) => setVatCalculationType(e.target.value as VatCalculationType)}
                 >
@@ -1443,7 +2055,11 @@ function SettingsPage() {
                     type="checkbox"
                     checked={zeroQuantity}
                     disabled={
-                      !tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults
+                      !tokenConfigured ||
+                      loadingRegos ||
+                      loadingToken ||
+                      savingRegosDefaults ||
+                      refreshingRegosDefaults
                     }
                     onChange={(e) => setZeroQuantity(e.target.checked)}
                   />
@@ -1468,7 +2084,11 @@ function SettingsPage() {
                     type="checkbox"
                     checked={zeroPrice}
                     disabled={
-                      !tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults
+                      !tokenConfigured ||
+                      loadingRegos ||
+                      loadingToken ||
+                      savingRegosDefaults ||
+                      refreshingRegosDefaults
                     }
                     onChange={(e) => setZeroPrice(e.target.checked)}
                   />
@@ -1481,7 +2101,13 @@ function SettingsPage() {
               <button
                 type="button"
                 className={styles.btn}
-                disabled={!tokenConfigured || loadingRegos || loadingToken || savingRegosDefaults}
+                disabled={
+                  !tokenConfigured ||
+                  loadingRegos ||
+                  loadingToken ||
+                  savingRegosDefaults ||
+                  refreshingRegosDefaults
+                }
                 onClick={() => void handleSaveRegosDefaults()}
               >
                 {savingRegosDefaults
@@ -1500,8 +2126,30 @@ function SettingsPage() {
               </p>
             </div>
           </section>
-        </>
-      ) : null}
+          ) : null}
+
+          {canManageSettings && activeSection === "exchangeRateSync" ? (
+          <section className={styles.section}>
+            <ExchangeRateSyncSection
+              token={token ?? ""}
+              companyId={user?.company_id}
+              tokenConfigured={tokenConfigured}
+              priceTypes={options.price_types}
+              defaultCurrency={
+                derivedCurrency
+                  ? {
+                      id: derivedCurrency.id,
+                      name: derivedCurrency.name,
+                      code_chr: "code_chr" in derivedCurrency ? derivedCurrency.code_chr : null,
+                    }
+                  : null
+              }
+              disabled={!settingsEnabled || loadingRegos || loadingToken}
+            />
+          </section>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }

@@ -2,6 +2,7 @@ import clsx from "clsx";
 import { CalendarRange, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
 import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { DashboardPeriodModal } from "@/components/Dashboard/DashboardPeriodModal";
+import { PartnerPayDebtModal } from "@/components/POS/PartnerPayDebtModal";
 import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -11,7 +12,13 @@ import {
   toDateInputValue,
   type DashboardCustomRange,
 } from "@/lib/dashboard-api";
+import { currencyLabel } from "@/lib/currency-conversion";
 import { formatCurrency, formatDateTime } from "@/lib/format";
+import {
+  buildPartnerDebtSummary,
+  compareOperationsDesc,
+  groupRowsByCurrency,
+} from "@/lib/partner-balance";
 import { fetchFirms, fetchPartnerBalance } from "@/lib/partners-api";
 import { fetchRegosDefaults } from "@/lib/settings-api";
 import { formatAuthError } from "@/store/auth";
@@ -25,15 +32,6 @@ type Props = {
   token: string;
   partnerId: number;
   partnerName: string;
-};
-
-type CurrencyGroup = {
-  key: string;
-  currency: RegosCurrencyOption | null;
-  rows: PartnerBalanceRow[];
-  debitTotal: number;
-  creditTotal: number;
-  closingTotal: number;
 };
 
 function currentYearRange(): DashboardCustomRange {
@@ -52,50 +50,6 @@ function formatUnixDateTime(ts: number): string {
 function formatAmount(value: number): string {
   if (!value) return "";
   return formatCurrency(value);
-}
-
-function compareOperationsDesc(a: PartnerBalanceRow, b: PartnerBalanceRow): number {
-  if (b.date !== a.date) {
-    return b.date - a.date;
-  }
-  return b.id - a.id;
-}
-
-function groupRowsByCurrency(rows: PartnerBalanceRow[]): CurrencyGroup[] {
-  const groups = new Map<string, CurrencyGroup>();
-
-  for (const row of rows) {
-    const currency = row.currency;
-    const key = currency ? String(currency.id) : "none";
-    const existing = groups.get(key);
-    if (existing) {
-      existing.rows.push(row);
-      existing.debitTotal += row.debit;
-      existing.creditTotal += row.credit;
-      continue;
-    }
-    groups.set(key, {
-      key,
-      currency,
-      rows: [row],
-      debitTotal: row.debit,
-      creditTotal: row.credit,
-      closingTotal: 0,
-    });
-  }
-
-  for (const group of groups.values()) {
-    group.rows.sort(compareOperationsDesc);
-    group.closingTotal = group.debitTotal - group.creditTotal;
-  }
-
-  return Array.from(groups.values()).sort((left, right) => {
-    const leftRow = left.rows[0];
-    const rightRow = right.rows[0];
-    if (!leftRow) return 1;
-    if (!rightRow) return -1;
-    return compareOperationsDesc(rightRow, leftRow);
-  });
 }
 
 function collectOptions<T extends { id: number; name: string }>(
@@ -127,10 +81,12 @@ export function PartnerBalanceModal({
   const [currencyId, setCurrencyId] = useState<number | null>(null);
   const [rows, setRows] = useState<PartnerBalanceRow[]>([]);
   const [firmOptions, setFirmOptions] = useState<RegosDefaultOption[]>([]);
+  const [baseCurrency, setBaseCurrency] = useState<RegosCurrencyOption | null>(null);
   const [defaultsReady, setDefaultsReady] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const [payDebtOpen, setPayDebtOpen] = useState(false);
 
   const resetFilters = useCallback(() => {
     setMode("native");
@@ -139,9 +95,11 @@ export function PartnerBalanceModal({
     setCurrencyId(null);
     setRows([]);
     setFirmOptions([]);
+    setBaseCurrency(null);
     setDefaultsReady(false);
     setError("");
     setCollapsedGroups(new Set());
+    setPayDebtOpen(false);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -176,11 +134,14 @@ export function PartnerBalanceModal({
       if (firmsResult.status === "fulfilled") {
         setFirmOptions(firmsResult.value.firms);
       }
-      const defaultFirmId =
-        defaultsResult.status === "fulfilled"
-          ? defaultsResult.value.defaults.firm?.id ?? null
-          : null;
-      setFirmId(defaultFirmId);
+      if (defaultsResult.status === "fulfilled") {
+        const defaults = defaultsResult.value.defaults;
+        setFirmId(defaults.firm?.id ?? null);
+        setBaseCurrency(defaults.currency ?? null);
+      } else {
+        setFirmId(null);
+        setBaseCurrency(null);
+      }
       setDefaultsReady(true);
     };
 
@@ -250,6 +211,25 @@ export function PartnerBalanceModal({
   );
 
   const groupedRows = useMemo(() => groupRowsByCurrency(rows), [rows]);
+  const debtSummary = useMemo(() => {
+    if (mode !== "native") {
+      return buildPartnerDebtSummary([]);
+    }
+    return buildPartnerDebtSummary(groupedRows, {
+      baseCurrency,
+      knownCurrencies: [
+        baseCurrency,
+        ...currencyOptions,
+        ...groupedRows.map((group) => group.currency),
+      ],
+    });
+  }, [baseCurrency, currencyOptions, groupedRows, mode]);
+  const debts = debtSummary.debts;
+  const credits = debtSummary.credits;
+  const selectedFirm = useMemo(
+    () => firmOptions.find((firm) => firm.id === firmId) ?? null,
+    [firmId, firmOptions],
+  );
 
   const periodLabel = formatDashboardPeriodLabel("custom", periodRange, t);
 
@@ -361,6 +341,97 @@ export function PartnerBalanceModal({
 
         {error ? <div className={styles.partnerModalError}>{error}</div> : null}
 
+        {mode === "native" && (debts.length > 0 || credits.length > 0) ? (
+          <div
+            className={clsx(
+              styles.partnerDebtBanner,
+              debts.length === 0 && credits.length > 0 && styles.partnerDebtBannerFirmOnly,
+            )}
+          >
+            <div className={styles.partnerDebtSummary}>
+              {debts.length > 0 ? (
+                <>
+                  <span className={styles.partnerDebtLabel}>
+                    {t("partners.balance.debt", "Debt")}
+                  </span>
+                  <ul className={styles.partnerDebtList}>
+                    {debts.map((debt) => (
+                      <li key={debt.key}>
+                        {formatCurrency(debt.amount)}
+                        {debt.currency ? ` ${currencyLabel(debt.currency)}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              {credits.length > 0 ? (
+                <>
+                  <span className={styles.partnerFirmDebtLabel}>
+                    {t("partners.balance.firmDebt", "Firm debt")}
+                  </span>
+                  <ul className={styles.partnerFirmDebtList}>
+                    {credits.map((credit) => (
+                      <li key={credit.key}>
+                        {formatCurrency(credit.amount)}
+                        {credit.currency ? ` ${currencyLabel(credit.currency)}` : ""}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+              <div className={styles.partnerDebtBaseTotals}>
+                {debtSummary.grossDebtBase > 0 ? (
+                  <span>
+                    {t("partners.balance.debtTotalBase", "Total debt")}:{" "}
+                    {formatCurrency(debtSummary.grossDebtBase)}
+                    {baseCurrency ? ` ${currencyLabel(baseCurrency)}` : ""}
+                  </span>
+                ) : null}
+                {debtSummary.creditBase > 0 ? (
+                  <span>
+                    {t("partners.balance.creditOffsetBase", "Credit offset")}:{" "}
+                    {formatCurrency(debtSummary.creditBase)}
+                    {baseCurrency ? ` ${currencyLabel(baseCurrency)}` : ""}
+                  </span>
+                ) : null}
+                {debtSummary.grossDebtBase > 0 && debtSummary.creditBase > 0 ? (
+                  <span className={styles.partnerDebtNet}>
+                    {t("partners.balance.netDebtBase", "Net to pay")}:{" "}
+                    {formatCurrency(debtSummary.netDebtBase)}
+                    {baseCurrency ? ` ${currencyLabel(baseCurrency)}` : ""}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => setPayDebtOpen(true)}
+              disabled={!firmId || loading || debtSummary.netDebtBase <= 0}
+              title={
+                !firmId
+                  ? t(
+                      "partners.balance.payDebt.selectFirm",
+                      "Select an enterprise to take a payment.",
+                    )
+                  : debts.length === 0 && credits.length > 0
+                    ? t(
+                        "partners.balance.payDebt.firmDebtOnly",
+                        "Firm debt cannot be settled via Take a payment. Use Payments (outcome).",
+                      )
+                    : debtSummary.netDebtBase <= 0
+                      ? t(
+                          "partners.balance.payDebt.fullyCovered",
+                          "Firm debt balances cover the partner debt.",
+                        )
+                      : undefined
+              }
+            >
+              {t("partners.balance.payDebt", "Take a payment")}
+            </Button>
+          </div>
+        ) : null}
+
         <div className={styles.partnerBalanceTableWrap}>
           <table className={styles.partnerBalanceTable}>
             <thead>
@@ -466,6 +537,21 @@ export function PartnerBalanceModal({
         initialRange={periodRange}
         onApply={setPeriodRange}
       />
+
+      {firmId ? (
+        <PartnerPayDebtModal
+          open={payDebtOpen}
+          onClose={() => setPayDebtOpen(false)}
+          onSuccess={() => void loadBalance()}
+          token={token}
+          partnerId={partnerId}
+          partnerName={partnerName}
+          firmId={firmId}
+          firmName={selectedFirm?.name}
+          debtSummary={debtSummary}
+          baseCurrency={baseCurrency}
+        />
+      ) : null}
     </>
   );
 }

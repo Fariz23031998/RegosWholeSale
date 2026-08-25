@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Printer } from "lucide-react";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useReceiptTemplates } from "@/hooks/use-receipt-templates";
+import { useReceiptShareSession } from "@/hooks/use-receipt-share-session";
 import type { ReceiptPrintContext } from "@/lib/receipt-print-context";
 import { useAuth } from "@/store/auth";
 import { ReceiptTemplatePicker } from "./ReceiptTemplatePicker";
 import { PrintAreaPortal } from "./PrintAreaPortal";
+import { ReceiptSharePanel } from "./ReceiptSharePanel";
 import {
   resolveDefaultTemplate,
   TemplatedReceiptView,
@@ -29,8 +31,10 @@ export function ReceiptModal({
 }: Props) {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
-  const { templates, defaultTemplateId } = useReceiptTemplates(token);
+  const companyId = useAuth((s) => s.user?.company_id);
+  const { templates, defaultTemplateId } = useReceiptTemplates(token, companyId);
   const [selectedTemplateId, setSelectedTemplateId] = useState("");
+  const printRootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!context) return;
@@ -38,14 +42,27 @@ export function ReceiptModal({
     setSelectedTemplateId(fallback?.id ?? "");
   }, [context, defaultTemplateId, templates]);
 
+  const selectedTemplate =
+    templates.find((template) => template.id === selectedTemplateId) ??
+    resolveDefaultTemplate(templates, defaultTemplateId);
+
+  const shareSession = useReceiptShareSession({
+    accessToken: token,
+    template: selectedTemplate,
+    context,
+    documentCode: context?.sale.id ?? context?.document_code ?? "receipt",
+    templateName: selectedTemplate?.name ?? "",
+    uploadErrorMessage: t(
+      "receipt.share.errors.upload",
+      "Failed to create share link.",
+    ),
+  });
+
   if (!context) return null;
 
   const sale = context.sale;
   const closedWithoutPayment =
     (sale.amountPaid ?? 0) <= 0 && (sale.balanceDue ?? 0) > 0;
-  const selectedTemplate =
-    templates.find((template) => template.id === selectedTemplateId) ??
-    resolveDefaultTemplate(templates, defaultTemplateId);
 
   const modalTitle =
     title ??
@@ -54,40 +71,69 @@ export function ReceiptModal({
       : t("receipt.saleComplete", "Sale Complete"));
 
   const resolvedCloseLabel = closeLabel ?? t("common.done", "Done");
+  const shareDisabled = !selectedTemplate || !token;
 
   return (
     <>
-      <Modal open={!!context} onClose={onClose} title={modalTitle} size="md">
+      <Modal
+        open={!!context}
+        onClose={onClose}
+        title={modalTitle}
+        size="lg"
+        overlayClassName={styles.receiptOverlay}
+        modalClassName={styles.receiptModal}
+        bodyClassName={styles.receiptModalBody}
+      >
         <ReceiptTemplatePicker
           templates={templates}
           value={selectedTemplateId}
           onChange={setSelectedTemplateId}
         />
-        <div className={styles.preview}>
-          {selectedTemplate ? (
-            <TemplatedReceiptView template={selectedTemplate} context={context} />
-          ) : (
-            <div className={styles.templatePickerLabel}>
-              {t("receipt.noTemplates", "Receipt templates are not available.")}
+
+        <div className={styles.receiptLayout}>
+          <div className={styles.receiptShareColumn}>
+            <ReceiptSharePanel
+              disabled={shareDisabled}
+              session={shareSession.session}
+              linkExpired={shareSession.linkExpired}
+              ensureShareUrl={shareSession.ensureShareUrl}
+              onRegenerate={shareSession.reset}
+            />
+          </div>
+
+          <div className={styles.receiptPreviewColumn}>
+            <div className={styles.previewLarge}>
+              {selectedTemplate ? (
+                <div className={styles.previewScroll}>
+                  <TemplatedReceiptView
+                    template={selectedTemplate}
+                    context={context}
+                    className={styles.previewReceipt}
+                    preview
+                  />
+                </div>
+              ) : (
+                <div className={styles.templatePickerLabel}>
+                  {t("receipt.noTemplates", "Receipt templates are not available.")}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
-        <div className={styles.actions}>
+
+        <div className={styles.footerActions}>
           <Button
             variant="secondary"
-            full
             onClick={() => window.print()}
             disabled={!selectedTemplate}
           >
             <Printer size={16} /> {t("receipt.print", "Print")}
           </Button>
-          <Button full onClick={onClose}>
-            {resolvedCloseLabel}
-          </Button>
+          <Button onClick={onClose}>{resolvedCloseLabel}</Button>
         </div>
       </Modal>
 
-      <PrintAreaPortal active={Boolean(selectedTemplate)}>
+      <PrintAreaPortal active={Boolean(selectedTemplate)} ref={printRootRef}>
         {selectedTemplate ? (
           <TemplatedReceiptView template={selectedTemplate} context={context} />
         ) : null}

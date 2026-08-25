@@ -13,7 +13,9 @@ class CatalogProduct(BaseModel):
     stock: float = 0
     image: str = ""
     sku: str
+    articul: str = ""
     barcode: str = ""
+    barcode_list: str = ""
     code: str = ""
     unit_name: str = ""
     unit_type: int | None = None
@@ -37,6 +39,25 @@ class CatalogGroupsResponse(BaseModel):
     groups: list[CatalogGroup]
 
 
+class ProductGroupCreateRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=255)
+    parent_id: int | None = Field(default=None, ge=0)
+
+
+class ProductGroupUpdateRequest(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    parent_id: int | None = Field(default=None, ge=0)
+    move_parent: bool = False
+
+
+class ProductGroupCreateResponse(BaseModel):
+    id: int = Field(ge=1)
+
+
+class ProductGroupMutationResponse(BaseModel):
+    row_affected: int = Field(ge=0)
+
+
 class PaymentType(BaseModel):
     id: int = Field(ge=1)
     name: str
@@ -49,3 +70,27 @@ class PaymentType(BaseModel):
 
 class PaymentTypesResponse(BaseModel):
     payment_types: list[PaymentType]
+
+
+class SyncProductsResponse(BaseModel):
+    updated_products: list[CatalogProduct] = []
+    removed_product_ids: list[int] = []
+    groups_invalidated: bool = False
+    synced_at: str
+    full_sync_required: bool = False
+
+
+class SyncMetaSettingsChange(BaseModel):
+    scope: str
+    namespace: str
+    user_id: int | None = None
+
+
+class SyncMetaResponse(BaseModel):
+    """Catch-up flags for non-product data (reference options, payment types, settings)."""
+
+    synced_at: str
+    full_sync_required: bool = False
+    reference_kinds: list[str] = []
+    payment_types_invalidated: bool = False
+    settings: list[SyncMetaSettingsChange] = []

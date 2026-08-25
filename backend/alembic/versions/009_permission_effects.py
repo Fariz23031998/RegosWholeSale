@@ -35,11 +35,14 @@ SPLIT_FROM_OVERRIDE = [
 
 
 def upgrade() -> None:
+    permission_effect = sa.Enum("allow", "deny", name="permissioneffect")
+    permission_effect.create(op.get_bind(), checkfirst=True)
+
     op.add_column(
         "user_permissions",
         sa.Column(
             "effect",
-            sa.Enum("allow", "deny", name="permissioneffect"),
+            sa.Enum("allow", "deny", name="permissioneffect", create_type=False),
             nullable=False,
             server_default="allow",
         ),
@@ -73,9 +76,11 @@ def upgrade() -> None:
     for code, description in NEW_PERMISSIONS:
         if code not in existing_codes:
             result = conn.execute(
-                sa.insert(permissions).values(code=code, description=description)
+                sa.insert(permissions)
+                .values(code=code, description=description)
+                .returning(permissions.c.id)
             )
-            existing_codes[code] = result.inserted_primary_key[0]
+            existing_codes[code] = result.scalar_one()
 
     override_id = existing_codes.get("pos.override_regos")
     if override_id is not None:

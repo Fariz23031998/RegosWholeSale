@@ -9,6 +9,12 @@
   z-index: 100;
   padding: var(--space-4);
   animation: fade 0.15s ease;
+  overscroll-behavior: contain;
+}
+
+.overlayTop {
+  align-items: flex-start;
+  padding-top: max(var(--space-3), env(safe-area-inset-top, 0px));
 }
 
 .elevatedOverlay {

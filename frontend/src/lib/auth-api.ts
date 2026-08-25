@@ -42,3 +42,19 @@ export async function resetPassword(payload: {
 export async function fetchMe(token: string): Promise<AuthUser> {
   return apiRequest("/api/v1/auth/me", { token });
 }
+
+export async function updateProfile(
+  token: string,
+  payload: {
+    display_name?: string;
+    login?: string;
+    current_password?: string;
+    new_password?: string;
+  },
+): Promise<AuthUser> {
+  return apiRequest("/api/v1/auth/me", {
+    method: "PATCH",
+    token,
+    body: payload,
+  });
+}

@@ -20,7 +20,19 @@ import { Route as AppSettingsRouteImport } from './routes/_app.settings'
 import { Route as AppSalesRouteImport } from './routes/_app.sales'
 import { Route as AppReturnsRouteImport } from './routes/_app.returns'
 import { Route as AppReceiptTemplatesRouteImport } from './routes/_app.receipt-templates'
+import { Route as AppPurchasesRouteImport } from './routes/_app.purchases'
+import { Route as AppPaymentsRouteImport } from './routes/_app.payments'
+import { Route as AppPartnerReturnsRouteImport } from './routes/_app.partner-returns'
+import { Route as AppMovementsRouteImport } from './routes/_app.movements'
+import { Route as AppInventoriesRouteImport } from './routes/_app.inventories'
+import { Route as AppInoutsRouteImport } from './routes/_app.inouts'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
+import { Route as PublicTemplatesTokenRouteImport } from './routes/public.templates.$token'
+import { Route as AppPurchasesIdRouteImport } from './routes/_app.purchases_.$id'
+import { Route as AppPartnerReturnsIdRouteImport } from './routes/_app.partner-returns_.$id'
+import { Route as AppMovementsIdRouteImport } from './routes/_app.movements_.$id'
+import { Route as AppInventoriesIdRouteImport } from './routes/_app.inventories_.$id'
+import { Route as AppInoutsIdRouteImport } from './routes/_app.inouts_.$id'
 
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
@@ -76,9 +88,69 @@ const AppReceiptTemplatesRoute = AppReceiptTemplatesRouteImport.update({
   path: '/receipt-templates',
   getParentRoute: () => AppRoute,
 } as any)
+const AppPurchasesRoute = AppPurchasesRouteImport.update({
+  id: '/purchases',
+  path: '/purchases',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPaymentsRoute = AppPaymentsRouteImport.update({
+  id: '/payments',
+  path: '/payments',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPartnerReturnsRoute = AppPartnerReturnsRouteImport.update({
+  id: '/partner-returns',
+  path: '/partner-returns',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMovementsRoute = AppMovementsRouteImport.update({
+  id: '/movements',
+  path: '/movements',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInventoriesRoute = AppInventoriesRouteImport.update({
+  id: '/inventories',
+  path: '/inventories',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInoutsRoute = AppInoutsRouteImport.update({
+  id: '/inouts',
+  path: '/inouts',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppDashboardRoute = AppDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
+  getParentRoute: () => AppRoute,
+} as any)
+const PublicTemplatesTokenRoute = PublicTemplatesTokenRouteImport.update({
+  id: '/public/templates/$token',
+  path: '/public/templates/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppPurchasesIdRoute = AppPurchasesIdRouteImport.update({
+  id: '/purchases_/$id',
+  path: '/purchases/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPartnerReturnsIdRoute = AppPartnerReturnsIdRouteImport.update({
+  id: '/partner-returns_/$id',
+  path: '/partner-returns/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMovementsIdRoute = AppMovementsIdRouteImport.update({
+  id: '/movements_/$id',
+  path: '/movements/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInventoriesIdRoute = AppInventoriesIdRouteImport.update({
+  id: '/inventories_/$id',
+  path: '/inventories/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInoutsIdRoute = AppInoutsIdRouteImport.update({
+  id: '/inouts_/$id',
+  path: '/inouts/$id',
   getParentRoute: () => AppRoute,
 } as any)
 
@@ -88,18 +160,36 @@ export interface FileRoutesByFullPath {
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/dashboard': typeof AppDashboardRoute
+  '/inouts': typeof AppInoutsRoute
+  '/inventories': typeof AppInventoriesRoute
+  '/movements': typeof AppMovementsRoute
+  '/partner-returns': typeof AppPartnerReturnsRoute
+  '/payments': typeof AppPaymentsRoute
+  '/purchases': typeof AppPurchasesRoute
   '/receipt-templates': typeof AppReceiptTemplatesRoute
   '/returns': typeof AppReturnsRoute
   '/sales': typeof AppSalesRoute
   '/settings': typeof AppSettingsRoute
   '/telegram-users': typeof AppTelegramUsersRoute
   '/users': typeof AppUsersRoute
+  '/inouts/$id': typeof AppInoutsIdRoute
+  '/inventories/$id': typeof AppInventoriesIdRoute
+  '/movements/$id': typeof AppMovementsIdRoute
+  '/partner-returns/$id': typeof AppPartnerReturnsIdRoute
+  '/purchases/$id': typeof AppPurchasesIdRoute
+  '/public/templates/$token': typeof PublicTemplatesTokenRoute
 }
 export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/dashboard': typeof AppDashboardRoute
+  '/inouts': typeof AppInoutsRoute
+  '/inventories': typeof AppInventoriesRoute
+  '/movements': typeof AppMovementsRoute
+  '/partner-returns': typeof AppPartnerReturnsRoute
+  '/payments': typeof AppPaymentsRoute
+  '/purchases': typeof AppPurchasesRoute
   '/receipt-templates': typeof AppReceiptTemplatesRoute
   '/returns': typeof AppReturnsRoute
   '/sales': typeof AppSalesRoute
@@ -107,6 +197,12 @@ export interface FileRoutesByTo {
   '/telegram-users': typeof AppTelegramUsersRoute
   '/users': typeof AppUsersRoute
   '/': typeof AppIndexRoute
+  '/inouts/$id': typeof AppInoutsIdRoute
+  '/inventories/$id': typeof AppInventoriesIdRoute
+  '/movements/$id': typeof AppMovementsIdRoute
+  '/partner-returns/$id': typeof AppPartnerReturnsIdRoute
+  '/purchases/$id': typeof AppPurchasesIdRoute
+  '/public/templates/$token': typeof PublicTemplatesTokenRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -115,6 +211,12 @@ export interface FileRoutesById {
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
   '/_app/dashboard': typeof AppDashboardRoute
+  '/_app/inouts': typeof AppInoutsRoute
+  '/_app/inventories': typeof AppInventoriesRoute
+  '/_app/movements': typeof AppMovementsRoute
+  '/_app/partner-returns': typeof AppPartnerReturnsRoute
+  '/_app/payments': typeof AppPaymentsRoute
+  '/_app/purchases': typeof AppPurchasesRoute
   '/_app/receipt-templates': typeof AppReceiptTemplatesRoute
   '/_app/returns': typeof AppReturnsRoute
   '/_app/sales': typeof AppSalesRoute
@@ -122,6 +224,12 @@ export interface FileRoutesById {
   '/_app/telegram-users': typeof AppTelegramUsersRoute
   '/_app/users': typeof AppUsersRoute
   '/_app/': typeof AppIndexRoute
+  '/_app/inouts_/$id': typeof AppInoutsIdRoute
+  '/_app/inventories_/$id': typeof AppInventoriesIdRoute
+  '/_app/movements_/$id': typeof AppMovementsIdRoute
+  '/_app/partner-returns_/$id': typeof AppPartnerReturnsIdRoute
+  '/_app/purchases_/$id': typeof AppPurchasesIdRoute
+  '/public/templates/$token': typeof PublicTemplatesTokenRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -131,18 +239,36 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset-password'
     | '/dashboard'
+    | '/inouts'
+    | '/inventories'
+    | '/movements'
+    | '/partner-returns'
+    | '/payments'
+    | '/purchases'
     | '/receipt-templates'
     | '/returns'
     | '/sales'
     | '/settings'
     | '/telegram-users'
     | '/users'
+    | '/inouts/$id'
+    | '/inventories/$id'
+    | '/movements/$id'
+    | '/partner-returns/$id'
+    | '/purchases/$id'
+    | '/public/templates/$token'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/login'
     | '/register'
     | '/reset-password'
     | '/dashboard'
+    | '/inouts'
+    | '/inventories'
+    | '/movements'
+    | '/partner-returns'
+    | '/payments'
+    | '/purchases'
     | '/receipt-templates'
     | '/returns'
     | '/sales'
@@ -150,6 +276,12 @@ export interface FileRouteTypes {
     | '/telegram-users'
     | '/users'
     | '/'
+    | '/inouts/$id'
+    | '/inventories/$id'
+    | '/movements/$id'
+    | '/partner-returns/$id'
+    | '/purchases/$id'
+    | '/public/templates/$token'
   id:
     | '__root__'
     | '/_app'
@@ -157,6 +289,12 @@ export interface FileRouteTypes {
     | '/register'
     | '/reset-password'
     | '/_app/dashboard'
+    | '/_app/inouts'
+    | '/_app/inventories'
+    | '/_app/movements'
+    | '/_app/partner-returns'
+    | '/_app/payments'
+    | '/_app/purchases'
     | '/_app/receipt-templates'
     | '/_app/returns'
     | '/_app/sales'
@@ -164,6 +302,12 @@ export interface FileRouteTypes {
     | '/_app/telegram-users'
     | '/_app/users'
     | '/_app/'
+    | '/_app/inouts_/$id'
+    | '/_app/inventories_/$id'
+    | '/_app/movements_/$id'
+    | '/_app/partner-returns_/$id'
+    | '/_app/purchases_/$id'
+    | '/public/templates/$token'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -171,6 +315,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  PublicTemplatesTokenRoute: typeof PublicTemplatesTokenRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -252,6 +397,48 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppReceiptTemplatesRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/purchases': {
+      id: '/_app/purchases'
+      path: '/purchases'
+      fullPath: '/purchases'
+      preLoaderRoute: typeof AppPurchasesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/payments': {
+      id: '/_app/payments'
+      path: '/payments'
+      fullPath: '/payments'
+      preLoaderRoute: typeof AppPaymentsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/partner-returns': {
+      id: '/_app/partner-returns'
+      path: '/partner-returns'
+      fullPath: '/partner-returns'
+      preLoaderRoute: typeof AppPartnerReturnsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/movements': {
+      id: '/_app/movements'
+      path: '/movements'
+      fullPath: '/movements'
+      preLoaderRoute: typeof AppMovementsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/inventories': {
+      id: '/_app/inventories'
+      path: '/inventories'
+      fullPath: '/inventories'
+      preLoaderRoute: typeof AppInventoriesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/inouts': {
+      id: '/_app/inouts'
+      path: '/inouts'
+      fullPath: '/inouts'
+      preLoaderRoute: typeof AppInoutsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/dashboard': {
       id: '/_app/dashboard'
       path: '/dashboard'
@@ -259,11 +446,59 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
+    '/public/templates/$token': {
+      id: '/public/templates/$token'
+      path: '/public/templates/$token'
+      fullPath: '/public/templates/$token'
+      preLoaderRoute: typeof PublicTemplatesTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_app/purchases_/$id': {
+      id: '/_app/purchases_/$id'
+      path: '/purchases/$id'
+      fullPath: '/purchases/$id'
+      preLoaderRoute: typeof AppPurchasesIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/partner-returns_/$id': {
+      id: '/_app/partner-returns_/$id'
+      path: '/partner-returns/$id'
+      fullPath: '/partner-returns/$id'
+      preLoaderRoute: typeof AppPartnerReturnsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/movements_/$id': {
+      id: '/_app/movements_/$id'
+      path: '/movements/$id'
+      fullPath: '/movements/$id'
+      preLoaderRoute: typeof AppMovementsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/inventories_/$id': {
+      id: '/_app/inventories_/$id'
+      path: '/inventories/$id'
+      fullPath: '/inventories/$id'
+      preLoaderRoute: typeof AppInventoriesIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/inouts_/$id': {
+      id: '/_app/inouts_/$id'
+      path: '/inouts/$id'
+      fullPath: '/inouts/$id'
+      preLoaderRoute: typeof AppInoutsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
   }
 }
 
 interface AppRouteChildren {
   AppDashboardRoute: typeof AppDashboardRoute
+  AppInoutsRoute: typeof AppInoutsRoute
+  AppInventoriesRoute: typeof AppInventoriesRoute
+  AppMovementsRoute: typeof AppMovementsRoute
+  AppPartnerReturnsRoute: typeof AppPartnerReturnsRoute
+  AppPaymentsRoute: typeof AppPaymentsRoute
+  AppPurchasesRoute: typeof AppPurchasesRoute
   AppReceiptTemplatesRoute: typeof AppReceiptTemplatesRoute
   AppReturnsRoute: typeof AppReturnsRoute
   AppSalesRoute: typeof AppSalesRoute
@@ -271,10 +506,21 @@ interface AppRouteChildren {
   AppTelegramUsersRoute: typeof AppTelegramUsersRoute
   AppUsersRoute: typeof AppUsersRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppInoutsIdRoute: typeof AppInoutsIdRoute
+  AppInventoriesIdRoute: typeof AppInventoriesIdRoute
+  AppMovementsIdRoute: typeof AppMovementsIdRoute
+  AppPartnerReturnsIdRoute: typeof AppPartnerReturnsIdRoute
+  AppPurchasesIdRoute: typeof AppPurchasesIdRoute
 }
 
 const AppRouteChildren: AppRouteChildren = {
   AppDashboardRoute: AppDashboardRoute,
+  AppInoutsRoute: AppInoutsRoute,
+  AppInventoriesRoute: AppInventoriesRoute,
+  AppMovementsRoute: AppMovementsRoute,
+  AppPartnerReturnsRoute: AppPartnerReturnsRoute,
+  AppPaymentsRoute: AppPaymentsRoute,
+  AppPurchasesRoute: AppPurchasesRoute,
   AppReceiptTemplatesRoute: AppReceiptTemplatesRoute,
   AppReturnsRoute: AppReturnsRoute,
   AppSalesRoute: AppSalesRoute,
@@ -282,6 +528,11 @@ const AppRouteChildren: AppRouteChildren = {
   AppTelegramUsersRoute: AppTelegramUsersRoute,
   AppUsersRoute: AppUsersRoute,
   AppIndexRoute: AppIndexRoute,
+  AppInoutsIdRoute: AppInoutsIdRoute,
+  AppInventoriesIdRoute: AppInventoriesIdRoute,
+  AppMovementsIdRoute: AppMovementsIdRoute,
+  AppPartnerReturnsIdRoute: AppPartnerReturnsIdRoute,
+  AppPurchasesIdRoute: AppPurchasesIdRoute,
 }
 
 const AppRouteWithChildren = AppRoute._addFileChildren(AppRouteChildren)
@@ -291,6 +542,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  PublicTemplatesTokenRoute: PublicTemplatesTokenRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

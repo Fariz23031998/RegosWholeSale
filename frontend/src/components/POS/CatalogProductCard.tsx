@@ -3,9 +3,10 @@ import clsx from "clsx";
 import { Star } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { canAddProductToCart } from "@/lib/cart-stock";
-import { formatCurrency } from "@/lib/format";
+import { formatAmountWithCurrency } from "@/lib/checkout-payments";
 import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
 import { useCart } from "@/store/cart";
+import { useSellContext } from "@/store/sell-context";
 import type { Product } from "@/types/catalog";
 import styles from "./POS.module.css";
 
@@ -20,21 +21,23 @@ type CatalogProductCardProps = {
   view: CatalogViewMode;
   allowOutOfStock: boolean;
   reservedInOtherTabs: number;
+  bookedOrderContinuation: boolean;
   onAdd: (product: Product) => void;
   onToggleFeatured: (product: Product) => void;
 };
 
 function productDisplayName(product: Product): string {
-  const unitName = product.unit_name?.trim();
+  const unitName = product.unit_name != null ? String(product.unit_name).trim() : "";
   if (!unitName) return product.name;
   return `${product.name} (${unitName})`;
 }
 
 function productCodeLine(product: Product): string {
-  const code = product.code?.trim();
-  const barcode = product.barcode?.trim();
-  if (code && barcode) return `${code} · ${barcode}`;
-  return code || barcode || product.sku;
+  const parts = [product.code, product.articul, product.barcode]
+    .map((value) => (value != null ? String(value).trim() : ""))
+    .filter(Boolean);
+  if (parts.length > 0) return parts.join(" · ");
+  return product.sku != null ? String(product.sku) : "";
 }
 
 export const CatalogProductCard = memo(function CatalogProductCard({
@@ -46,10 +49,12 @@ export const CatalogProductCard = memo(function CatalogProductCard({
   view,
   allowOutOfStock,
   reservedInOtherTabs,
+  bookedOrderContinuation,
   onAdd,
   onToggleFeatured,
 }: CatalogProductCardProps) {
   const { t } = useLanguage();
+  const saleCurrency = useSellContext((state) => state.saleCurrency);
   const inCartQty = useCart(
     (state) => state.items.find((item) => item.productId === product.id)?.qty ?? 0,
   );
@@ -59,13 +64,15 @@ export const CatalogProductCard = memo(function CatalogProductCard({
     inCartQty,
     allowOutOfStock,
     reservedInOtherTabs,
+    bookedOrderContinuation ? { bookedOrderContinuation: true } : undefined,
   );
-  const out = product.stock <= 0;
-  const low = product.stock > 0 && product.stock < 10;
-  const stockText = Number.isInteger(product.stock)
-    ? t("pos.stockLeft", "{{n}} left", { n: product.stock })
+  const displayStock = product.stock;
+  const out = displayStock <= 0;
+  const low = displayStock > 0 && displayStock < 10;
+  const stockText = Number.isInteger(displayStock)
+    ? t("pos.stockLeft", "{{n}} left", { n: displayStock })
     : t("pos.stockLeft", "{{n}} left", {
-        n: product.stock.toFixed(2).replace(/\.?0+$/, ""),
+        n: displayStock.toFixed(2).replace(/\.?0+$/, ""),
       });
 
   return (
@@ -145,7 +152,9 @@ export const CatalogProductCard = memo(function CatalogProductCard({
         <div className={styles.cardCategory}>{categoryName}</div>
         <div className={styles.cardSku}>{productCodeLine(product)}</div>
         <div className={styles.cardFoot}>
-          <div className={styles.cardPrice}>{formatCurrency(product.price)}</div>
+          <div className={styles.cardPrice}>
+            {formatAmountWithCurrency(product.price, saleCurrency)}
+          </div>
           <span
             className={clsx(styles.stockBadge, out && styles.stockOut, low && styles.stockLow)}
           >

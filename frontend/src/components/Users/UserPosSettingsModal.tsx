@@ -1,9 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import clsx from "clsx";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { fetchProductGroups } from "@/lib/catalog-api";
+import { subscribeReferenceOptionsEvents } from "@/lib/catalog-events";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
+import {
+  subscribeSettingsEvents,
+  type SettingsEventMessage,
+} from "@/lib/settings-events";
 import {
   clearUserPosSettings,
   clearUserRegosDefaults,
@@ -15,6 +21,7 @@ import {
 } from "@/lib/users-api";
 import {
   defaultCategoryToSelectValue,
+  formatDefaultCategorySelectLabel,
   selectValueToDefaultCategory,
 } from "@/lib/default-category";
 import {
@@ -78,6 +85,12 @@ function applyRegosDefaults(defaults: {
   };
 }
 
+function isUserSettingsEventForUser(event: SettingsEventMessage, userId: number): boolean {
+  if (event.namespace !== "pos" && event.namespace !== "regos_defaults") return false;
+  if (event.scope === "company") return true;
+  return event.user_id === userId;
+}
+
 export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const { t } = useLanguage();
   const vatOptions = getVatCalculationTypeOptions(t);
@@ -89,11 +102,17 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [productGroups, setProductGroups] = useState<ProductGroup[]>([]);
   const [companyAllowOutOfStock, setCompanyAllowOutOfStock] = useState(false);
   const [companyAutoOpenQtyKeypad, setCompanyAutoOpenQtyKeypad] = useState(false);
+  const [companySearchTransliteration, setCompanySearchTransliteration] = useState(true);
+  const [companySearchFuzzy, setCompanySearchFuzzy] = useState(true);
   const [companyTenderedAmounts, setCompanyTenderedAmounts] = useState("20, 50, 100");
   const [allowOutOfStock, setAllowOutOfStock] = useState(false);
   const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
+  const [searchTransliteration, setSearchTransliteration] = useState(true);
+  const [searchFuzzy, setSearchFuzzy] = useState(true);
   const [tenderedAmountsInput, setTenderedAmountsInput] = useState("20, 50, 100");
   const [defaultCategoryValue, setDefaultCategoryValue] = useState("all");
+  const [companyDefaultCategoryValue, setCompanyDefaultCategoryValue] = useState("all");
+  const [isMobile, setIsMobile] = useState(false);
   const [options, setOptions] = useState<RegosReferenceOptionsResponse>(EMPTY_OPTIONS);
   const [warehouseId, setWarehouseId] = useState("");
   const [priceTypeId, setPriceTypeId] = useState("");
@@ -106,6 +125,15 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [derivedFirm, setDerivedFirm] = useState<RegosDefaultOption | null>(null);
   const [zeroQuantity, setZeroQuantity] = useState(false);
   const [zeroPrice, setZeroPrice] = useState(false);
+  const reloadSettingsRef = useRef<() => void>(() => undefined);
+
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 900px)");
+    const update = () => setIsMobile(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
 
   useEffect(() => {
     if (!open || !token || !user) return;
@@ -114,55 +142,88 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
     setLoading(true);
     setError("");
 
-    void Promise.all([
-      fetchUserPosSettingsById(token, user.id),
-      fetchCompanyPosSettings(token),
-      fetchProductGroups(token),
-      fetchUserRegosDefaultsById(token, user.id),
-      fetchRegosReferenceOptions(token),
-    ])
-      .then(([userPosRes, companyPosRes, groupsRes, userRegosRes, refOptions]) => {
-        if (cancelled) return;
-        setAllowOutOfStock(userPosRes.settings.allow_out_of_stock);
-        setAutoOpenQtyKeypad(userPosRes.settings.auto_open_qty_keypad);
-        setTenderedAmountsInput(
-          formatTenderedQuickAmounts(userPosRes.settings.tendered_quick_amounts),
-        );
-        setDefaultCategoryValue(
-          defaultCategoryToSelectValue(userPosRes.settings.default_category),
-        );
-        setCompanyAllowOutOfStock(companyPosRes.settings.allow_out_of_stock);
-        setCompanyAutoOpenQtyKeypad(companyPosRes.settings.auto_open_qty_keypad);
-        setCompanyTenderedAmounts(
-          formatTenderedQuickAmounts(companyPosRes.settings.tendered_quick_amounts),
-        );
-        setProductGroups(groupsRes.groups);
+    const reload = () => {
+      void Promise.all([
+        fetchUserPosSettingsById(token, user.id),
+        fetchCompanyPosSettings(token),
+        fetchProductGroups(token),
+        fetchUserRegosDefaultsById(token, user.id),
+        fetchRegosReferenceOptions(token, {
+          cacheScope: { companyId: user.company_id },
+        }),
+      ])
+        .then(([userPosRes, companyPosRes, groupsRes, userRegosRes, refOptions]) => {
+          if (cancelled) return;
+          setAllowOutOfStock(userPosRes.settings.allow_out_of_stock);
+          setAutoOpenQtyKeypad(userPosRes.settings.auto_open_qty_keypad);
+          setSearchTransliteration(userPosRes.settings.search_transliteration ?? true);
+          setSearchFuzzy(userPosRes.settings.search_fuzzy ?? true);
+          setTenderedAmountsInput(
+            formatTenderedQuickAmounts(userPosRes.settings.tendered_quick_amounts),
+          );
+          setDefaultCategoryValue(
+            defaultCategoryToSelectValue(userPosRes.settings.default_category),
+          );
+          setCompanyAllowOutOfStock(companyPosRes.settings.allow_out_of_stock);
+          setCompanyAutoOpenQtyKeypad(companyPosRes.settings.auto_open_qty_keypad);
+          setCompanySearchTransliteration(
+            companyPosRes.settings.search_transliteration ?? true,
+          );
+          setCompanySearchFuzzy(companyPosRes.settings.search_fuzzy ?? true);
+          setCompanyTenderedAmounts(
+            formatTenderedQuickAmounts(companyPosRes.settings.tendered_quick_amounts),
+          );
+          setCompanyDefaultCategoryValue(
+            defaultCategoryToSelectValue(companyPosRes.settings.default_category),
+          );
+          setProductGroups(groupsRes.groups);
 
-        const regos = applyRegosDefaults(userRegosRes.defaults);
-        setWarehouseId(regos.warehouseId);
-        setPriceTypeId(regos.priceTypeId);
-        setPartnerId(regos.partnerId);
-        setPaymentCategoryId(regos.paymentCategoryId);
-        setRefundPaymentCategoryId(regos.refundPaymentCategoryId);
-        setAttachedUserId(regos.attachedUserId);
-        setVatCalculationType(regos.vatCalculationType);
-        setDerivedCurrency(regos.derivedCurrency);
-        setDerivedFirm(regos.derivedFirm);
-        setZeroQuantity(regos.zeroQuantity);
-        setZeroPrice(regos.zeroPrice);
-        setOptions(refOptions);
-      })
-      .catch((err) => {
-        if (!cancelled) setError(formatAuthError(err));
-      })
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
+          const regos = applyRegosDefaults(userRegosRes.defaults);
+          setWarehouseId(regos.warehouseId);
+          setPriceTypeId(regos.priceTypeId);
+          setPartnerId(regos.partnerId);
+          setPaymentCategoryId(regos.paymentCategoryId);
+          setRefundPaymentCategoryId(regos.refundPaymentCategoryId);
+          setAttachedUserId(regos.attachedUserId);
+          setVatCalculationType(regos.vatCalculationType);
+          setDerivedCurrency(regos.derivedCurrency);
+          setDerivedFirm(regos.derivedFirm);
+          setZeroQuantity(regos.zeroQuantity);
+          setZeroPrice(regos.zeroPrice);
+          setOptions(refOptions);
+        })
+        .catch((err) => {
+          if (!cancelled) setError(formatAuthError(err));
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    };
+
+    reloadSettingsRef.current = reload;
+    reload();
 
     return () => {
       cancelled = true;
     };
   }, [open, token, user]);
+
+  useEffect(() => {
+    if (!open || !user) return;
+
+    return subscribeSettingsEvents((event) => {
+      if (!isUserSettingsEventForUser(event, user.id)) return;
+      reloadSettingsRef.current();
+    });
+  }, [open, user]);
+
+  useEffect(() => {
+    if (!open) return;
+
+    return subscribeReferenceOptionsEvents(() => {
+      reloadSettingsRef.current();
+    });
+  }, [open]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -186,6 +247,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         patchUserPosSettingsById(token, user.id, {
           allow_out_of_stock: allowOutOfStock,
           auto_open_qty_keypad: autoOpenQtyKeypad,
+          search_transliteration: searchTransliteration,
+          search_fuzzy: searchFuzzy,
           tendered_quick_amounts: amounts,
           default_category: selectValueToDefaultCategory(defaultCategoryValue),
         }),
@@ -205,6 +268,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
       ]);
       setAllowOutOfStock(posRes.settings.allow_out_of_stock);
       setAutoOpenQtyKeypad(posRes.settings.auto_open_qty_keypad);
+      setSearchTransliteration(posRes.settings.search_transliteration ?? true);
+      setSearchFuzzy(posRes.settings.search_fuzzy ?? true);
       setTenderedAmountsInput(
         formatTenderedQuickAmounts(posRes.settings.tendered_quick_amounts),
       );
@@ -240,6 +305,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
       const res = await clearUserPosSettings(token, user.id);
       setAllowOutOfStock(res.settings.allow_out_of_stock);
       setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
+      setSearchTransliteration(res.settings.search_transliteration ?? true);
+      setSearchFuzzy(res.settings.search_fuzzy ?? true);
       setTenderedAmountsInput(
         formatTenderedQuickAmounts(res.settings.tendered_quick_amounts),
       );
@@ -293,8 +360,9 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           : t("users.settings.title", "User settings")
       }
       size="lg"
+      fullscreen={isMobile}
     >
-      <form onSubmit={handleSave} className={styles.formGrid}>
+      <form onSubmit={handleSave} className={clsx(styles.formGrid, styles.settingsModalForm)}>
         {error && <div className={styles.formError}>{error}</div>}
 
         <p className={styles.hint}>
@@ -314,7 +382,14 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
             {t(
               "users.settings.defaultCategoryHint",
               "Category selected automatically when this user opens the Sell screen.",
-            )}
+            )}{" "}
+            {t("common.companyDefault", "Company default: {{value}}", {
+              value: formatDefaultCategorySelectLabel(
+                companyDefaultCategoryValue,
+                productGroups,
+                t,
+              ),
+            })}
           </p>
           <select
             className={styles.select}
@@ -380,6 +455,66 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
               <p className={styles.hint}>
                 {t("common.companyDefault", "Company default: {{value}}", {
                   value: companyAllowOutOfStock
+                    ? t("common.on", "on")
+                    : t("common.off", "off"),
+                })}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className={styles.field}>
+          <div className={styles.switchRow}>
+            <label className={styles.switch}>
+              <input
+                type="checkbox"
+                checked={searchTransliteration}
+                disabled={busy}
+                onChange={(e) => setSearchTransliteration(e.target.checked)}
+              />
+              <span className={styles.slider} />
+            </label>
+            <div>
+              <div className={styles.label}>
+                {t("users.settings.searchTransliteration", "Search transliteration")}
+              </div>
+              <p className={styles.hint}>
+                {t(
+                  "users.settings.searchTransliterationDesc",
+                  "Match Latin and Cyrillic spellings of the same product name (e.g. moloko ↔ молоко).",
+                )}{" "}
+                {t("common.companyDefault", "Company default: {{value}}", {
+                  value: companySearchTransliteration
+                    ? t("common.on", "on")
+                    : t("common.off", "off"),
+                })}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className={styles.field}>
+          <div className={styles.switchRow}>
+            <label className={styles.switch}>
+              <input
+                type="checkbox"
+                checked={searchFuzzy}
+                disabled={busy}
+                onChange={(e) => setSearchFuzzy(e.target.checked)}
+              />
+              <span className={styles.slider} />
+            </label>
+            <div>
+              <div className={styles.label}>
+                {t("users.settings.searchFuzzy", "Fuzzy search")}
+              </div>
+              <p className={styles.hint}>
+                {t(
+                  "users.settings.searchFuzzyDesc",
+                  "Allow small typos when searching the product catalog.",
+                )}{" "}
+                {t("common.companyDefault", "Company default: {{value}}", {
+                  value: companySearchFuzzy
                     ? t("common.on", "on")
                     : t("common.off", "off"),
                 })}

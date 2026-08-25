@@ -10,6 +10,10 @@ import type {
   ReceiptLineSortDirection,
   ReceiptTemplateLineSort,
 } from "@/types/receipt-templates";
+import {
+  normalizeReceiptOperationItem,
+  receiptOperationTemplateFields,
+} from "@/lib/receipt-operation-item";
 import type { WholesaleOperationLine } from "@/lib/sales-api";
 
 export const RECEIPT_LINE_SORT_COLUMNS = [
@@ -18,11 +22,28 @@ export const RECEIPT_LINE_SORT_COLUMNS = [
   "item_name",
   "item_group_name",
   "item_brand",
+  "item_fullname",
+  "item_description",
+  "item_articul",
+  "item_color_name",
+  "item_size_name",
+  "item_producer_name",
+  "item_country_name",
   "item_unit_name",
   "quantity",
   "price",
   "amount",
 ] as const satisfies readonly ReceiptLineSortColumn[];
+
+const ITEM_TEMPLATE_SORT_COLUMNS = new Set<ReceiptLineSortColumn>([
+  "item_fullname",
+  "item_description",
+  "item_articul",
+  "item_color_name",
+  "item_size_name",
+  "item_producer_name",
+  "item_country_name",
+]);
 
 export const DEFAULT_RECEIPT_TEMPLATE_LINE_SORT: ReceiptTemplateLineSort = {
   column: "document_order",
@@ -45,10 +66,23 @@ function lineAmount(line: WholesaleOperationLine): number {
   return +(line.quantity * line.price).toFixed(2);
 }
 
+function readItemTemplateSortValue(
+  line: WholesaleOperationLine,
+  column: ReceiptLineSortColumn,
+): string {
+  const fields = receiptOperationTemplateFields(normalizeReceiptOperationItem(line.item));
+  const value = fields[column as keyof typeof fields];
+  return typeof value === "string" ? value.trim().toLowerCase() : "";
+}
+
 function readSortValue(
   line: WholesaleOperationLine,
   column: ReceiptLineSortColumn,
 ): string | number {
+  if (ITEM_TEMPLATE_SORT_COLUMNS.has(column)) {
+    return readItemTemplateSortValue(line, column);
+  }
+
   switch (column) {
     case "item_code":
       return line.item_code?.trim().toLowerCase() ?? "";

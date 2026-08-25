@@ -1,14 +1,24 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
 import { ProductCatalog } from "@/components/POS/ProductCatalog";
 import { CartPanel } from "@/components/Cart/CartPanel";
 import { languageService } from "@/services/language";
 import { usePermissions } from "@/hooks/use-permissions";
+import { connectCatalogEvents, shouldForceCatalogGapFill, subscribeCatalogEventsReconnect } from "@/lib/catalog-events";
+import { loadPaymentTypes } from "@/lib/payment-service";
 import { useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { useCheckoutTabs } from "@/store/checkout-tabs";
 import { useCatalog } from "@/store/catalog";
+import { useLanguage } from "@/contexts/LanguageContext";
+import { toast } from "sonner";
+import { downloadCompleteCatalog } from "@/lib/catalog-service";
+import { performIncrementalSync, getCatalogDownloadStatus, setCatalogDownloadStatus, removeCatalogDownloadStatus, applyIncrementalSyncToCatalog } from "@/lib/catalog-incremental-sync";
+import { isCacheEnabled } from "@/lib/cache-policy";
+import { subscribeAppResume } from "@/lib/app-resume";
+import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
 import styles from "@/components/POS/POS.module.css";
 
 export const Route = createFileRoute("/_app/")({
@@ -25,6 +35,7 @@ export const Route = createFileRoute("/_app/")({
 });
 
 function PosPage() {
+  const queryClient = useQueryClient();
   const token = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
   const hydrate = usePosConfig((s) => s.hydrate);
@@ -32,25 +43,257 @@ function PosPage() {
   const hydrateCheckoutTabs = useCheckoutTabs((s) => s.hydrate);
   const resetCheckoutTabs = useCheckoutTabs((s) => s.reset);
   const hydrateCatalogUi = useCatalog((s) => s.hydrateUiPreferences);
-  const { canChangePosContext } = usePermissions();
+  const patchProducts = useCatalog((s) => s.patchProducts);
+  const removeProducts = useCatalog((s) => s.removeProducts);
+  const requestGroupsRefresh = useCatalog((s) => s.requestGroupsRefresh);
+  const warehouseId = useSellContext((s) => s.warehouseId);
+  const priceTypeId = useSellContext((s) => s.priceTypeId);
+  const requestRefresh = useCatalog((s) => s.requestRefresh);
+  const sellContextHydrated = useSellContext((s) => s.hydrated);
+  const { canChangePosContext, canChangeWarehouse, canChangePriceType } = usePermissions();
   const canChangePosContextPerm = canChangePosContext();
+  const canChangeWarehousePerm = canChangeWarehouse();
+  const canChangePriceTypePerm = canChangePriceType();
+  const catalogEventsRef = useRef<ReturnType<typeof connectCatalogEvents> | null>(null);
+  const startupSyncDoneForScope = useRef<string | null>(null);
+  const catalogDownloadingRef = useRef(false);
 
   useEffect(() => {
     void hydrateCatalogUi();
   }, [hydrateCatalogUi]);
 
   useEffect(() => {
-    void hydrate(token);
-    void hydrateSellContext(token, canChangePosContextPerm);
-  }, [canChangePosContextPerm, hydrate, hydrateSellContext, token]);
+    void hydrate(token, {
+      userId: user?.id,
+      companyId: user?.company_id,
+    });
+    void hydrateSellContext(token, canChangePosContextPerm, {
+      userId: user?.id,
+      companyId: user?.company_id,
+    });
+  }, [canChangePosContextPerm, hydrate, hydrateSellContext, token, user?.company_id, user?.id]);
 
   useEffect(() => {
     if (!token || !user) {
       resetCheckoutTabs();
       return;
     }
+    if (!sellContextHydrated) return;
     void hydrateCheckoutTabs(user.id, user.company_id);
-  }, [hydrateCheckoutTabs, resetCheckoutTabs, token, user]);
+  }, [
+    hydrateCheckoutTabs,
+    resetCheckoutTabs,
+    sellContextHydrated,
+    token,
+    user,
+  ]);
+
+  useEffect(() => {
+    if (!token || !user?.company_id) return;
+    void loadPaymentTypes(token, user.company_id);
+  }, [token, user?.company_id]);
+
+  const { t } = useLanguage();
+
+  useEffect(() => {
+    if (
+      !token ||
+      !user?.company_id ||
+      warehouseId === null ||
+      priceTypeId === null ||
+      !sellContextHydrated
+    ) {
+      return;
+    }
+
+    // Match ProductCatalog / catalog-events: locked users share the default
+    // scope key (warehouse/priceType omitted → 0), not the sell-context IDs.
+    const catalogWarehouseId =
+      canChangeWarehousePerm && warehouseId ? warehouseId : undefined;
+    const catalogPriceTypeId =
+      canChangePriceTypePerm && priceTypeId ? priceTypeId : undefined;
+    const scopeKey = buildCatalogScopeKey(
+      user.company_id,
+      catalogWarehouseId,
+      catalogPriceTypeId,
+    );
+    let cancelled = false;
+
+    const applySyncResult = (
+      syncResult: Awaited<ReturnType<typeof performIncrementalSync>>,
+    ) =>
+      applyIncrementalSyncToCatalog(syncResult, {
+        patchProducts,
+        removeProducts,
+        requestGroupsRefresh,
+      });
+
+    const ensureCatalogReady = async (options?: { force?: boolean }) => {
+      // Browser caching disabled: no local catalog to sync or pre-download,
+      // the catalog reads straight from the API instead.
+      if (!isCacheEnabled()) return;
+
+      // One successful startup sync per scope; forced resumes always re-check events_log.
+      if (!options?.force && startupSyncDoneForScope.current === scopeKey) {
+        return;
+      }
+
+      let fullSyncRequired = false;
+
+      try {
+        const syncResult = await performIncrementalSync(
+          token,
+          scopeKey,
+          {
+            companyId: user.company_id,
+            warehouseId: catalogWarehouseId,
+            priceTypeId: catalogPriceTypeId,
+          },
+          { force: options?.force },
+        );
+
+        if (cancelled) return;
+        fullSyncRequired = applySyncResult(syncResult);
+        if (fullSyncRequired) {
+          removeCatalogDownloadStatus(
+            user.company_id,
+            catalogWarehouseId,
+            catalogPriceTypeId,
+          );
+        }
+      } catch {
+        // Incremental sync failed (e.g. network error) — continue to full download check
+      }
+
+      if (cancelled) return;
+
+      const status = getCatalogDownloadStatus(
+        user.company_id,
+        catalogWarehouseId,
+        catalogPriceTypeId,
+      );
+      if (status === "completed" && !fullSyncRequired) {
+        // Mark done only after a completed catch-up so cancelled remounts can retry.
+        startupSyncDoneForScope.current = scopeKey;
+        return;
+      }
+
+      if (catalogDownloadingRef.current) return;
+      catalogDownloadingRef.current = true;
+
+      const toastId = toast.loading(
+        t("pos.catalog.downloading", "Downloading complete product catalog..."),
+      );
+      try {
+        await downloadCompleteCatalog(token, {
+          companyId: user.company_id,
+          warehouseId: catalogWarehouseId,
+          priceTypeId: catalogPriceTypeId,
+        });
+        if (cancelled) return;
+        setCatalogDownloadStatus(
+          user.company_id,
+          catalogWarehouseId ?? null,
+          catalogPriceTypeId ?? null,
+          "completed",
+        );
+        toast.success(t("pos.catalog.downloadSuccess", "Catalog downloaded successfully!"), {
+          id: toastId,
+        });
+        requestRefresh();
+        requestGroupsRefresh();
+        startupSyncDoneForScope.current = scopeKey;
+      } catch {
+        if (cancelled) return;
+        toast.error(t("pos.catalog.downloadFailure", "Failed to download catalog."), {
+          id: toastId,
+        });
+      } finally {
+        catalogDownloadingRef.current = false;
+      }
+    };
+
+    void ensureCatalogReady();
+
+    const unsubscribeResume = subscribeAppResume(() => {
+      void ensureCatalogReady({ force: shouldForceCatalogGapFill() });
+    });
+
+    const unsubscribeReconnect = subscribeCatalogEventsReconnect(() => {
+      void ensureCatalogReady({ force: true });
+    });
+
+    return () => {
+      cancelled = true;
+      unsubscribeResume();
+      unsubscribeReconnect();
+    };
+  }, [
+    token,
+    user?.company_id,
+    warehouseId,
+    priceTypeId,
+    sellContextHydrated,
+    canChangeWarehousePerm,
+    canChangePriceTypePerm,
+    patchProducts,
+    removeProducts,
+    requestRefresh,
+    requestGroupsRefresh,
+    t,
+  ]);
+
+  useEffect(() => {
+    catalogEventsRef.current?.close();
+    catalogEventsRef.current = null;
+
+    if (!token || !user?.company_id || !sellContextHydrated) return;
+
+    catalogEventsRef.current = connectCatalogEvents(
+      token,
+      {
+        companyId: user.company_id,
+        warehouseId,
+        priceTypeId,
+        canChangeWarehouse: canChangeWarehousePerm,
+        canChangePriceType: canChangePriceTypePerm,
+      },
+      {
+        onProductsUpdated: (products) => {
+          patchProducts(products);
+        },
+        onProductsRemoved: (productIds) => {
+          removeProducts(productIds);
+        },
+        onGroupsInvalidated: () => {
+          requestGroupsRefresh();
+        },
+        onPaymentTypesUpdated: () => {
+          void queryClient.invalidateQueries({ queryKey: ["regos", "payment-types"] });
+        },
+        onPaymentTypesRemoved: () => {
+          void queryClient.invalidateQueries({ queryKey: ["regos", "payment-types"] });
+        },
+      },
+    );
+
+    return () => {
+      catalogEventsRef.current?.close();
+      catalogEventsRef.current = null;
+    };
+  }, [
+    canChangePriceTypePerm,
+    canChangeWarehousePerm,
+    patchProducts,
+    priceTypeId,
+    queryClient,
+    removeProducts,
+    requestGroupsRefresh,
+    sellContextHydrated,
+    token,
+    user?.company_id,
+    warehouseId,
+  ]);
 
   return (
     <div className={styles.page}>
