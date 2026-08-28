@@ -89,6 +89,16 @@ async def list_featured_products(
         ):
             by_id[int(product["regos_item_id"])] = product
 
+    from app.services.category_scope import get_allowed_product_group_id_set, product_in_allowed_groups
+
+    allowed_group_ids = await get_allowed_product_group_id_set(session, user_id, company_id)
+    if allowed_group_ids is not None:
+        by_id = {
+            item_id: product
+            for item_id, product in by_id.items()
+            if product_in_allowed_groups(product, allowed_group_ids)
+        }
+
     # Fetch fresh prices from itemprice/get for the featured page items
     collected_item_ids = list(by_id.keys())
     if collected_item_ids:

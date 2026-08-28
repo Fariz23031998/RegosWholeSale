@@ -19,7 +19,7 @@ PERIOD_CACHE_TTL_SECONDS = 120
 UNKNOWN_CURRENCY_KEY = 0
 CURRENCY_MODE_ALL = "all"
 CURRENCY_MODE_NATIVE = "native"
-BASE_COST_EXCHANGE_RATE = 1.0
+DISCOUNT_PRICE_EPSILON = 0.005
 
 
 @dataclass
@@ -129,27 +129,13 @@ def _convert_to_default(
     return convert_between_rates(amount, from_rate or 1, to_rate or 1)
 
 
-def _should_convert_costs(display_currency: dict[str, Any] | None) -> bool:
-    if not display_currency:
-        return False
-    rate = display_currency.get("exchange_rate")
-    if rate is None:
-        return False
-    try:
-        return float(rate) != BASE_COST_EXCHANGE_RATE
-    except (TypeError, ValueError):
-        return False
-
-
-def _convert_base_cost_for_display(
-    amount: float,
-    display_currency: dict[str, Any] | None,
-) -> float:
-    """Convert purchase cost from UZS (base) to the dashboard display currency."""
-    if not _should_convert_costs(display_currency):
-        return round(amount, 2)
-    to_rate = display_currency.get("exchange_rate")  # type: ignore[union-attr]
-    return convert_between_rates(amount, BASE_COST_EXCHANGE_RATE, to_rate)
+def _merged_document_currency_map(
+    *document_groups: list[dict[str, Any]],
+) -> dict[int, dict[str, Any] | None]:
+    merged: dict[int, dict[str, Any] | None] = {}
+    for documents in document_groups:
+        merged.update(_document_currency_map(documents))
+    return merged
 
 
 def _converted_total(
@@ -348,6 +334,48 @@ async def get_dashboard_products(
     )
 
 
+async def get_dashboard_discounted_products(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    *,
+    start_date: int | None = None,
+    end_date: int | None = None,
+    partner_ids: list[int] | None = None,
+    all_partners: bool = True,
+    stock_ids: list[int] | None = None,
+    all_stocks: bool = True,
+    currency_id: int | None = None,
+    currency_mode: str = CURRENCY_MODE_ALL,
+) -> dict[str, Any]:
+    defaults = await regos_defaults_service.get_regos_defaults(
+        session, company_id, user_id=user_id
+    )
+    now = int(datetime.now(timezone.utc).timestamp())
+    end = end_date if end_date is not None else now
+    period = await _load_period_data_cached(
+        session,
+        company_id,
+        user_id=user_id,
+        start_date=start_date,
+        end_date=end,
+        partner_ids=partner_ids,
+        all_partners=all_partners,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
+    return await _build_dashboard_products(
+        session,
+        company_id,
+        user_id,
+        period,
+        defaults,
+        currency_id=currency_id,
+        currency_mode=currency_mode,
+        discounted_only=True,
+    )
+
+
 async def get_dashboard_payments(
     session: AsyncSession,
     company_id: int,
@@ -432,6 +460,7 @@ async def get_dashboard_overview(
         defaults,
         currency_id=currency_id,
         currency_mode=currency_mode,
+        include_discounted=True,
     )
     payments = _build_dashboard_payments(
         period,
@@ -444,6 +473,9 @@ async def get_dashboard_overview(
         "products": products["products"],
         "totals": products["totals"],
         "total": products["total"],
+        "discounted_products": products["discounted_products"],
+        "discounted_totals": products["discounted_totals"],
+        "discounted_total": products["discounted_total"],
         "payments": payments,
     }
 
@@ -668,8 +700,17 @@ def _build_dashboard_stats(
         if conversion_currency
         else round(sum(float(item.get("amount") or 0) for item in refunds_by_currency), 2)
     )
-    cost_total = _sum_operation_cost(operations, display_currency=summary_currency)
-    refunds_cost_total = _sum_operation_cost(return_operations, display_currency=summary_currency)
+    doc_currency_by_id = _merged_document_currency_map(documents, return_documents)
+    cost_total = _sum_operation_cost(
+        operations,
+        doc_currency_by_id=doc_currency_by_id,
+        target_currency=conversion_currency,
+    )
+    refunds_cost_total = _sum_operation_cost(
+        return_operations,
+        doc_currency_by_id=doc_currency_by_id,
+        target_currency=conversion_currency,
+    )
     gross_profit = round(sales_total - cost_total, 2)
     net_sales_total = (
         _converted_total(net_sales_by_currency, conversion_currency)
@@ -707,8 +748,6 @@ def _build_dashboard_stats(
         else round(sum(float(item.get("amount") or 0) for item in outcome_payments_by_currency), 2)
     )
 
-    doc_currency_by_id = _document_currency_map(documents)
-
     return {
         "sales_total": sales_total,
         "cost_total": round(cost_total, 2),
@@ -734,7 +773,6 @@ def _build_dashboard_stats(
             start_date,
             end_date,
             sales_currency=conversion_currency,
-            cost_display_currency=summary_currency,
         ),
         "top_products": _top_products(operations, doc_currency_by_id, conversion_currency),
         "top_partners": _top_partners(documents),
@@ -749,6 +787,67 @@ def _build_dashboard_stats(
     }
 
 
+def _operation_sold_unit_price(operation: dict[str, Any]) -> float:
+    qty = float(operation.get("quantity") or 0)
+    amount = operation.get("amount")
+    if amount is not None and qty > 0:
+        return float(amount) / qty
+    return float(operation.get("price") or 0)
+
+
+def _is_discounted_operation(operation: dict[str, Any]) -> bool:
+    price2 = operation.get("price2")
+    if price2 is None:
+        return False
+    return float(price2) > _operation_sold_unit_price(operation) + DISCOUNT_PRICE_EPSILON
+
+
+def _filter_discounted_operations(operations: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [operation for operation in operations if _is_discounted_operation(operation)]
+
+
+def _active_product_ids(stats_by_id: dict[int, dict[str, Any]]) -> list[int]:
+    return sorted(
+        [
+            item_id
+            for item_id, stats in stats_by_id.items()
+            if _has_period_activity(stats)
+        ],
+        key=lambda item_id: _product_sort_key(item_id, {}, stats_by_id),
+    )
+
+
+def _product_rows_payload(
+    *,
+    operations: list[dict[str, Any]],
+    return_operations: list[dict[str, Any]],
+    catalog_products: list[dict[str, Any]],
+    doc_currency_by_id: dict[int, dict[str, Any] | None],
+    conversion_currency: dict[str, Any] | None,
+) -> dict[str, Any]:
+    stats_by_id = _build_product_stats_map(
+        operations,
+        return_operations,
+        doc_currency_by_id=doc_currency_by_id,
+        conversion_currency=conversion_currency,
+    )
+    active_ids = _active_product_ids(stats_by_id)
+    rows = _build_product_rows(
+        catalog_products,
+        operations,
+        return_operations,
+        item_ids=active_ids,
+        stats_by_id=stats_by_id,
+    )
+    return {
+        "products": rows,
+        "totals": _compute_product_totals(stats_by_id),
+        "next_offset": 0,
+        "total": len(active_ids),
+        "active_ids": active_ids,
+    }
+
+
 async def _build_dashboard_products(
     session: AsyncSession,
     company_id: int,
@@ -758,6 +857,8 @@ async def _build_dashboard_products(
     *,
     currency_id: int | None,
     currency_mode: str,
+    discounted_only: bool = False,
+    include_discounted: bool = False,
 ) -> dict[str, Any]:
     documents = period["documents"]
     return_documents = period["return_documents"]
@@ -784,7 +885,6 @@ async def _build_dashboard_products(
         )
 
     conversion_currency = None
-    summary_currency = default_currency
     if isinstance(target_currency_id, int) and target_currency_id > 0:
         summary_currency = (
             _resolve_currency_by_id(
@@ -799,25 +899,18 @@ async def _build_dashboard_products(
         if normalized_mode == CURRENCY_MODE_ALL:
             conversion_currency = summary_currency
 
-    doc_currency_by_id = {
-        **_document_currency_map(documents),
-        **_document_currency_map(return_documents),
-    }
+    if discounted_only:
+        operations = _filter_discounted_operations(operations)
+        return_operations = _filter_discounted_operations(return_operations)
+
+    doc_currency_by_id = _merged_document_currency_map(documents, return_documents)
     stats_by_id = _build_product_stats_map(
         operations,
         return_operations,
         doc_currency_by_id=doc_currency_by_id,
         conversion_currency=conversion_currency,
-        cost_display_currency=summary_currency,
     )
-    active_ids = sorted(
-        [
-            item_id
-            for item_id, stats in stats_by_id.items()
-            if _has_period_activity(stats)
-        ],
-        key=lambda item_id: _product_sort_key(item_id, {}, stats_by_id),
-    )
+    active_ids = _active_product_ids(stats_by_id)
     total = len(active_ids)
 
     catalog_products: list[dict[str, Any]] = []
@@ -837,12 +930,26 @@ async def _build_dashboard_products(
         stats_by_id=stats_by_id,
     )
 
-    return {
+    payload: dict[str, Any] = {
         "products": rows,
         "totals": _compute_product_totals(stats_by_id),
         "next_offset": 0,
         "total": total,
     }
+
+    if include_discounted and not discounted_only:
+        discounted_payload = _product_rows_payload(
+            operations=_filter_discounted_operations(operations),
+            return_operations=_filter_discounted_operations(return_operations),
+            catalog_products=catalog_products,
+            doc_currency_by_id=doc_currency_by_id,
+            conversion_currency=conversion_currency,
+        )
+        payload["discounted_products"] = discounted_payload["products"]
+        payload["discounted_totals"] = discounted_payload["totals"]
+        payload["discounted_total"] = discounted_payload["total"]
+
+    return payload
 
 
 async def _fetch_catalog_products_by_ids(
@@ -964,15 +1071,17 @@ async def _load_period_data(
 def _sum_operation_cost(
     operations: list[dict[str, Any]],
     *,
-    display_currency: dict[str, Any] | None = None,
+    doc_currency_by_id: dict[int, dict[str, Any] | None] | None = None,
+    target_currency: dict[str, Any] | None = None,
 ) -> float:
     total = 0.0
     for operation in operations:
-        unit_cost = operation.get("last_purchase_cost")
-        if unit_cost is None:
-            continue
-        total += float(unit_cost) * float(operation.get("quantity") or 0)
-    return _convert_base_cost_for_display(round(total, 2), display_currency)
+        total += _operation_line_cost(
+            operation,
+            doc_currency_by_id=doc_currency_by_id,
+            conversion_currency=target_currency,
+        )
+    return round(total, 2)
 
 
 def _build_daily_series(
@@ -982,7 +1091,6 @@ def _build_daily_series(
     end_date: int,
     *,
     sales_currency: dict[str, Any] | None = None,
-    cost_display_currency: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     if start_date is None:
         if documents:
@@ -1025,9 +1133,13 @@ def _build_daily_series(
                 doc_amount = float(doc.get("amount") or 0)
                 currency = doc.get("currency") if isinstance(doc.get("currency"), dict) else None
                 day_sales += _convert_to_default(doc_amount, currency, sales_currency)
-                day_cost += cost_by_doc_id.get(doc["id"], 0.0)
+                day_cost += _convert_to_default(
+                    cost_by_doc_id.get(doc["id"], 0.0),
+                    currency,
+                    sales_currency,
+                )
 
-        day_cost = _convert_base_cost_for_display(day_cost, cost_display_currency)
+        day_cost = round(day_cost, 2)
         day_sales = round(day_sales, 2)
 
         buckets.append(
@@ -1086,12 +1198,22 @@ def _empty_product_stats() -> dict[str, Any]:
         "sold_quantity": 0.0,
         "sold_purchase_cost": 0.0,
         "sold_total": 0.0,
+        "sold_total_without_discount": 0.0,
         "refund_quantity": 0.0,
         "refund_purchase_cost": 0.0,
         "refund_total": 0.0,
+        "refund_total_without_discount": 0.0,
         "purchase_cost": None,
         "item_name": None,
     }
+
+
+def _operation_doc_currency(
+    operation: dict[str, Any],
+    doc_currency_by_id: dict[int, dict[str, Any] | None] | None,
+) -> dict[str, Any] | None:
+    doc_id = int(operation.get("document_id") or 0)
+    return doc_currency_by_id.get(doc_id) if doc_currency_by_id else None
 
 
 def _operation_revenue(
@@ -1104,10 +1226,48 @@ def _operation_revenue(
     amount = operation.get("amount")
     revenue = float(amount) if amount is not None else qty * float(operation.get("price") or 0)
     if conversion_currency:
-        doc_id = int(operation.get("document_id") or 0)
-        currency = doc_currency_by_id.get(doc_id) if doc_currency_by_id else None
-        revenue = _convert_to_default(revenue, currency, conversion_currency)
+        revenue = _convert_to_default(
+            revenue,
+            _operation_doc_currency(operation, doc_currency_by_id),
+            conversion_currency,
+        )
     return revenue
+
+
+def _operation_line_cost(
+    operation: dict[str, Any],
+    *,
+    doc_currency_by_id: dict[int, dict[str, Any] | None] | None = None,
+    conversion_currency: dict[str, Any] | None = None,
+) -> float:
+    unit_cost = operation.get("last_purchase_cost")
+    if unit_cost is None:
+        return 0.0
+    line_cost = float(unit_cost) * float(operation.get("quantity") or 0)
+    return _convert_to_default(
+        line_cost,
+        _operation_doc_currency(operation, doc_currency_by_id),
+        conversion_currency,
+    )
+
+
+def _operation_list_amount(
+    operation: dict[str, Any],
+    *,
+    doc_currency_by_id: dict[int, dict[str, Any] | None] | None = None,
+    conversion_currency: dict[str, Any] | None = None,
+) -> float:
+    qty = float(operation.get("quantity") or 0)
+    price2 = operation.get("price2")
+    unit = float(price2) if price2 is not None else float(operation.get("price") or 0)
+    amount = qty * unit
+    if conversion_currency:
+        amount = _convert_to_default(
+            amount,
+            _operation_doc_currency(operation, doc_currency_by_id),
+            conversion_currency,
+        )
+    return amount
 
 
 def _accumulate_product_stats(
@@ -1117,7 +1277,6 @@ def _accumulate_product_stats(
     is_refund: bool,
     doc_currency_by_id: dict[int, dict[str, Any] | None] | None = None,
     conversion_currency: dict[str, Any] | None = None,
-    cost_display_currency: dict[str, Any] | None = None,
 ) -> None:
     qty = float(operation.get("quantity") or 0)
     revenue = _operation_revenue(
@@ -1126,20 +1285,38 @@ def _accumulate_product_stats(
         conversion_currency=conversion_currency,
     )
     unit_cost = operation.get("last_purchase_cost")
-    line_cost = float(unit_cost) * qty if unit_cost is not None else 0.0
-    line_cost = _convert_base_cost_for_display(line_cost, cost_display_currency)
+    line_cost = _operation_line_cost(
+        operation,
+        doc_currency_by_id=doc_currency_by_id,
+        conversion_currency=conversion_currency,
+    )
+    list_amount = _operation_list_amount(
+        operation,
+        doc_currency_by_id=doc_currency_by_id,
+        conversion_currency=conversion_currency,
+    )
 
     if is_refund:
         stats["refund_quantity"] = round(stats["refund_quantity"] + qty, 2)
         stats["refund_purchase_cost"] = round(stats["refund_purchase_cost"] + line_cost, 2)
         stats["refund_total"] = round(stats["refund_total"] + revenue, 2)
+        stats["refund_total_without_discount"] = round(
+            stats["refund_total_without_discount"] + list_amount, 2
+        )
     else:
         stats["sold_quantity"] = round(stats["sold_quantity"] + qty, 2)
         stats["sold_purchase_cost"] = round(stats["sold_purchase_cost"] + line_cost, 2)
         stats["sold_total"] = round(stats["sold_total"] + revenue, 2)
+        stats["sold_total_without_discount"] = round(
+            stats["sold_total_without_discount"] + list_amount, 2
+        )
 
     if unit_cost is not None:
-        stats["purchase_cost"] = _convert_base_cost_for_display(float(unit_cost), cost_display_currency)
+        stats["purchase_cost"] = _convert_to_default(
+            float(unit_cost),
+            _operation_doc_currency(operation, doc_currency_by_id),
+            conversion_currency,
+        )
     item_name = operation.get("item_name")
     if isinstance(item_name, str) and item_name.strip():
         stats["item_name"] = item_name.strip()
@@ -1151,7 +1328,6 @@ def _build_product_stats_map(
     *,
     doc_currency_by_id: dict[int, dict[str, Any] | None] | None = None,
     conversion_currency: dict[str, Any] | None = None,
-    cost_display_currency: dict[str, Any] | None = None,
 ) -> dict[int, dict[str, Any]]:
     stats_by_id: dict[int, dict[str, Any]] = {}
 
@@ -1166,7 +1342,6 @@ def _build_product_stats_map(
             is_refund=False,
             doc_currency_by_id=doc_currency_by_id,
             conversion_currency=conversion_currency,
-            cost_display_currency=cost_display_currency,
         )
         stats_by_id[item_id] = current
 
@@ -1181,7 +1356,6 @@ def _build_product_stats_map(
             is_refund=True,
             doc_currency_by_id=doc_currency_by_id,
             conversion_currency=conversion_currency,
-            cost_display_currency=cost_display_currency,
         )
         stats_by_id[item_id] = current
 
@@ -1204,6 +1378,7 @@ def _compute_product_totals(stats_by_id: dict[int, dict[str, Any]]) -> dict[str,
         "net_purchase_cost": 0.0,
         "net_total_sells": 0.0,
         "net_gross_profit": 0.0,
+        "total_without_discount": 0.0,
     }
     for stats in stats_by_id.values():
         if not _has_period_activity(stats):
@@ -1214,6 +1389,8 @@ def _compute_product_totals(stats_by_id: dict[int, dict[str, Any]]) -> dict[str,
         sold_purchase_cost = float(stats.get("sold_purchase_cost") or 0)
         refund_purchase_cost = float(stats.get("refund_purchase_cost") or 0)
         refund_total = float(stats.get("refund_total") or 0)
+        sold_without_discount = float(stats.get("sold_total_without_discount") or 0)
+        refund_without_discount = float(stats.get("refund_total_without_discount") or 0)
         totals["sold_quantity"] = round(totals["sold_quantity"] + sold_qty, 2)
         totals["sold_purchase_cost"] = round(totals["sold_purchase_cost"] + sold_purchase_cost, 2)
         totals["sold_total"] = round(totals["sold_total"] + sold_total, 2)
@@ -1230,6 +1407,10 @@ def _compute_product_totals(stats_by_id: dict[int, dict[str, Any]]) -> dict[str,
         totals["net_gross_profit"] = round(
             totals["net_gross_profit"]
             + round(sold_total - refund_total - (sold_purchase_cost - refund_purchase_cost), 2),
+            2,
+        )
+        totals["total_without_discount"] = round(
+            totals["total_without_discount"] + sold_without_discount - refund_without_discount,
             2,
         )
     return totals
@@ -1290,9 +1471,12 @@ def _build_product_rows(
         sold_purchase_cost = float(stats["sold_purchase_cost"])
         refund_purchase_cost = float(stats["refund_purchase_cost"])
         refund_total = float(stats["refund_total"])
+        sold_without_discount = float(stats.get("sold_total_without_discount") or 0)
+        refund_without_discount = float(stats.get("refund_total_without_discount") or 0)
         net_qty = round(sold_qty - refund_qty, 2)
         net_purchase_cost = round(sold_purchase_cost - refund_purchase_cost, 2)
         net_total_sells = round(sold_total - refund_total, 2)
+        total_without_discount = round(sold_without_discount - refund_without_discount, 2)
         catalog_price = float(product.get("price") or 0) if product else 0.0
 
         rows.append(
@@ -1313,6 +1497,14 @@ def _build_product_rows(
                     refund_total=refund_total,
                     catalog_price=catalog_price,
                 ),
+                "price_without_discount": _average_sell_price(
+                    sold_qty=sold_qty,
+                    sold_total=sold_without_discount,
+                    refund_qty=refund_qty,
+                    refund_total=refund_without_discount,
+                    catalog_price=catalog_price,
+                ),
+                "total_without_discount": total_without_discount,
                 "sold_quantity": sold_qty,
                 "sold_purchase_cost": sold_purchase_cost,
                 "sold_total": sold_total,

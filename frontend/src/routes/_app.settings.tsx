@@ -166,6 +166,8 @@ function SettingsPage() {
   const [zeroPrice, setZeroPrice] = useState(false);
   const [allowOutOfStock, setAllowOutOfStock] = useState(false);
   const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
+  const [keypadUpdateDiscountedPriceOnly, setKeypadUpdateDiscountedPriceOnly] =
+    useState(false);
   const [crossCurrencyPaymentMode, setCrossCurrencyPaymentMode] =
     useState<CrossCurrencyPaymentMode>("payment_currency");
   const [tenderedAmountsInput, setTenderedAmountsInput] = useState("20, 50, 100");
@@ -369,6 +371,9 @@ function SettingsPage() {
 
     setAllowOutOfStock(res.settings.allow_out_of_stock);
     setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
+    setKeypadUpdateDiscountedPriceOnly(
+      res.settings.keypad_update_discounted_price_only ?? false,
+    );
     setCrossCurrencyPaymentMode(
       res.settings.cross_currency_payment_mode ?? "payment_currency",
     );
@@ -789,6 +794,29 @@ function SettingsPage() {
     }
   };
 
+  const handleKeypadUpdateDiscountedPriceOnlyChange = async (checked: boolean) => {
+    if (!token || !canManageSettings) return;
+
+    setKeypadUpdateDiscountedPriceOnly(checked);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(
+        token,
+        { keypad_update_discounted_price_only: checked },
+        cacheScope,
+      );
+      setKeypadUpdateDiscountedPriceOnly(
+        res.settings.keypad_update_discounted_price_only,
+      );
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setKeypadUpdateDiscountedPriceOnly((prev) => !checked);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
   const handleDefaultCategoryChange = async (value: string) => {
     if (!token || !canManageSettings) return;
 
@@ -1097,6 +1125,34 @@ function SettingsPage() {
                   checked={autoOpenQtyKeypad}
                   disabled={loadingPosSettings || savingPosSettings}
                   onChange={(e) => void handleAutoOpenQtyKeypadChange(e.target.checked)}
+                />
+                <span className={styles.slider} />
+              </span>
+            </label>
+
+            <label className={styles.row}>
+              <div>
+                <div className={styles.rowTitle}>
+                  {t(
+                    "settings.pos.keypadUpdateDiscountedPriceOnly",
+                    "Keypad price updates discounted sale price only",
+                  )}
+                </div>
+                <div className={styles.rowDesc}>
+                  {t(
+                    "settings.pos.keypadUpdateDiscountedPriceOnlyDesc",
+                    "When changing price on the quantity keypad, update Discounted Sale Price without changing Sale Price Before Discount.",
+                  )}
+                </div>
+              </div>
+              <span className={styles.switch}>
+                <input
+                  type="checkbox"
+                  checked={keypadUpdateDiscountedPriceOnly}
+                  disabled={loadingPosSettings || savingPosSettings}
+                  onChange={(e) =>
+                    void handleKeypadUpdateDiscountedPriceOnlyChange(e.target.checked)
+                  }
                 />
                 <span className={styles.slider} />
               </span>

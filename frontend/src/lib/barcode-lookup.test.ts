@@ -135,4 +135,17 @@ describe("lookupProductForBarcode", () => {
 
     expect(result).toEqual({ ok: false, reason: "out_of_stock" });
   });
+
+  it("returns out_of_scope when the product group is not allowed", async () => {
+    const product = makeProduct({ id: "p5", barcode: "4870249813251", group_id: 9 });
+    vi.mocked(findCachedProductByBarcode).mockResolvedValue(product);
+
+    const result = await lookupProductForBarcode("token", "4870249813251", {
+      ...defaultOptions,
+      scopeKey: "1:2:3",
+      allowedGroupIds: [1, 2],
+    });
+
+    expect(result).toEqual({ ok: false, reason: "out_of_scope" });
+  });
 });

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Printer } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { Modal } from "@/components/posui/Modal";
-import { useCart } from "@/store/cart";
+import { toCheckoutCartItem, useCart } from "@/store/cart";
 import { usePermissions } from "@/hooks/use-permissions";
 import { filterCheckoutOverrides } from "@/types/users";
 import { formatAuthError, useAuth } from "@/store/auth";
@@ -90,6 +90,9 @@ export function CheckoutModal({
   const catalogProducts = useCatalog((s) => s.products);
   const postponeDocumentType = usePosConfig((s) => s.postponeDocumentType);
   const postponeOrderBooked = usePosConfig((s) => s.postponeOrderBooked);
+  const keypadUpdateDiscountedPriceOnly = usePosConfig(
+    (s) => s.keypadUpdateDiscountedPriceOnly,
+  );
   const tenderedQuickAmounts = usePosConfig((s) => s.tenderedQuickAmounts);
   const enqueuePendingSale = usePendingSales((s) => s.enqueue);
   const upsertPendingSale = usePendingSales((s) => s.upsertRecord);
@@ -136,6 +139,7 @@ export function CheckoutModal({
       cashierId: cashier?.id ?? null,
       cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
       wholesaleDocId: postponedWholesaleDocId,
+      keypadUpdateDiscountedPriceOnly,
     };
 
     setDraftPrintLoading(true);
@@ -177,11 +181,9 @@ export function CheckoutModal({
         : null;
 
     const request: CheckoutRequest = {
-      items: cartItems.map((i) => ({
-        regos_item_id: i.regosItemId,
-        qty: i.qty,
-        price: i.price,
-      })),
+      items: cartItems.map((i) =>
+        toCheckoutCartItem(i, keypadUpdateDiscountedPriceOnly),
+      ),
       discount: totals.discount,
       total: totals.total,
       description: `POS ${cashier.name}`,
@@ -214,6 +216,7 @@ export function CheckoutModal({
       cashierId: cashier.id ?? null,
       cashierName: cashier.name ?? t("checkout.cashierFallback", "Cashier"),
       wholesaleDocId: postponedWholesaleDocId,
+      keypadUpdateDiscountedPriceOnly,
     };
 
     const stockAdjustments: StockAdjustOp[] = computeCheckoutStockAdjustments(

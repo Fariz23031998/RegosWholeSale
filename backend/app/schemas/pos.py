@@ -26,6 +26,7 @@ class PosSettings(BaseModel):
         default_factory=lambda: DefaultCategorySetting(mode="all")
     )
     auto_open_qty_keypad: bool = False
+    keypad_update_discounted_price_only: bool = False
     search_transliteration: bool = True
     search_fuzzy: bool = True
     cross_currency_payment_mode: CrossCurrencyPaymentMode = DEFAULT_CROSS_CURRENCY_PAYMENT_MODE
@@ -48,12 +49,15 @@ class UserPosSettings(BaseModel):
         default_factory=lambda: DefaultCategorySetting(mode="all")
     )
     auto_open_qty_keypad: bool = False
+    keypad_update_discounted_price_only: bool = False
     search_transliteration: bool = True
     search_fuzzy: bool = True
     cross_currency_payment_mode: CrossCurrencyPaymentMode = DEFAULT_CROSS_CURRENCY_PAYMENT_MODE
     internal_barcode_weight_prefix: str = DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX
     internal_barcode_piece_prefix: str = DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX
     postpone_document_type: PostponeDocumentType = DEFAULT_POSTPONE_DOCUMENT_TYPE
+    allowed_product_group_ids: list[int] = Field(default_factory=list)
+    allowed_partner_group_ids: list[int] = Field(default_factory=list)
 
 
 class PosSettingsResponse(BaseModel):
@@ -69,6 +73,7 @@ class PosSettingsPatchRequest(BaseModel):
     tendered_quick_amounts: list[float] | None = None
     default_category: DefaultCategorySetting | None = None
     auto_open_qty_keypad: bool | None = None
+    keypad_update_discounted_price_only: bool | None = None
     search_transliteration: bool | None = None
     search_fuzzy: bool | None = None
     cross_currency_payment_mode: CrossCurrencyPaymentMode | None = None
@@ -89,3 +94,5 @@ class UserPosSettingsPatchRequest(BaseModel):
     auto_open_qty_keypad: bool | None = None
     search_transliteration: bool | None = None
     search_fuzzy: bool | None = None
+    allowed_product_group_ids: list[int] | None = None
+    allowed_partner_group_ids: list[int] | None = None

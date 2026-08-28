@@ -848,3 +848,213 @@ async def test_employee_defaults_include_stock_action_permissions(client: AsyncC
         "inout.perform",
     ):
         assert code in employee["permissions"]
+
+
+_DEFAULTS = {
+    "warehouse": {"id": 11, "name": "Main"},
+    "price_type": {"id": 3, "name": "Retail"},
+    "partner": {"id": 1, "name": "Supplier"},
+    "currency": {"id": 7, "name": "USD"},
+    "attached_user": {"id": 9, "name": "Cashier"},
+}
+
+
+@pytest.mark.asyncio
+async def test_employee_without_change_permissions_is_forced_to_defaults(
+    client: AsyncClient,
+) -> None:
+    reg = await register_owner(
+        client, email="stock-lock-defaults@test.com", company_name="Lock Defaults Co"
+    )
+    owner_token = reg.json()["access_token"]
+    await _create_employee(client, owner_token, login="locked-docs")
+    token = await _login_employee(client, "locked-docs")
+
+    with patch(
+        "app.services.regos_defaults.get_regos_defaults",
+        new_callable=AsyncMock,
+        return_value=_DEFAULTS,
+    ):
+        with patch(
+            "app.services.regos_stock_docs.regos_async_api_request_for_company",
+            new_callable=AsyncMock,
+            return_value={"ok": True, "result": {"new_id": 201, "code": "P-201"}},
+        ) as mock_regos:
+            created = await client.post(
+                "/api/v1/stock/purchase/documents",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "partner_id": 99,
+                    "stock_id": 88,
+                    "date": 1_700_000_000,
+                    "price_type_id": 5,
+                    "currency_id": 9,
+                    "vat_calculation_type": "Exclude",
+                },
+            )
+
+    assert created.status_code == 200, created.text
+    payload = mock_regos.await_args.args[3]
+    assert payload["partner_id"] == 1
+    assert payload["stock_id"] == 11
+    assert payload["price_type_id"] == 3
+    assert payload["currency_id"] == 7
+
+
+@pytest.mark.asyncio
+async def test_employee_movement_requires_default_warehouse(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client, email="stock-move-scope@test.com", company_name="Move Scope Co"
+    )
+    owner_token = reg.json()["access_token"]
+    await _create_employee(client, owner_token, login="move-scoped")
+    token = await _login_employee(client, "move-scoped")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    with patch(
+        "app.services.regos_defaults.get_regos_defaults",
+        new_callable=AsyncMock,
+        return_value=_DEFAULTS,
+    ):
+        denied = await client.post(
+            "/api/v1/stock/movement/documents",
+            headers=headers,
+            json={
+                "stock_sender_id": 12,
+                "stock_receiver_id": 13,
+                "date": 1_700_000_000,
+            },
+        )
+        assert denied.status_code == 403, denied.text
+
+        with patch(
+            "app.services.regos_stock_docs.regos_async_api_request_for_company",
+            new_callable=AsyncMock,
+            return_value={"ok": True, "result": {"new_id": 77, "code": "M-77"}},
+        ) as mock_regos:
+            allowed = await client.post(
+                "/api/v1/stock/movement/documents",
+                headers=headers,
+                json={
+                    "stock_sender_id": 11,
+                    "stock_receiver_id": 13,
+                    "date": 1_700_000_000,
+                },
+            )
+
+    assert allowed.status_code == 200, allowed.text
+    payload = mock_regos.await_args.args[3]
+    assert payload["stock_sender_id"] == 11
+    assert payload["stock_receiver_id"] == 13
+
+
+@pytest.mark.asyncio
+async def test_employee_partner_group_allowlist_on_purchase(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client, email="stock-partner-scope@test.com", company_name="Partner Scope Co"
+    )
+    owner_token = reg.json()["access_token"]
+    employee = await _create_employee(
+        client,
+        owner_token,
+        login="partner-scoped",
+        permission_rules=[{"code": "pos.change_partner", "effect": "allow"}],
+    )
+    scoped = await client.patch(
+        f"/api/v1/users/{employee['id']}/settings/pos",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={"allowed_partner_group_ids": [4]},
+    )
+    assert scoped.status_code == 200, scoped.text
+    token = await _login_employee(client, "partner-scoped")
+    headers = {"Authorization": f"Bearer {token}"}
+
+    async def _partner_by_id(_session, _company_id, partner_id: int):
+        if partner_id == 2:
+            return {"id": 2, "group_id": 4, "name": "In scope"}
+        return {"id": partner_id, "group_id": 9, "name": "Out of scope"}
+
+    with patch(
+        "app.services.regos_defaults.get_regos_defaults",
+        new_callable=AsyncMock,
+        return_value=_DEFAULTS,
+    ):
+        with patch(
+            "app.services.regos_partners.get_partner_by_id",
+            new_callable=AsyncMock,
+            side_effect=_partner_by_id,
+        ):
+            denied = await client.post(
+                "/api/v1/stock/purchase/documents",
+                headers=headers,
+                json={"partner_id": 3, "stock_id": 11, "date": 1_700_000_000},
+            )
+            assert denied.status_code == 403, denied.text
+
+            with patch(
+                "app.services.regos_stock_docs.regos_async_api_request_for_company",
+                new_callable=AsyncMock,
+                return_value={"ok": True, "result": {"new_id": 301, "code": "P-301"}},
+            ) as mock_regos:
+                allowed = await client.post(
+                    "/api/v1/stock/purchase/documents",
+                    headers=headers,
+                    json={"partner_id": 2, "stock_id": 11, "date": 1_700_000_000},
+                )
+
+    assert allowed.status_code == 200, allowed.text
+    assert mock_regos.await_args.args[3]["partner_id"] == 2
+
+
+@pytest.mark.asyncio
+async def test_employee_update_strips_locked_stock_and_price_type(
+    client: AsyncClient,
+) -> None:
+    reg = await register_owner(
+        client, email="stock-update-lock@test.com", company_name="Update Lock Co"
+    )
+    owner_token = reg.json()["access_token"]
+    await _create_employee(client, owner_token, login="update-locked")
+    token = await _login_employee(client, "update-locked")
+
+    calls: list[tuple[str, dict]] = []
+
+    async def _regos(_session, _company_id, endpoint, payload):
+        calls.append((endpoint, payload))
+        if endpoint == "docpurchase/get":
+            return {"ok": True, "result": [_purchase_doc()]}
+        if endpoint in {"docpurchase/lock", "docpurchase/unlock", "docpurchase/edit"}:
+            return {"ok": True, "result": {"row_affected": 1}}
+        raise AssertionError(f"Unexpected endpoint {endpoint}")
+
+    with patch(
+        "app.services.regos_defaults.get_regos_defaults",
+        new_callable=AsyncMock,
+        return_value=_DEFAULTS,
+    ):
+        with patch(
+            "app.services.regos_stock_docs.regos_async_api_request_for_company",
+            new_callable=AsyncMock,
+            side_effect=_regos,
+        ):
+            response = await client.patch(
+                "/api/v1/stock/purchase/documents/101",
+                headers={"Authorization": f"Bearer {token}"},
+                json={
+                    "date": 1_700_000_100,
+                    "stock_id": 88,
+                    "partner_id": 99,
+                    "price_type_id": 5,
+                    "currency_id": 9,
+                    "vat_calculation_type": "Include",
+                },
+            )
+
+    assert response.status_code == 200, response.text
+    edit_payload = next(p for e, p in calls if e == "docpurchase/edit")
+    assert edit_payload["date"] == 1_700_000_100
+    assert "stock_id" not in edit_payload
+    assert "partner_id" not in edit_payload
+    assert "price_type_id" not in edit_payload
+    assert "currency_id" not in edit_payload
+    assert edit_payload["vat_calculation_type"] == "Include"

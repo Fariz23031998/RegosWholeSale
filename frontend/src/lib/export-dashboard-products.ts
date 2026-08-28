@@ -5,14 +5,37 @@ import type {
   TranslateFn,
 } from "@/lib/dashboard-api";
 
-const COL_COUNT = 15;
-const NUMERIC_COLS = new Set([3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
-const QTY_COLS = new Set([5, 8, 11]);
-
 const TITLE_ROW = 0;
 const PERIOD_ROW = 1;
 const GROUP_ROW = 2;
 const HEADER_ROW = 3;
+
+function columnLayout(includeWithoutDiscount: boolean) {
+  const extra = includeWithoutDiscount ? 2 : 0;
+  const colCount = 15 + extra;
+  const productEnd = 4 + extra;
+  const sellStart = productEnd + 1;
+  const sellEnd = sellStart + 2;
+  const refundStart = sellEnd + 1;
+  const refundEnd = refundStart + 2;
+  const netStart = refundEnd + 1;
+  const qtyCols = new Set([sellStart, refundStart, netStart]);
+  const numericCols = new Set<number>();
+  for (let col = 3; col < colCount; col += 1) numericCols.add(col);
+  return {
+    colCount,
+    productEnd,
+    sellStart,
+    sellEnd,
+    refundStart,
+    refundEnd,
+    netStart,
+    qtyCols,
+    numericCols,
+  };
+}
+
+type ColumnLayout = ReturnType<typeof columnLayout>;
 
 const COLORS = {
   primary: "4F46E5",
@@ -64,13 +87,19 @@ function mergeStyle(...parts: Partial<CellStyle>[]): CellStyle {
   return Object.assign({}, ...parts);
 }
 
-function productRowValues(product: DashboardProductRow): (string | number)[] {
+function productRowValues(
+  product: DashboardProductRow,
+  includeWithoutDiscount: boolean,
+): (string | number)[] {
   return [
     product.code,
     product.name,
     product.category,
     product.purchase_cost ?? "",
     product.average_price,
+    ...(includeWithoutDiscount
+      ? [product.price_without_discount ?? 0, product.total_without_discount ?? 0]
+      : []),
     product.sold_quantity,
     product.sold_purchase_cost,
     product.sold_total,
@@ -84,13 +113,17 @@ function productRowValues(product: DashboardProductRow): (string | number)[] {
   ];
 }
 
-function totalsRowValues(totals: DashboardProductTotals): (string | number)[] {
+function totalsRowValues(
+  totals: DashboardProductTotals,
+  includeWithoutDiscount: boolean,
+): (string | number)[] {
   return [
     "",
     "",
     "",
     "",
     "",
+    ...(includeWithoutDiscount ? ["", totals.total_without_discount ?? 0] : []),
     totals.sold_quantity,
     totals.sold_purchase_cost,
     totals.sold_total,
@@ -104,13 +137,19 @@ function totalsRowValues(totals: DashboardProductTotals): (string | number)[] {
   ];
 }
 
-function productColumnHeaders(t: TranslateFn): string[] {
+function productColumnHeaders(t: TranslateFn, includeWithoutDiscount: boolean): string[] {
   return [
     t("dashboard.products.col.code"),
     t("dashboard.products.col.name"),
     t("dashboard.products.col.category"),
     t("dashboard.products.col.purchaseCost"),
     t("dashboard.products.col.avgPrice"),
+    ...(includeWithoutDiscount
+      ? [
+          t("dashboard.products.col.priceWithoutDiscount"),
+          t("dashboard.products.col.totalWithoutDiscount"),
+        ]
+      : []),
     t("dashboard.products.col.qty"),
     t("dashboard.products.col.purchaseCost"),
     t("dashboard.products.col.totalSells"),
@@ -124,12 +163,16 @@ function productColumnHeaders(t: TranslateFn): string[] {
   ];
 }
 
-function groupHeaderRow(t: TranslateFn): string[] {
-  const row = Array<string>(COL_COUNT).fill("");
-  row[0] = t("dashboard.products.title");
-  row[5] = t("dashboard.products.group.sell");
-  row[8] = t("dashboard.products.group.refund");
-  row[11] = t("dashboard.products.group.net");
+function groupHeaderRow(
+  t: TranslateFn,
+  productGroupTitle: string,
+  layout: ColumnLayout,
+): string[] {
+  const row = Array<string>(layout.colCount).fill("");
+  row[0] = productGroupTitle;
+  row[layout.sellStart] = t("dashboard.products.group.sell");
+  row[layout.refundStart] = t("dashboard.products.group.refund");
+  row[layout.netStart] = t("dashboard.products.group.net");
   return row;
 }
 
@@ -153,9 +196,11 @@ function applyRowStyle(
   row: number,
   style: CellStyle,
   fromCol = 0,
-  toCol = COL_COUNT - 1,
+  toCol?: number,
+  layout?: ColumnLayout,
 ): void {
-  for (let col = fromCol; col <= toCol; col += 1) {
+  const lastCol = toCol ?? (layout?.colCount ?? 15) - 1;
+  for (let col = fromCol; col <= lastCol; col += 1) {
     applyCellStyle(worksheet, row, col, style);
   }
 }
@@ -170,14 +215,18 @@ function applySectionStyle(
   applyRowStyle(worksheet, row, style, fromCol, toCol);
 }
 
-function numFmtForCol(col: number): string {
-  if (QTY_COLS.has(col)) return "#,##0.##";
-  if (NUMERIC_COLS.has(col)) return "#,##0.00";
+function numFmtForCol(col: number, layout: ColumnLayout): string {
+  if (layout.qtyCols.has(col)) return "#,##0.##";
+  if (layout.numericCols.has(col)) return "#,##0.00";
   return "@";
 }
 
-function dataCellStyle(col: number, options?: { bold?: boolean; fill?: string }): CellStyle {
-  const isNumeric = NUMERIC_COLS.has(col);
+function dataCellStyle(
+  col: number,
+  layout: ColumnLayout,
+  options?: { bold?: boolean; fill?: string },
+): CellStyle {
+  const isNumeric = layout.numericCols.has(col);
   return mergeStyle(
     {
       font: {
@@ -195,7 +244,7 @@ function dataCellStyle(col: number, options?: { bold?: boolean; fill?: string })
         wrapText: col === 1,
       },
       border: thinBorder(),
-      numFmt: numFmtForCol(col),
+      numFmt: numFmtForCol(col, layout),
     },
   );
 }
@@ -205,22 +254,25 @@ function styleWorksheet(
   dataStartRow: number,
   dataRowCount: number,
   hasTotalsRow: boolean,
+  layout: ColumnLayout,
 ): void {
   worksheet["!merges"] = [
-    { s: { r: TITLE_ROW, c: 0 }, e: { r: TITLE_ROW, c: COL_COUNT - 1 } },
-    { s: { r: PERIOD_ROW, c: 0 }, e: { r: PERIOD_ROW, c: COL_COUNT - 1 } },
-    { s: { r: GROUP_ROW, c: 0 }, e: { r: GROUP_ROW, c: 4 } },
-    { s: { r: GROUP_ROW, c: 5 }, e: { r: GROUP_ROW, c: 7 } },
-    { s: { r: GROUP_ROW, c: 8 }, e: { r: GROUP_ROW, c: 10 } },
-    { s: { r: GROUP_ROW, c: 11 }, e: { r: GROUP_ROW, c: COL_COUNT - 1 } },
+    { s: { r: TITLE_ROW, c: 0 }, e: { r: TITLE_ROW, c: layout.colCount - 1 } },
+    { s: { r: PERIOD_ROW, c: 0 }, e: { r: PERIOD_ROW, c: layout.colCount - 1 } },
+    { s: { r: GROUP_ROW, c: 0 }, e: { r: GROUP_ROW, c: layout.productEnd } },
+    { s: { r: GROUP_ROW, c: layout.sellStart }, e: { r: GROUP_ROW, c: layout.sellEnd } },
+    { s: { r: GROUP_ROW, c: layout.refundStart }, e: { r: GROUP_ROW, c: layout.refundEnd } },
+    { s: { r: GROUP_ROW, c: layout.netStart }, e: { r: GROUP_ROW, c: layout.colCount - 1 } },
   ];
 
+  const extraCols = layout.colCount === 17 ? [{ wch: 20 }, { wch: 22 }] : [];
   worksheet["!cols"] = [
     { wch: 14 },
     { wch: 34 },
     { wch: 18 },
     { wch: 14 },
     { wch: 12 },
+    ...extraCols,
     { wch: 10 },
     { wch: 14 },
     { wch: 14 },
@@ -242,49 +294,61 @@ function styleWorksheet(
 
   worksheet["!freeze"] = { xSplit: 0, ySplit: HEADER_ROW + 1, topLeftCell: "A5", activePane: "bottomLeft" };
 
-  applyRowStyle(worksheet, TITLE_ROW, {
-    font: { name: FONT, sz: 16, bold: true, color: { rgb: COLORS.white } },
-    fill: { patternType: "solid", fgColor: { rgb: COLORS.primary } },
-    alignment: { horizontal: "center", vertical: "center" },
-    border: thinBorder(COLORS.primary),
-  });
+  applyRowStyle(
+    worksheet,
+    TITLE_ROW,
+    {
+      font: { name: FONT, sz: 16, bold: true, color: { rgb: COLORS.white } },
+      fill: { patternType: "solid", fgColor: { rgb: COLORS.primary } },
+      alignment: { horizontal: "center", vertical: "center" },
+      border: thinBorder(COLORS.primary),
+    },
+    0,
+    layout.colCount - 1,
+  );
 
-  applyRowStyle(worksheet, PERIOD_ROW, {
-    font: { name: FONT, sz: 11, italic: true, color: { rgb: COLORS.textMuted } },
-    fill: { patternType: "solid", fgColor: { rgb: COLORS.primaryLight } },
-    alignment: { horizontal: "center", vertical: "center" },
-    border: thinBorder(),
-  });
+  applyRowStyle(
+    worksheet,
+    PERIOD_ROW,
+    {
+      font: { name: FONT, sz: 11, italic: true, color: { rgb: COLORS.textMuted } },
+      fill: { patternType: "solid", fgColor: { rgb: COLORS.primaryLight } },
+      alignment: { horizontal: "center", vertical: "center" },
+      border: thinBorder(),
+    },
+    0,
+    layout.colCount - 1,
+  );
 
-  applySectionStyle(worksheet, GROUP_ROW, 0, 4, {
+  applySectionStyle(worksheet, GROUP_ROW, 0, layout.productEnd, {
     font: { name: FONT, sz: 11, bold: true, color: { rgb: COLORS.text } },
     fill: { patternType: "solid", fgColor: { rgb: COLORS.groupNeutral } },
     alignment: { horizontal: "center", vertical: "center" },
     border: thinBorder(),
   });
-  applySectionStyle(worksheet, GROUP_ROW, 5, 7, {
+  applySectionStyle(worksheet, GROUP_ROW, layout.sellStart, layout.sellEnd, {
     font: { name: FONT, sz: 11, bold: true, color: { rgb: COLORS.groupSellAccent } },
     fill: { patternType: "solid", fgColor: { rgb: COLORS.groupSell } },
     alignment: { horizontal: "center", vertical: "center" },
     border: thinBorder(COLORS.groupSellAccent),
   });
-  applySectionStyle(worksheet, GROUP_ROW, 8, 10, {
+  applySectionStyle(worksheet, GROUP_ROW, layout.refundStart, layout.refundEnd, {
     font: { name: FONT, sz: 11, bold: true, color: { rgb: COLORS.groupRefundAccent } },
     fill: { patternType: "solid", fgColor: { rgb: COLORS.groupRefund } },
     alignment: { horizontal: "center", vertical: "center" },
     border: thinBorder(COLORS.groupRefundAccent),
   });
-  applySectionStyle(worksheet, GROUP_ROW, 11, COL_COUNT - 1, {
+  applySectionStyle(worksheet, GROUP_ROW, layout.netStart, layout.colCount - 1, {
     font: { name: FONT, sz: 11, bold: true, color: { rgb: COLORS.groupNetAccent } },
     fill: { patternType: "solid", fgColor: { rgb: COLORS.groupNet } },
     alignment: { horizontal: "center", vertical: "center" },
     border: thinBorder(COLORS.groupNetAccent),
   });
 
-  for (let col = 0; col < COL_COUNT; col += 1) {
-    const isSell = col >= 5 && col <= 7;
-    const isRefund = col >= 8 && col <= 10;
-    const isNet = col >= 11;
+  for (let col = 0; col < layout.colCount; col += 1) {
+    const isSell = col >= layout.sellStart && col <= layout.sellEnd;
+    const isRefund = col >= layout.refundStart && col <= layout.refundEnd;
+    const isNet = col >= layout.netStart;
     const accent = isSell
       ? COLORS.groupSell
       : isRefund
@@ -302,7 +366,7 @@ function styleWorksheet(
       },
       fill: { patternType: "solid", fgColor: { rgb: accent } },
       alignment: {
-        horizontal: NUMERIC_COLS.has(col) ? "right" : "left",
+        horizontal: layout.numericCols.has(col) ? "right" : "left",
         vertical: "center",
         wrapText: true,
       },
@@ -317,50 +381,64 @@ function styleWorksheet(
     const isAlt = !isTotals && offset % 2 === (hasTotalsRow ? 1 : 0);
     const fill = isTotals ? COLORS.totalBg : isAlt ? COLORS.altRow : undefined;
 
-    for (let col = 0; col < COL_COUNT; col += 1) {
+    for (let col = 0; col < layout.colCount; col += 1) {
       applyCellStyle(
         worksheet,
         row,
         col,
-        dataCellStyle(col, { bold: isTotals, fill }),
+        dataCellStyle(col, layout, { bold: isTotals, fill }),
       );
     }
   }
 }
+
+export type ExportDashboardProductsOptions = {
+  title?: string;
+  subtitle?: string;
+  sheetName?: string;
+  filePrefix?: string;
+  includeWithoutDiscount?: boolean;
+};
 
 export function exportDashboardProductsToExcel(
   products: DashboardProductRow[],
   totals: DashboardProductTotals | null,
   t: TranslateFn,
   periodLabel: string,
+  options?: ExportDashboardProductsOptions,
 ): void {
-  const headers = productColumnHeaders(t);
+  const includeWithoutDiscount = Boolean(options?.includeWithoutDiscount);
+  const layout = columnLayout(includeWithoutDiscount);
+  const headers = productColumnHeaders(t, includeWithoutDiscount);
   const totalLabel = t("dashboard.products.totalRow", "Total");
-  const title = t("dashboard.products.title", "Products");
-  const subtitle = `${periodLabel} · ${t("dashboard.products.subtitle")}`;
+  const title = options?.title ?? t("dashboard.products.title", "Products");
+  const subtitle =
+    options?.subtitle ?? `${periodLabel} · ${t("dashboard.products.subtitle")}`;
+  const sheetName = (options?.sheetName ?? title).replace(/[\\/?*[\]]+/g, "-").slice(0, 31);
+  const filePrefix = options?.filePrefix ?? "dashboard-products";
 
   const rows: (string | number)[][] = [
     [title],
     [subtitle],
-    groupHeaderRow(t),
+    groupHeaderRow(t, title, layout),
     headers,
   ];
 
   const hasTotalsRow = totals !== null;
   if (totals) {
-    rows.push([totalLabel, ...totalsRowValues(totals).slice(1)]);
+    rows.push([totalLabel, ...totalsRowValues(totals, includeWithoutDiscount).slice(1)]);
   }
 
   for (const product of products) {
-    rows.push(productRowValues(product));
+    rows.push(productRowValues(product, includeWithoutDiscount));
   }
 
   const worksheet = XLSX.utils.aoa_to_sheet(rows);
   const dataStartRow = HEADER_ROW + 1;
-  styleWorksheet(worksheet, dataStartRow, rows.length - dataStartRow, hasTotalsRow);
+  styleWorksheet(worksheet, dataStartRow, rows.length - dataStartRow, hasTotalsRow, layout);
 
   const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, t("dashboard.products.title", "Products"));
-  const fileName = `dashboard-products-${sanitizeFileName(periodLabel)}.xlsx`;
+  XLSX.utils.book_append_sheet(workbook, worksheet, sheetName || "Products");
+  const fileName = `${filePrefix}-${sanitizeFileName(periodLabel)}.xlsx`;
   XLSX.writeFile(workbook, fileName);
 }

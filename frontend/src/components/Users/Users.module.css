@@ -137,6 +137,35 @@
   color: var(--color-text-muted);
   font-size: 12px;
 }
+.allowlist {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+  padding: 8px 10px;
+}
+.allowlistItems {
+  display: flex;
+  flex-direction: column;
+  max-height: 220px;
+  overflow-y: auto;
+  margin-top: 4px;
+}
+.allowlistRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 13px;
+  padding: 6px 4px;
+  cursor: pointer;
+}
+.allowlistRow input {
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+.allowlistItem span {
+  line-height: 1.35;
+  word-break: break-word;
+}
 .permissionGroup {
   margin-top: var(--space-3);
 }

@@ -45,3 +45,10 @@ export async function updateItem(
     body,
   });
 }
+
+export async function generateEan13(token: string): Promise<{ value: string }> {
+  return apiRequest<{ value: string }>("/api/v1/regos/barcodes/ean13", {
+    method: "POST",
+    token,
+  });
+}

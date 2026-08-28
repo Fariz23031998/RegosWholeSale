@@ -191,6 +191,7 @@ async def create_stock_document(
         kind=parsed,
         user_id=current.id,
         payload=body.model_dump(exclude_none=True),
+        permissions=_permission_set(current),
     )
     return StockDocumentCreateResponse(**data)
 
@@ -219,6 +220,8 @@ async def update_stock_document(
         document_id=document_id,
         payload=body.model_dump(exclude_none=True),
         existing=existing,
+        user_id=current.id,
+        permissions=_permission_set(current),
     )
     return StockMutationResponse(**data)
 

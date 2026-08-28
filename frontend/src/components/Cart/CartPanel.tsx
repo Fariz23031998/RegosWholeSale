@@ -2,7 +2,7 @@ import { Minus, Percent, Plus, Printer, ShoppingBag, ShoppingCart, Tag, X } from
 import { startTransition, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { cartTotals, useCart } from "@/store/cart";
+import { cartTotals, toCheckoutCartItem, useCart } from "@/store/cart";
 import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
 import { useBookedOrderContinuation } from "@/hooks/use-booked-order-continuation";
@@ -97,6 +97,9 @@ export function CartPanel() {
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
   const postponeDocumentType = usePosConfig((s) => s.postponeDocumentType);
   const postponeOrderBooked = usePosConfig((s) => s.postponeOrderBooked);
+  const keypadUpdateDiscountedPriceOnly = usePosConfig(
+    (s) => s.keypadUpdateDiscountedPriceOnly,
+  );
   const bookedOrderContinuation = useBookedOrderContinuation();
   const catalogStockOptions = bookedOrderContinuation
     ? { bookedOrderContinuation: true as const }
@@ -205,6 +208,7 @@ export function CartPanel() {
       cashierId: cashier?.id ?? null,
       cashierName: cashier?.name ?? t("checkout.cashierFallback", "Cashier"),
       wholesaleDocId: postponedWholesaleDocId,
+      keypadUpdateDiscountedPriceOnly,
     };
 
     setPrintLoading(true);
@@ -236,11 +240,9 @@ export function CartPanel() {
     setPostponeError(null);
 
     const request: PostponeRequest = {
-      items: cartItems.map((item) => ({
-        regos_item_id: item.regosItemId,
-        qty: item.qty,
-        price: item.price,
-      })),
+      items: cartItems.map((item) =>
+        toCheckoutCartItem(item, keypadUpdateDiscountedPriceOnly),
+      ),
       discount: totals.discount,
       total: totals.total,
       description: `POS ${cashier.name}`,

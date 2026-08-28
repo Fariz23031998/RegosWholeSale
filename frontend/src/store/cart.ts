@@ -16,12 +16,30 @@ export type CartItem = {
   regosItemId: number;
   name: string;
   price: number;
+  /** Original list / catalog unit price captured when the item was added. */
+  listPrice?: number;
   qty: number;
   image: string;
   unitType?: number | null;
   /** Qty from the postponed document when continuing a sale. */
   postponedQty?: number;
 } & CartItemPrintMeta;
+
+export function cartItemListPrice(item: Pick<CartItem, "price" | "listPrice">): number {
+  return item.listPrice ?? item.price;
+}
+
+export function toCheckoutCartItem(
+  item: CartItem,
+  keypadUpdateDiscountedPriceOnly: boolean,
+): { regos_item_id: number; qty: number; price: number; price2?: number } {
+  return {
+    regos_item_id: item.regosItemId,
+    qty: item.qty,
+    price: item.price,
+    ...(keypadUpdateDiscountedPriceOnly ? { price2: cartItemListPrice(item) } : {}),
+  };
+}
 
 export function cartItemPrintMetaFromProduct(product: Product): CartItemPrintMeta {
   return {
@@ -135,6 +153,7 @@ export const useCart = create<CartState>((set, get) => ({
                 : Number.parseInt(p.id, 10) || 0,
             name: p.name,
             price: p.price,
+            listPrice: p.price,
             qty: normalizedQty,
             image: p.image,
             unitType,

@@ -9,6 +9,7 @@ class CheckoutItemRequest(BaseModel):
     regos_item_id: int = Field(ge=1)
     qty: float = Field(gt=0)
     price: float = Field(ge=0)
+    price2: float | None = Field(default=None, ge=0)
 
 
 class CheckoutPaymentLineRequest(BaseModel):

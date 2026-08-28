@@ -611,6 +611,169 @@ async def test_checkout_foreign_currency_puts_actual_price_in_price(
     assert add_payload["exchange_rate"] == 12600
 
 
+CHECKOUT_REGOS_SIDE_EFFECT = [
+    {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
+    {"ok": True, "result": {}},
+    {"ok": True, "result": [{"new_id": 2001}]},
+    {"ok": True, "result": {}},
+    REGOS_EDIT_OK,
+    {"ok": True, "result": {"code": "WS-1001"}},
+    {"ok": True, "result": {"new_id": 3001}},
+    {"ok": True, "result": {}},
+]
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_keypad_setting_preserves_price2(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = list(CHECKOUT_REGOS_SIDE_EFFECT)
+
+    reg = await register_owner(
+        client, email="checkout-keypad-price2@test.com", company_name="Keypad Price Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+    patched = await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={"keypad_update_discounted_price_only": True},
+    )
+    assert patched.status_code == 200
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 1, "price": 80, "price2": 100}],
+            "discount": 0,
+            "payment_type_id": 5,
+            "total": 80,
+        },
+    )
+    assert response.status_code == 200
+    assert response.json()["lines"][0]["price"] == 80
+    assert response.json()["lines"][0]["price2"] == 100
+
+    ops_payload = mock_regos.call_args_list[2][0][3]
+    assert ops_payload[0]["price"] == 80
+    assert ops_payload[0]["price2"] == 100
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_keypad_setting_applies_cart_discount_to_price_only(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = list(CHECKOUT_REGOS_SIDE_EFFECT)
+
+    reg = await register_owner(
+        client, email="checkout-keypad-discount@test.com", company_name="Keypad Discount Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+    await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={"keypad_update_discounted_price_only": True},
+    )
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 1, "price": 80, "price2": 100}],
+            "discount": 8,
+            "payment_type_id": 5,
+            "total": 72,
+        },
+    )
+    assert response.status_code == 200
+
+    ops_payload = mock_regos.call_args_list[2][0][3]
+    assert ops_payload[0]["price"] == 72
+    assert ops_payload[0]["price2"] == 100
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_ignores_price2_when_keypad_setting_off(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_enriched.return_value = ENRICHED_DEFAULTS
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = list(CHECKOUT_REGOS_SIDE_EFFECT)
+
+    reg = await register_owner(
+        client, email="checkout-keypad-off@test.com", company_name="Keypad Off Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            "items": [{"regos_item_id": 101, "qty": 1, "price": 80, "price2": 100}],
+            "discount": 0,
+            "payment_type_id": 5,
+            "total": 80,
+        },
+    )
+    assert response.status_code == 200
+
+    ops_payload = mock_regos.call_args_list[2][0][3]
+    assert ops_payload[0]["price"] == 80
+    assert ops_payload[0]["price2"] == 80
+
+
 @patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
 @patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
 @pytest.mark.asyncio

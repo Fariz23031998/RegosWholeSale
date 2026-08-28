@@ -5,6 +5,8 @@ import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
 import { StockDocDateTimeField } from "@/components/StockDocs/StockDocDateTimeField";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePermissions } from "@/hooks/use-permissions";
+import { filterPartnersByAllowedGroups } from "@/lib/category-scope";
 import {
   createStockDocument,
   type StockDocKind,
@@ -19,6 +21,7 @@ import {
   type InventoryCompareType,
 } from "@/lib/stock-doc-form";
 import { formatAuthError, useAuth } from "@/store/auth";
+import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import type { Partner } from "@/types/partners";
 import {
@@ -53,9 +56,18 @@ export function StockDocCreateModal({
   const def = getStockDocDefinition(kind);
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
+  const { canChangeWarehouse, canChangePriceType, canChangePartner } = usePermissions();
+  const allowedPartnerGroupIds = usePosConfig((s) => s.allowedPartnerGroupIds);
   const sellWarehouseId = useSellContext((s) => s.warehouseId);
   const sellPartnerId = useSellContext((s) => s.partnerId);
   const sellPriceTypeId = useSellContext((s) => s.priceTypeId);
+  const lockWarehouse = kind !== "movement" && !canChangeWarehouse();
+  const lockPriceType = !canChangePriceType();
+  const lockPartner = !canChangePartner();
+  const scopedPartners = useMemo(
+    () => filterPartnersByAllowedGroups(partners, allowedPartnerGroupIds),
+    [allowedPartnerGroupIds, partners],
+  );
 
   const needsPriceType =
     kind === "purchase" || kind === "inventory" || kind === "return_to_partner";
@@ -70,11 +82,11 @@ export function StockDocCreateModal({
   }, [sellWarehouseId, warehouses]);
 
   const defaultPartner = useMemo(() => {
-    if (sellPartnerId && partners.some((p) => p.id === sellPartnerId)) {
+    if (sellPartnerId && scopedPartners.some((p) => p.id === sellPartnerId)) {
       return sellPartnerId;
     }
-    return partners[0]?.id ?? 0;
-  }, [partners, sellPartnerId]);
+    return scopedPartners[0]?.id ?? 0;
+  }, [scopedPartners, sellPartnerId]);
 
   const defaultPriceType = useMemo(() => {
     if (sellPriceTypeId && priceTypes.some((p) => p.id === sellPriceTypeId)) {
@@ -84,6 +96,9 @@ export function StockDocCreateModal({
   }, [priceTypes, sellPriceTypeId]);
 
   const [partnerId, setPartnerId] = useState(defaultPartner);
+  const [partnerName, setPartnerName] = useState(
+    () => partners.find((partner) => partner.id === defaultPartner)?.name ?? null,
+  );
   const [partnerPickerOpen, setPartnerPickerOpen] = useState(false);
   const [stockId, setStockId] = useState(defaultStock);
   const [senderId, setSenderId] = useState(defaultStock);
@@ -106,12 +121,14 @@ export function StockDocCreateModal({
     () => priceTypes.find((p) => p.id === priceTypeId) ?? null,
     [priceTypeId, priceTypes],
   );
-  const selectedPartnerName = useMemo(
-    () => partners.find((partner) => partner.id === partnerId)?.name ?? null,
-    [partnerId, partners],
-  );
+  const selectedPartnerName =
+    partnerName ??
+    scopedPartners.find((partner) => partner.id === partnerId)?.name ??
+    partners.find((partner) => partner.id === partnerId)?.name ??
+    null;
   const handlePartnerSelect = (partner: Partner) => {
     setPartnerId(partner.id);
+    setPartnerName(partner.name);
   };
   const currencyLabel = selectedPriceType?.currency
     ? selectedPriceType.currency.code_chr || selectedPriceType.currency.name
@@ -136,6 +153,28 @@ export function StockDocCreateModal({
     if (needsCurrencyVat && !selectedPriceType?.currency?.id) {
       setError(t("stock.errors.currencyRequired", "Selected price type has no currency"));
       return;
+    }
+    if (
+      kind === "movement" &&
+      !canChangeWarehouse() &&
+      defaultStock > 0 &&
+      senderId !== defaultStock &&
+      receiverId !== defaultStock
+    ) {
+      setError(
+        t(
+          "stock.errors.movementWarehouseScope",
+          "At least one warehouse must be your default warehouse",
+        ),
+      );
+      return;
+    }
+    if (def.supportsPartnerFilter && allowedPartnerGroupIds.length > 0) {
+      const selected = scopedPartners.some((partner) => partner.id === partnerId);
+      if (!selected) {
+        setError(t("stock.errors.partnerOutOfScope", "Select a partner from your allowed groups"));
+        return;
+      }
     }
 
     setBusy(true);
@@ -211,6 +250,7 @@ export function StockDocCreateModal({
               <select
                 value={senderId}
                 onChange={(e) => setSenderId(Number(e.target.value))}
+                disabled={busy}
               >
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
@@ -224,6 +264,7 @@ export function StockDocCreateModal({
               <select
                 value={receiverId}
                 onChange={(e) => setReceiverId(Number(e.target.value))}
+                disabled={busy}
               >
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
@@ -241,8 +282,11 @@ export function StockDocCreateModal({
                 <button
                   type="button"
                   className={styles.partnerPickerButton}
-                  onClick={() => setPartnerPickerOpen(true)}
-                  disabled={busy}
+                  onClick={() => {
+                    if (lockPartner) return;
+                    setPartnerPickerOpen(true);
+                  }}
+                  disabled={busy || lockPartner}
                 >
                   <span>
                     {selectedPartnerName ??
@@ -254,7 +298,11 @@ export function StockDocCreateModal({
             )}
             <div className={styles.formField}>
               <label>{t("stock.table.warehouse", "Warehouse")}</label>
-              <select value={stockId} onChange={(e) => setStockId(Number(e.target.value))}>
+              <select
+                value={stockId}
+                onChange={(e) => setStockId(Number(e.target.value))}
+                disabled={busy || lockWarehouse}
+              >
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
@@ -283,6 +331,7 @@ export function StockDocCreateModal({
             <select
               value={priceTypeId}
               onChange={(e) => setPriceTypeId(Number(e.target.value))}
+              disabled={busy || lockPriceType}
             >
               {priceTypes.length === 0 ? (
                 <option value={0}>{t("common.nothing", "Nothing found")}</option>
@@ -395,7 +444,7 @@ export function StockDocCreateModal({
           {t("common.create", "Create")}
         </Button>
       </div>
-      {token && def.supportsPartnerFilter ? (
+      {token && def.supportsPartnerFilter && !lockPartner ? (
         <PartnerPickerModal
           open={partnerPickerOpen}
           onClose={() => setPartnerPickerOpen(false)}

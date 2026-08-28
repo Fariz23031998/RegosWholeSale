@@ -54,6 +54,7 @@ class DashboardProductTotals(BaseModel):
     net_purchase_cost: float = 0.0
     net_total_sells: float = 0.0
     net_gross_profit: float = 0.0
+    total_without_discount: float = 0.0
 
 
 class DashboardProductRow(BaseModel):
@@ -63,6 +64,8 @@ class DashboardProductRow(BaseModel):
     category: str = ""
     purchase_cost: float | None = None
     average_price: float = 0.0
+    price_without_discount: float = 0.0
+    total_without_discount: float = 0.0
     sold_quantity: float = 0.0
     sold_purchase_cost: float = 0.0
     sold_total: float = 0.0
@@ -150,4 +153,7 @@ class DashboardOverviewResponse(BaseModel):
     products: list[DashboardProductRow] = Field(default_factory=list)
     totals: DashboardProductTotals = Field(default_factory=DashboardProductTotals)
     total: int = 0
+    discounted_products: list[DashboardProductRow] = Field(default_factory=list)
+    discounted_totals: DashboardProductTotals = Field(default_factory=DashboardProductTotals)
+    discounted_total: int = 0
     payments: DashboardPaymentsResponse = Field(default_factory=DashboardPaymentsResponse)

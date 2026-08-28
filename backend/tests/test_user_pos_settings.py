@@ -18,9 +18,12 @@ async def test_user_pos_settings_default_category(client: AsyncClient) -> None:
     }
     assert initial.json()["settings"]["allow_out_of_stock"] is False
     assert initial.json()["settings"]["auto_open_qty_keypad"] is False
+    assert initial.json()["settings"]["keypad_update_discounted_price_only"] is False
     assert initial.json()["settings"]["search_transliteration"] is True
     assert initial.json()["settings"]["search_fuzzy"] is True
     assert initial.json()["settings"]["tendered_quick_amounts"] == [20.0, 50.0, 100.0]
+    assert initial.json()["settings"]["allowed_product_group_ids"] == []
+    assert initial.json()["settings"]["allowed_partner_group_ids"] == []
 
     patched = await client.patch(
         "/api/v1/me/settings/pos",
@@ -102,3 +105,37 @@ async def test_user_pos_settings_fallback_to_company(client: AsyncClient) -> Non
     )
     assert user_amounts.status_code == 200
     assert user_amounts.json()["settings"]["tendered_quick_amounts"] == [10.0, 20.0]
+
+
+@pytest.mark.asyncio
+async def test_user_pos_settings_allowed_category_ids(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client, email="user-scope@test.com", company_name="User Scope Co"
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    patched = await client.patch(
+        "/api/v1/me/settings/pos",
+        headers=headers,
+        json={
+            "allowed_product_group_ids": [3, 1, 1, 0, -4],
+            "allowed_partner_group_ids": [9, 9, 8],
+        },
+    )
+    assert patched.status_code == 200
+    assert patched.json()["settings"]["allowed_product_group_ids"] == [3, 1]
+    assert patched.json()["settings"]["allowed_partner_group_ids"] == [9, 8]
+
+    fetched = await client.get("/api/v1/me/settings/pos", headers=headers)
+    assert fetched.json()["settings"]["allowed_product_group_ids"] == [3, 1]
+    assert fetched.json()["settings"]["allowed_partner_group_ids"] == [9, 8]
+
+    cleared = await client.patch(
+        "/api/v1/me/settings/pos",
+        headers=headers,
+        json={"allowed_product_group_ids": [], "allowed_partner_group_ids": []},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["settings"]["allowed_product_group_ids"] == []
+    assert cleared.json()["settings"]["allowed_partner_group_ids"] == []

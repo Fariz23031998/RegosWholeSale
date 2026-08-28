@@ -40,6 +40,7 @@ from app.schemas.partners import (
     PartnersListResponse,
 )
 from app.schemas.items import (
+    BarcodeGenerateResponse,
     ItemCreateRequest,
     ItemCreateResponse,
     ItemMutationResponse,
@@ -51,6 +52,7 @@ from app.schemas.items import (
 from app.schemas.settings import RegosReferenceOptionsResponse
 from app.services import events_log as events_log_service
 from app.services import catalog_events as catalog_events_service
+from app.services import category_scope as category_scope_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services import regos_fields as regos_fields_service
 from app.services import regos_groups as regos_groups_service
@@ -575,6 +577,15 @@ async def update_regos_item(
     return ItemMutationResponse(**data)
 
 
+@router.post("/barcodes/ean13", response_model=BarcodeGenerateResponse)
+async def generate_regos_ean13(
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_MUTATE)),
+    session: AsyncSession = Depends(get_db),
+) -> BarcodeGenerateResponse:
+    data = await regos_items_service.generate_ean13(session, current.company_id)
+    return BarcodeGenerateResponse(**data)
+
+
 @router.get("/payment-types", response_model=PaymentTypesResponse)
 async def get_regos_payment_types(
     current: CurrentUser = Depends(require_permission("pos.access")),
@@ -631,10 +642,14 @@ async def create_regos_partner(
     current: CurrentUser = Depends(require_any_permission(*_PARTNER_OR_SETTINGS)),
     session: AsyncSession = Depends(get_db),
 ) -> PartnerCreateResponse:
+    dumped = body.model_dump(exclude_unset=True)
+    await category_scope_service.assert_partner_group_allowed(
+        session, current.id, dumped.get("group_id")
+    )
     data = await regos_partners_service.add_partner(
         session,
         current.company_id,
-        body.model_dump(exclude_unset=True),
+        dumped,
     )
     catalog_events_service.publish_reference_options_invalidated(
         current.company_id,
@@ -654,11 +669,15 @@ async def update_regos_partner(
     current: CurrentUser = Depends(require_any_permission(*_PARTNER_OR_SETTINGS)),
     session: AsyncSession = Depends(get_db),
 ) -> PartnerMutationResponse:
+    dumped = body.model_dump(exclude_unset=True)
+    await category_scope_service.assert_partner_group_allowed(
+        session, current.id, dumped.get("group_id")
+    )
     data = await regos_partners_service.edit_partner(
         session,
         current.company_id,
         partner_id,
-        body.model_dump(exclude_unset=True),
+        dumped,
     )
     catalog_events_service.publish_reference_options_invalidated(
         current.company_id,

@@ -365,6 +365,34 @@ describe("catalog-products-db multi-barcode indexing", () => {
     expect(emptyFeatured.total).toBe(0);
   });
 
+  it("should restrict products to allowedGroupIds when set", () => {
+    const other: Product = {
+      ...sampleProduct,
+      id: "202",
+      regos_item_id: 202,
+      group_id: 5,
+      name: "Water",
+    };
+    const inScope: Product = {
+      ...sampleProduct,
+      group_id: 2,
+    };
+    const products = [inScope, other];
+
+    const scoped = filterAndSortCachedProducts(products, {
+      allowedGroupIds: [2],
+      includeZeroQuantity: true,
+      includeZeroPrice: true,
+    });
+    expect(scoped.products.map((p) => p.id)).toEqual(["101"]);
+
+    const unrestricted = filterAndSortCachedProducts(products, {
+      includeZeroQuantity: true,
+      includeZeroPrice: true,
+    });
+    expect(unrestricted.products.map((p) => p.id).sort()).toEqual(["101", "202"]);
+  });
+
   it("should remove all barcode entries when removeProducts is called", async () => {
     await upsertProducts("1:2:3", [sampleProduct]);
 

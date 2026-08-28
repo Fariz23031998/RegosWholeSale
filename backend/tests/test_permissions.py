@@ -210,6 +210,31 @@ async def test_item_mutate_endpoints_require_specific_permissions(
 
 
 @pytest.mark.asyncio
+async def test_generate_ean13_requires_item_mutate_permission(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client,
+        email="item-deny-ean13@test.com",
+        company_name="Item Deny EAN13",
+    )
+    owner_token = reg.json()["access_token"]
+    await _create_employee(
+        client,
+        owner_token,
+        login="deny-ean13",
+        permission_rules=[
+            {"code": "stock.item_create", "effect": "deny"},
+            {"code": "stock.item_edit", "effect": "deny"},
+        ],
+    )
+    token = await _login_employee(client, "deny-ean13")
+    response = await client.post(
+        "/api/v1/regos/barcodes/ean13",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert response.status_code == 403, response.text
+
+
+@pytest.mark.asyncio
 async def test_patch_user_permission_rules_appear_in_response(client: AsyncClient) -> None:
     """PATCH must return fresh permission_rules (not a stale ORM collection)."""
     reg = await register_owner(

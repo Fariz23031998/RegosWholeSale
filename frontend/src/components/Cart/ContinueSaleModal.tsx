@@ -64,6 +64,7 @@ function operationsToCartItems(
         catalogProduct?.name ??
         t("sales.itemFallback", "Item #{{id}}", { id: op.item_id }),
       price: operativeOperationPrice(op.price, op.price2, currency),
+      listPrice: listOperationPrice(op.price, op.price2, currency),
       qty: op.quantity,
       postponedQty: op.quantity,
       image: catalogProduct?.image ?? PRODUCT_FALLBACK_IMAGE,
@@ -138,6 +139,9 @@ export function ContinueSaleModal({ open, onClose }: Props) {
   const setPostponedWholesaleDocId = useCart((s) => s.setPostponedWholesaleDocId);
   const setPostponedDocType = useCart((s) => s.setPostponedDocType);
   const postponeDocumentType = usePosConfig((s) => s.postponeDocumentType);
+  const keypadUpdateDiscountedPriceOnly = usePosConfig(
+    (s) => s.keypadUpdateDiscountedPriceOnly,
+  );
   const catalogProducts = useCatalog((s) => s.products);
 
   const documentKind: PostponedDocumentKind =
@@ -247,10 +251,9 @@ export function ContinueSaleModal({ open, onClose }: Props) {
         return;
       }
 
-      const { discountMode, discountValue } = discountFromOperations(
-        operations,
-        doc.currency,
-      );
+      const { discountMode, discountValue } = keypadUpdateDiscountedPriceOnly
+        ? { discountMode: "percent" as const, discountValue: 0 }
+        : discountFromOperations(operations, doc.currency);
       restore({
         items: operationsToCartItems(operations, catalogProducts, doc.currency, t),
         discountMode,

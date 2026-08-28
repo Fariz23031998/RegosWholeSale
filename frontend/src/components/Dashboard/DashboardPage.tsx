@@ -48,6 +48,7 @@ import {
 import { fetchRegosDefaults, fetchRegosReferenceOptions } from "@/lib/settings-api";
 import type { RegosDefaultOption } from "@/types/settings";
 import { DashboardPeriodModal } from "@/components/Dashboard/DashboardPeriodModal";
+import { DashboardProductsPanel } from "@/components/Dashboard/DashboardProductsPanel";
 import {
   DashboardPartnersModal,
   formatPartnerFilterLabel,
@@ -71,9 +72,9 @@ const TOP_PRODUCT_LABEL_LINE_HEIGHT = 15;
 const TOP_PRODUCT_LABEL_MAX_CHARS = 38;
 
 type PresetPeriod = Exclude<DashboardPeriodPreset, "custom">;
-type DashboardTab = "totals" | "payments" | "products" | "outOfStock";
+type DashboardTab = "totals" | "payments" | "products" | "discountedProducts" | "outOfStock";
 
-const DASHBOARD_TABS: DashboardTab[] = ["totals", "payments", "products", "outOfStock"];
+const DASHBOARD_TABS: DashboardTab[] = ["totals", "payments", "products", "discountedProducts", "outOfStock"];
 
 function formatPaymentDate(timestamp: number): string {
   if (timestamp <= 0) return "—";
@@ -196,14 +197,6 @@ function wrapProductLabel(text: string, maxChars = TOP_PRODUCT_LABEL_MAX_CHARS):
   return lines.slice(0, 4);
 }
 
-function productMatchesSearch(product: DashboardProductRow, query: string): boolean {
-  if (!query) return true;
-  const haystack = [product.code, product.name, product.category]
-    .map((value) => value.trim().toLowerCase())
-    .filter(Boolean);
-  return haystack.some((value) => value.includes(query));
-}
-
 function paymentMatchesSearch(payment: DashboardPaymentRow, query: string): boolean {
   if (!query) return true;
   const haystack = [
@@ -307,32 +300,6 @@ function DashboardPaymentTable({
   );
 }
 
-function DashboardProductTotalsRow({
-  totals,
-  t,
-}: {
-  totals: DashboardProductTotals;
-  t: TranslateFn;
-}) {
-  return (
-    <tr className={styles.productsTotalRow}>
-      <td colSpan={3}>{t("dashboard.products.totalRow")}</td>
-      <td className={styles.num}>—</td>
-      <td className={styles.num}>—</td>
-      <td className={styles.num}>{formatQty(totals.sold_quantity)}</td>
-      <td className={styles.num}>{formatCurrency(totals.sold_purchase_cost)}</td>
-      <td className={styles.num}>{formatCurrency(totals.sold_total)}</td>
-      <td className={styles.num}>{formatQty(totals.refund_quantity)}</td>
-      <td className={styles.num}>{formatCurrency(totals.refund_purchase_cost)}</td>
-      <td className={styles.num}>{formatCurrency(totals.refund_total)}</td>
-      <td className={styles.num}>{formatQty(totals.net_sold_quantity)}</td>
-      <td className={styles.num}>{formatCurrency(totals.net_purchase_cost)}</td>
-      <td className={styles.num}>{formatCurrency(totals.net_total_sells)}</td>
-      <td className={styles.num}>{formatCurrency(totals.net_gross_profit)}</td>
-    </tr>
-  );
-}
-
 function TopProductsRevenueList({
   products,
   displayCurrency,
@@ -426,6 +393,12 @@ export function DashboardPage() {
   const [productsError, setProductsError] = useState("");
   const [productsSearch, setProductsSearch] = useState("");
   const [exportingProducts, setExportingProducts] = useState(false);
+  const [discountedProducts, setDiscountedProducts] = useState<DashboardProductRow[]>([]);
+  const [discountedProductsTotals, setDiscountedProductsTotals] = useState<DashboardProductTotals | null>(null);
+  const [discountedProductsTotal, setDiscountedProductsTotal] = useState(0);
+  const [discountedProductsError, setDiscountedProductsError] = useState("");
+  const [discountedProductsSearch, setDiscountedProductsSearch] = useState("");
+  const [exportingDiscountedProducts, setExportingDiscountedProducts] = useState(false);
   const [incomePayments, setIncomePayments] = useState<DashboardPaymentRow[]>([]);
   const [outcomePayments, setOutcomePayments] = useState<DashboardPaymentRow[]>([]);
   const [incomePaymentCategoryName, setIncomePaymentCategoryName] = useState<string | null>(null);
@@ -537,12 +510,6 @@ export function DashboardPage() {
     mediaQuery.addEventListener("change", update);
     return () => mediaQuery.removeEventListener("change", update);
   }, []);
-
-  const productsSearchQuery = productsSearch.trim().toLowerCase();
-  const filteredProducts = useMemo(
-    () => products.filter((product) => productMatchesSearch(product, productsSearchQuery)),
-    [products, productsSearchQuery],
-  );
 
   const paymentsSearchQuery = paymentsSearch.trim().toLowerCase();
   const filteredIncomePayments = useMemo(
@@ -665,6 +632,9 @@ export function DashboardPage() {
     setProducts([]);
     setProductsTotals(null);
     setProductsTotal(0);
+    setDiscountedProducts([]);
+    setDiscountedProductsTotals(null);
+    setDiscountedProductsTotal(0);
     setIncomePayments([]);
     setOutcomePayments([]);
     setIncomePaymentCategoryName(null);
@@ -679,22 +649,25 @@ export function DashboardPage() {
       setProducts([]);
       setProductsTotals(null);
       setProductsTotal(0);
+      setDiscountedProducts([]);
+      setDiscountedProductsTotals(null);
+      setDiscountedProductsTotal(0);
       setIncomePayments([]);
       setOutcomePayments([]);
-      setIncomePaymentsCount(0);
-      setOutcomePaymentsCount(0);
       setIncomePaymentCategoryName(null);
       setOutcomePaymentCategoryName(null);
       setIncomePaymentsTotal(0);
       setOutcomePaymentsTotal(0);
       setError("");
       setProductsError("");
+      setDiscountedProductsError("");
       setPaymentsError("");
       return;
     }
 
     setError(loadError);
     setProductsError(loadError);
+    setDiscountedProductsError(loadError);
     setPaymentsError(loadError);
 
     const data = dashboardDataQuery.data;
@@ -705,6 +678,9 @@ export function DashboardPage() {
     setProducts(data.products);
     setProductsTotals(data.totals);
     setProductsTotal(data.total);
+    setDiscountedProducts(data.discounted_products ?? []);
+    setDiscountedProductsTotals(data.discounted_totals ?? null);
+    setDiscountedProductsTotal(data.discounted_total ?? 0);
     setIncomePayments(payments.income_payments);
     setOutcomePayments(payments.outcome_payments);
     setIncomePaymentCategoryName(payments.income_payment_category_name);
@@ -730,6 +706,30 @@ export function DashboardPage() {
       setProductsError(formatAuthError(err, t("dashboard.products.exportError")));
     } finally {
       setExportingProducts(false);
+    }
+  };
+
+  const exportDiscountedProducts = () => {
+    if (exportingDiscountedProducts || !discountedProductsTotals) return;
+
+    setExportingDiscountedProducts(true);
+    setDiscountedProductsError("");
+
+    try {
+      const periodLabel = formatDashboardPeriodLabel(periodPreset, customRange, t);
+      exportDashboardProductsToExcel(discountedProducts, discountedProductsTotals, t, periodLabel, {
+        title: t("dashboard.discountedProducts.title", "Discounted products"),
+        subtitle: `${periodLabel} · ${t("dashboard.discountedProducts.subtitle")}`,
+        sheetName: t("dashboard.discountedProducts.title", "Discounted products"),
+        filePrefix: "dashboard-discounted-products",
+        includeWithoutDiscount: true,
+      });
+    } catch (err: unknown) {
+      setDiscountedProductsError(
+        formatAuthError(err, t("dashboard.discountedProducts.exportError")),
+      );
+    } finally {
+      setExportingDiscountedProducts(false);
     }
   };
 
@@ -795,6 +795,7 @@ export function DashboardPage() {
     if (tab === "totals") return t("dashboard.tabs.totals");
     if (tab === "payments") return t("dashboard.tabs.payments");
     if (tab === "products") return t("dashboard.tabs.products");
+    if (tab === "discountedProducts") return t("dashboard.tabs.discountedProducts");
     return t("dashboard.tabs.outOfStock");
   };
 
@@ -1325,132 +1326,39 @@ export function DashboardPage() {
       ) : null}
 
       {activeTab === "products" ? (
-      <div
-        id="dashboard-panel-products"
-        role="tabpanel"
-        aria-labelledby="dashboard-tab-products"
-        className={clsx(styles.dashboardPanel, styles.card, styles.productsCard)}
-      >
-        <div className={styles.cardTitle}>{t("dashboard.products.title")}</div>
-        <div className={styles.cardSub}>
-          {formatDashboardPeriodLabel(periodPreset, customRange, t)} · {t("dashboard.products.subtitle")}
-          {productsTotal > 0
-            ? productsSearchQuery
-              ? ` · ${t("dashboard.products.shown", undefined, { n: filteredProducts.length, m: products.length })}`
-              : ` · ${productsTotal}`
-            : ""}
-        </div>
-        {products.length > 0 && (
-          <div className={styles.productsToolbar}>
-            <div className={styles.productsSearch}>
-              <Search size={16} className={styles.productsSearchIcon} />
-              <input
-                className={styles.productsSearchInput}
-                type="search"
-                placeholder={t("dashboard.products.searchPlaceholder")}
-                value={productsSearch}
-                onChange={(event) => setProductsSearch(event.target.value)}
-                aria-label={t("dashboard.products.searchAria")}
-              />
-            </div>
-            <button
-              type="button"
-              className={styles.exportButton}
-              onClick={exportProducts}
-              disabled={exportingProducts || productsLoading}
-            >
-              <Download size={14} />
-              {exportingProducts
-                ? t("dashboard.products.exporting")
-                : t("dashboard.products.exportExcel")}
-            </button>
-          </div>
-        )}
-        {productsError && <div className={styles.empty}>{productsError}</div>}
-        {products.length === 0 && !productsLoading && !productsError ? (
-          <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
-            {t("dashboard.products.empty")}
-          </div>
-        ) : filteredProducts.length === 0 && !productsLoading ? (
-          <div style={{ color: "var(--color-text-muted)", fontSize: 13, padding: "24px 0" }}>
-            {t("dashboard.products.emptySearch")}
-          </div>
-        ) : (
-          <div className={styles.productsTableWrap}>
-            <table className={styles.productsTable}>
-              <thead>
-                <tr>
-                  <th className={styles.groupHead} colSpan={5}>
-                    {t("dashboard.products.title")}
-                  </th>
-                  <th className={styles.groupHead} colSpan={3}>
-                    {t("dashboard.products.group.sell")}
-                  </th>
-                  <th className={styles.groupHead} colSpan={3}>
-                    {t("dashboard.products.group.refund")}
-                  </th>
-                  <th className={styles.groupHead} colSpan={4}>
-                    {t("dashboard.products.group.net")}
-                  </th>
-                </tr>
-                <tr>
-                  <th>{t("dashboard.products.col.code")}</th>
-                  <th>{t("dashboard.products.col.name")}</th>
-                  <th>{t("dashboard.products.col.category")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.avgPrice")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.qty")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.totalSells")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.qty")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.totalRefunds")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.qty")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.totalSells")}</th>
-                  <th className={styles.num}>{t("dashboard.products.col.grossProfit")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {productsLoading && products.length === 0 ? (
-                  <tr>
-                    <td colSpan={15} style={{ color: "var(--color-text-muted)", padding: "24px 10px" }}>
-                      {t("dashboard.products.loading")}
-                    </td>
-                  </tr>
-                ) : (
-                  <>
-                    {productsTotals && !productsSearchQuery ? (
-                      <DashboardProductTotalsRow totals={productsTotals} t={t} />
-                    ) : null}
-                    {filteredProducts.map((product) => (
-                    <tr key={product.item_id}>
-                      <td>{product.code || "—"}</td>
-                      <td className={styles.nameCell} title={product.name}>
-                        {product.name}
-                      </td>
-                      <td>{product.category || "—"}</td>
-                      <td className={styles.num}>{formatOptionalCurrency(product.purchase_cost)}</td>
-                      <td className={styles.num}>{formatCurrency(product.average_price)}</td>
-                      <td className={styles.num}>{formatQty(product.sold_quantity)}</td>
-                      <td className={styles.num}>{formatCurrency(product.sold_purchase_cost)}</td>
-                      <td className={styles.num}>{formatCurrency(product.sold_total)}</td>
-                      <td className={styles.num}>{formatQty(product.refund_quantity)}</td>
-                      <td className={styles.num}>{formatCurrency(product.refund_purchase_cost)}</td>
-                      <td className={styles.num}>{formatCurrency(product.refund_total)}</td>
-                      <td className={styles.num}>{formatQty(product.net_sold_quantity)}</td>
-                      <td className={styles.num}>{formatCurrency(product.net_purchase_cost)}</td>
-                      <td className={styles.num}>{formatCurrency(product.net_total_sells)}</td>
-                      <td className={styles.num}>{formatCurrency(product.net_gross_profit)}</td>
-                    </tr>
-                    ))}
-                  </>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+        <DashboardProductsPanel
+          tabId="products"
+          copyPrefix="dashboard.products"
+          periodLabel={formatDashboardPeriodLabel(periodPreset, customRange, t)}
+          products={products}
+          totals={productsTotals}
+          total={productsTotal}
+          search={productsSearch}
+          onSearchChange={setProductsSearch}
+          loading={productsLoading}
+          error={productsError}
+          exporting={exportingProducts}
+          onExport={exportProducts}
+          t={t}
+        />
+      ) : null}
+
+      {activeTab === "discountedProducts" ? (
+        <DashboardProductsPanel
+          tabId="discountedProducts"
+          copyPrefix="dashboard.discountedProducts"
+          periodLabel={formatDashboardPeriodLabel(periodPreset, customRange, t)}
+          products={discountedProducts}
+          totals={discountedProductsTotals}
+          total={discountedProductsTotal}
+          search={discountedProductsSearch}
+          onSearchChange={setDiscountedProductsSearch}
+          loading={productsLoading}
+          error={discountedProductsError}
+          exporting={exportingDiscountedProducts}
+          onExport={exportDiscountedProducts}
+          t={t}
+        />
       ) : null}
 
       {activeTab === "outOfStock" ? (

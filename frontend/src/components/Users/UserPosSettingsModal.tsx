@@ -1,9 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { fetchProductGroups } from "@/lib/catalog-api";
+import { fetchPartnerGroups } from "@/lib/partners-api";
+import { CategoryAllowlistField } from "./CategoryAllowlistField";
+import { expandProductGroupIds, filterProductGroups } from "@/lib/category-scope";
 import { subscribeReferenceOptionsEvents } from "@/lib/catalog-events";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
 import {
@@ -30,6 +33,7 @@ import {
 } from "@/lib/tendered-amounts";
 import { formatAuthError } from "@/store/auth";
 import type { ProductGroup } from "@/types/catalog";
+import type { PartnerGroup } from "@/types/partners";
 import type {
   RegosDefaultOption,
   RegosReferenceOptionsResponse,
@@ -100,6 +104,9 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [resettingRegos, setResettingRegos] = useState(false);
   const [error, setError] = useState("");
   const [productGroups, setProductGroups] = useState<ProductGroup[]>([]);
+  const [partnerGroups, setPartnerGroups] = useState<PartnerGroup[]>([]);
+  const [allowedProductGroupIds, setAllowedProductGroupIds] = useState<number[]>([]);
+  const [allowedPartnerGroupIds, setAllowedPartnerGroupIds] = useState<number[]>([]);
   const [companyAllowOutOfStock, setCompanyAllowOutOfStock] = useState(false);
   const [companyAutoOpenQtyKeypad, setCompanyAutoOpenQtyKeypad] = useState(false);
   const [companySearchTransliteration, setCompanySearchTransliteration] = useState(true);
@@ -147,12 +154,13 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         fetchUserPosSettingsById(token, user.id),
         fetchCompanyPosSettings(token),
         fetchProductGroups(token),
+        fetchPartnerGroups(token).catch(() => ({ groups: [] as PartnerGroup[] })),
         fetchUserRegosDefaultsById(token, user.id),
         fetchRegosReferenceOptions(token, {
           cacheScope: { companyId: user.company_id },
         }),
       ])
-        .then(([userPosRes, companyPosRes, groupsRes, userRegosRes, refOptions]) => {
+        .then(([userPosRes, companyPosRes, groupsRes, partnerGroupsRes, userRegosRes, refOptions]) => {
           if (cancelled) return;
           setAllowOutOfStock(userPosRes.settings.allow_out_of_stock);
           setAutoOpenQtyKeypad(userPosRes.settings.auto_open_qty_keypad);
@@ -164,6 +172,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           setDefaultCategoryValue(
             defaultCategoryToSelectValue(userPosRes.settings.default_category),
           );
+          setAllowedProductGroupIds(userPosRes.settings.allowed_product_group_ids ?? []);
+          setAllowedPartnerGroupIds(userPosRes.settings.allowed_partner_group_ids ?? []);
           setCompanyAllowOutOfStock(companyPosRes.settings.allow_out_of_stock);
           setCompanyAutoOpenQtyKeypad(companyPosRes.settings.auto_open_qty_keypad);
           setCompanySearchTransliteration(
@@ -177,6 +187,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
             defaultCategoryToSelectValue(companyPosRes.settings.default_category),
           );
           setProductGroups(groupsRes.groups);
+          setPartnerGroups(partnerGroupsRes.groups);
 
           const regos = applyRegosDefaults(userRegosRes.defaults);
           setWarehouseId(regos.warehouseId);
@@ -243,6 +254,16 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
     setSaving(true);
     setError("");
     try {
+      const defaultCategory = selectValueToDefaultCategory(defaultCategoryValue);
+      const expandedProductIds = expandProductGroupIds(allowedProductGroupIds, productGroups);
+      const scopedDefaultCategory =
+        defaultCategory.mode === "group" &&
+        defaultCategory.group_id != null &&
+        expandedProductIds != null &&
+        !expandedProductIds.has(defaultCategory.group_id)
+          ? { mode: "all" as const, group_id: null }
+          : defaultCategory;
+
       const [posRes, regosRes] = await Promise.all([
         patchUserPosSettingsById(token, user.id, {
           allow_out_of_stock: allowOutOfStock,
@@ -250,7 +271,9 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           search_transliteration: searchTransliteration,
           search_fuzzy: searchFuzzy,
           tendered_quick_amounts: amounts,
-          default_category: selectValueToDefaultCategory(defaultCategoryValue),
+          default_category: scopedDefaultCategory,
+          allowed_product_group_ids: allowedProductGroupIds,
+          allowed_partner_group_ids: allowedPartnerGroupIds,
         }),
         patchUserRegosDefaultsById(token, user.id, {
           warehouse_id: warehouseId ? Number(warehouseId) : null,
@@ -276,6 +299,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
       setDefaultCategoryValue(
         defaultCategoryToSelectValue(posRes.settings.default_category),
       );
+      setAllowedProductGroupIds(posRes.settings.allowed_product_group_ids ?? []);
+      setAllowedPartnerGroupIds(posRes.settings.allowed_partner_group_ids ?? []);
       const regos = applyRegosDefaults(regosRes.defaults);
       setWarehouseId(regos.warehouseId);
       setPriceTypeId(regos.priceTypeId);
@@ -313,6 +338,8 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
       setDefaultCategoryValue(
         defaultCategoryToSelectValue(res.settings.default_category),
       );
+      setAllowedProductGroupIds(res.settings.allowed_product_group_ids ?? []);
+      setAllowedPartnerGroupIds(res.settings.allowed_partner_group_ids ?? []);
     } catch (err) {
       setError(formatAuthError(err));
     } finally {
@@ -347,6 +374,10 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   };
 
   const busy = loading || saving || resettingPos || resettingRegos;
+  const defaultCategoryGroups = useMemo(
+    () => filterProductGroups(productGroups, allowedProductGroupIds),
+    [allowedProductGroupIds, productGroups],
+  );
 
   return (
     <Modal
@@ -399,13 +430,40 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           >
             <option value="all">{t("common.all", "All")}</option>
             <option value="featured">{t("users.settings.featured", "Featured")}</option>
-            {productGroups.map((group) => (
+            {defaultCategoryGroups.map((group) => (
               <option key={group.id} value={`group:${group.id}`}>
                 {group.path || group.name}
               </option>
             ))}
           </select>
         </div>
+
+        <CategoryAllowlistField
+          label={t("users.settings.allowedProductCategories", "Product categories")}
+          hint={t(
+            "users.settings.allowedCategoriesHint",
+            "Leave All checked to work with every category. Selecting a parent includes its subcategories.",
+          )}
+          allLabel={t("users.settings.allowedCategoriesAll", "All")}
+          items={productGroups}
+          selectedIds={allowedProductGroupIds}
+          disabled={busy}
+          indentByPath
+          onChange={setAllowedProductGroupIds}
+        />
+
+        <CategoryAllowlistField
+          label={t("users.settings.allowedPartnerCategories", "Partner categories")}
+          hint={t(
+            "users.settings.allowedCategoriesHint",
+            "Leave All checked to work with every category. Selecting a parent includes its subcategories.",
+          )}
+          allLabel={t("users.settings.allowedCategoriesAll", "All")}
+          items={partnerGroups}
+          selectedIds={allowedPartnerGroupIds}
+          disabled={busy}
+          onChange={setAllowedPartnerGroupIds}
+        />
 
         <div className={styles.field}>
           <div className={styles.switchRow}>

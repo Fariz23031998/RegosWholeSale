@@ -49,10 +49,24 @@ async def test_manager_can_configure_user_pos_settings(client: AsyncClient) -> N
     assert patched.json()["settings"]["tendered_quick_amounts"] == [10.0, 20.0]
     assert patched.json()["settings"]["default_category"]["mode"] == "featured"
 
+    scoped = await client.patch(
+        f"/api/v1/users/{employee_id}/settings/pos",
+        headers=headers,
+        json={
+            "allowed_product_group_ids": [12, 15],
+            "allowed_partner_group_ids": [4],
+        },
+    )
+    assert scoped.status_code == 200
+    assert scoped.json()["settings"]["allowed_product_group_ids"] == [12, 15]
+    assert scoped.json()["settings"]["allowed_partner_group_ids"] == [4]
+
     cleared = await client.delete(f"/api/v1/users/{employee_id}/settings/pos", headers=headers)
     assert cleared.status_code == 200
     assert cleared.json()["settings"]["allow_out_of_stock"] is True
     assert cleared.json()["settings"]["tendered_quick_amounts"] == [100.0, 200.0]
+    assert cleared.json()["settings"]["allowed_product_group_ids"] == []
+    assert cleared.json()["settings"]["allowed_partner_group_ids"] == []
 
     emp_login = await client.post(
         "/api/v1/auth/login",

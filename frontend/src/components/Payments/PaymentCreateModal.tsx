@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { PartnerPickerModal } from "@/components/POS/PartnerPickerModal";
@@ -9,6 +9,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { createPayment } from "@/lib/payments-api";
 import { fetchFirms } from "@/lib/partners-api";
 import { loadPaymentTypes } from "@/lib/payment-service";
+import { fetchMyRegosDefaults, fetchRegosReferenceOptions } from "@/lib/settings-api";
 import { fromDatetimeRuValue, nowDatetimeRuValue } from "@/lib/stock-doc-form";
 import { formatAuthError, useAuth } from "@/store/auth";
 import type { PaymentDirection, PaymentDocument } from "@/types/payments";
@@ -31,18 +32,27 @@ export function PaymentCreateModal({
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
   const companyId = useAuth((s) => s.user?.company_id ?? null);
+  const userId = useAuth((s) => s.user?.id ?? null);
 
   const [direction, setDirection] = useState<PaymentDirection>(initialDirection);
   const [dateTimeValue, setDateTimeValue] = useState(nowDatetimeRuValue);
   const [partner, setPartner] = useState<Partner | null>(null);
   const [firmId, setFirmId] = useState<number | null>(null);
   const [paymentTypeId, setPaymentTypeId] = useState<number | null>(null);
+  const [categoryId, setCategoryId] = useState<number | null>(null);
   const [amount, setAmount] = useState("");
   const [exchangeRate, setExchangeRate] = useState("");
   const [description, setDescription] = useState("");
   const [partnerPickerOpen, setPartnerPickerOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const wasOpenRef = useRef(false);
+  const cacheScope =
+    companyId != null
+      ? userId != null
+        ? { companyId, userId }
+        : { companyId }
+      : undefined;
 
   const { data: firms = [] } = useQuery({
     queryKey: ["firms", token],
@@ -61,10 +71,39 @@ export function PaymentCreateModal({
   });
   const paymentTypes = paymentTypesData?.payment_types ?? [];
 
+  const { data: referenceOptions } = useQuery({
+    queryKey: ["regos-reference-options", token, "payments-create", companyId],
+    queryFn: () => fetchRegosReferenceOptions(token as string, { cacheScope }),
+    enabled: open && Boolean(token),
+  });
+
+  const { data: defaultsData } = useQuery({
+    queryKey: ["my-regos-defaults", token, companyId, userId],
+    queryFn: () => fetchMyRegosDefaults(token as string, { cacheScope }),
+    enabled: open && Boolean(token),
+  });
+
   const selectedPaymentType = useMemo(
     () => paymentTypes.find((type) => type.id === paymentTypeId) ?? null,
     [paymentTypeId, paymentTypes],
   );
+
+  const categoryOptions = useMemo(() => {
+    if (!referenceOptions) return [];
+    return direction === "outcome"
+      ? referenceOptions.refund_payment_categories
+      : referenceOptions.payment_categories;
+  }, [direction, referenceOptions]);
+
+  const defaultCategoryId = useMemo(() => {
+    const defaults = defaultsData?.defaults;
+    if (!defaults) return null;
+    const option =
+      direction === "outcome"
+        ? defaults.refund_payment_category ?? defaults.payment_category
+        : defaults.payment_category;
+    return option?.id ?? null;
+  }, [defaultsData, direction]);
 
   useEffect(() => {
     if (!open) return;
@@ -85,6 +124,31 @@ export function PaymentCreateModal({
     const rate = selectedPaymentType.currency?.exchange_rate;
     setExchangeRate(rate != null ? String(rate) : "");
   }, [selectedPaymentType]);
+
+  useEffect(() => {
+    if (!open) {
+      wasOpenRef.current = false;
+      return;
+    }
+    const justOpened = !wasOpenRef.current;
+    wasOpenRef.current = true;
+    setCategoryId((current) => {
+      if (
+        !justOpened &&
+        current != null &&
+        categoryOptions.some((item) => item.id === current)
+      ) {
+        return current;
+      }
+      if (
+        defaultCategoryId != null &&
+        categoryOptions.some((item) => item.id === defaultCategoryId)
+      ) {
+        return defaultCategoryId;
+      }
+      return justOpened ? null : current;
+    });
+  }, [open, categoryOptions, defaultCategoryId]);
 
   const canSubmit =
     Boolean(token) &&
@@ -122,6 +186,7 @@ export function PaymentCreateModal({
         payment_type_id: paymentTypeId,
         amount: parsedAmount,
         exchange_rate: Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : undefined,
+        category_id: categoryId ?? undefined,
         description: description.trim() || undefined,
         date,
       });
@@ -202,6 +267,23 @@ export function PaymentCreateModal({
                 <option key={type.id} value={type.id}>
                   {type.name}
                   {type.currency?.code_chr ? ` (${type.currency.code_chr})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className={styles.field}>
+            <label>{t("payments.category", "Category")}</label>
+            <select
+              value={categoryId ?? ""}
+              onChange={(event) =>
+                setCategoryId(event.target.value ? Number(event.target.value) : null)
+              }
+            >
+              <option value="">{t("payments.create.selectCategory", "Select category")}</option>
+              {categoryOptions.map((category) => (
+                <option key={category.id} value={category.id}>
+                  {category.name}
                 </option>
               ))}
             </select>

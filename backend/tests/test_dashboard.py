@@ -4,7 +4,7 @@ import pytest
 from httpx import AsyncClient
 
 from helpers import register_owner
-from app.services.regos_dashboard import _convert_base_cost_for_display, clear_dashboard_period_cache
+from app.services.regos_dashboard import clear_dashboard_period_cache
 from app.services.regos_sales import _map_payment_document
 
 
@@ -253,6 +253,193 @@ async def test_dashboard_products_page(
     assert mock_get_products_by_ids.await_args.args[3] == [101]
 
 
+@patch("app.services.regos_dashboard.regos_products_service.get_products_by_ids", new_callable=AsyncMock)
+@patch("app.services.regos_dashboard.regos_sales_service.fetch_period_operations_batch", new_callable=AsyncMock)
+@patch(
+    "app.services.regos_dashboard.regos_sales_service.fetch_period_document_lists_batch",
+    new_callable=AsyncMock,
+)
+@pytest.mark.asyncio
+async def test_dashboard_discounted_products_filters_discounted_lines(
+    mock_fetch_lists: AsyncMock,
+    mock_fetch_operations: AsyncMock,
+    mock_get_products_by_ids: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_fetch_lists.return_value = (
+        {
+            "documents": [{"id": 1001, "code": "WS-1001", "date": 1_717_000_000, "amount": 39000}],
+            "next_offset": 0,
+            "total": 1,
+        },
+        {
+            "documents": [{"id": 2001, "code": "WR-2001", "date": 1_717_000_000, "amount": 9000}],
+            "next_offset": 0,
+            "total": 1,
+        },
+        {"documents": [], "next_offset": 0, "total": 0},
+    )
+    mock_fetch_operations.return_value = (
+        [
+            {
+                "id": 5001,
+                "document_id": 1001,
+                "item_id": 101,
+                "item_name": "Full price no list",
+                "quantity": 2,
+                "price": 10000,
+                "amount": 20000,
+                "last_purchase_cost": 7000,
+            },
+            {
+                "id": 5002,
+                "document_id": 1001,
+                "item_id": 102,
+                "item_name": "Full price equal list",
+                "quantity": 1,
+                "price": 5000,
+                "price2": 5000,
+                "amount": 5000,
+                "last_purchase_cost": 3000,
+            },
+            {
+                "id": 5003,
+                "document_id": 1001,
+                "item_id": 103,
+                "item_name": "Discounted cola",
+                "quantity": 1,
+                "price": 10000,
+                "price2": 12000,
+                "amount": 10000,
+                "last_purchase_cost": 7000,
+            },
+            {
+                "id": 5004,
+                "document_id": 1001,
+                "item_id": 104,
+                "item_name": "Mixed juice",
+                "quantity": 1,
+                "price": 8000,
+                "price2": 8000,
+                "amount": 8000,
+                "last_purchase_cost": 5000,
+            },
+            {
+                "id": 5005,
+                "document_id": 1001,
+                "item_id": 104,
+                "item_name": "Mixed juice",
+                "quantity": 1,
+                "price": 6000,
+                "price2": 8000,
+                "amount": 6000,
+                "last_purchase_cost": 5000,
+            },
+        ],
+        [
+            {
+                "id": 6001,
+                "document_id": 2001,
+                "item_id": 105,
+                "item_name": "Discounted refund water",
+                "quantity": 1,
+                "price": 9000,
+                "price2": 11000,
+                "amount": 9000,
+                "last_purchase_cost": 6000,
+            },
+        ],
+    )
+    mock_get_products_by_ids.return_value = [
+        {
+            "regos_item_id": 103,
+            "code": "COLA-103",
+            "name": "Discounted cola",
+            "category": "Beverages",
+            "price": 12000,
+        },
+        {
+            "regos_item_id": 104,
+            "code": "JUICE-104",
+            "name": "Mixed juice",
+            "category": "Beverages",
+            "price": 8000,
+        },
+        {
+            "regos_item_id": 105,
+            "code": "WATER-105",
+            "name": "Discounted refund water",
+            "category": "Beverages",
+            "price": 11000,
+        },
+    ]
+
+    reg = await register_owner(
+        client,
+        email="dashboard-discounted@test.com",
+        company_name="Dashboard Discounted",
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_defaults(client, headers)
+
+    params = {"start_date": 1_716_000_000, "end_date": 1_718_000_000}
+    response = await client.get(
+        "/api/v1/dashboard/discounted-products",
+        headers=headers,
+        params=params,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    rows = {row["item_id"]: row for row in data["products"]}
+    assert data["total"] == 3
+    assert set(rows) == {103, 104, 105}
+
+    cola = rows[103]
+    assert cola["code"] == "COLA-103"
+    assert cola["sold_quantity"] == 1
+    assert cola["sold_total"] == 10000
+    assert cola["average_price"] == 10000
+    assert cola["price_without_discount"] == 12000
+    assert cola["total_without_discount"] == 12000
+    assert cola["refund_quantity"] == 0
+    assert cola["net_gross_profit"] == 3000
+
+    juice = rows[104]
+    assert juice["sold_quantity"] == 1
+    assert juice["sold_total"] == 6000
+    assert juice["average_price"] == 6000
+    assert juice["price_without_discount"] == 8000
+    assert juice["total_without_discount"] == 8000
+    assert juice["net_gross_profit"] == 1000
+
+    water = rows[105]
+    assert water["sold_quantity"] == 0
+    assert water["refund_quantity"] == 1
+    assert water["refund_total"] == 9000
+    assert water["price_without_discount"] == 11000
+    assert water["total_without_discount"] == -11000
+    assert water["net_sold_quantity"] == -1
+    assert water["net_total_sells"] == -9000
+    assert water["net_gross_profit"] == -3000
+
+    assert data["totals"]["sold_quantity"] == 2
+    assert data["totals"]["sold_total"] == 16000
+    assert data["totals"]["refund_quantity"] == 1
+    assert data["totals"]["refund_total"] == 9000
+    assert data["totals"]["total_without_discount"] == 9000
+    assert set(mock_get_products_by_ids.await_args.args[3]) == {103, 104, 105}
+
+    overview = await client.get("/api/v1/dashboard/overview", headers=headers, params=params)
+    assert overview.status_code == 200
+    overview_data = overview.json()
+    assert overview_data["total"] == 5
+    assert overview_data["discounted_total"] == 3
+    assert {row["item_id"] for row in overview_data["discounted_products"]} == {103, 104, 105}
+    mixed = next(row for row in overview_data["products"] if row["item_id"] == 104)
+    assert mixed["sold_quantity"] == 2
+    assert mixed["sold_total"] == 14000
+
+
 @patch("app.services.regos_dashboard.regos_sales_service.fetch_period_operations_batch", new_callable=AsyncMock)
 @patch(
     "app.services.regos_dashboard.regos_sales_service.fetch_period_document_lists_batch",
@@ -428,6 +615,8 @@ async def test_dashboard_overview_shares_period_data(
     assert data["total"] == 1
     assert len(data["products"]) == 1
     assert data["products"][0]["code"] == "COLA-101"
+    assert data["discounted_total"] == 0
+    assert data["discounted_products"] == []
     assert len(data["payments"]["income_payments"]) == 1
     assert data["payments"]["income_payments"][0]["code"] == "PAY-3001"
     mock_fetch_lists.assert_awaited_once()
@@ -716,18 +905,13 @@ async def test_dashboard_stats_currency_filter_all_usd(
     assert data["summary_currency"]["code_chr"] == "USD"
 
 
-def test_convert_base_cost_for_display_usd() -> None:
-  assert _convert_base_cost_for_display(120_000, {"id": 2, "code_chr": "USD", "exchange_rate": 12_000}) == 10.0
-  assert _convert_base_cost_for_display(120_000, {"id": 44, "code_chr": "UZS", "exchange_rate": 1}) == 120_000.0
-
-
 @patch("app.services.regos_dashboard.regos_sales_service.fetch_period_operations_batch", new_callable=AsyncMock)
 @patch(
     "app.services.regos_dashboard.regos_sales_service.fetch_period_document_lists_batch",
     new_callable=AsyncMock,
 )
 @pytest.mark.asyncio
-async def test_dashboard_stats_converts_cost_to_usd(
+async def test_dashboard_stats_keeps_usd_document_cost_in_native_usd(
     mock_fetch_lists: AsyncMock,
     mock_fetch_operations: AsyncMock,
     client: AsyncClient,
@@ -759,7 +943,7 @@ async def test_dashboard_stats_converts_cost_to_usd(
                 "quantity": 1,
                 "price": 100,
                 "amount": 100,
-                "last_purchase_cost": 120_000,
+                "last_purchase_cost": 10,
             }
         ],
         [],
@@ -781,8 +965,191 @@ async def test_dashboard_stats_converts_cost_to_usd(
     )
     assert response.status_code == 200
     data = response.json()
-    assert data["cost_total"] == 9.52
-    assert data["gross_profit"] == round(100 - 9.52, 2)
+    assert data["cost_total"] == 10
+    assert data["gross_profit"] == 90
+    assert data["net_cost_total"] == 10
+    assert data["net_gross_profit"] == 90
+    assert data["summary_currency"]["code_chr"] == "USD"
+
+
+@patch("app.services.regos_dashboard.regos_sales_service.fetch_period_operations_batch", new_callable=AsyncMock)
+@patch(
+    "app.services.regos_dashboard.regos_sales_service.fetch_period_document_lists_batch",
+    new_callable=AsyncMock,
+)
+@pytest.mark.asyncio
+async def test_dashboard_stats_converts_mixed_currency_costs_to_usd(
+    mock_fetch_lists: AsyncMock,
+    mock_fetch_operations: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_fetch_lists.return_value = (
+        {
+            "documents": [
+                {
+                    "id": 1001,
+                    "code": "WS-1001",
+                    "date": 1_717_000_000,
+                    "amount": 250,
+                    "currency": USD,
+                },
+                {
+                    "id": 1002,
+                    "code": "WS-1002",
+                    "date": 1_717_000_000,
+                    "amount": 25200,
+                    "currency": UZS,
+                },
+            ],
+            "next_offset": 0,
+            "total": 2,
+        },
+        {"documents": [], "next_offset": 0, "total": 0},
+        {"documents": [], "next_offset": 0, "total": 0},
+    )
+    mock_fetch_operations.return_value = (
+        [
+            {
+                "id": 5001,
+                "document_id": 1001,
+                "item_id": 101,
+                "item_name": "iPhone 12",
+                "quantity": 1,
+                "price": 250,
+                "amount": 250,
+                "last_purchase_cost": 200,
+            },
+            {
+                "id": 5002,
+                "document_id": 1002,
+                "item_id": 216,
+                "item_name": "ESD Anti Static",
+                "quantity": 1,
+                "price": 25200,
+                "amount": 25200,
+                "last_purchase_cost": 12600,
+            },
+        ],
+        [],
+    )
+
+    reg = await register_owner(
+        client, email="dashboard-cost-mixed@test.com", company_name="Dashboard Cost Mixed"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_defaults(client, headers)
+
+    response = await client.get(
+        "/api/v1/dashboard/stats",
+        headers=headers,
+        params={
+            "start_date": 1_716_000_000,
+            "end_date": 1_718_000_000,
+            "currency_id": USD["id"],
+            "currency_mode": "all",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["sales_total"] == 252
+    assert data["cost_total"] == 201
+    assert data["gross_profit"] == 51
+    assert data["net_cost_total"] == 201
+    assert data["summary_currency"]["code_chr"] == "USD"
+
+
+@patch("app.services.regos_dashboard.regos_sales_service.fetch_period_operations_batch", new_callable=AsyncMock)
+@patch(
+    "app.services.regos_dashboard.regos_sales_service.fetch_period_document_lists_batch",
+    new_callable=AsyncMock,
+)
+@pytest.mark.asyncio
+async def test_dashboard_stats_subtracts_usd_refund_cost(
+    mock_fetch_lists: AsyncMock,
+    mock_fetch_operations: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    mock_fetch_lists.return_value = (
+        {
+            "documents": [
+                {
+                    "id": 1001,
+                    "code": "WS-1001",
+                    "date": 1_717_000_000,
+                    "amount": 250,
+                    "currency": USD,
+                }
+            ],
+            "next_offset": 0,
+            "total": 1,
+        },
+        {
+            "documents": [
+                {
+                    "id": 2001,
+                    "code": "WRT-2001",
+                    "date": 1_717_000_000,
+                    "amount": 50,
+                    "currency": USD,
+                }
+            ],
+            "next_offset": 0,
+            "total": 1,
+        },
+        {"documents": [], "next_offset": 0, "total": 0},
+    )
+    mock_fetch_operations.return_value = (
+        [
+            {
+                "id": 5001,
+                "document_id": 1001,
+                "item_id": 101,
+                "item_name": "iPhone 12",
+                "quantity": 1,
+                "price": 250,
+                "amount": 250,
+                "last_purchase_cost": 200,
+            }
+        ],
+        [
+            {
+                "id": 6001,
+                "document_id": 2001,
+                "item_id": 101,
+                "item_name": "iPhone 12",
+                "quantity": 1,
+                "price": 50,
+                "amount": 50,
+                "last_purchase_cost": 40,
+            }
+        ],
+    )
+
+    reg = await register_owner(
+        client, email="dashboard-cost-refund@test.com", company_name="Dashboard Cost Refund"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_defaults(client, headers)
+
+    response = await client.get(
+        "/api/v1/dashboard/stats",
+        headers=headers,
+        params={
+            "start_date": 1_716_000_000,
+            "end_date": 1_718_000_000,
+            "currency_id": USD["id"],
+            "currency_mode": "native",
+        },
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["sales_total"] == 250
+    assert data["cost_total"] == 200
+    assert data["refunds_total"] == 50
+    assert data["refunds_cost_total"] == 40
+    assert data["net_sales_total"] == 200
+    assert data["net_cost_total"] == 160
+    assert data["net_gross_profit"] == 40
     assert data["summary_currency"]["code_chr"] == "USD"
 
 

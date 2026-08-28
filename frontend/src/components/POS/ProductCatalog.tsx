@@ -47,6 +47,7 @@ import { useCart } from "@/store/cart";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { applyDefaultCategory } from "@/lib/default-category";
+import { expandProductGroupIds, filterProductGroups } from "@/lib/category-scope";
 import {
   catalogSortFromOptionId,
   catalogSortToOptionId,
@@ -83,6 +84,11 @@ function barcodeLookupErrorMessage(
       );
     case "out_of_stock":
       return t("pos.barcode.outOfStock", "Cannot add more of this product to the cart.");
+    case "out_of_scope":
+      return t(
+        "pos.barcode.outOfScope",
+        "This product is outside your assigned categories.",
+      );
     default:
       return t("pos.barcode.productNotFound", "No product found for this barcode.");
   }
@@ -153,6 +159,7 @@ export function ProductCatalog() {
   const searchFuzzy = usePosConfig((s) => s.searchFuzzy);
   const posConfigHydrated = usePosConfig((s) => s.hydrated);
   const defaultCategory = usePosConfig((s) => s.defaultCategory);
+  const allowedProductGroupIds = usePosConfig((s) => s.allowedProductGroupIds);
   const hydratePosConfig = usePosConfig((s) => s.hydrate);
   const sellContextHydrated = useSellContext((s) => s.hydrated);
   const hydrateSellContext = useSellContext((s) => s.hydrate);
@@ -340,6 +347,27 @@ export function ProductCatalog() {
     [groups, selectedGroupId],
   );
 
+  const visibleGroups = useMemo(
+    () => filterProductGroups(groups, allowedProductGroupIds),
+    [allowedProductGroupIds, groups],
+  );
+  const expandedAllowedGroupIds = useMemo(
+    () => expandProductGroupIds(allowedProductGroupIds, groups),
+    [allowedProductGroupIds, groups],
+  );
+  const allowedGroupIdsParam = useMemo(
+    () => (expandedAllowedGroupIds ? [...expandedAllowedGroupIds] : undefined),
+    [expandedAllowedGroupIds],
+  );
+
+  useEffect(() => {
+    if (expandedAllowedGroupIds == null) return;
+    if (selectedGroupId != null && !expandedAllowedGroupIds.has(selectedGroupId)) {
+      setSelectedGroupId(null);
+      setFeaturedOnly(false);
+    }
+  }, [expandedAllowedGroupIds, selectedGroupId]);
+
   const isGlobalSearch = search.length > 0;
 
   const catalogOverrides = useMemo(() => {
@@ -400,6 +428,7 @@ export function ProductCatalog() {
       groupId: isGlobalSearch ? null : selectedGroupId,
       featuredOnly: isGlobalSearch ? false : featuredOnly,
       featuredProductIds: featuredOnly && !isGlobalSearch ? [...featuredIds] : undefined,
+      allowedGroupIds: allowedGroupIdsParam,
       sort: catalogSort,
       includeZeroQuantity,
       includeZeroPrice,
@@ -415,6 +444,7 @@ export function ProductCatalog() {
       isGlobalSearch,
       search,
       selectedGroupId,
+      allowedGroupIdsParam,
     ],
   );
 
@@ -473,6 +503,7 @@ export function ProductCatalog() {
         selectedGroupId ?? "",
         featuredOnly ? "1" : "0",
         featuredOnly ? [...featuredIds].sort((a, b) => a - b).join(",") : "",
+        allowedGroupIdsParam?.slice().sort((a, b) => a - b).join(",") ?? "",
         includeZeroQuantity ? "1" : "0",
         includeZeroPrice ? "1" : "0",
         searchTransliteration ? "1" : "0",
@@ -487,6 +518,7 @@ export function ProductCatalog() {
       catalogSort.direction,
       featuredIds,
       featuredOnly,
+      allowedGroupIdsParam,
       includeZeroPrice,
       includeZeroQuantity,
       priceTypeId,
@@ -944,9 +976,11 @@ export function ProductCatalog() {
       bookedOrderContinuation,
       getInCartQty,
       getReservedInOtherTabs,
+      allowedGroupIds: allowedGroupIdsParam,
     }),
     [
       allowOutOfStock,
+      allowedGroupIdsParam,
       bookedOrderContinuation,
       catalogOverrides,
       catalogScope,
@@ -1221,7 +1255,7 @@ export function ProductCatalog() {
         </form>
 
         <CategoryBar
-          groups={groups}
+          groups={visibleGroups}
           featuredOnly={featuredOnly}
           selectedGroupId={selectedGroupId}
           onSelectFeatured={() => {

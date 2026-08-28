@@ -143,6 +143,41 @@ async def get_dashboard_products(
     return DashboardProductsResponse(**data)
 
 
+@router.get("/discounted-products", response_model=DashboardProductsResponse)
+async def get_dashboard_discounted_products(
+    start_date: int | None = Query(default=None),
+    end_date: int | None = Query(default=None),
+    partner_ids: list[int] | None = Query(default=None),
+    all_partners: bool = Query(default=True),
+    stock_ids: list[int] | None = Query(default=None),
+    all_stocks: bool = Query(default=True),
+    currency_id: int | None = Query(default=None),
+    currency_mode: str = Query(default=regos_dashboard_service.CURRENCY_MODE_ALL),
+    current: CurrentUser = Depends(require_permission("dashboard.read")),
+    session: AsyncSession = Depends(get_db),
+) -> DashboardProductsResponse:
+    scoped_stock_ids, scoped_all_stocks = await _scoped_stock_params(
+        session,
+        current,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
+    data = await regos_dashboard_service.get_dashboard_discounted_products(
+        session,
+        current.company_id,
+        current.id,
+        start_date=start_date,
+        end_date=end_date,
+        partner_ids=partner_ids,
+        all_partners=all_partners,
+        stock_ids=scoped_stock_ids,
+        all_stocks=scoped_all_stocks,
+        currency_id=currency_id,
+        currency_mode=currency_mode,
+    )
+    return DashboardProductsResponse(**data)
+
+
 @router.get("/payments", response_model=DashboardPaymentsResponse)
 async def get_dashboard_payments(
     start_date: int | None = Query(default=None),

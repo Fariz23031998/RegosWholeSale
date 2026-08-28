@@ -17,6 +17,7 @@ import { StockDocEditModal } from "@/components/StockDocs/StockDocEditModal";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useWarehouseScope } from "@/hooks/use-warehouse-scope";
+import { filterPartnersByAllowedGroups } from "@/lib/category-scope";
 import {
   formatDashboardPeriodLabel,
   presetToCustomRange,
@@ -40,6 +41,7 @@ import {
   stockDocDetailTo,
 } from "@/lib/stock-doc-definitions";
 import { formatAuthError, useAuth } from "@/store/auth";
+import { usePosConfig } from "@/store/pos-config";
 import type {
   RegosDefaultOption,
   RegosPriceTypeOption,
@@ -62,6 +64,7 @@ export function StockDocsPage({ kind }: Props) {
   const user = useAuth((s) => s.user);
   const { can } = usePermissions();
   const canWrite = can(def.writePermission);
+  const allowedPartnerGroupIds = usePosConfig((s) => s.allowedPartnerGroupIds);
   const {
     canChangeWarehouse,
     ready: warehouseScopeReady,
@@ -126,6 +129,11 @@ export function StockDocsPage({ kind }: Props) {
   const warehouseLabelFilters = canChangeWarehouse
     ? { allStocks, stockIds: selectedStockIds }
     : effectiveStockFilters;
+
+  const scopedPartners = useMemo(
+    () => filterPartnersByAllowedGroups(partners, allowedPartnerGroupIds),
+    [allowedPartnerGroupIds, partners],
+  );
 
   const queryParams = useMemo(
     () =>
@@ -535,7 +543,7 @@ export function StockDocsPage({ kind }: Props) {
         <DashboardPartnersModal
           open={partnerModalOpen}
           onClose={() => setPartnerModalOpen(false)}
-          partners={partners}
+          partners={scopedPartners}
           allPartners={allPartners}
           selectedPartnerIds={selectedPartnerIds}
           onApply={({ allPartners: nextAll, partnerIds }) => {
@@ -549,7 +557,7 @@ export function StockDocsPage({ kind }: Props) {
         <StockDocCreateModal
           kind={kind}
           warehouses={warehouses}
-          partners={partners}
+          partners={scopedPartners}
           priceTypes={priceTypes}
           defaultVatCalculationType={defaultVatCalculationType}
           onPartnersChanged={refreshReferenceOptions}

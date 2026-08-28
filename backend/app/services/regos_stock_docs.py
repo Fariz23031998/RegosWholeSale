@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import bad_request, forbidden, not_found
 from app.core.regos_api import regos_async_api_request_for_company
 from app.core.regos_batch import regos_batch_request_for_company
+from app.services import category_scope as category_scope_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services.document_telegram_format import parse_inout_type
 from app.services.regos_defaults import _extract_currency_reference
@@ -509,6 +510,54 @@ def _document_stock_ids(doc: dict[str, Any]) -> list[int]:
     return ids
 
 
+def _option_id(defaults: dict[str, Any], key: str) -> int | None:
+    option = defaults.get(key)
+    if not isinstance(option, dict):
+        return None
+    value = option.get("id")
+    if isinstance(value, int) and value > 0:
+        return value
+    return None
+
+
+def _positive_int(value: Any) -> int | None:
+    if isinstance(value, int) and value > 0:
+        return value
+    return None
+
+
+def _resolve_scoped_id(
+    payload_value: Any,
+    *,
+    can_change: bool,
+    default_id: int | None,
+) -> int | None:
+    if not can_change:
+        return default_id
+    resolved = _positive_int(payload_value)
+    if resolved is not None:
+        return resolved
+    return default_id
+
+
+def _assert_movement_warehouse_scope(
+    sender_id: int,
+    receiver_id: int,
+    *,
+    default_stock_id: int | None,
+    permissions: set[str],
+) -> None:
+    if "pos.change_warehouse" in permissions:
+        return
+    if default_stock_id is None or (
+        sender_id != default_stock_id and receiver_id != default_stock_id
+    ):
+        raise forbidden(
+            "At least one warehouse must be your default warehouse.",
+            "FORBIDDEN",
+        )
+
+
 async def assert_document_stock_access(
     session: AsyncSession,
     company_id: int,
@@ -574,14 +623,24 @@ async def create_document(
     kind: StockKind,
     user_id: int,
     payload: dict[str, Any],
+    permissions: set[str] | None = None,
 ) -> dict[str, Any]:
     endpoints = ENDPOINTS[kind]
     if not endpoints.supports_create or not endpoints.doc_add:
         raise bad_request("Creating this document type is not supported.", "CREATE_NOT_SUPPORTED")
 
+    perms = permissions or set()
+    can_change_warehouse = "pos.change_warehouse" in perms
+    can_change_price_type = "pos.change_price_type" in perms
+    can_change_partner = "pos.change_partner" in perms
+
     defaults = await regos_defaults_service.get_regos_defaults(
         session, company_id, user_id=user_id
     )
+    default_stock_id = _option_id(defaults, "warehouse")
+    default_price_type_id = _option_id(defaults, "price_type")
+    default_partner_id = _option_id(defaults, "partner")
+    default_currency_id = _option_id(defaults, "currency")
 
     body: dict[str, Any] = {}
     date_val = payload.get("date")
@@ -602,16 +661,20 @@ async def create_document(
             else True
         )
 
-        stock_id = payload.get("stock_id")
-        if stock_id is None and isinstance(defaults.get("warehouse"), dict):
-            stock_id = defaults["warehouse"].get("id")
+        stock_id = _resolve_scoped_id(
+            payload.get("stock_id"),
+            can_change=can_change_warehouse,
+            default_id=default_stock_id,
+        )
         if stock_id is None:
             raise bad_request("stock_id is required.", "STOCK_REQUIRED")
         body["stock_id"] = int(stock_id)
 
-        price_type_id = payload.get("price_type_id")
-        if price_type_id is None and isinstance(defaults.get("price_type"), dict):
-            price_type_id = defaults["price_type"].get("id")
+        price_type_id = _resolve_scoped_id(
+            payload.get("price_type_id"),
+            can_change=can_change_price_type,
+            default_id=default_price_type_id,
+        )
         if price_type_id is None:
             raise bad_request("price_type_id is required.", "PRICE_TYPE_REQUIRED")
         body["price_type_id"] = int(price_type_id)
@@ -626,23 +689,32 @@ async def create_document(
     elif kind in {"purchase", "wholesale", "return_to_partner"}:
         body["date"] = int(date_val) if date_val is not None else now_ts
 
-        partner_id = payload.get("partner_id")
-        if partner_id is None and isinstance(defaults.get("partner"), dict):
-            partner_id = defaults["partner"].get("id")
+        partner_id = _resolve_scoped_id(
+            payload.get("partner_id"),
+            can_change=can_change_partner,
+            default_id=default_partner_id,
+        )
         if partner_id is None:
             raise bad_request("partner_id is required.", "PARTNER_REQUIRED")
         body["partner_id"] = int(partner_id)
+        await category_scope_service.assert_partner_in_allowed_groups(
+            session, company_id, user_id, body["partner_id"]
+        )
 
-        stock_id = payload.get("stock_id")
-        if stock_id is None and isinstance(defaults.get("warehouse"), dict):
-            stock_id = defaults["warehouse"].get("id")
+        stock_id = _resolve_scoped_id(
+            payload.get("stock_id"),
+            can_change=can_change_warehouse,
+            default_id=default_stock_id,
+        )
         if stock_id is None:
             raise bad_request("stock_id is required.", "STOCK_REQUIRED")
         body["stock_id"] = int(stock_id)
 
-        currency_id = payload.get("currency_id")
-        if currency_id is None and isinstance(defaults.get("currency"), dict):
-            currency_id = defaults["currency"].get("id")
+        currency_id = _resolve_scoped_id(
+            payload.get("currency_id"),
+            can_change=can_change_price_type,
+            default_id=default_currency_id,
+        )
         if kind == "return_to_partner":
             if currency_id is None:
                 raise bad_request("currency_id is required.", "CURRENCY_REQUIRED")
@@ -651,9 +723,11 @@ async def create_document(
             body["currency_id"] = int(currency_id)
 
         if kind != "return_to_partner":
-            price_type_id = payload.get("price_type_id")
-            if price_type_id is None and isinstance(defaults.get("price_type"), dict):
-                price_type_id = defaults["price_type"].get("id")
+            price_type_id = _resolve_scoped_id(
+                payload.get("price_type_id"),
+                can_change=can_change_price_type,
+                default_id=default_price_type_id,
+            )
             if price_type_id is not None:
                 body["price_type_id"] = int(price_type_id)
 
@@ -677,8 +751,8 @@ async def create_document(
 
         sender = payload.get("stock_sender_id")
         receiver = payload.get("stock_receiver_id")
-        if sender is None and isinstance(defaults.get("warehouse"), dict):
-            sender = defaults["warehouse"].get("id")
+        if sender is None:
+            sender = default_stock_id
         if sender is None or receiver is None:
             raise bad_request(
                 "stock_sender_id and stock_receiver_id are required.",
@@ -686,6 +760,12 @@ async def create_document(
             )
         body["stock_sender_id"] = int(sender)
         body["stock_receiver_id"] = int(receiver)
+        _assert_movement_warehouse_scope(
+            body["stock_sender_id"],
+            body["stock_receiver_id"],
+            default_stock_id=default_stock_id,
+            permissions=perms,
+        )
 
         attached = payload.get("attached_user_id")
         if attached is not None:
@@ -694,9 +774,11 @@ async def create_document(
     elif kind == "inout":
         body["date"] = int(date_val) if date_val is not None else now_ts
 
-        stock_id = payload.get("stock_id")
-        if stock_id is None and isinstance(defaults.get("warehouse"), dict):
-            stock_id = defaults["warehouse"].get("id")
+        stock_id = _resolve_scoped_id(
+            payload.get("stock_id"),
+            can_change=can_change_warehouse,
+            default_id=default_stock_id,
+        )
         if stock_id is None:
             raise bad_request("stock_id is required.", "STOCK_REQUIRED")
         body["stock_id"] = int(stock_id)
@@ -798,6 +880,57 @@ def _build_update_body(kind: StockKind, document_id: int, payload: dict[str, Any
     return body
 
 
+async def _apply_update_scope(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    permissions: set[str],
+    *,
+    kind: StockKind,
+    payload: dict[str, Any],
+    existing: dict[str, Any],
+    defaults: dict[str, Any],
+) -> dict[str, Any]:
+    scoped = dict(payload)
+    can_change_warehouse = "pos.change_warehouse" in permissions
+    can_change_price_type = "pos.change_price_type" in permissions
+    can_change_partner = "pos.change_partner" in permissions
+    default_stock_id = _option_id(defaults, "warehouse")
+
+    if kind == "movement":
+        sender = _positive_int(scoped.get("stock_sender_id")) or _positive_int(
+            existing.get("stock_sender_id")
+        )
+        receiver = _positive_int(scoped.get("stock_receiver_id")) or _positive_int(
+            existing.get("stock_receiver_id")
+        )
+        if sender is not None and receiver is not None:
+            _assert_movement_warehouse_scope(
+                sender,
+                receiver,
+                default_stock_id=default_stock_id,
+                permissions=permissions,
+            )
+    elif not can_change_warehouse:
+        scoped.pop("stock_id", None)
+
+    if not can_change_price_type:
+        scoped.pop("price_type_id", None)
+        scoped.pop("currency_id", None)
+
+    if kind in {"purchase", "wholesale", "return_to_partner"}:
+        existing_partner = _positive_int(existing.get("partner_id"))
+        requested_partner = _positive_int(scoped.get("partner_id"))
+        if not can_change_partner:
+            scoped.pop("partner_id", None)
+        elif requested_partner is not None and requested_partner != existing_partner:
+            await category_scope_service.assert_partner_in_allowed_groups(
+                session, company_id, user_id, requested_partner
+            )
+
+    return scoped
+
+
 async def update_document(
     session: AsyncSession,
     company_id: int,
@@ -806,6 +939,8 @@ async def update_document(
     document_id: int,
     payload: dict[str, Any],
     existing: dict[str, Any] | None = None,
+    user_id: int | None = None,
+    permissions: set[str] | None = None,
 ) -> dict[str, Any]:
     endpoints = ENDPOINTS[kind]
     if not endpoints.doc_edit:
@@ -822,7 +957,24 @@ async def update_document(
             "DOCUMENT_ALREADY_PERFORMED",
         )
 
-    body = _build_update_body(kind, document_id, payload)
+    perms = permissions or set()
+    scoped_payload = payload
+    if user_id is not None:
+        defaults = await regos_defaults_service.get_regos_defaults(
+            session, company_id, user_id=user_id
+        )
+        scoped_payload = await _apply_update_scope(
+            session,
+            company_id,
+            user_id,
+            perms,
+            kind=kind,
+            payload=payload,
+            existing=doc,
+            defaults=defaults,
+        )
+
+    body = _build_update_body(kind, document_id, scoped_payload)
     editable_keys = {k for k in body if k != "id"}
     if not editable_keys:
         raise bad_request("No editable fields provided.", "NO_EDIT_FIELDS")

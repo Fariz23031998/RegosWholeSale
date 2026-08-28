@@ -390,3 +390,18 @@ async def edit_item(
             row_affected = max(row_affected, 1)
 
     return {"row_affected": row_affected}
+
+
+async def generate_ean13(session: AsyncSession, company_id: int) -> dict[str, str]:
+    response = await regos_async_api_request_for_company(
+        session,
+        company_id,
+        "barcode/generateean13",
+        {},
+    )
+    result = response.get("result") or {}
+    value = result.get("value") if isinstance(result, dict) else None
+    text = _coerce_text(value)
+    if not text:
+        raise bad_request("Regos did not return a barcode.", "BARCODE_GENERATE_FAILED")
+    return {"value": text}

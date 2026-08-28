@@ -354,7 +354,8 @@ function checkoutDocumentFromResult(
 
 export type CartDraftPrintInput = {
   items: Array<
-    Pick<CartItem, "regosItemId" | "name" | "productId" | "qty" | "price"> & CartItemPrintMeta
+    Pick<CartItem, "regosItemId" | "name" | "productId" | "qty" | "price" | "listPrice"> &
+      CartItemPrintMeta
   >;
   totals: { subtotal: number; discount: number; total: number };
   catalogProducts: Product[];
@@ -366,21 +367,35 @@ export type CartDraftPrintInput = {
   cashierId?: string | null;
   cashierName?: string | null;
   wholesaleDocId?: number | null;
+  keypadUpdateDiscountedPriceOnly?: boolean;
 };
+
+function cartDraftListPrice(
+  item: Pick<CartItem, "price" | "listPrice">,
+  keypadUpdateDiscountedPriceOnly: boolean,
+): number {
+  if (keypadUpdateDiscountedPriceOnly) {
+    return item.listPrice ?? item.price;
+  }
+  return item.price;
+}
 
 function mergeCartItemsWithWholesaleOperations(
   items: CartDraftPrintInput["items"],
   operations: WholesaleOperationLine[],
   catalogProducts: Product[],
+  keypadUpdateDiscountedPriceOnly = false,
 ): WholesaleOperationLine[] {
   const operationsByItemId = new Map(operations.map((operation) => [operation.item_id, operation]));
   const cartLines = buildCheckoutCartLines(items, catalogProducts);
   const detailsByItemId = new Map(cartLines.map((line) => [line.regos_item_id, line]));
+  const preserveList = Boolean(keypadUpdateDiscountedPriceOnly);
 
   return items.map((item, index) => {
     const fromApi = operationsByItemId.get(item.regosItemId);
     const details = detailsByItemId.get(item.regosItemId);
     const product = findCatalogProduct(catalogProducts, item.regosItemId, item.productId);
+    const price2 = cartDraftListPrice(item, preserveList);
 
     if (fromApi) {
       return withOperationItem(
@@ -395,7 +410,7 @@ function mergeCartItemsWithWholesaleOperations(
           item_brand: fromApi.item_brand ?? details?.item_brand ?? null,
           quantity: item.qty,
           price: item.price,
-          price2: item.price,
+          price2,
           amount: +(item.qty * item.price).toFixed(2),
         },
         normalizeReceiptOperationItem(fromApi.item ?? details?.item),
@@ -415,7 +430,7 @@ function mergeCartItemsWithWholesaleOperations(
         item_brand: details?.item_brand ?? null,
         quantity: item.qty,
         price: item.price,
-        price2: item.price,
+        price2,
         amount: +(item.qty * item.price).toFixed(2),
       },
       operationItemFromDetails(details, product),
@@ -454,7 +469,7 @@ export function buildPrintContextFromCartDraft(
         item_brand: meta.item_brand,
         quantity: item.qty,
         price: item.price,
-        price2: item.price,
+        price2: cartDraftListPrice(item, Boolean(input.keypadUpdateDiscountedPriceOnly)),
         amount: +(item.qty * item.price).toFixed(2),
       },
       operationItemFromDetails(details, product),
@@ -513,6 +528,7 @@ export async function loadPrintContextFromCartDraft(
           input.items,
           operationsRes.operations,
           input.catalogProducts,
+          Boolean(input.keypadUpdateDiscountedPriceOnly),
         );
         return {
           ...context,

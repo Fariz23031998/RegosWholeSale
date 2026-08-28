@@ -52,6 +52,7 @@ export type DashboardProductTotals = {
   net_purchase_cost: number;
   net_total_sells: number;
   net_gross_profit: number;
+  total_without_discount?: number;
 };
 
 export type DashboardProductRow = {
@@ -61,6 +62,8 @@ export type DashboardProductRow = {
   category: string;
   purchase_cost: number | null;
   average_price: number;
+  price_without_discount?: number;
+  total_without_discount?: number;
   sold_quantity: number;
   sold_purchase_cost: number;
   sold_total: number;
@@ -148,6 +151,9 @@ export type DashboardOverview = {
   products: DashboardProductRow[];
   totals: DashboardProductTotals;
   total: number;
+  discounted_products: DashboardProductRow[];
+  discounted_totals: DashboardProductTotals;
+  discounted_total: number;
   payments: DashboardPaymentsPage;
 };
 
@@ -479,6 +485,17 @@ export async function fetchDashboardProducts(
 ): Promise<DashboardProductsPage> {
   const qs = buildDashboardSearch(params);
   return apiRequest(`/api/v1/dashboard/products${qs ? `?${qs}` : ""}`, {
+    token,
+    timeoutMs: DASHBOARD_PRODUCTS_TIMEOUT_MS,
+  });
+}
+
+export async function fetchDashboardDiscountedProducts(
+  token: string,
+  params: DashboardQueryParams = {},
+): Promise<DashboardProductsPage> {
+  const qs = buildDashboardSearch(params);
+  return apiRequest(`/api/v1/dashboard/discounted-products${qs ? `?${qs}` : ""}`, {
     token,
     timeoutMs: DASHBOARD_PRODUCTS_TIMEOUT_MS,
   });

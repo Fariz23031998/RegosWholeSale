@@ -54,6 +54,20 @@ async def list_products(
             price_type_id=price_type_id,
         )
 
+    allowed_group_ids: set[int] | None = None
+    if user_id is not None:
+        from app.services.category_scope import get_allowed_product_group_id_set
+
+        allowed_group_ids = await get_allowed_product_group_id_set(
+            session, user_id, company_id
+        )
+        if (
+            allowed_group_ids is not None
+            and group_id is not None
+            and group_id not in allowed_group_ids
+        ):
+            return {"products": [], "next_offset": 0, "total": 0}
+
     if user_id is None:
         defaults = await regos_defaults_service.get_regos_defaults(session, company_id)
     else:
@@ -140,6 +154,11 @@ async def list_products(
                 product = map_product(row)
             except AppError:
                 continue
+            if allowed_group_ids is not None:
+                from app.services.category_scope import product_in_allowed_groups
+
+                if not product_in_allowed_groups(product, allowed_group_ids):
+                    continue
             if matches_product_filters(
                 product,
                 include_zero_quantity=include_zero_quantity,

@@ -14,7 +14,7 @@ import {
 } from "@/lib/barcode";
 import type { Product } from "@/types/catalog";
 
-export type BarcodeLookupFailureReason = "not_found" | "invalid_qty" | "out_of_stock";
+export type BarcodeLookupFailureReason = "not_found" | "invalid_qty" | "out_of_stock" | "out_of_scope";
 
 export type BarcodeLookupResult =
   | { ok: true; product: Product; qty: number }
@@ -30,6 +30,7 @@ export type BarcodeLookupOptions = {
   bookedOrderContinuation?: boolean;
   getInCartQty: (productId: string) => number;
   getReservedInOtherTabs: (productId: string) => number;
+  allowedGroupIds?: number[];
 };
 
 export async function lookupProductForBarcode(
@@ -51,7 +52,12 @@ export async function lookupProductForBarcode(
     bookedOrderContinuation = false,
     getInCartQty,
     getReservedInOtherTabs,
+    allowedGroupIds,
   } = options;
+  const allowedGroupIdSet =
+    allowedGroupIds && allowedGroupIds.length > 0 ? new Set(allowedGroupIds) : null;
+  const productInScope = (item: Product) =>
+    allowedGroupIdSet == null || (item.group_id != null && allowedGroupIdSet.has(item.group_id));
   const catalogStockOptions = bookedOrderContinuation
     ? { bookedOrderContinuation: true as const }
     : undefined;
@@ -61,6 +67,7 @@ export async function lookupProductForBarcode(
     limit: CATALOG_PAGE_SIZE,
     groupId: null as number | null,
     featuredOnly: false,
+    allowedGroupIds,
     ...(Object.keys(catalogOverrides).length > 0 ? catalogOverrides : {}),
   };
 
@@ -79,6 +86,9 @@ export async function lookupProductForBarcode(
     }
     if (!product) {
       return { ok: false, reason: "not_found" };
+    }
+    if (!productInScope(product)) {
+      return { ok: false, reason: "out_of_scope" };
     }
 
     const barcodeQty = internalBarcodeToQty(parsedInternal, product);
@@ -111,8 +121,13 @@ export async function lookupProductForBarcode(
     const res = await loadCatalogProducts(token, { ...fetchParams, search: term }, scope);
     product = findProductByBarcode(res.products, term);
   }
+  if (!product) {
+    return { ok: false, reason: "not_found" };
+  }
+  if (!productInScope(product)) {
+    return { ok: false, reason: "out_of_scope" };
+  }
   if (
-    !product ||
     !canAddProductToCart(
       product,
       getInCartQty(product.id),

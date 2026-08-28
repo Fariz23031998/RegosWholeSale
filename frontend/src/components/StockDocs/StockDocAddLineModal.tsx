@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
-import { Camera, Pencil, Plus, Search, X } from "lucide-react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Barcode, Camera, Pencil, Plus, Search, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
@@ -14,6 +14,7 @@ import {
   fetchItem,
   fetchTaxVats,
   fetchUnits,
+  generateEan13,
   updateItem,
 } from "@/lib/items-api";
 import { formatCurrency } from "@/lib/format";
@@ -29,6 +30,8 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { usePermissions } from "@/hooks/use-permissions";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
+import { usePosConfig } from "@/store/pos-config";
+import { filterProductGroups } from "@/lib/category-scope";
 import type { ProductGroup } from "@/types/catalog";
 import {
   EMPTY_ITEM_FORM,
@@ -88,11 +91,17 @@ export function StockDocAddLineModal({
   const [scannerOpen, setScannerOpen] = useState(false);
   const [form, setForm] = useState<ItemFormValues>(EMPTY_ITEM_FORM);
   const [groups, setGroups] = useState<ProductGroup[]>([]);
+  const allowedProductGroupIds = usePosConfig((s) => s.allowedProductGroupIds);
+  const scopedGroups = useMemo(
+    () => filterProductGroups(groups, allowedProductGroupIds),
+    [allowedProductGroupIds, groups],
+  );
   const [units, setUnits] = useState<RegosUnit[]>([]);
   const [taxVats, setTaxVats] = useState<RegosTaxVat[]>([]);
   const [lookupsLoaded, setLookupsLoaded] = useState(false);
   const [originalBarcodes, setOriginalBarcodes] = useState<string[]>([]);
   const [barcodeDraft, setBarcodeDraft] = useState("");
+  const [generatingBarcode, setGeneratingBarcode] = useState(false);
   const [icpsLookupBusy, setIcpsLookupBusy] = useState(false);
   const [packageOptions, setPackageOptions] = useState<MxikPackageOption[]>([]);
   const [packageOptionsBusy, setPackageOptionsBusy] = useState(false);
@@ -128,6 +137,7 @@ export function StockDocAddLineModal({
     setForm(EMPTY_ITEM_FORM);
     setOriginalBarcodes([]);
     setBarcodeDraft("");
+    setGeneratingBarcode(false);
     setIcpsLookupBusy(false);
     setPackageOptions([]);
     setPackageOptionsBusy(false);
@@ -251,8 +261,11 @@ export function StockDocAddLineModal({
       vatId?: number | null;
     },
   ): ItemFormValues => {
+    const available = filterProductGroups(g, allowedProductGroupIds);
     const preferredGroup =
-      opts?.groupId != null ? g.find((group) => group.id === opts.groupId) : undefined;
+      opts?.groupId != null
+        ? available.find((group) => group.id === opts.groupId)
+        : undefined;
     const preferredUnit =
       opts?.unitId != null ? u.find((unit) => unit.id === opts.unitId) : undefined;
     const preferredVat =
@@ -261,7 +274,7 @@ export function StockDocAddLineModal({
     return {
       ...EMPTY_ITEM_FORM,
       name: nameSeed,
-      group_id: preferredGroup?.id ?? g[0]?.id ?? 0,
+      group_id: preferredGroup?.id ?? available[0]?.id ?? 0,
       unit_id: preferredUnit?.id ?? pcs?.id ?? u[0]?.id ?? 0,
       vat_id: preferredVat?.id ?? v[0]?.id ?? 0,
     };
@@ -478,10 +491,11 @@ export function StockDocAddLineModal({
     }
   };
 
-  const commitBarcode = (raw: string) => {
+  const commitBarcode = (raw: string, opts?: { lookupTasnif?: boolean }) => {
     const value = raw.trim();
     if (!value) return;
-    const needsLookup = !form.icps.trim() && !form.barcodes.includes(value);
+    const lookupTasnif = opts?.lookupTasnif ?? true;
+    const needsLookup = lookupTasnif && !form.icps.trim() && !form.barcodes.includes(value);
     setForm((prev) => {
       if (prev.barcodes.includes(value)) return prev;
       return { ...prev, barcodes: [...prev.barcodes, value] };
@@ -489,6 +503,24 @@ export function StockDocAddLineModal({
     setBarcodeDraft("");
     if (needsLookup) {
       void applyTasnifLookup(value);
+    }
+  };
+
+  const handleGenerateBarcode = async () => {
+    if (!token || generatingBarcode || busy) return;
+    setGeneratingBarcode(true);
+    try {
+      const { value } = await generateEan13(token);
+      commitBarcode(value, { lookupTasnif: false });
+    } catch (err: unknown) {
+      toast.error(
+        formatAuthError(
+          err,
+          t("stock.item.errors.generateBarcode", "Failed to generate barcode"),
+        ),
+      );
+    } finally {
+      setGeneratingBarcode(false);
     }
   };
 
@@ -553,8 +585,9 @@ export function StockDocAddLineModal({
         });
         const refreshed = await refreshGroups();
         const stillThere = refreshed.some((g) => g.id === editingGroupId);
-        if (!stillThere && refreshed[0]) {
-          setForm((prev) => ({ ...prev, group_id: refreshed[0].id }));
+        const fallback = filterProductGroups(refreshed, allowedProductGroupIds)[0];
+        if (!stillThere && fallback) {
+          setForm((prev) => ({ ...prev, group_id: fallback.id }));
         }
       } else {
         const created = await createProductGroup(token, {
@@ -714,21 +747,6 @@ export function StockDocAddLineModal({
         fullscreen={isMobile}
         modalClassName={styles.addLineModal}
         bodyClassName={styles.addLineModalBody}
-        headerActions={
-          canCreateItem ? (
-            <Button
-              type="button"
-              size="icon"
-              variant="secondary"
-              disabled={busy}
-              aria-label={t("stock.item.create", "Create product")}
-              title={t("stock.item.create", "Create product")}
-              onClick={() => void openCreate()}
-            >
-              <Plus size={18} />
-            </Button>
-          ) : undefined
-        }
       >
         <div className={styles.addLineSearchView}>
           <div className={styles.addLineSearch}>
@@ -779,6 +797,19 @@ export function StockDocAddLineModal({
             >
               <Camera size={18} />
             </Button>
+            {canCreateItem ? (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                disabled={busy}
+                aria-label={t("stock.item.create", "Create product")}
+                title={t("stock.item.create", "Create product")}
+                onClick={() => void openCreate()}
+              >
+                <Plus size={18} />
+              </Button>
+            ) : null}
           </div>
 
           {hits.length > 0 ? (
@@ -896,7 +927,7 @@ export function StockDocAddLineModal({
               <option value={0}>
                 {t("stock.item.group.root", "Root (no parent)")}
               </option>
-              {groups
+              {scopedGroups
                 .filter((g) => {
                   if (!editingGroupId) return true;
                   if (g.id === editingGroupId) return false;
@@ -938,7 +969,7 @@ export function StockDocAddLineModal({
           <div className={styles.formField}>
             <label>{t("stock.item.fields.group", "Group")}</label>
             <ProductGroupPicker
-              groups={groups}
+              groups={scopedGroups}
               value={form.group_id}
               disabled={busy}
               onChange={(groupId) => setForm((prev) => ({ ...prev, group_id: groupId }))}
@@ -1040,6 +1071,17 @@ export function StockDocAddLineModal({
                   onClick={() => setScannerOpen(true)}
                 >
                   <Camera size={18} />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="secondary"
+                  disabled={busy || generatingBarcode}
+                  aria-label={t("stock.item.generateBarcodeAria", "Generate EAN-13 barcode")}
+                  title={t("stock.item.generateBarcode", "Generate barcode")}
+                  onClick={() => void handleGenerateBarcode()}
+                >
+                  <Barcode size={18} />
                 </Button>
               </div>
             </div>

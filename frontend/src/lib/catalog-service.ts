@@ -29,6 +29,7 @@ type CatalogQuery = {
   groupId?: number | null;
   featuredOnly?: boolean;
   featuredProductIds?: number[];
+  allowedGroupIds?: number[];
   warehouseId?: number;
   priceTypeId?: number;
   sort?: CatalogSort;
@@ -69,6 +70,7 @@ export function buildCatalogPageKey(query: CatalogQuery): string {
     query.search?.trim() ?? "",
     query.groupId ?? "",
     query.featuredOnly ? "1" : "0",
+    (query.allowedGroupIds ?? []).slice().sort((a, b) => a - b).join(","),
     query.includeZeroQuantity ? "1" : "0",
     query.includeZeroPrice ? "1" : "0",
     query.searchTransliteration === false ? "0" : "1",

@@ -10,6 +10,7 @@ from app.core.exceptions import AppError, bad_request, forbidden
 from app.core.regos_api import regos_async_api_request_for_company
 from app.core.regos_batch import regos_batch_request_chunks_for_company, regos_batch_request_for_company
 from app.services import pos_settings as pos_settings_service
+from app.services import category_scope as category_scope_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services.regos_defaults import _extract_currency_reference, _normalize_option
 from app.services import regos_fields as regos_fields_service
@@ -46,6 +47,9 @@ async def complete_checkout(
     perms = permissions or set()
     _validate_sale_restrictions(payload, perms)
     session_overrides = _extract_session_overrides(payload, perms)
+    await _assert_partner_override_allowed(
+        session, company_id, user_id, session_overrides.get("partner_id")
+    )
     defaults = await regos_defaults_service.apply_regos_session_overrides(
         session,
         company_id,
@@ -93,6 +97,9 @@ async def complete_checkout(
             payload,
             wholesale_doc_id=payload.get("wholesale_doc_id"),
             payments_input=payments_input,
+            keypad_update_discounted_price_only=bool(
+                pos_settings.get("keypad_update_discounted_price_only", False)
+            ),
         )
 
         document_type_id = await regos_defaults_service.get_doc_wholesale_document_type_id(
@@ -211,6 +218,9 @@ async def postpone_sale(
     perms = permissions or set()
     _validate_sale_restrictions(payload, perms)
     session_overrides = _extract_session_overrides(payload, perms)
+    await _assert_partner_override_allowed(
+        session, company_id, user_id, session_overrides.get("partner_id")
+    )
     defaults = await regos_defaults_service.apply_regos_session_overrides(
         session,
         company_id,
@@ -235,6 +245,9 @@ async def postpone_sale(
         )
         company_pos = await pos_settings_service.get_pos_settings(session, company_id)
         postpone_doc_type = company_pos.get("postpone_document_type", "doc_wholesale")
+        keypad_update_discounted_price_only = bool(
+            company_pos.get("keypad_update_discounted_price_only", False)
+        )
         if postpone_doc_type == "doc_order_from_partner":
             document_type = "doc_order_from_partner"
             doc_id, lines, subtotal, discount, total = await _upsert_order_from_partner_draft(
@@ -244,6 +257,7 @@ async def postpone_sale(
                 payload,
                 wholesale_doc_id=payload.get("wholesale_doc_id"),
                 booked=bool(company_pos.get("postpone_order_booked", True)),
+                keypad_update_discounted_price_only=keypad_update_discounted_price_only,
             )
         else:
             doc_id, lines, subtotal, discount, total = await _upsert_wholesale_draft(
@@ -252,6 +266,7 @@ async def postpone_sale(
                 defaults,
                 payload,
                 wholesale_doc_id=payload.get("wholesale_doc_id"),
+                keypad_update_discounted_price_only=keypad_update_discounted_price_only,
             )
         return {
             "wholesale_doc_id": doc_id,
@@ -1049,6 +1064,9 @@ async def complete_wholesale_return(
         payload, perms, is_sale_linked=not is_manual
     )
     partner_override_id = session_overrides.pop("partner_id", None)
+    await _assert_partner_override_allowed(
+        session, company_id, user_id, partner_override_id
+    )
 
     defaults = await regos_defaults_service.get_regos_defaults(
         session, company_id, user_id=user_id
@@ -1344,6 +1362,7 @@ def _validate_checkout_cart(
     *,
     document_currency: dict[str, Any] | None = None,
     source_currency: dict[str, Any] | None = None,
+    keypad_update_discounted_price_only: bool = False,
 ) -> tuple[list[dict[str, Any]], float, float, float]:
     items = payload["items"]
     discount = float(payload.get("discount") or 0)
@@ -1359,6 +1378,7 @@ def _validate_checkout_cart(
         subtotal,
         document_currency=document_currency,
         source_currency=source_currency,
+        keypad_update_discounted_price_only=keypad_update_discounted_price_only,
     )
     expected_total = round(subtotal - discount, 2)
     if abs(expected_total - total) > 0.02:
@@ -1454,6 +1474,7 @@ async def _upsert_wholesale_draft(
     *,
     wholesale_doc_id: int | None = None,
     payments_input: list[dict[str, Any]] | None = None,
+    keypad_update_discounted_price_only: bool = False,
 ) -> tuple[int, list[dict[str, Any]], float, float, float]:
     document_defaults, source_currency = await _resolve_wholesale_document_defaults(
         session,
@@ -1465,6 +1486,7 @@ async def _upsert_wholesale_draft(
         payload,
         document_currency=document_defaults.get("currency"),
         source_currency=source_currency,
+        keypad_update_discounted_price_only=keypad_update_discounted_price_only,
     )
     description = payload.get("description")
     raw_doc_id = wholesale_doc_id if wholesale_doc_id is not None else payload.get("wholesale_doc_id")
@@ -1512,11 +1534,13 @@ async def _upsert_order_from_partner_draft(
     *,
     wholesale_doc_id: int | None = None,
     booked: bool = True,
+    keypad_update_discounted_price_only: bool = False,
 ) -> tuple[int, list[dict[str, Any]], float, float, float]:
     lines, subtotal, discount, total = _validate_checkout_cart(
         payload,
         document_currency=defaults.get("currency"),
         source_currency=None,
+        keypad_update_discounted_price_only=keypad_update_discounted_price_only,
     )
     description = payload.get("description")
     raw_doc_id = wholesale_doc_id if wholesale_doc_id is not None else payload.get("wholesale_doc_id")
@@ -1582,6 +1606,7 @@ def _build_operation_lines(
     *,
     document_currency: dict[str, Any] | None = None,
     source_currency: dict[str, Any] | None = None,
+    keypad_update_discounted_price_only: bool = False,
 ) -> list[dict[str, Any]]:
     discount_ratio = (discount / subtotal) if subtotal > 0 and discount > 0 else 0
     document_rate = parse_exchange_rate(
@@ -1600,8 +1625,14 @@ def _build_operation_lines(
     lines: list[dict[str, Any]] = []
     for item in items:
         qty = float(item["qty"])
-        list_price = float(item["price"])
-        actual_price = round(list_price * (1 - discount_ratio), 2)
+        submitted_price = float(item["price"])
+        raw_price2 = item.get("price2")
+        if keypad_update_discounted_price_only and raw_price2 is not None:
+            list_price = float(raw_price2)
+            actual_price = round(submitted_price * (1 - discount_ratio), 2)
+        else:
+            list_price = submitted_price
+            actual_price = round(list_price * (1 - discount_ratio), 2)
         if convert_prices:
             list_price = convert_between_rates(list_price, source_rate, document_rate)
             actual_price = convert_between_rates(actual_price, source_rate, document_rate)
@@ -2039,6 +2070,19 @@ async def _validate_cart_item_prices(
         catalog_price = round(catalog_by_id.get(item_id, submitted_price), 2)
         if abs(submitted_price - catalog_price) > 0.02:
             raise forbidden("Missing permission: pos.modify_price", "FORBIDDEN")
+
+
+async def _assert_partner_override_allowed(
+    session: AsyncSession,
+    company_id: int,
+    user_id: int,
+    partner_id: int | None,
+) -> None:
+    if partner_id is None:
+        return
+    await category_scope_service.assert_partner_in_allowed_groups(
+        session, company_id, user_id, partner_id
+    )
 
 
 def _extract_session_overrides(

@@ -6,6 +6,7 @@ from httpx import AsyncClient
 from app.services import regos_defaults as regos_defaults_service
 from app.schemas.settings import RegosReferenceOptionsResponse
 from app.services.regos_sales import (
+    _build_operation_lines,
     operative_operation_price,
     wholesale_operation_price_fields,
 )
@@ -25,12 +26,22 @@ def test_reference_options_response_preserves_price_type_currency() -> None:
                     "exchange_rate": 12500,
                 },
             }
-        ]
+        ],
+        partners=[{"id": 1, "name": "Supplier", "group_id": 4}],
     )
 
     assert response.price_types[0].currency is not None
     assert response.price_types[0].currency.code_chr == "USD"
     assert response.price_types[0].currency.exchange_rate == 12500
+    assert response.partners[0].group_id == 4
+
+
+def test_map_reference_item_includes_partner_group_id() -> None:
+    mapped = regos_defaults_service._map_reference_item(
+        {"id": 1, "name": "Acme", "group": {"id": 4, "name": "Suppliers"}},
+        "partner",
+    )
+    assert mapped == {"id": 1, "name": "Acme", "group_id": 4}
 
 
 def test_wholesale_operation_price_fields_follow_regos_api_semantics() -> None:
@@ -43,6 +54,50 @@ def test_wholesale_operation_price_fields_follow_regos_api_semantics() -> None:
     fields = wholesale_operation_price_fields(90.0, 100.0, currency=uzs)
     assert fields["price"] == 90.0
     assert fields["price2"] == 100.0
+
+
+def test_build_operation_lines_preserves_price2_when_keypad_setting_on() -> None:
+    lines = _build_operation_lines(
+        [{"regos_item_id": 1, "qty": 1, "price": 80, "price2": 100}],
+        0,
+        80,
+        keypad_update_discounted_price_only=True,
+    )
+    assert lines[0]["price"] == 80
+    assert lines[0]["price2"] == 100
+
+
+def test_build_operation_lines_applies_cart_discount_to_price_only_when_keypad_setting_on() -> None:
+    lines = _build_operation_lines(
+        [{"regos_item_id": 1, "qty": 1, "price": 80, "price2": 100}],
+        8,
+        80,
+        keypad_update_discounted_price_only=True,
+    )
+    assert lines[0]["price"] == 72
+    assert lines[0]["price2"] == 100
+
+
+def test_build_operation_lines_ignores_price2_when_keypad_setting_off() -> None:
+    lines = _build_operation_lines(
+        [{"regos_item_id": 1, "qty": 1, "price": 80, "price2": 100}],
+        0,
+        80,
+        keypad_update_discounted_price_only=False,
+    )
+    assert lines[0]["price"] == 80
+    assert lines[0]["price2"] == 80
+
+
+def test_build_operation_lines_falls_back_when_price2_missing() -> None:
+    lines = _build_operation_lines(
+        [{"regos_item_id": 1, "qty": 1, "price": 80}],
+        0,
+        80,
+        keypad_update_discounted_price_only=True,
+    )
+    assert lines[0]["price"] == 80
+    assert lines[0]["price2"] == 80
 
 
 def test_operative_operation_price_uses_document_currency_price() -> None:

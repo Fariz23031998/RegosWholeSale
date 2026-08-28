@@ -16,6 +16,7 @@ class SettingsPatchRequest(BaseModel):
 class RegosDefaultOption(BaseModel):
     id: int = Field(ge=1)
     name: str
+    group_id: int | None = None
 
 
 class RegosCurrencyOption(BaseModel):

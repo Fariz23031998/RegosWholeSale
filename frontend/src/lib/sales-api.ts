@@ -2,9 +2,11 @@ import { apiRequest } from "@/lib/api";
 import { serializeDashboardQueryParams } from "@/lib/dashboard-api";
 import type { RegosCurrencyOption } from "@/types/settings";
 
-export type CheckoutItemRequest = {  regos_item_id: number;
+export type CheckoutItemRequest = {
+  regos_item_id: number;
   qty: number;
   price: number;
+  price2?: number;
 };
 
 export type CheckoutPaymentLineRequest = {

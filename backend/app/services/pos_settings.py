@@ -107,6 +107,13 @@ def _merge_pos_settings(
     else:
         merged["search_fuzzy"] = bool(company_settings.get("search_fuzzy", True))
 
+    merged["allowed_product_group_ids"] = _normalize_id_list(
+        user_overrides.get("allowed_product_group_ids")
+    )
+    merged["allowed_partner_group_ids"] = _normalize_id_list(
+        user_overrides.get("allowed_partner_group_ids")
+    )
+
     return merged
 
 
@@ -126,6 +133,11 @@ def _apply_company_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> 
 
     if patch.get("auto_open_qty_keypad") is not None:
         updated["auto_open_qty_keypad"] = bool(patch["auto_open_qty_keypad"])
+
+    if patch.get("keypad_update_discounted_price_only") is not None:
+        updated["keypad_update_discounted_price_only"] = bool(
+            patch["keypad_update_discounted_price_only"]
+        )
 
     if patch.get("search_transliteration") is not None:
         updated["search_transliteration"] = bool(patch["search_transliteration"])
@@ -202,6 +214,16 @@ def _apply_user_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> dic
     if patch.get("search_fuzzy") is not None:
         updated["search_fuzzy"] = bool(patch["search_fuzzy"])
 
+    if "allowed_product_group_ids" in patch:
+        updated["allowed_product_group_ids"] = _normalize_id_list(
+            patch.get("allowed_product_group_ids")
+        )
+
+    if "allowed_partner_group_ids" in patch:
+        updated["allowed_partner_group_ids"] = _normalize_id_list(
+            patch.get("allowed_partner_group_ids")
+        )
+
     return updated
 
 
@@ -214,6 +236,9 @@ def _normalize_company_pos_settings(raw: Any) -> dict[str, Any]:
         ),
         "default_category": _normalize_default_category(data.get("default_category")),
         "auto_open_qty_keypad": bool(data.get("auto_open_qty_keypad", False)),
+        "keypad_update_discounted_price_only": bool(
+            data.get("keypad_update_discounted_price_only", False)
+        ),
         "search_transliteration": bool(data.get("search_transliteration", True)),
         "search_fuzzy": bool(data.get("search_fuzzy", True)),
         "cross_currency_payment_mode": _normalize_cross_currency_payment_mode(
@@ -268,6 +293,21 @@ def _normalize_default_category(raw: Any) -> dict[str, Any]:
         group_id = None
 
     return {"mode": mode, "group_id": group_id}
+
+
+def _normalize_id_list(raw: Any) -> list[int]:
+    if not isinstance(raw, list):
+        return []
+
+    seen: set[int] = set()
+    result: list[int] = []
+    for item in raw:
+        value = _normalize_optional_positive_id(item)
+        if value is None or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
 
 
 def _normalize_optional_positive_id(raw: Any) -> int | None:

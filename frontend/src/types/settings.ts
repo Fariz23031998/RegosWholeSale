@@ -8,6 +8,7 @@ export type RegosCurrencyOption = {
 export type RegosDefaultOption = {
   id: number;
   name: string;
+  group_id?: number | null;
 };
 
 export type RegosPriceTypeOption = RegosDefaultOption & {
@@ -161,6 +162,7 @@ export type PosSettings = {
   tendered_quick_amounts: number[];
   default_category: DefaultCategorySetting;
   auto_open_qty_keypad: boolean;
+  keypad_update_discounted_price_only: boolean;
   search_transliteration: boolean;
   search_fuzzy: boolean;
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
@@ -183,6 +185,7 @@ export type PosSettingsPatchRequest = {
   tendered_quick_amounts?: number[];
   default_category?: DefaultCategorySetting;
   auto_open_qty_keypad?: boolean;
+  keypad_update_discounted_price_only?: boolean;
   search_transliteration?: boolean;
   search_fuzzy?: boolean;
   cross_currency_payment_mode?: CrossCurrencyPaymentMode;
@@ -201,6 +204,7 @@ export type UserPosSettings = {
   tendered_quick_amounts: number[];
   default_category: DefaultCategorySetting;
   auto_open_qty_keypad: boolean;
+  keypad_update_discounted_price_only: boolean;
   search_transliteration: boolean;
   search_fuzzy: boolean;
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
@@ -208,6 +212,8 @@ export type UserPosSettings = {
   internal_barcode_piece_prefix: string;
   postpone_document_type: PostponeDocumentType;
   postpone_order_booked: boolean;
+  allowed_product_group_ids: number[];
+  allowed_partner_group_ids: number[];
 };
 
 export type UserPosSettingsResponse = {
@@ -221,6 +227,8 @@ export type UserPosSettingsPatchRequest = {
   auto_open_qty_keypad?: boolean;
   search_transliteration?: boolean;
   search_fuzzy?: boolean;
+  allowed_product_group_ids?: number[];
+  allowed_partner_group_ids?: number[];
 };
 
 type TranslateFn = (

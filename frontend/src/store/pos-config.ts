@@ -20,6 +20,7 @@ type PosConfigState = {
   allowOutOfStock: boolean;
   tenderedQuickAmounts: number[];
   autoOpenQtyKeypad: boolean;
+  keypadUpdateDiscountedPriceOnly: boolean;
   searchTransliteration: boolean;
   searchFuzzy: boolean;
   crossCurrencyPaymentMode: CrossCurrencyPaymentMode;
@@ -28,6 +29,8 @@ type PosConfigState = {
   postponeDocumentType: PostponeDocumentType;
   postponeOrderBooked: boolean;
   defaultCategory: DefaultCategorySetting;
+  allowedProductGroupIds: number[];
+  allowedPartnerGroupIds: number[];
   hydrated: boolean;
   hydrate: (token: string | null, options?: HydrateOptions) => Promise<void>;
 };
@@ -42,6 +45,7 @@ function applyPosSettings(settings: UserPosSettings) {
     allowOutOfStock: settings.allow_out_of_stock,
     tenderedQuickAmounts: amounts.length > 0 ? amounts : DEFAULT_TENDERED_QUICK_AMOUNTS,
     autoOpenQtyKeypad: settings.auto_open_qty_keypad,
+    keypadUpdateDiscountedPriceOnly: settings.keypad_update_discounted_price_only ?? false,
     searchTransliteration: settings.search_transliteration ?? true,
     searchFuzzy: settings.search_fuzzy ?? true,
     crossCurrencyPaymentMode: settings.cross_currency_payment_mode ?? "payment_currency",
@@ -50,6 +54,8 @@ function applyPosSettings(settings: UserPosSettings) {
     postponeDocumentType: settings.postpone_document_type ?? "doc_wholesale",
     postponeOrderBooked: settings.postpone_order_booked ?? true,
     defaultCategory: settings.default_category,
+    allowedProductGroupIds: settings.allowed_product_group_ids ?? [],
+    allowedPartnerGroupIds: settings.allowed_partner_group_ids ?? [],
   };
 }
 
@@ -58,6 +64,7 @@ function defaultPosConfigState() {
     allowOutOfStock: false,
     tenderedQuickAmounts: DEFAULT_TENDERED_QUICK_AMOUNTS,
     autoOpenQtyKeypad: false,
+    keypadUpdateDiscountedPriceOnly: false,
     searchTransliteration: true,
     searchFuzzy: true,
     crossCurrencyPaymentMode: "payment_currency" as CrossCurrencyPaymentMode,
@@ -66,6 +73,8 @@ function defaultPosConfigState() {
     postponeDocumentType: "doc_wholesale" as PostponeDocumentType,
     postponeOrderBooked: true,
     defaultCategory: DEFAULT_CATEGORY_ALL,
+    allowedProductGroupIds: [] as number[],
+    allowedPartnerGroupIds: [] as number[],
   };
 }
 

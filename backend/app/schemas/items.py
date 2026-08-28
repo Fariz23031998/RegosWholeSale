@@ -86,3 +86,7 @@ class ItemCreateResponse(BaseModel):
 
 class ItemMutationResponse(BaseModel):
     row_affected: int = Field(ge=0)
+
+
+class BarcodeGenerateResponse(BaseModel):
+    value: str = Field(min_length=1, max_length=64)

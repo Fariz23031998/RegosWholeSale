@@ -14,6 +14,7 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     assert initial.status_code == 200
     assert initial.json()["settings"]["allow_out_of_stock"] is False
     assert initial.json()["settings"]["auto_open_qty_keypad"] is False
+    assert initial.json()["settings"]["keypad_update_discounted_price_only"] is False
     assert initial.json()["settings"]["search_transliteration"] is True
     assert initial.json()["settings"]["search_fuzzy"] is True
     assert initial.json()["settings"]["cross_currency_payment_mode"] == "payment_currency"
@@ -36,6 +37,7 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
         headers=headers,
         json={
             "allow_out_of_stock": True,
+            "keypad_update_discounted_price_only": True,
             "tendered_quick_amounts": [10000, 50000, 200000],
             "cross_currency_payment_mode": "sale_currency_transfer",
             "default_category": {"mode": "featured", "group_id": None},
@@ -43,6 +45,7 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     )
     assert patched.status_code == 200
     assert patched.json()["settings"]["allow_out_of_stock"] is True
+    assert patched.json()["settings"]["keypad_update_discounted_price_only"] is True
     assert patched.json()["settings"]["cross_currency_payment_mode"] == "sale_currency_transfer"
     assert patched.json()["settings"]["default_category"]["mode"] == "featured"
     assert patched.json()["settings"]["tendered_quick_amounts"] == [
@@ -53,11 +56,16 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
 
     fetched = await client.get("/api/v1/company/settings/pos", headers=headers)
     assert fetched.json()["settings"]["allow_out_of_stock"] is True
+    assert fetched.json()["settings"]["keypad_update_discounted_price_only"] is True
     assert fetched.json()["settings"]["tendered_quick_amounts"] == [
         10000.0,
         50000.0,
         200000.0,
     ]
+
+    effective = await client.get("/api/v1/me/settings/pos", headers=headers)
+    assert effective.status_code == 200
+    assert effective.json()["settings"]["keypad_update_discounted_price_only"] is True
 
 
 @pytest.mark.asyncio

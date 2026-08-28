@@ -14,6 +14,8 @@ export type CatalogQuery = {
   featuredOnly?: boolean;
   /** Regos item IDs for the Featured category; required when featuredOnly is true. */
   featuredProductIds?: number[];
+  /** Expanded product group IDs the user may work with; empty/omitted = unrestricted. */
+  allowedGroupIds?: number[];
   warehouseId?: number;
   priceTypeId?: number;
   sort?: CatalogSort;
@@ -500,6 +502,10 @@ export function filterAndSortCachedProducts(
   }
 
   // 2. Group filtering
+  if (query.allowedGroupIds && query.allowedGroupIds.length > 0) {
+    const allowed = new Set(query.allowedGroupIds);
+    filtered = filtered.filter((p) => p.group_id != null && allowed.has(p.group_id));
+  }
   if (query.groupId) {
     filtered = filtered.filter((p) => p.group_id === query.groupId);
   }

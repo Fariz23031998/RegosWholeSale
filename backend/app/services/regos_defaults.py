@@ -844,6 +844,13 @@ def _map_reference_item(item: dict[str, Any], kind: str) -> dict[str, Any]:
         currency = _extract_currency_reference(item, "currency")
         if currency:
             mapped["currency"] = currency
+    if kind == "partner":
+        group = item.get("group") if isinstance(item.get("group"), dict) else {}
+        group_id = group.get("id")
+        if not isinstance(group_id, int) or group_id < 0:
+            raw_group_id = item.get("group_id")
+            group_id = raw_group_id if isinstance(raw_group_id, int) and raw_group_id >= 0 else 0
+        mapped["group_id"] = group_id
     return mapped
 
 

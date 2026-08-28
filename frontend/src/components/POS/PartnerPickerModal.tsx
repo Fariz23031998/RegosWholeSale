@@ -6,6 +6,8 @@ import { PartnerBalanceModal } from "@/components/POS/PartnerBalanceModal";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { formatAuthError, useAuth } from "@/store/auth";
+import { usePosConfig } from "@/store/pos-config";
+import { filterPartnerGroups, isPartnerInScope } from "@/lib/category-scope";
 import {
   createPartner,
   deleteMarkPartner,
@@ -54,6 +56,7 @@ export function PartnerPickerModal({
   onPartnersChanged,
 }: Props) {
   const { t } = useLanguage();
+  const allowedPartnerGroupIds = usePosConfig((s) => s.allowedPartnerGroupIds);
   const [view, setView] = useState<View>("list");
   const [search, setSearch] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
@@ -221,9 +224,15 @@ export function PartnerPickerModal({
     };
   }, [open, loadGroups, loadPartnersFromDb]);
 
+  const visibleGroups = useMemo(
+    () => filterPartnerGroups(groups, allowedPartnerGroupIds),
+    [allowedPartnerGroupIds, groups],
+  );
+
   const filteredPartners = useMemo(() => {
     const q = search.trim().toLowerCase();
     return partners.filter((p) => {
+      if (!isPartnerInScope(p, allowedPartnerGroupIds)) return false;
       if (groupFilterId != null && p.group_id !== groupFilterId) return false;
       if (!q) return true;
       return (
@@ -234,7 +243,7 @@ export function PartnerPickerModal({
         (p.boss_name && p.boss_name.toLowerCase().includes(q))
       );
     });
-  }, [groupFilterId, partners, search]);
+  }, [allowedPartnerGroupIds, groupFilterId, partners, search]);
 
   useEffect(() => {
     if (!open || view !== "list") return;
@@ -242,13 +251,25 @@ export function PartnerPickerModal({
     void loadGroups();
   }, [groups.length, loadGroups, open, view]);
 
+  useEffect(() => {
+    if (!groupFilterReady) return;
+    if (allowedPartnerGroupIds.length === 0) return;
+    if (groupFilterId != null && !allowedPartnerGroupIds.includes(groupFilterId)) {
+      setGroupFilterId(null);
+      if (companyId) {
+        void savePartnerGroupFilter(companyId, null).catch(() => undefined);
+      }
+    }
+  }, [allowedPartnerGroupIds, companyId, groupFilterId, groupFilterReady]);
+
   const openCreateForm = async () => {
     setError("");
     const loadedGroups = groups.length ? groups : await loadGroups();
+    const scoped = filterPartnerGroups(loadedGroups, allowedPartnerGroupIds);
     setEditingPartner(null);
     setForm({
       ...EMPTY_PARTNER_FORM,
-      group_id: loadedGroups[0] ? String(loadedGroups[0].id) : "",
+      group_id: scoped[0] ? String(scoped[0].id) : "",
     });
     setView("form");
   };
@@ -393,7 +414,7 @@ export function PartnerPickerModal({
               aria-label={t("partners.groupFilterAria", "Filter by group")}
             >
               <option value="">{t("partners.groupFilterAll", "All groups")}</option>
-              {groups.map((group) => (
+              {visibleGroups.map((group) => (
                 <option key={group.id} value={group.id}>
                   {group.name}
                 </option>
@@ -513,7 +534,7 @@ export function PartnerPickerModal({
                 <option value="" disabled>
                   {t("partners.form.selectGroup", "Select group")}
                 </option>
-                {groups.map((group) => (
+                {visibleGroups.map((group) => (
                   <option key={group.id} value={group.id}>
                     {group.name}
                   </option>

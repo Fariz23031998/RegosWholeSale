@@ -204,6 +204,28 @@ describe("receipt context builder", () => {
     expect(context.sale.total).toBe(89900);
   });
 
+  it("uses listPrice for draft price2 when keypad preserves list price", () => {
+    const context = buildPrintContextFromCartDraft({
+      items: [
+        {
+          productId: "p1",
+          regosItemId: 42,
+          name: "Brake Pad Set",
+          price: 80,
+          listPrice: 100,
+          qty: 1,
+        },
+      ],
+      totals: { subtotal: 80, discount: 0, total: 80 },
+      catalogProducts: [],
+      saleCurrency: null,
+      keypadUpdateDiscountedPriceOnly: true,
+    });
+
+    expect(context.operations[0]?.price).toBe(80);
+    expect(context.operations[0]?.price2).toBe(100);
+  });
+
   it("builds checkout cart lines from catalog products", () => {
     const catalogProducts: Product[] = [
       {

@@ -1,5 +1,7 @@
 import type { ApiErrorBody, ApiValidationError } from "@/types/auth";
 
+const DEV_API_BASE_URL = "http://localhost:8000";
+
 function normalizeConfiguredApiBaseUrl(): string {
   const raw = import.meta.env.VITE_API_BASE_URL;
   if (typeof raw !== "string") return "";
@@ -11,10 +13,16 @@ function normalizeConfiguredApiBaseUrl(): string {
 export function getApiBaseUrl(): string {
   const configured = normalizeConfiguredApiBaseUrl();
   if (configured) return configured;
+  if (import.meta.env.DEV) return DEV_API_BASE_URL;
   if (typeof globalThis.location !== "undefined") {
     return globalThis.location.origin;
   }
   return "";
+}
+
+function looksLikeHtml(text: string): boolean {
+  const start = text.trimStart().slice(0, 15).toLowerCase();
+  return start.startsWith("<!doctype") || start.startsWith("<html");
 }
 
 function formatValidationError(item: ApiValidationError): string {
@@ -105,7 +113,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     try {
       data = JSON.parse(text);
     } catch {
-      data = { detail: text };
+      data = { detail: looksLikeHtml(text) ? res.statusText : text };
     }
   }
 
@@ -163,7 +171,7 @@ export async function apiUpload<T>(path: string, formData: FormData, options: Up
     try {
       data = JSON.parse(text);
     } catch {
-      data = { detail: text };
+      data = { detail: looksLikeHtml(text) ? res.statusText : text };
     }
   }
 

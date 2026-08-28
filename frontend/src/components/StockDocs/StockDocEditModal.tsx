@@ -5,6 +5,7 @@ import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
 import { StockDocDateTimeField } from "@/components/StockDocs/StockDocDateTimeField";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePermissions } from "@/hooks/use-permissions";
 import {
   updateStockDocument,
   type StockDocKind,
@@ -21,6 +22,7 @@ import {
   type InventoryCompareType,
 } from "@/lib/stock-doc-form";
 import { formatAuthError, useAuth } from "@/store/auth";
+import { useSellContext } from "@/store/sell-context";
 import type { Partner } from "@/types/partners";
 import {
   getVatCalculationTypeOptions,
@@ -54,6 +56,11 @@ export function StockDocEditModal({
   const def = getStockDocDefinition(kind);
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
+  const { canChangeWarehouse, canChangePriceType, canChangePartner } = usePermissions();
+  const defaultWarehouseId = useSellContext((s) => s.warehouseId);
+  const lockWarehouse = kind !== "movement" && !canChangeWarehouse();
+  const lockPriceType = !canChangePriceType();
+  const lockPartner = !canChangePartner();
   const needsPriceType =
     kind === "purchase" || kind === "inventory" || kind === "return_to_partner";
   const needsCurrencyVat = kind === "purchase" || kind === "return_to_partner";
@@ -77,6 +84,11 @@ export function StockDocEditModal({
       : "open_date";
 
   const [partnerId, setPartnerId] = useState(document.partner_id ?? partners[0]?.id ?? 0);
+  const [partnerName, setPartnerName] = useState(
+    document.partner_name ??
+      partners.find((partner) => partner.id === (document.partner_id ?? partners[0]?.id))?.name ??
+      null,
+  );
   const [partnerPickerOpen, setPartnerPickerOpen] = useState(false);
   const [stockId, setStockId] = useState(document.stock_id ?? warehouses[0]?.id ?? 0);
   const [senderId, setSenderId] = useState(
@@ -109,14 +121,13 @@ export function StockDocEditModal({
     () => priceTypes.find((p) => p.id === priceTypeId) ?? null,
     [priceTypeId, priceTypes],
   );
-  const selectedPartnerName = useMemo(
-    () =>
-      partners.find((partner) => partner.id === partnerId)?.name ??
-      (document.partner_id === partnerId ? document.partner_name : null),
-    [document.partner_id, document.partner_name, partnerId, partners],
-  );
+  const selectedPartnerName =
+    partnerName ??
+    partners.find((partner) => partner.id === partnerId)?.name ??
+    (document.partner_id === partnerId ? document.partner_name : null);
   const handlePartnerSelect = (partner: Partner) => {
     setPartnerId(partner.id);
+    setPartnerName(partner.name);
   };
   const currencyLabel = selectedPriceType?.currency
     ? selectedPriceType.currency.code_chr || selectedPriceType.currency.name
@@ -144,6 +155,22 @@ export function StockDocEditModal({
       !document.currency?.id
     ) {
       setError(t("stock.errors.currencyRequired", "Selected price type has no currency"));
+      return;
+    }
+    if (
+      kind === "movement" &&
+      !canChangeWarehouse() &&
+      defaultWarehouseId != null &&
+      defaultWarehouseId > 0 &&
+      senderId !== defaultWarehouseId &&
+      receiverId !== defaultWarehouseId
+    ) {
+      setError(
+        t(
+          "stock.errors.movementWarehouseScope",
+          "At least one warehouse must be your default warehouse",
+        ),
+      );
       return;
     }
 
@@ -221,6 +248,7 @@ export function StockDocEditModal({
               <select
                 value={senderId}
                 onChange={(e) => setSenderId(Number(e.target.value))}
+                disabled={busy}
               >
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
@@ -234,6 +262,7 @@ export function StockDocEditModal({
               <select
                 value={receiverId}
                 onChange={(e) => setReceiverId(Number(e.target.value))}
+                disabled={busy}
               >
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
@@ -251,8 +280,11 @@ export function StockDocEditModal({
                 <button
                   type="button"
                   className={styles.partnerPickerButton}
-                  onClick={() => setPartnerPickerOpen(true)}
-                  disabled={busy}
+                  onClick={() => {
+                    if (lockPartner) return;
+                    setPartnerPickerOpen(true);
+                  }}
+                  disabled={busy || lockPartner}
                 >
                   <span>
                     {selectedPartnerName ??
@@ -264,7 +296,11 @@ export function StockDocEditModal({
             )}
             <div className={styles.formField}>
               <label>{t("stock.table.warehouse", "Warehouse")}</label>
-              <select value={stockId} onChange={(e) => setStockId(Number(e.target.value))}>
+              <select
+                value={stockId}
+                onChange={(e) => setStockId(Number(e.target.value))}
+                disabled={busy || lockWarehouse}
+              >
                 {warehouses.map((w) => (
                   <option key={w.id} value={w.id}>
                     {w.name}
@@ -293,6 +329,7 @@ export function StockDocEditModal({
             <select
               value={priceTypeId}
               onChange={(e) => setPriceTypeId(Number(e.target.value))}
+              disabled={busy || lockPriceType}
             >
               {priceTypes.length === 0 ? (
                 <option value={0}>{t("common.nothing", "Nothing found")}</option>
@@ -405,7 +442,7 @@ export function StockDocEditModal({
           {t("common.save", "Save")}
         </Button>
       </div>
-      {token && def.supportsPartnerFilter ? (
+      {token && def.supportsPartnerFilter && !lockPartner ? (
         <PartnerPickerModal
           open={partnerPickerOpen}
           onClose={() => setPartnerPickerOpen(false)}
