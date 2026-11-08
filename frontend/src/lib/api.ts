@@ -10,7 +10,16 @@ function normalizeConfiguredApiBaseUrl(): string {
   return trimmed.replace(/\/$/, "");
 }
 
+function isLocalHostname(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1" || hostname === "[::1]";
+}
+
 export function getApiBaseUrl(): string {
+  // Telegram opens the Mini App on the public ngrok host. Same-origin /api
+  // is proxied to the local backend by the Vite dev server.
+  if (typeof window !== "undefined" && window.location?.hostname && !isLocalHostname(window.location.hostname)) {
+    return window.location.origin;
+  }
   const configured = normalizeConfiguredApiBaseUrl();
   if (configured) return configured;
   if (import.meta.env.DEV) return DEV_API_BASE_URL;

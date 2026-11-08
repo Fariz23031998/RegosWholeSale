@@ -207,6 +207,27 @@ def test_format_payment_notification_includes_partner_firm_category():
     assert "Exchange rate: 160.53" in message
 
 
+def test_format_payment_notification_for_partner_omits_staff_and_partner_name():
+    message = format_payment_notification(
+        {
+            "code": "PAY-2",
+            "date": 1700000000,
+            "amount": 280.01,
+            "type": {"name": "Rubl"},
+            "partner": {"name": "Acme LLC"},
+            "firm": {"name": "My Firm"},
+            "category": {"positive": True, "name": "Supplier payment"},
+            **ATTACHED_USER_DOC,
+        },
+        lang="en",
+        for_partner=True,
+    )
+    assert "Partner: Acme LLC" not in message
+    assert "User: Cashier One" not in message
+    assert "Firm: My Firm" in message
+    assert "Paid out" in message
+
+
 def test_format_inout_receipt_includes_attached_user():
     message = format_inout_receipt(
         {"code": "IN-1", "date": 1700000000, "inout_type": 1, **ATTACHED_USER_DOC},

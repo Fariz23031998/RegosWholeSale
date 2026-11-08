@@ -19,6 +19,8 @@ from app.models import (  # noqa: F401
     UserSetting,
     VerificationCode,
     RegosToken,
+    PartnerTelegramAccount,
+    PartnerTelegramBot,
     TelegramBot,
     TelegramUser,
     OutOfStockProduct,

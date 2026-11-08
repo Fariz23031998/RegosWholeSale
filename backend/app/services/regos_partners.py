@@ -224,7 +224,7 @@ def _map_partner(row: dict[str, Any]) -> dict[str, Any]:
         "group_name": _coerce_text(group.get("name")),
         "boss_name": _coerce_text(row.get("boss_name")),
         "address": _coerce_text(row.get("address")),
-        "phones": _coerce_text(row.get("phones")),
+        "phones": _coerce_phones(row.get("phones")),
         "email": _coerce_text(row.get("email")),
         "description": _coerce_text(row.get("description")),
         "inn": _coerce_text(row.get("inn")),
@@ -252,3 +252,17 @@ def _coerce_text(value: Any) -> str | None:
         text = value.strip()
         return text or None
     return None
+
+
+def _coerce_phones(value: Any) -> str | None:
+    """Regos sometimes returns a bare national number as JSON, not a string."""
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    if isinstance(value, list):
+        parts = [part for part in (_coerce_phones(item) for item in value) if part]
+        return ", ".join(parts) or None
+    return _coerce_text(value)

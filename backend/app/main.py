@@ -52,6 +52,9 @@ async def lifespan(_app: FastAPI):
     try:
         async with async_session_factory() as session:
             await telegram_service.sync_all_bot_webhooks(session)
+            from app.services import partner_telegram as partner_telegram_service
+
+            await partner_telegram_service.sync_all_bot_webhooks(session)
     except Exception:
         logger.warning("Telegram webhook startup sync failed", exc_info=True)
     if regos_oauth_configured():

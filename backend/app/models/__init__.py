@@ -8,6 +8,12 @@ from app.models.subscription_payment import SubscriptionPayment
 from app.models.user import User, UserRole
 from app.models.user_setting import UserSetting
 from app.models.regos_token import RegosToken
+from app.models.partner_telegram import (
+    PartnerTelegramAccount,
+    PartnerTelegramBot,
+    PartnerTelegramLinkState,
+    PartnerTelegramPasswordCode,
+)
 from app.models.telegram_bot import TelegramBot
 from app.models.telegram_user import TelegramUser
 from app.models.user_featured_product import UserFeaturedProduct
@@ -31,6 +37,10 @@ __all__ = [
     "OutOfStockProduct",
     "VerificationCode",
     "RegosToken",
+    "PartnerTelegramAccount",
+    "PartnerTelegramBot",
+    "PartnerTelegramLinkState",
+    "PartnerTelegramPasswordCode",
     "TelegramBot",
     "TelegramUser",
     "ReceiptShare",

@@ -36,6 +36,17 @@ def create_access_token(
     return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
 
 
+def create_partner_telegram_token(*, account_id: int, company_id: int) -> str:
+    expire = datetime.now(UTC) + timedelta(hours=12)
+    payload: dict[str, Any] = {
+        "sub": str(account_id),
+        "typ": "partner_telegram",
+        "company_id": company_id,
+        "exp": expire,
+    }
+    return jwt.encode(payload, settings.secret_key, algorithm=settings.algorithm)
+
+
 def create_platform_access_token(*, admin_id: int) -> str:
     expire = datetime.now(UTC) + timedelta(minutes=settings.access_token_expire_minutes)
     payload: dict[str, Any] = {

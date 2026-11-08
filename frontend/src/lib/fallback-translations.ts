@@ -65,6 +65,7 @@ export const FALLBACK_TRANSLATIONS: Record<string, string> = {
   "nav.dashboard": "Reports",
   "nav.users": "Users",
   "nav.telegramUsers": "Telegram users",
+  "nav.partnerTelegram": "Partner Telegram",
   "nav.settings": "Settings",
   "nav.signOut": "Sign out",
   "nav.openMenu": "Open menu",

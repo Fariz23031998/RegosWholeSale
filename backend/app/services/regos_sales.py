@@ -1877,6 +1877,29 @@ async def _finish_order_from_partner_document(
         await _regos_call(session, company_id, "docorderfrompartner/unlock", {"ids": [doc_id]})
 
 
+async def create_booked_partner_order(
+    session: AsyncSession,
+    company_id: int,
+    defaults: dict[str, Any],
+    description: str | None,
+    lines: list[dict[str, Any]],
+) -> dict[str, Any]:
+    order_doc = await _add_order_from_partner_document(
+        session,
+        company_id,
+        defaults,
+        description,
+        booked=True,
+    )
+    doc_id = int(order_doc["id"])
+    await _regos_call(session, company_id, "docorderfrompartner/lock", {"ids": [doc_id]})
+    try:
+        await _add_order_from_partner_operations(session, company_id, doc_id, lines)
+    finally:
+        await _regos_call(session, company_id, "docorderfrompartner/unlock", {"ids": [doc_id]})
+    return order_doc
+
+
 async def _add_order_from_partner_operations(
     session: AsyncSession,
     company_id: int,

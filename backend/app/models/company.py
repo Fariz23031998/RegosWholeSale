@@ -41,6 +41,12 @@ class Company(Base, TimestampMixin):
     telegram_users: Mapped[list["TelegramUser"]] = relationship(
         "TelegramUser", back_populates="company"
     )
+    partner_telegram_bot: Mapped["PartnerTelegramBot | None"] = relationship(
+        "PartnerTelegramBot", back_populates="company", uselist=False
+    )
+    partner_telegram_accounts: Mapped[list["PartnerTelegramAccount"]] = relationship(
+        "PartnerTelegramAccount", back_populates="company"
+    )
     subscription_payments: Mapped[list["SubscriptionPayment"]] = relationship(
         "SubscriptionPayment", back_populates="company", order_by="SubscriptionPayment.paid_at.desc()"
     )

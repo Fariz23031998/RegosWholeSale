@@ -178,6 +178,14 @@ async def process_payment_document(
                 build_message=build_message,
                 scope=scope_from_payment_document(document),
             )
+            from app.services import partner_telegram as partner_telegram_service
+
+            await partner_telegram_service.notify_partner_payment(
+                session,
+                company_id,
+                document,
+                is_cancelled=event_spec.is_cancelled,
+            )
 
         await _run_with_session(run)
     except Exception:

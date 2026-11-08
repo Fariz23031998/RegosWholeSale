@@ -1,0 +1,392 @@
+.shell {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  min-height: 100dvh;
+  background: var(--color-bg);
+  color: var(--color-text);
+}
+
+.compact {
+  grid-template-columns: 1fr;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 100dvh;
+  padding: var(--space-4);
+  background: var(--color-surface);
+  border-right: 1px solid var(--color-border);
+}
+
+.sidebarHeader,
+.brand,
+.sidebarFooter,
+.topBar,
+.toolbar,
+.dates,
+.filters,
+.loginTools {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.sidebarHeader,
+.brand {
+  justify-content: space-between;
+}
+
+.brand {
+  min-width: 0;
+  justify-content: flex-start;
+}
+
+.brandSub,
+.muted,
+.topTitle {
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.brandSub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+  overflow: auto;
+}
+
+.navLink,
+.chip,
+.chipOn,
+.textButton,
+.doc,
+.iconBtn,
+.menuBtn {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.navLink {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.navLink:hover,
+.chip:hover,
+.doc:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.navLinkActive,
+.chipOn {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.sidebarFooter {
+  margin-top: auto;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.main {
+  min-width: 0;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+.topBar {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.menuBtn,
+.iconBtn {
+  width: 36px;
+  height: 36px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.iconBtn {
+  display: none;
+}
+
+.content {
+  min-width: 0;
+  padding: var(--space-4);
+}
+
+.backdrop {
+  display: none;
+}
+
+.catalogLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: var(--space-4);
+  align-items: start;
+}
+
+.catalog,
+.cart,
+.page,
+.loginCard,
+.panel {
+  min-width: 0;
+}
+
+.cart,
+.loginCard,
+.panel,
+.product {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.cart,
+.loginCard,
+.panel,
+.page {
+  padding: var(--space-4);
+}
+
+.toolbar,
+.filters,
+.dates {
+  flex-wrap: wrap;
+  margin-bottom: var(--space-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  min-width: 160px;
+}
+
+.input,
+.qty {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: inherit;
+  padding: 10px 12px;
+  font: inherit;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: var(--space-3);
+}
+
+.product {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.product img,
+.productImage {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  background: var(--color-surface-2);
+}
+
+.productBody {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: var(--space-3);
+}
+
+.chip,
+.chipOn {
+  border-radius: 999px;
+  padding: 6px 12px;
+  border: 1px solid var(--color-border);
+}
+
+.line,
+.doc {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.doc {
+  width: 100%;
+  align-items: center;
+}
+
+.qty {
+  width: 84px;
+}
+
+.choice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0;
+}
+
+.textButton {
+  color: var(--color-primary);
+  padding: 0;
+  margin-bottom: var(--space-3);
+}
+
+.error {
+  color: var(--color-danger, #b42318);
+}
+
+.gate {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: var(--color-bg);
+}
+
+.loginCard {
+  width: min(420px, 100%);
+}
+
+.loginForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.loginTools {
+  justify-content: flex-end;
+  margin-bottom: var(--space-3);
+}
+
+.tableWrap {
+  overflow-x: auto;
+  margin-top: var(--space-3);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-subtle);
+}
+
+@media (max-width: 900px) {
+  .shell,
+  .compact {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    position: fixed;
+    z-index: 50;
+    top: 0;
+    left: 0;
+    width: min(280px, 88vw);
+    transform: translateX(-105%);
+    transition: transform 0.2s ease;
+  }
+
+  .sidebarOpen {
+    transform: translateX(0);
+  }
+
+  .menuBtn,
+  .iconBtn {
+    display: inline-flex;
+  }
+
+  .backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    border: 0;
+    background: var(--color-overlay);
+  }
+
+  .catalogLayout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.compact .sidebar {
+  position: fixed;
+  z-index: 50;
+  top: 0;
+  left: 0;
+  width: min(280px, 88vw);
+  transform: translateX(-105%);
+  transition: transform 0.2s ease;
+}
+
+.compact .sidebarOpen {
+  transform: translateX(0);
+}
+
+.compact .menuBtn,
+.compact .iconBtn {
+  display: inline-flex;
+}
+
+.compact .backdrop {
+  display: block;
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  border: 0;
+  background: var(--color-overlay);
+}

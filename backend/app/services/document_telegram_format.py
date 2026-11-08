@@ -138,6 +138,7 @@ def format_partner_receipt(
     is_return: bool = False,
     use_cost: bool = False,
     lang: str = "ru",
+    for_partner: bool = False,
 ) -> str:
     doc_code = document.get("code", "N/A")
     formatted_date = _format_date(document.get("date", ""))
@@ -146,7 +147,18 @@ def format_partner_receipt(
     if is_cancelled:
         message_parts.extend([f"❌ *{t('telegram.receipt.cancelled', lang)}*", ""])
 
-    if is_return:
+    if for_partner:
+        if is_return:
+            receipt_key = (
+                "telegram.partnerReceipt.shipmentReturn"
+                if use_cost
+                else "telegram.partnerReceipt.purchaseReturn"
+            )
+        elif use_cost:
+            receipt_key = "telegram.partnerReceipt.shipment"
+        else:
+            receipt_key = "telegram.partnerReceipt.purchase"
+    elif is_return:
         receipt_key = (
             "telegram.receipt.purchaseReturn" if use_cost else "telegram.receipt.wholesaleReturn"
         )
@@ -165,19 +177,20 @@ def format_partner_receipt(
 
     warehouse = warehouse_name or t("telegram.receipt.warehouseDefault", lang)
     message_parts.append(f"🏢 {t('telegram.receipt.warehouse', lang, name=warehouse)}")
-    _append_attached_user(message_parts, document, lang)
+    if not for_partner:
+        _append_attached_user(message_parts, document, lang)
 
-    partner = document.get("partner", {})
-    if not isinstance(partner, dict):
-        partner = {}
-    partner_name = partner.get("name")
-    if not isinstance(partner_name, str) or not partner_name.strip():
-        partner_name = t("telegram.receipt.unknownPartner", lang)
-    message_parts.append(f"👤 {t('telegram.receipt.partner', lang, name=partner_name)}")
+        partner = document.get("partner", {})
+        if not isinstance(partner, dict):
+            partner = {}
+        partner_name = partner.get("name")
+        if not isinstance(partner_name, str) or not partner_name.strip():
+            partner_name = t("telegram.receipt.unknownPartner", lang)
+        message_parts.append(f"👤 {t('telegram.receipt.partner', lang, name=partner_name)}")
 
-    partner_phone = _partner_phone(partner)
-    if partner_phone:
-        message_parts.append(f"📞 {t('telegram.receipt.partnerPhone', lang, phone=partner_phone)}")
+        partner_phone = _partner_phone(partner)
+        if partner_phone:
+            message_parts.append(f"📞 {t('telegram.receipt.partnerPhone', lang, phone=partner_phone)}")
 
     currency = document.get("currency", {})
     currency_name = currency.get("name", "") if isinstance(currency, dict) else ""
@@ -231,6 +244,7 @@ def format_payment_notification(
     *,
     is_cancelled: bool = False,
     lang: str = "ru",
+    for_partner: bool = False,
 ) -> str:
     doc_code = document.get("code", "N/A")
     formatted_date = _format_date(document.get("date", ""))
@@ -285,8 +299,9 @@ def format_payment_notification(
         ]
     )
 
-    _append_attached_user(message_parts, document, lang)
-    message_parts.append(f"👤 {t('telegram.receipt.partner', lang, name=partner_name)}")
+    if not for_partner:
+        _append_attached_user(message_parts, document, lang)
+        message_parts.append(f"👤 {t('telegram.receipt.partner', lang, name=partner_name)}")
     if firm_name:
         message_parts.append(f"🏛 {t('telegram.receipt.firm', lang, name=firm_name)}")
     if category_name:

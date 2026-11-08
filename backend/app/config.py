@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     # Full REGOS HandleWebhook URL (e.g. https://example.com/api/v1/regos/webhook)
     regos_webhook_url: str = ""
     public_app_base_url: str = ""
+    # Partner bot menu button. `{public_key}` is replaced with that company's key.
+    mini_app_link: str = ""
     receipt_share_ttl_hours: int = 24
     receipt_share_max_bytes: int = 2_097_152
     receipt_share_storage_dir: str = "./data/receipt-shares"

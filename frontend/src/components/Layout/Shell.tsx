@@ -9,6 +9,7 @@ import {
   LogOut,
   Menu,
   MessageCircle,
+  Store,
   Package,
   PackageMinus,
   PackagePlus,
@@ -106,6 +107,13 @@ const NAV: NavItem[] = [
     labelKey: "nav.telegramUsers",
     icon: MessageCircle,
     permission: "users.manage",
+  },
+  {
+    kind: "link",
+    to: "/partner-telegram",
+    labelKey: "nav.partnerTelegram",
+    icon: Store,
+    permission: "settings.manage",
   },
   {
     kind: "link",

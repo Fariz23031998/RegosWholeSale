@@ -4,6 +4,7 @@ from app.services import catalog_events as catalog_events_service
 from app.services import document_telegram_format as fmt
 from app.services import regos_document_fetch as doc_fetch
 from app.services import regos_out_of_stock as out_of_stock_service
+from app.services import partner_telegram as partner_telegram_service
 from app.services import telegram as telegram_service
 from app.services.telegram_notification_scope import scope_from_document
 from app.services.telegram_notifications import resolve_document_notification_type
@@ -41,6 +42,7 @@ async def process_operation_document(
             if not operations:
                 return
 
+            warehouse_name = None
             if spec.kind == "movement":
                 build_message = lambda lang: fmt.format_movement_receipt(
                     document,
@@ -80,6 +82,18 @@ async def process_operation_document(
                 build_message=build_message,
                 scope=scope_from_document(document),
             )
+            if spec.kind in partner_telegram_service.PARTNER_DOCUMENT_KINDS:
+                await partner_telegram_service.notify_partner_document(
+                    session,
+                    company_id,
+                    document,
+                    operations,
+                    warehouse_name=warehouse_name,
+                    is_cancelled=event_spec.is_cancelled,
+                    is_return=spec.is_return,
+                    use_cost=spec.use_cost,
+                    kind=spec.kind,
+                )
 
             if (
                 out_of_stock_service.is_stock_decrease_event(event_action, document)
