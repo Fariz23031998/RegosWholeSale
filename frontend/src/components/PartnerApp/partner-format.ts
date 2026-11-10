@@ -1,5 +1,11 @@
 export function formatAmount(value: number): string {
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }).format(value);
+  if (!Number.isFinite(value)) return "";
+  const rounded = Math.round((value + Number.EPSILON) * 100) / 100;
+  const sign = rounded < 0 ? "-" : "";
+  const [intPart, decPart = ""] = Math.abs(rounded).toFixed(2).split(".");
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  const fraction = decPart.replace(/0+$/, "");
+  return fraction ? `${sign}${grouped}.${fraction}` : `${sign}${grouped}`;
 }
 
 export function formatDate(value: number | null): string {

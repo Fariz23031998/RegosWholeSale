@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Printer } from "lucide-react";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
@@ -6,6 +6,8 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useReceiptTemplates } from "@/hooks/use-receipt-templates";
 import { useReceiptShareSession } from "@/hooks/use-receipt-share-session";
 import type { ReceiptPrintContext } from "@/lib/receipt-print-context";
+import { fetchPartnerDebt } from "@/lib/partners-api";
+import type { PartnerDebtLine } from "@/types/partners";
 import { useAuth } from "@/store/auth";
 import { ReceiptTemplatePicker } from "./ReceiptTemplatePicker";
 import { PrintAreaPortal } from "./PrintAreaPortal";
@@ -46,10 +48,39 @@ export function ReceiptModal({
     templates.find((template) => template.id === selectedTemplateId) ??
     resolveDefaultTemplate(templates, defaultTemplateId);
 
+  const debtEnabled = Boolean(selectedTemplate?.partner_debt_enabled);
+  const partnerId = context?.document.partner_id ?? null;
+  const [debtLines, setDebtLines] = useState<PartnerDebtLine[] | null>(null);
+
+  useEffect(() => {
+    if (!token || !debtEnabled || !partnerId) {
+      setDebtLines(null);
+      return;
+    }
+    let cancelled = false;
+    setDebtLines(null);
+    void fetchPartnerDebt(token, partnerId)
+      .then((response) => {
+        if (!cancelled) setDebtLines(response.lines);
+      })
+      .catch(() => {
+        if (!cancelled) setDebtLines([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [token, debtEnabled, partnerId]);
+
+  const printContext = useMemo(() => {
+    if (!context) return null;
+    if (!debtEnabled) return context;
+    return { ...context, partner_balances: debtLines ?? [] };
+  }, [context, debtEnabled, debtLines]);
+
   const shareSession = useReceiptShareSession({
     accessToken: token,
     template: selectedTemplate,
-    context,
+    context: printContext,
     documentCode: context?.sale.id ?? context?.document_code ?? "receipt",
     templateName: selectedTemplate?.name ?? "",
     uploadErrorMessage: t(
@@ -58,7 +89,7 @@ export function ReceiptModal({
     ),
   });
 
-  if (!context) return null;
+  if (!context || !printContext) return null;
 
   const sale = context.sale;
   const closedWithoutPayment =
@@ -107,7 +138,7 @@ export function ReceiptModal({
                 <div className={styles.previewScroll}>
                   <TemplatedReceiptView
                     template={selectedTemplate}
-                    context={context}
+                    context={printContext}
                     className={styles.previewReceipt}
                     preview
                   />
@@ -135,7 +166,7 @@ export function ReceiptModal({
 
       <PrintAreaPortal active={Boolean(selectedTemplate)} ref={printRootRef}>
         {selectedTemplate ? (
-          <TemplatedReceiptView template={selectedTemplate} context={context} />
+          <TemplatedReceiptView template={selectedTemplate} context={printContext} />
         ) : null}
       </PrintAreaPortal>
     </>

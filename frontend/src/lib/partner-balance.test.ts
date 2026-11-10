@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   amountToBase,
+  balanceTotalInCurrency,
   buildPartnerDebtSummary,
   debtsFromCurrencyGroups,
   groupRowsByCurrency,
   toBalanceAmount,
+  toPartnerPerspectiveRow,
 } from "./partner-balance";
 import type { PartnerBalanceRow } from "@/types/partners";
 
@@ -35,6 +37,40 @@ describe("toBalanceAmount", () => {
     expect(toBalanceAmount(null)).toBe(0);
     expect(toBalanceAmount(undefined)).toBe(0);
     expect(toBalanceAmount(Number.NaN)).toBe(0);
+  });
+});
+
+describe("toPartnerPerspectiveRow", () => {
+  it("swaps debit/credit and negates opening/closing balances", () => {
+    const firm = row({
+      id: 1,
+      date: 10,
+      start_amount: -2_468_910.91,
+      debit: 26_970.0,
+      credit: 0,
+      end_amount: -2_441_940.91,
+    });
+    const partner = toPartnerPerspectiveRow(firm);
+    expect(partner.start_amount).toBe(2_468_910.91);
+    expect(partner.end_amount).toBe(2_441_940.91);
+    expect(partner.debit).toBe(0);
+    expect(partner.credit).toBe(26_970.0);
+    expect(partner.end_amount).toBe(partner.start_amount + partner.debit - partner.credit);
+  });
+
+  it("preserves end = start + debit - credit for a payment row", () => {
+    const firm = row({
+      id: 2,
+      date: 20,
+      start_amount: -2_441_940.91,
+      debit: 0,
+      credit: 10_000.0,
+      end_amount: -2_451_940.91,
+    });
+    const partner = toPartnerPerspectiveRow(firm);
+    expect(partner.debit).toBe(10_000.0);
+    expect(partner.credit).toBe(0);
+    expect(partner.end_amount).toBe(partner.start_amount + partner.debit - partner.credit);
   });
 });
 
@@ -176,6 +212,37 @@ describe("debtsFromCurrencyGroups", () => {
       }),
     ]);
     expect(debtsFromCurrencyGroups(groups)).toEqual([]);
+  });
+});
+
+describe("balanceTotalInCurrency", () => {
+  const uzs = { id: 1, name: "UZS", code_chr: "UZS", exchange_rate: 1 };
+  const usd = { id: 2, name: "USD", code_chr: "USD", exchange_rate: 12_600 };
+  const rub = { id: 3, name: "RUB", code_chr: "RUB", exchange_rate: 140 };
+
+  function mixedGroups() {
+    return groupRowsByCurrency([
+      row({ id: 3, date: 30, currency: uzs, end_amount: 1_000_000 }),
+      row({ id: 2, date: 20, currency: usd, end_amount: -50 }),
+      row({ id: 1, date: 10, currency: rub, end_amount: -1_000 }),
+    ]);
+  }
+
+  it("converts every closing balance into the chosen currency", () => {
+    const groups = mixedGroups();
+    expect(balanceTotalInCurrency(groups, uzs)).toBe(230_000);
+    expect(balanceTotalInCurrency(groups, usd)).toBe(18.26);
+    expect(balanceTotalInCurrency(groups, rub)).toBe(1_642.86);
+  });
+
+  it("keeps a net firm-debt total negative", () => {
+    const dollar = { id: 2, name: "USD", code_chr: "USD", exchange_rate: 10_000 };
+    const groups = groupRowsByCurrency([
+      row({ id: 2, date: 20, currency: uzs, end_amount: 50_000 }),
+      row({ id: 1, date: 10, currency: dollar, end_amount: -10 }),
+    ]);
+    expect(balanceTotalInCurrency(groups, uzs)).toBe(-50_000);
+    expect(balanceTotalInCurrency(groups, dollar)).toBe(-5);
   });
 });
 

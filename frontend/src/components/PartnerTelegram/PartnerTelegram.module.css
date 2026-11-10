@@ -1,11 +1,80 @@
 .page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   padding: var(--space-6) var(--space-6) var(--space-10);
-  max-width: 1100px;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
+}
+
+.page > * {
+  flex-shrink: 0;
+}
+
+.page > .tabPanel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.page > .tabPanel > .card {
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: 0;
+  overflow: auto;
+}
+
+.page > .tabPanel > .accountsCard {
+  overflow: hidden;
 }
 
 .header {
   margin-bottom: var(--space-5);
+}
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: var(--space-4);
+}
+
+.tab {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.tabActive {
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+}
+
+.fieldBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fieldTitle {
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.fieldDesc {
+  color: var(--color-text-muted);
+  font-size: 13px;
 }
 
 .title {
@@ -54,13 +123,19 @@
   min-width: 220px;
 }
 
-.input {
+.input,
+.textarea {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
   background: var(--color-surface);
   color: inherit;
   padding: 10px 12px;
   font: inherit;
+}
+
+.textarea {
+  min-height: 96px;
+  resize: vertical;
 }
 
 .meta {
@@ -76,8 +151,21 @@
   margin-top: var(--space-3);
 }
 
+.accountsCard {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-bottom: 0;
+  overflow: hidden;
+}
+
 .tableWrap {
-  overflow-x: auto;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .table {
@@ -129,6 +217,41 @@
   align-items: flex-start;
   gap: 8px;
   font-size: 14px;
+}
+
+.dayList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+}
+
+.dayList label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.pageList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.pageEditor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+
+.pageEditorActions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .result {

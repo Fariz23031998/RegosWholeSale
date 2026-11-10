@@ -381,3 +381,166 @@
   background: var(--color-surface-raised, #f3f4f6);
   font-size: 11px;
 }
+
+.pageTabs {
+  margin-bottom: var(--space-4);
+}
+
+.serviceSectionHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.serviceSectionHead h2 {
+  margin-bottom: 0;
+}
+
+.serviceTableWrap {
+  overflow-x: auto;
+  margin: var(--space-4) 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised, var(--color-surface));
+}
+
+.serviceTable {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.serviceTable th,
+.serviceTable td {
+  padding: 10px 12px;
+  text-align: left;
+  white-space: nowrap;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.serviceTable th {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-subtle);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  background: var(--color-surface-2);
+}
+
+.serviceTable tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.serviceActionsCell {
+  width: 1%;
+  text-align: right;
+}
+
+.serviceActionsCell .templateActions {
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+}
+
+.serviceEmpty {
+  margin: var(--space-4) 0;
+}
+
+.compactBtn,
+.compactBtnSecondary {
+  align-self: center;
+  width: auto;
+  flex: 0 0 auto;
+  height: 32px;
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: var(--radius-md);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.compactBtn {
+  border: none;
+  background: var(--color-primary);
+  color: white;
+}
+
+.compactBtnSecondary {
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.compactBtn:disabled,
+.compactBtnSecondary:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.labelEditorLayout {
+  grid-template-rows: minmax(0, 1fr);
+  height: 100%;
+}
+
+.labelEditorForm {
+  overflow: hidden;
+}
+
+.sizeRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.labelCodeField {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  gap: 6px;
+}
+
+.labelCodeArea {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+}
+
+.labelPreviewStage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.labelPreviewFrame {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  background: white;
+  border: 1px solid var(--color-border);
+}
+
+.labelPreviewFrame iframe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border: 0;
+  background: white;
+  overflow: hidden;
+  transform-origin: top left;
+}
+
+@media (max-width: 900px) {
+  .labelEditorLayout {
+    grid-template-rows: minmax(0, 1.2fr) minmax(220px, 1fr);
+  }
+
+  .sizeRow {
+    grid-template-columns: 1fr;
+  }
+}

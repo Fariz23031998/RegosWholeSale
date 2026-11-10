@@ -2337,8 +2337,20 @@ async def test_list_wholesale_operations_includes_item_details(
                     "country": {"name": "Uzbekistan"},
                     "department": {"name": "Beverages"},
                     "vat": {"name": "VAT 12%", "value": 12},
+                    "image_url": "https://cdn.example.test/cola.png",
                 },
-            }
+            },
+            {
+                "id": 5002,
+                "document_id": 1001,
+                "quantity": 1,
+                "price": 5000,
+                "item": {
+                    "id": 102,
+                    "name": "Water",
+                    "image_url": "  ",
+                },
+            },
         ],
     }
 
@@ -2356,6 +2368,9 @@ async def test_list_wholesale_operations_includes_item_details(
     assert item["color"]["name"] == "Red"
     assert item["vat"]["value"] == 12
     assert item["base_barcode"] == "4601234567890"
+    assert item["image_url"] == "https://cdn.example.test/cola.png"
+    empty_image = response.json()["operations"][1]["item"]
+    assert empty_image["image_url"] is None
 
     payload = mock_regos.call_args[0][3]
     assert payload["document_ids"] == [1001]

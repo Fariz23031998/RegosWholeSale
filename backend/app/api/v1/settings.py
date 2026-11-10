@@ -10,6 +10,13 @@ from app.schemas.pos import (
     UserPosSettingsPatchRequest,
     UserPosSettingsResponse,
 )
+from app.schemas.label_templates import (
+    LabelPrintPatchRequest,
+    LabelTemplatesPatchRequest,
+    LabelTemplatesResponse,
+    UserLabelPrintPatchRequest,
+    UserLabelPrintSettingsResponse,
+)
 from app.schemas.receipt_templates import (
     ReceiptTemplatesPatchRequest,
     ReceiptTemplatesResponse,
@@ -31,10 +38,13 @@ from app.schemas.settings import (
 from app.services import featured_products as featured_products_service
 from app.services import exchange_rate_sync as exchange_rate_sync_service
 from app.services import pos_settings as pos_settings_service
+from app.services import label_templates as label_templates_service
+from app.services import user_label_print as user_label_print_service
 from app.services import receipt_templates as receipt_templates_service
 from app.services import regos_defaults as regos_defaults_service
 from app.services import settings as settings_service
 from app.services.permissions import get_user_with_permissions
+from app.services.print_gateway import gateway
 from app.services.settings_change import notify_settings_updated
 
 router = APIRouter(tags=["settings"])
@@ -243,6 +253,108 @@ async def patch_company_receipt_templates(
         namespace="receipt_templates",
     )
     return ReceiptTemplatesResponse(settings=settings)
+
+
+@router.get("/company/settings/label-templates", response_model=LabelTemplatesResponse)
+async def get_company_label_templates(
+    current: CurrentUser = Depends(
+        require_any_permission(
+            "labels.print",
+            "settings.manage",
+            "labels.manage_own_print_settings",
+            "labels.manage_print_settings",
+        )
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> LabelTemplatesResponse:
+    settings = await label_templates_service.get_label_settings(session, current.company_id)
+    return LabelTemplatesResponse(settings=settings)
+
+
+@router.patch("/company/settings/label-templates", response_model=LabelTemplatesResponse)
+async def patch_company_label_templates(
+    body: LabelTemplatesPatchRequest,
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> LabelTemplatesResponse:
+    settings = await label_templates_service.patch_label_templates(
+        session,
+        current.company_id,
+        body.model_dump(exclude_unset=True),
+    )
+    await gateway.broadcast_templates(
+        current.company_id,
+        label_templates_service.protocol_templates(settings),
+    )
+    await notify_settings_updated(
+        session,
+        current.company_id,
+        scope="company",
+        namespace="label_templates",
+    )
+    return LabelTemplatesResponse(settings=settings)
+
+
+@router.patch("/company/settings/label-print", response_model=LabelTemplatesResponse)
+async def patch_company_label_print(
+    body: LabelPrintPatchRequest,
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> LabelTemplatesResponse:
+    settings = await label_templates_service.patch_label_print(
+        session,
+        current.company_id,
+        body.model_dump(exclude_unset=True),
+    )
+    await notify_settings_updated(
+        session,
+        current.company_id,
+        scope="company",
+        namespace="label_print",
+    )
+    return LabelTemplatesResponse(settings=settings)
+
+
+@router.get("/me/settings/label-print", response_model=UserLabelPrintSettingsResponse)
+async def get_my_label_print_settings(
+    current: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> UserLabelPrintSettingsResponse:
+    settings = await user_label_print_service.get_effective_user_label_print(
+        session, current.id, current.company_id
+    )
+    return UserLabelPrintSettingsResponse(settings=settings)
+
+
+@router.patch("/me/settings/label-print", response_model=UserLabelPrintSettingsResponse)
+async def patch_my_label_print_settings(
+    body: UserLabelPrintPatchRequest,
+    current: CurrentUser = Depends(
+        require_any_permission(
+            "labels.manage_own_print_settings",
+            "labels.manage_print_settings",
+        )
+    ),
+    session: AsyncSession = Depends(get_db),
+) -> UserLabelPrintSettingsResponse:
+    user = await get_user_with_permissions(session, current.id)
+    if not user:
+        from app.core.exceptions import not_found
+
+        raise not_found("User not found")
+    settings = await user_label_print_service.patch_user_label_print(
+        session,
+        user,
+        body.model_dump(),
+    )
+    await notify_settings_updated(
+        session,
+        current.company_id,
+        scope="employee",
+        namespace="label_print",
+        user_id=current.id,
+    )
+    return UserLabelPrintSettingsResponse(settings=settings)
 
 
 @router.get("/company/settings/exchange-rate-sync", response_model=ExchangeRateSyncResponse)

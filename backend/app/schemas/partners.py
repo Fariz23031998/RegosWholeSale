@@ -113,6 +113,20 @@ class PartnerBalanceResponse(BaseModel):
     rows: list[PartnerBalanceRow]
 
 
+class PartnerDebtLine(BaseModel):
+    firm_id: int | None = Field(default=None, ge=1)
+    firm_name: str | None = None
+    currency_id: int | None = Field(default=None, ge=1)
+    currency_code: str | None = None
+    currency_name: str | None = None
+    exchange_rate: float | None = Field(default=None, gt=0)
+    amount: float
+
+
+class PartnerDebtResponse(BaseModel):
+    lines: list[PartnerDebtLine]
+
+
 class PartnerPayDebtPaymentLine(BaseModel):
     currency_id: int = Field(ge=1)
     amount: float = Field(gt=0)

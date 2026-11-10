@@ -12,6 +12,7 @@ import {
   saveCachedSettings,
   type SettingsCacheScope,
 } from "@/lib/settings-db";
+import { fetchLabelTemplates } from "@/lib/label-templates-api";
 import { fetchReceiptTemplates } from "@/lib/receipt-templates-api";
 import type {
   ExchangeRateFormulaPreviewRequest,
@@ -805,6 +806,8 @@ export async function refreshSettingsNamespace(
     | "pos"
     | "regos_defaults"
     | "receipt_templates"
+    | "label_templates"
+    | "label_print"
     | "exchange_rate_sync"
     | "regos_token"
     | "payment_linking"
@@ -826,6 +829,10 @@ export async function refreshSettingsNamespace(
       return;
     case "receipt_templates":
       await fetchReceiptTemplates(token, { force: true, cacheScope });
+      return;
+    case "label_templates":
+    case "label_print":
+      await fetchLabelTemplates(token);
       return;
     case "exchange_rate_sync":
       await fetchExchangeRateSync(token, { force: true, cacheScope });

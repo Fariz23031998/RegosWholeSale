@@ -44,6 +44,8 @@ export function createNakladnayaReceiptTemplate(companyName: string): ReceiptTem
       direction: "asc",
     },
     logos: [],
+    partner_debt_enabled: false,
+    partner_debt_negative_only: false,
     html: nakladnayaHtml,
     css: nakladnayaCss,
   };

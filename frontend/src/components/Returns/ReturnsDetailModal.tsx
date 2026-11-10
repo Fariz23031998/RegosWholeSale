@@ -6,6 +6,7 @@ import type {
   WholesaleReturnDocument,
 } from "@/lib/sales-api";
 import { ReturnsDetailContent } from "./ReturnsDetailContent";
+import styles from "./Returns.module.css";
 
 type Props = {
   document: WholesaleReturnDocument;
@@ -26,7 +27,14 @@ export function ReturnsDetailModal({
   const title = t("returns.detail.title", undefined, { code: document.code || document.id });
 
   return (
-    <Modal open onClose={onClose} title={title} size="lg">
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      size="lg"
+      modalClassName={styles.detailModal}
+      bodyClassName={styles.detailModalBody}
+    >
       <ReturnsDetailContent
         document={document}
         operations={operations}

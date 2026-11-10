@@ -141,6 +141,34 @@ async def test_employee_defaults_include_item_mutate_permissions(client: AsyncCl
     employee = await _create_employee(client, owner_token, login="item-defaults")
     assert "stock.item_create" in employee["permissions"]
     assert "stock.item_edit" in employee["permissions"]
+    assert "prices.read" in employee["permissions"]
+    assert "prices.write" in employee["permissions"]
+
+
+@pytest.mark.asyncio
+async def test_set_product_prices_requires_prices_write(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client,
+        email="prices-write-deny@test.com",
+        company_name="Prices Write Deny Co",
+    )
+    owner_token = reg.json()["access_token"]
+    await _create_employee(
+        client,
+        owner_token,
+        login="deny-prices-write",
+        permission_rules=[{"code": "prices.write", "effect": "deny"}],
+    )
+    token = await _login_employee(client, "deny-prices-write")
+    response = await client.post(
+        "/api/v1/regos/products/prices",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "price_type_id": 1,
+            "lines": [{"item_id": 1, "base_value": 10, "new_value": 12}],
+        },
+    )
+    assert response.status_code == 403, response.text
 
 
 @pytest.mark.asyncio

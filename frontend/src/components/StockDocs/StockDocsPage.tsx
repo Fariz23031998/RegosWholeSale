@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 import { useNavigate } from "@tanstack/react-router";
+import type { ColumnDef } from "@tanstack/react-table";
 import clsx from "clsx";
 import { CalendarRange, Pencil, Plus, Search, Warehouse } from "lucide-react";
+import { DataTable } from "@/components/DataTable/DataTable";
 import { Button } from "@/components/posui/Button";
 import { DashboardPeriodModal } from "@/components/Dashboard/DashboardPeriodModal";
 import {
@@ -252,6 +254,142 @@ export function StockDocsPage({ kind }: Props) {
     setEditDoc(doc);
   };
 
+  const columns = useMemo<ColumnDef<StockDocument, any>[]>(() => {
+    const defs: ColumnDef<StockDocument, any>[] = [
+      {
+        id: "code",
+        accessorFn: (doc) => doc.code || String(doc.id),
+        header: t("stock.table.code", "Code"),
+        cell: ({ row }) => `#${row.original.code || row.original.id}`,
+        meta: { cellClassName: styles.id },
+      },
+      {
+        id: "date",
+        accessorFn: (doc) => doc.date,
+        header: t("common.date"),
+        cell: ({ row }) =>
+          row.original.date > 0
+            ? formatDateTime(new Date(row.original.date * 1000).toISOString())
+            : "—",
+      },
+    ];
+    if (def.showSenderReceiver) {
+      defs.push(
+        {
+          id: "sender",
+          accessorFn: (doc) => doc.stock_sender_name ?? "",
+          header: t("stock.table.sender", "From"),
+          cell: ({ getValue }) => getValue<string>() || "—",
+        },
+        {
+          id: "receiver",
+          accessorFn: (doc) => doc.stock_receiver_name ?? "",
+          header: t("stock.table.receiver", "To"),
+          cell: ({ getValue }) => getValue<string>() || "—",
+        },
+      );
+    } else {
+      defs.push({
+        id: "warehouse",
+        accessorFn: (doc) => doc.stock_name ?? "",
+        header: t("stock.table.warehouse", "Warehouse"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      });
+    }
+    if (kind === "inout") {
+      defs.push({
+        id: "inoutType",
+        accessorFn: (doc) => formatInoutTypeLabel(doc.inout_type, t),
+        header: t("stock.table.inoutType", "Type"),
+      });
+    }
+    if (def.supportsPartnerFilter) {
+      defs.push({
+        id: "partner",
+        accessorFn: (doc) => doc.partner_name ?? "",
+        header: t("stock.table.partner", "Partner"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      });
+    }
+    defs.push(
+      {
+        id: "description",
+        accessorFn: (doc) => doc.description?.trim() ?? "",
+        header: t("common.description"),
+        size: 240,
+        cell: ({ row }) => row.original.description?.trim() || "—",
+        meta: { cellClassName: styles.descriptionCell },
+      },
+      {
+        id: "status",
+        accessorFn: (doc) =>
+          kind === "inventory" ? Boolean(doc.closed || doc.performed) : doc.performed,
+        header: t("stock.table.status", "Status"),
+        cell: ({ row }) => {
+          const done =
+            kind === "inventory"
+              ? Boolean(row.original.closed || row.original.performed)
+              : row.original.performed;
+          return (
+            <span className={`${styles.badge} ${done ? styles.badgeDone : styles.badgeDraft}`}>
+              {done
+                ? t(def.performedLabelKey, def.performedLabelFallback)
+                : t(def.draftLabelKey, def.draftLabelFallback)}
+            </span>
+          );
+        },
+      },
+      {
+        id: "amount",
+        accessorFn: (doc) => doc.amount ?? 0,
+        header: t("common.amount"),
+        meta: { align: "right", cellClassName: styles.right, headerClassName: styles.right },
+        cell: ({ row }) =>
+          row.original.amount != null ? formatCurrency(row.original.amount) : "—",
+      },
+    );
+    if (canWrite) {
+      defs.push({
+        id: "actions",
+        header: () => null,
+        enableSorting: false,
+        enableHiding: false,
+        size: 72,
+        meta: {
+          label: t("common.actions"),
+          cellClassName: styles.actionsCol,
+          headerClassName: styles.actionsCol,
+        },
+        cell: ({ row }) => {
+          const doc = row.original;
+          const done =
+            kind === "inventory" ? Boolean(doc.closed || doc.performed) : doc.performed;
+          return (
+            <Button
+              type="button"
+              size="icon"
+              variant="secondary"
+              disabled={done}
+              aria-label={t("common.edit", "Edit")}
+              title={
+                done
+                  ? t(
+                      "stock.errors.editPerformed",
+                      "Performed or closed documents cannot be edited.",
+                    )
+                  : t("common.edit", "Edit")
+              }
+              onClick={(event) => openEditDocument(doc, event)}
+            >
+              <Pencil size={16} />
+            </Button>
+          );
+        },
+      });
+    }
+    return defs;
+  }, [canWrite, def, kind, t]);
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -358,92 +496,14 @@ export function StockDocsPage({ kind }: Props) {
           <div className={styles.empty}>{t("common.nothing", "Nothing found")}</div>
         ) : (
           <>
-            <table className={styles.tbl}>
-              <thead>
-                <tr>
-                  <th>{t("stock.table.code", "Code")}</th>
-                  <th>{t("common.date")}</th>
-                  {def.showSenderReceiver ? (
-                    <>
-                      <th>{t("stock.table.sender", "From")}</th>
-                      <th>{t("stock.table.receiver", "To")}</th>
-                    </>
-                  ) : (
-                    <th>{t("stock.table.warehouse", "Warehouse")}</th>
-                  )}
-                  {kind === "inout" && <th>{t("stock.table.inoutType", "Type")}</th>}
-                  {def.supportsPartnerFilter && <th>{t("stock.table.partner", "Partner")}</th>}
-                  <th>{t("common.description")}</th>
-                  <th>{t("stock.table.status", "Status")}</th>
-                  <th className={styles.right}>{t("common.amount")}</th>
-                  {canWrite ? <th className={styles.actionsCol} /> : null}
-                </tr>
-              </thead>
-              <tbody>
-                {documents.map((doc) => {
-                  const done = isDocumentDone(doc);
-                  return (
-                    <tr key={doc.id} onClick={() => openDocument(doc)}>
-                      <td className={styles.id}>#{doc.code || doc.id}</td>
-                      <td>
-                        {doc.date > 0
-                          ? formatDateTime(new Date(doc.date * 1000).toISOString())
-                          : "—"}
-                      </td>
-                      {def.showSenderReceiver ? (
-                        <>
-                          <td>{doc.stock_sender_name ?? "—"}</td>
-                          <td>{doc.stock_receiver_name ?? "—"}</td>
-                        </>
-                      ) : (
-                        <td>{doc.stock_name ?? "—"}</td>
-                      )}
-                      {kind === "inout" && (
-                        <td>{formatInoutTypeLabel(doc.inout_type, t)}</td>
-                      )}
-                      {def.supportsPartnerFilter && <td>{doc.partner_name ?? "—"}</td>}
-                      <td className={styles.descriptionCell}>
-                        {doc.description?.trim() ? doc.description : "—"}
-                      </td>
-                      <td>
-                        <span
-                          className={`${styles.badge} ${done ? styles.badgeDone : styles.badgeDraft}`}
-                        >
-                          {done
-                            ? t(def.performedLabelKey, def.performedLabelFallback)
-                            : t(def.draftLabelKey, def.draftLabelFallback)}
-                        </span>
-                      </td>
-                      <td className={styles.right}>
-                        {doc.amount != null ? formatCurrency(doc.amount) : "—"}
-                      </td>
-                      {canWrite ? (
-                        <td className={styles.actionsCol}>
-                          <Button
-                            type="button"
-                            size="icon"
-                            variant="secondary"
-                            disabled={done}
-                            aria-label={t("common.edit", "Edit")}
-                            title={
-                              done
-                                ? t(
-                                    "stock.errors.editPerformed",
-                                    "Performed or closed documents cannot be edited.",
-                                  )
-                                : t("common.edit", "Edit")
-                            }
-                            onClick={(e) => openEditDocument(doc, e)}
-                          >
-                            <Pencil size={16} />
-                          </Button>
-                        </td>
-                      ) : null}
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+            <DataTable
+              tableKey={`stock.${kind}`}
+              data={documents}
+              columns={columns}
+              className={styles.tbl}
+              getRowId={(doc) => String(doc.id)}
+              onRowClick={openDocument}
+            />
 
             <div className={styles.cardList}>
               {documents.map((doc) => {

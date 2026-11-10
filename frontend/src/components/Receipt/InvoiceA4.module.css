@@ -67,6 +67,14 @@
   font-weight: 600;
 }
 
+.partnerDebtLine {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 0;
+  font-variant-numeric: tabular-nums;
+}
+
 .itemsTable {
   width: 100%;
   border-collapse: collapse;
@@ -98,6 +106,19 @@
 .numCell {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+.itemCell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.itemImage {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  flex: 0 0 40px;
 }
 
 .totals {

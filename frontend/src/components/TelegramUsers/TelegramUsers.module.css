@@ -1,7 +1,21 @@
 .page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   padding: var(--space-6) var(--space-6) var(--space-10);
-  max-width: 1400px;
+  width: 100%;
+  max-width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
+}
+.page > * {
+  flex-shrink: 0;
+}
+.page > .table {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .header {
   display: flex;
@@ -15,14 +29,20 @@
 .subtitle { color: var(--color-text-muted); font-size: 13px; margin-top: 4px; }
 
 .table {
+  display: flex;
+  flex-direction: column;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
-  overflow-x: auto;
+  overflow: hidden;
 }
 .tableScroll {
   --actions-col-width: 200px;
-  min-width: 1100px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
 }
 .tbl {
   width: 100%;

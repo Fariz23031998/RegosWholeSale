@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.api.print_gateway_ws import print_gateway_ws
 from app.api.v1.router import api_router
 from app.config import get_settings
 from app.core.exceptions import AppError
@@ -21,6 +22,7 @@ from app.core.regos_oauth import regos_oauth_configured, regos_oauth_service
 from app.services.scheduled_tasks import (
     exchange_rate_sync_loop,
     out_of_stock_cleanup_loop,
+    partner_balance_notify_loop,
     receipt_share_cleanup_loop,
 )
 from app.services.verification import clean_verification_data
@@ -66,16 +68,19 @@ async def lifespan(_app: FastAPI):
     out_of_stock_cleanup_task = asyncio.create_task(out_of_stock_cleanup_loop())
     receipt_share_cleanup_task = asyncio.create_task(receipt_share_cleanup_loop())
     exchange_rate_sync_task = asyncio.create_task(exchange_rate_sync_loop())
+    partner_balance_notify_task = asyncio.create_task(partner_balance_notify_loop())
     yield
     verification_cleanup_task.cancel()
     out_of_stock_cleanup_task.cancel()
     receipt_share_cleanup_task.cancel()
     exchange_rate_sync_task.cancel()
+    partner_balance_notify_task.cancel()
     for task in (
         verification_cleanup_task,
         out_of_stock_cleanup_task,
         receipt_share_cleanup_task,
         exchange_rate_sync_task,
+        partner_balance_notify_task,
     ):
         try:
             await task
@@ -106,6 +111,7 @@ def create_app() -> FastAPI:
         return {"status": "ok"}
 
     app.include_router(api_router, prefix="/api/v1")
+    app.add_api_websocket_route("/print-gateway/ws", print_gateway_ws)
     return app
 
 

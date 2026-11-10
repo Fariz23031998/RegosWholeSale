@@ -1,6 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { useMemo, useState } from "react";
 import clsx from "clsx";
+import { DataTable } from "@/components/DataTable/DataTable";
 import { Button } from "@/components/posui/Button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatAuthError, useAuth } from "@/store/auth";
@@ -135,6 +137,103 @@ export function UsersPage() {
     }
   };
 
+  const columns = useMemo<ColumnDef<UserDetail, any>[]>(
+    () => [
+      {
+        id: "name",
+        accessorFn: (item) => item.display_name,
+        header: t("common.name", "Name"),
+      },
+      {
+        id: "login",
+        accessorFn: (item) => loginOrEmail(item),
+        header: `${t("users.table.login", "Login")} / ${t("users.table.email", "Email")}`,
+        meta: { cellClassName: styles.mono },
+      },
+      {
+        id: "role",
+        accessorFn: (item) => roleLabel(item.role, t),
+        header: t("users.table.role", "Role"),
+        cell: ({ row }) => (
+          <span className={clsx(styles.badge, roleBadgeClass(row.original.role))}>
+            {roleLabel(row.original.role, t)}
+          </span>
+        ),
+      },
+      {
+        id: "permissions",
+        accessorFn: (item) => permissionsSummary(item, t),
+        header: t("users.table.permissions", "Permissions"),
+        size: 220,
+        meta: { cellClassName: styles.muted },
+      },
+      {
+        id: "schedules",
+        accessorFn: (item) =>
+          item.role === "owner" ? "" : formatScheduleSummary(item.schedules, t),
+        header: t("users.table.schedules", "Schedules"),
+        meta: { cellClassName: styles.muted },
+        cell: ({ row }) =>
+          row.original.role === "owner" ? "—" : formatScheduleSummary(row.original.schedules, t),
+      },
+      {
+        id: "status",
+        accessorFn: (item) => (item.is_active ? 1 : 0),
+        header: t("common.status", "Status"),
+        cell: ({ row }) => (
+          <span className={clsx(styles.badge, row.original.is_active ? styles.active : styles.inactive)}>
+            {row.original.is_active
+              ? t("common.active", "Active")
+              : t("common.inactive", "Inactive")}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: t("common.actions", "Actions"),
+        enableSorting: false,
+        enableHiding: false,
+        size: 280,
+        meta: { cellClassName: styles.actionsCell },
+        cell: ({ row }) => {
+          const item = row.original;
+          const busy = actionUserId === item.id;
+          return (
+            <div className={styles.actions}>
+              <Button variant="secondary" size="sm" onClick={() => openSettings(item)}>
+                {t("users.actions.settings", "Settings")}
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => openEdit(item)}>
+                {t("common.edit", "Edit")}
+              </Button>
+              {item.role !== "owner" &&
+                (item.is_active ? (
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => void handleDeactivate(item)}
+                  >
+                    {busy ? "…" : t("users.actions.deactivate", "Deactivate")}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    disabled={busy}
+                    onClick={() => void handleReactivate(item)}
+                  >
+                    {busy ? "…" : t("users.actions.reactivate", "Reactivate")}
+                  </Button>
+                ))}
+            </div>
+          );
+        },
+      },
+    ],
+    [actionUserId, t],
+  );
+
   if (!canManageUsers) {
     return (
       <div className={styles.page}>
@@ -177,100 +276,13 @@ export function UsersPage() {
             {t("users.empty", "No users yet. Add your first employee.")}
           </div>
         ) : (
-          <table className={styles.tbl}>
-            <thead>
-              <tr>
-                <th>{t("common.name", "Name")}</th>
-                <th>{t("users.table.login", "Login")} / {t("users.table.email", "Email")}</th>
-                <th>{t("users.table.role", "Role")}</th>
-                <th>{t("users.table.permissions", "Permissions")}</th>
-                <th>{t("users.table.schedules", "Schedules")}</th>
-                <th>{t("common.status", "Status")}</th>
-                <th>{t("common.actions", "Actions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((item) => {
-                const busy = actionUserId === item.id;
-                return (
-                  <tr key={item.id}>
-                    <td data-label={t("common.name", "Name")}>{item.display_name}</td>
-                    <td className={styles.mono} data-label={`${t("users.table.login", "Login")} / ${t("users.table.email", "Email")}`}>
-                      {loginOrEmail(item)}
-                    </td>
-                    <td data-label={t("users.table.role", "Role")}>
-                      <span className={clsx(styles.badge, roleBadgeClass(item.role))}>
-                        {roleLabel(item.role, t)}
-                      </span>
-                    </td>
-                    <td className={styles.muted} data-label={t("users.table.permissions", "Permissions")}>
-                      {permissionsSummary(item, t)}
-                    </td>
-                    <td className={styles.muted} data-label={t("users.table.schedules", "Schedules")}>
-                      {item.role === "owner"
-                        ? "—"
-                        : formatScheduleSummary(item.schedules, t)}
-                    </td>
-                    <td data-label={t("common.status", "Status")}>
-                      <span
-                        className={clsx(
-                          styles.badge,
-                          item.is_active ? styles.active : styles.inactive,
-                        )}
-                      >
-                        {item.is_active
-                          ? t("common.active", "Active")
-                          : t("common.inactive", "Inactive")}
-                      </span>
-                    </td>
-                    <td className={styles.actionsCell} data-label={t("common.actions", "Actions")}>
-                      <div className={styles.actions}>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => openSettings(item)}
-                        >
-                          {t("users.actions.settings", "Settings")}
-                        </Button>
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => openEdit(item)}
-                        >
-                          {t("common.edit", "Edit")}
-                        </Button>
-                        {item.role !== "owner" && (
-                          item.is_active ? (
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              disabled={busy}
-                              onClick={() => void handleDeactivate(item)}
-                            >
-                              {busy
-                                ? "…"
-                                : t("users.actions.deactivate", "Deactivate")}
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="secondary"
-                              size="sm"
-                              disabled={busy}
-                              onClick={() => void handleReactivate(item)}
-                            >
-                              {busy
-                                ? "…"
-                                : t("users.actions.reactivate", "Reactivate")}
-                            </Button>
-                          )
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <DataTable
+            tableKey="users.list"
+            data={users}
+            columns={columns}
+            className={styles.tbl}
+            getRowId={(item) => String(item.id)}
+          />
         )}
       </div>
 

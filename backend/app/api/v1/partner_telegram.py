@@ -202,6 +202,7 @@ async def partner_webapp_products(
     warehouse_id: int | None = Query(default=None, ge=1),
     price_type_id: int | None = Query(default=None, ge=1),
 ) -> dict:
+    await webapp_service.require_partner_page(session, current.id, "catalog")
     return await webapp_service.list_products(
         session,
         current.id,
@@ -220,6 +221,7 @@ async def partner_webapp_catalog_options(
     current: CurrentPartnerAccount = Depends(require_linked_partner_account),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
+    await webapp_service.require_partner_page(session, current.id, "catalog")
     return await webapp_service.catalog_options(session, current.id)
 
 
@@ -228,7 +230,8 @@ async def partner_webapp_product_groups(
     current: CurrentPartnerAccount = Depends(require_linked_partner_account),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
-    return await webapp_service.list_product_groups(session, current.company_id)
+    await webapp_service.require_partner_page(session, current.id, "catalog")
+    return await webapp_service.list_product_groups(session, current.id)
 
 
 @router.get("/webapp/orders")
@@ -238,6 +241,7 @@ async def partner_webapp_orders(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict:
+    await webapp_service.require_partner_page(session, current.id, "orders")
     return await webapp_service.list_orders(
         session,
         current.company_id,
@@ -253,6 +257,7 @@ async def partner_webapp_order_detail(
     current: CurrentPartnerAccount = Depends(require_linked_partner_account),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
+    await webapp_service.require_partner_page(session, current.id, "orders")
     return await webapp_service.get_order(
         session, current.company_id, int(current.regos_partner_id or 0), order_id
     )
@@ -266,6 +271,7 @@ async def partner_webapp_create_order(
 ) -> dict:
     if not current.regos_partner_id:
         raise bad_request("Partner account is not linked", "PARTNER_TELEGRAM_NOT_LINKED")
+    await webapp_service.require_partner_page(session, current.id, "catalog")
     return await webapp_service.create_order(
         session,
         company_id=current.company_id,
@@ -288,6 +294,9 @@ async def partner_webapp_documents(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict:
+    page_key = partner_telegram_service.DOCUMENT_KIND_TO_PAGE.get(kind)
+    if page_key:
+        await webapp_service.require_partner_page(session, current.id, page_key)
     return await webapp_service.list_documents(
         session,
         current.company_id,
@@ -305,6 +314,9 @@ async def partner_webapp_document_detail(
     current: CurrentPartnerAccount = Depends(require_linked_partner_account),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
+    page_key = partner_telegram_service.DOCUMENT_KIND_TO_PAGE.get(kind)
+    if page_key:
+        await webapp_service.require_partner_page(session, current.id, page_key)
     return await webapp_service.get_document(
         session,
         current.company_id,
@@ -321,6 +333,7 @@ async def partner_webapp_payments(
     start_date: str | None = None,
     end_date: str | None = None,
 ) -> dict:
+    await webapp_service.require_partner_page(session, current.id, "payments")
     return await webapp_service.list_payments(
         session,
         current.company_id,
@@ -337,10 +350,47 @@ async def partner_webapp_reconciliation(
     start_date: str = Query(min_length=10, max_length=10),
     end_date: str = Query(min_length=10, max_length=10),
 ) -> dict:
+    await webapp_service.require_partner_page(session, current.id, "reconciliation")
     return await webapp_service.reconciliation(
         session,
         current.company_id,
         int(current.regos_partner_id or 0),
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+@router.get("/webapp/dashboard")
+async def partner_webapp_dashboard(
+    current: CurrentPartnerAccount = Depends(require_linked_partner_account),
+    session: AsyncSession = Depends(get_db),
+    start_date: str | None = Query(default=None, min_length=10, max_length=10),
+    end_date: str = Query(min_length=10, max_length=10),
+) -> dict:
+    await webapp_service.require_partner_page(session, current.id, "dashboard")
+    return await webapp_service.get_partner_dashboard_summary(
+        session,
+        current.company_id,
+        int(current.regos_partner_id or 0),
+        start_date=start_date,
+        end_date=end_date,
+    )
+
+
+@router.get("/webapp/dashboard/products")
+async def partner_webapp_dashboard_products(
+    current: CurrentPartnerAccount = Depends(require_linked_partner_account),
+    session: AsyncSession = Depends(get_db),
+    mode: str = Query(pattern="^(purchases|shipments)$"),
+    start_date: str | None = Query(default=None, min_length=10, max_length=10),
+    end_date: str = Query(min_length=10, max_length=10),
+) -> dict:
+    await webapp_service.require_partner_page(session, current.id, "dashboard")
+    return await webapp_service.get_partner_dashboard_products(
+        session,
+        current.company_id,
+        int(current.regos_partner_id or 0),
+        mode=mode,
         start_date=start_date,
         end_date=end_date,
     )

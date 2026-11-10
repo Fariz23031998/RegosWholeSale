@@ -1,5 +1,8 @@
 import { apiRequest } from "@/lib/api";
+import type { PartnerEnabledPages, PartnerPortalPageKey } from "@/lib/partner-portal-pages";
 import type { PartnerBalanceRow } from "@/types/partners";
+
+export type PartnerOrderDocumentType = "doc_wholesale" | "doc_order_from_partner";
 
 export type PartnerTelegramBotConfig = {
   configured: boolean;
@@ -12,7 +15,22 @@ export type PartnerTelegramBotConfig = {
   default_price_type_id: number | null;
   allow_catalog_warehouse_selection: boolean;
   allow_self_registration: boolean;
+  show_product_quantities: boolean;
+  auto_open_qty_keypad: boolean;
   default_partner_group_id: number | null;
+  catalog_product_group_ids: number[];
+  enabled_pages: PartnerEnabledPages;
+  balance_notify_enabled: boolean;
+  balance_notify_time: string;
+  balance_notify_option: "daily" | "weekdays" | "monthly" | string;
+  balance_notify_days: number[];
+  balance_notify_templates: {
+    uz: string;
+    ru: string;
+    en: string;
+  };
+  order_document_type: PartnerOrderDocumentType | string;
+  order_booked: boolean;
 };
 
 export type PartnerTelegramBotMessage = {
@@ -34,6 +52,8 @@ export type PartnerTelegramAccount = {
   link_state: "awaiting_language" | "unlinked" | "linked" | string;
   warehouse_id: number | null;
   price_type_id: number | null;
+  page_overrides: Partial<Record<PartnerPortalPageKey, boolean>>;
+  enabled_pages: PartnerEnabledPages;
   has_password: boolean;
   created_at: string;
 };
@@ -46,6 +66,10 @@ export type PartnerCatalogProduct = {
   unit_name: string;
   image: string;
   sku: string;
+  category?: string;
+  code?: string;
+  articul?: string;
+  barcode?: string;
 };
 
 export type PartnerCatalogResponse = {
@@ -53,6 +77,7 @@ export type PartnerCatalogResponse = {
   next_offset: number;
   total: number;
   currency_name: string;
+  currency_code: string;
   warehouse_id: number;
   price_type_id: number;
 };
@@ -67,6 +92,9 @@ export type PartnerCatalogOptions = {
   allow_warehouse_selection: boolean;
   warehouses: PartnerWarehouseOption[];
   currency_name: string;
+  currency_code: string;
+  show_product_quantities: boolean;
+  auto_open_qty_keypad: boolean;
 };
 
 export type PartnerPayment = {
@@ -82,8 +110,10 @@ export type PartnerPayment = {
 
 export type PartnerProductGroup = {
   id: number;
+  parent_id?: number | null;
   name: string;
   path: string;
+  child_count?: number;
 };
 
 export type PartnerDocumentSummary = {
@@ -94,9 +124,12 @@ export type PartnerDocumentSummary = {
   description: string;
   status_id: number | null;
   performed: boolean | null;
+  stock_name?: string | null;
+  partner_name?: string | null;
 };
 
 export type PartnerDocumentLine = {
+  item_code?: string | null;
   item_name: string;
   quantity: number;
   price: number;
@@ -129,7 +162,22 @@ export async function savePartnerTelegramBotSettings(
     default_price_type_id: number | null;
     allow_catalog_warehouse_selection: boolean;
     allow_self_registration: boolean;
+    show_product_quantities: boolean;
+    auto_open_qty_keypad: boolean;
     default_partner_group_id: number | null;
+    catalog_product_group_ids: number[];
+    enabled_pages: PartnerEnabledPages;
+    balance_notify_enabled: boolean;
+    balance_notify_time: string;
+    balance_notify_option: "daily" | "weekdays" | "monthly";
+    balance_notify_days: number[];
+    balance_notify_templates: {
+      uz: string;
+      ru: string;
+      en: string;
+    };
+    order_document_type: PartnerOrderDocumentType;
+    order_booked: boolean;
   },
 ): Promise<PartnerTelegramBotConfig> {
   return apiRequest("/api/v1/partner-telegram/bot/settings", {
@@ -158,7 +206,11 @@ export async function assignPartnerTelegramAccount(
 export async function updatePartnerTelegramAccount(
   token: string,
   accountId: number,
-  body: { warehouse_id?: number | null; price_type_id?: number | null },
+  body: {
+    warehouse_id?: number | null;
+    price_type_id?: number | null;
+    page_overrides?: Partial<Record<PartnerPortalPageKey, boolean>>;
+  },
 ): Promise<PartnerTelegramAccount> {
   return apiRequest(`/api/v1/partner-telegram/accounts/${accountId}`, {
     method: "PATCH",
@@ -259,8 +311,14 @@ export async function createPartnerOrder(
 
 export async function fetchPartnerOrders(
   token: string,
+  startDate = "",
+  endDate = "",
 ): Promise<{ orders: PartnerDocumentSummary[] }> {
-  return apiRequest("/api/v1/partner-telegram/webapp/orders", { token });
+  const params = new URLSearchParams();
+  if (startDate) params.set("start_date", startDate);
+  if (endDate) params.set("end_date", endDate);
+  const query = params.toString();
+  return apiRequest(`/api/v1/partner-telegram/webapp/orders${query ? `?${query}` : ""}`, { token });
 }
 
 export async function fetchPartnerOrder(
@@ -310,4 +368,100 @@ export async function fetchPartnerReconciliation(
   params.set("start_date", startDate);
   params.set("end_date", endDate);
   return apiRequest(`/api/v1/partner-telegram/webapp/reconciliation?${params}`, { token });
+}
+
+export type PartnerDashboardTotals = {
+  shipments: number;
+  shipments_count: number;
+  shipment_returns: number;
+  shipment_returns_count: number;
+  purchases: number;
+  purchases_count: number;
+  purchase_returns: number;
+  purchase_returns_count: number;
+  orders_count: number;
+  orders_amount: number;
+  payments_in: number;
+  payments_in_count: number;
+  payments_out: number;
+  payments_out_count: number;
+  net_debt: number;
+};
+
+export type PartnerDashboardDay = {
+  day: string;
+  shipments: number;
+  shipment_returns: number;
+  purchases: number;
+  purchase_returns: number;
+  payments_in: number;
+  payments_out: number;
+};
+
+export type PartnerDashboardDebtCurrency = {
+  currency_code: string | null;
+  amount: number;
+};
+
+export type PartnerDashboardSummary = {
+  period: { start_date: string; end_date: string };
+  totals: PartnerDashboardTotals;
+  days: PartnerDashboardDay[];
+  debt_by_currency: PartnerDashboardDebtCurrency[];
+};
+
+export async function fetchPartnerDashboard(
+  token: string,
+  startDate: string,
+  endDate: string,
+): Promise<PartnerDashboardSummary> {
+  const params = new URLSearchParams();
+  if (startDate) params.set("start_date", startDate);
+  params.set("end_date", endDate);
+  return apiRequest(`/api/v1/partner-telegram/webapp/dashboard?${params}`, { token });
+}
+
+export type PartnerDashboardProductMode = "purchases" | "shipments";
+
+export type PartnerDashboardProductRow = {
+  item_id: number;
+  code: string;
+  name: string;
+  category: string;
+  average_price: number;
+  sold_quantity: number;
+  sold_total: number;
+  refund_quantity: number;
+  refund_total: number;
+  net_quantity: number;
+  net_total: number;
+};
+
+export type PartnerDashboardProductTotals = {
+  sold_quantity: number;
+  sold_total: number;
+  refund_quantity: number;
+  refund_total: number;
+  net_quantity: number;
+  net_total: number;
+};
+
+export type PartnerDashboardProductsPage = {
+  mode: PartnerDashboardProductMode;
+  products: PartnerDashboardProductRow[];
+  totals: PartnerDashboardProductTotals;
+  total: number;
+};
+
+export async function fetchPartnerDashboardProducts(
+  token: string,
+  mode: PartnerDashboardProductMode,
+  startDate: string,
+  endDate: string,
+): Promise<PartnerDashboardProductsPage> {
+  const params = new URLSearchParams();
+  params.set("mode", mode);
+  if (startDate) params.set("start_date", startDate);
+  params.set("end_date", endDate);
+  return apiRequest(`/api/v1/partner-telegram/webapp/dashboard/products?${params}`, { token });
 }

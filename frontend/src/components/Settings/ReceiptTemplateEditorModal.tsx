@@ -327,6 +327,46 @@ export function ReceiptTemplateEditorModal({
                 </>
               )}
 
+              {(draft.format === "a4" || isHtml) && (
+                <div className={styles.sectionToggles}>
+                  <label className={styles.toggleRow}>
+                    <span>
+                      {t("settings.receiptTemplates.partnerDebt", "Partner debt")}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={draft.partner_debt_enabled}
+                      onChange={(e) =>
+                        setDraft({ ...draft, partner_debt_enabled: e.target.checked })
+                      }
+                    />
+                  </label>
+                  <label
+                    className={`${styles.toggleRow} ${
+                      draft.partner_debt_enabled ? "" : styles.toggleRowDisabled
+                    }`}
+                  >
+                    <span>
+                      {t(
+                        "settings.receiptTemplates.partnerDebtNegativeOnly",
+                        "Only negative balance",
+                      )}
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={draft.partner_debt_negative_only}
+                      disabled={!draft.partner_debt_enabled}
+                      onChange={(e) =>
+                        setDraft({
+                          ...draft,
+                          partner_debt_negative_only: e.target.checked,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              )}
+
               <label className={styles.field}>
                 <span className={styles.label}>
                   {t("settings.receiptTemplates.footerMessage", "Footer message")}

@@ -44,6 +44,8 @@ const htmlTemplate: ReceiptTemplate = {
   },
   line_sort: { column: "document_order", direction: "asc" },
   logos: [],
+  partner_debt_enabled: false,
+  partner_debt_negative_only: false,
   html: `
     <h1>{{document.code}}</h1>
     {{#each operation_groups}}<section>{{name}}{{#each lines}}<div>{{item_name}}</div>{{/each}}</section>{{/each}}
@@ -52,6 +54,22 @@ const htmlTemplate: ReceiptTemplate = {
 };
 
 describe("receipt template engine", () => {
+  it("renders filtered partner balances when partner debt is enabled", () => {
+    invalidateReceiptTemplateCache("test-html-debt");
+    const html = renderReceiptHtmlTemplate(
+      {
+        ...htmlTemplate,
+        id: "test-html-debt",
+        partner_debt_enabled: true,
+        partner_debt_negative_only: true,
+        html: "{{#each partner_balances}}<div>{{firm_name}} {{amount}} {{currency_code}}</div>{{/each}}",
+      },
+      SAMPLE_RECEIPT_CONTEXT,
+    );
+    expect(html).toContain("Main firm -25.5 USD");
+    expect(html).not.toContain("UZS");
+  });
+
   it("renders document, operations, and payments", () => {
     const html = renderReceiptHtmlTemplate(htmlTemplate, SAMPLE_RECEIPT_CONTEXT);
     expect(html).toContain("13 705");
@@ -221,6 +239,59 @@ describe("receipt template engine", () => {
     );
     expect(html).toContain("11A");
     expect(html).toContain("Серый");
+  });
+
+  it("renders the product image url", () => {
+    invalidateReceiptTemplateCache("test-item-image");
+    const html = renderReceiptHtmlTemplate(
+      {
+        ...htmlTemplate,
+        id: "test-item-image",
+        html: '{{#each operations}}{{#if item_image}}<img src="{{item_image}}" alt="" />{{/if}}{{/each}}',
+      },
+      SAMPLE_RECEIPT_CONTEXT,
+    );
+    expect(html).toContain("data:image/svg+xml");
+  });
+
+  it("renders a product photo with itemImg", () => {
+    invalidateReceiptTemplateCache("test-item-img");
+    const html = renderReceiptHtmlTemplate(
+      {
+        ...htmlTemplate,
+        id: "test-item-img",
+        html: "{{#each operations}}{{itemImg}}{{/each}}",
+      },
+      SAMPLE_RECEIPT_CONTEXT,
+    );
+    expect(html).toContain('<img src="data:image/svg+xml');
+    expect(html).toContain('class="item-image"');
+    expect(html.match(/<img /g)).toHaveLength(1);
+  });
+
+  it("skips unsafe product image urls", () => {
+    invalidateReceiptTemplateCache("test-item-img-unsafe");
+    const html = renderReceiptHtmlTemplate(
+      {
+        ...htmlTemplate,
+        id: "test-item-img-unsafe",
+        html: "{{#each operations}}{{itemImg}}{{/each}}",
+      },
+      {
+        ...SAMPLE_RECEIPT_CONTEXT,
+        operations: [
+          {
+            ...SAMPLE_RECEIPT_CONTEXT.operations[0],
+            item: {
+              ...SAMPLE_RECEIPT_CONTEXT.operations[0].item!,
+              image_url: "javascript:alert(1)",
+            },
+          },
+        ],
+      },
+    );
+    expect(html).not.toContain("<img");
+    expect(html).not.toContain("javascript:");
   });
 
   it("renders logo helper by name", () => {

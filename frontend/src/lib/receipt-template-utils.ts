@@ -22,6 +22,8 @@ export function normalizeReceiptTemplate(template: ReceiptTemplate): ReceiptTemp
     amount_in_words_language: normalizeAmountInWordsLanguage(template.amount_in_words_language),
     line_sort: normalizeReceiptTemplateLineSort(template.line_sort),
     logos: normalizeReceiptTemplateLogos(template.logos),
+    partner_debt_enabled: template.partner_debt_enabled === true,
+    partner_debt_negative_only: template.partner_debt_negative_only === true,
   };
 }
 
@@ -77,6 +79,8 @@ export function createReceiptTemplate(
     sections: defaultSectionsForFormat(format),
     line_sort: { ...DEFAULT_RECEIPT_TEMPLATE_LINE_SORT },
     logos: [],
+    partner_debt_enabled: false,
+    partner_debt_negative_only: false,
     html: engine === "html" ? defaultHtmlTemplate(format) : "",
     css: engine === "html" ? defaultCssTemplate(format) : "",
   };
@@ -319,6 +323,8 @@ export function parseImportedReceiptTemplate(
       source.line_sort as ReceiptTemplate["line_sort"] | undefined,
     ),
     logos: normalizeReceiptTemplateLogos(source.logos),
+    partner_debt_enabled: source.partner_debt_enabled === true,
+    partner_debt_negative_only: source.partner_debt_negative_only === true,
     html: engine === "html" ? html : "",
     css: engine === "html" ? css : "",
     is_default: false,
@@ -445,6 +451,18 @@ export const RECEIPT_TEMPLATE_VARIABLE_GROUPS = [
       "type",
       "reason",
       "refundOf",
+    ],
+  },
+  {
+    label: "partner_balances[]",
+    variables: [
+      "firm_id",
+      "firm_name",
+      "currency_id",
+      "currency_code",
+      "currency_name",
+      "exchange_rate",
+      "amount",
     ],
   },
   {

@@ -139,6 +139,20 @@
   flex-shrink: 0;
 }
 
+.productsContext {
+  flex: 0 1 auto;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.topBarEnd {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
 .sidebarFooter {
   display: flex;
   flex-direction: column;

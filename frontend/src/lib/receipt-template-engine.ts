@@ -6,6 +6,7 @@ import {
 } from "@/lib/amount-in-words";
 import { currencyLabel } from "@/lib/currency-conversion";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
+import { visiblePartnerDebtLines } from "@/lib/partner-debt";
 import type { DocumentPrintContext } from "@/lib/receipt-print-context";
 import type { ReceiptTemplate } from "@/types/receipt-templates";
 import type { RegosCurrencyOption } from "@/types/settings";
@@ -24,7 +25,25 @@ function templateCacheKey(templateId: string, source: string): string {
   return `${templateId}\u0000${source}`;
 }
 
-const RECEIPT_HELPERS_VERSION = 2;
+const RECEIPT_HELPERS_VERSION = 3;
+
+function escapeHtmlAttribute(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function itemImageSrc(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const src = value.trim();
+  if (!src) return "";
+  if (src.startsWith("https://") || src.startsWith("http://") || src.startsWith("data:image/")) {
+    return src;
+  }
+  return "";
+}
 
 function registerHelpers(): void {
   const handlebarsWithVersion = Handlebars as typeof Handlebars & {
@@ -130,6 +149,15 @@ function registerHelpers(): void {
     return new Handlebars.SafeString(markup);
   });
 
+  Handlebars.registerHelper("itemImg", function (this: { item_image?: unknown }, ...args: unknown[]) {
+    const explicit = args.length > 1 ? args[0] : undefined;
+    const src = itemImageSrc(explicit ?? this?.item_image);
+    if (!src) return new Handlebars.SafeString("");
+    return new Handlebars.SafeString(
+      `<img src="${escapeHtmlAttribute(src)}" alt="" class="item-image" />`,
+    );
+  });
+
   (Handlebars as typeof Handlebars & { __receiptHelpersVersion?: number }).__receiptHelpersVersion =
     RECEIPT_HELPERS_VERSION;
 }
@@ -216,6 +244,9 @@ export function renderReceiptHtmlTemplate(
     invoice_title: template.invoice_title,
     footer_text: template.footer_text,
     logos: template.logos ?? [],
+    partner_balances: template.partner_debt_enabled
+      ? visiblePartnerDebtLines(context.partner_balances, template.partner_debt_negative_only)
+      : [],
   });
 }
 

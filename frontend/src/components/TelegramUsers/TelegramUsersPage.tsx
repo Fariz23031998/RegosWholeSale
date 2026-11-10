@@ -1,6 +1,8 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { useMemo, useState } from "react";
 import clsx from "clsx";
+import { DataTable } from "@/components/DataTable/DataTable";
 import { Button } from "@/components/posui/Button";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatAuthError, useAuth } from "@/store/auth";
@@ -185,6 +187,115 @@ export function TelegramUsersPage() {
     }
   };
 
+  const columns = useMemo<ColumnDef<TelegramUser, any>[]>(
+    () => [
+      {
+        id: "name",
+        accessorFn: (item) => displayName(item, t),
+        header: t("common.name", "Name"),
+        size: 200,
+        meta: { cellClassName: styles.nameCell },
+      },
+      {
+        id: "type",
+        accessorFn: (item) => chatTypeLabel(item, t),
+        header: t("telegramUsers.table.type", "Type"),
+        cell: ({ row }) => <span className={styles.badge}>{chatTypeLabel(row.original, t)}</span>,
+      },
+      {
+        id: "username",
+        accessorFn: (item) => item.username ?? "",
+        header: t("telegramUsers.table.username", "Username"),
+        meta: { cellClassName: styles.muted },
+        cell: ({ row }) => (row.original.username ? `@${row.original.username}` : "—"),
+      },
+      {
+        id: "chatId",
+        accessorFn: (item) => item.chat_id,
+        header: t("telegramUsers.table.chatId", "Chat ID"),
+        meta: { cellClassName: styles.id },
+      },
+      {
+        id: "language",
+        accessorFn: (item) => item.language_code ?? "",
+        header: t("telegramUsers.table.language", "Language"),
+        meta: { cellClassName: styles.muted },
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "notifications",
+        accessorFn: (item) => notificationsSummary(item, t),
+        header: t("telegramUsers.table.notifications", "Notifications"),
+        meta: { cellClassName: clsx(styles.muted, styles.notificationsCell) },
+        cell: ({ row }) => (
+          <span className={styles.notificationSummary}>{notificationsSummary(row.original, t)}</span>
+        ),
+      },
+      {
+        id: "scope",
+        accessorFn: (item) => (item.is_active ? scopeSummary(item, t) : ""),
+        header: t("telegramUsers.table.scope", "Scope"),
+        meta: { cellClassName: clsx(styles.muted, styles.scopeCell) },
+        cell: ({ row }) => (row.original.is_active ? scopeSummary(row.original, t) : "—"),
+      },
+      {
+        id: "receiptLanguage",
+        accessorFn: (item) => item.receipt_language,
+        header: t("telegramUsers.receiptLanguage", "Receipt language"),
+        meta: { cellClassName: styles.muted },
+        cell: ({ row }) =>
+          t(
+            receiptLanguageLabelKey(row.original.receipt_language as TelegramReceiptLanguage),
+            row.original.receipt_language.toUpperCase(),
+          ),
+      },
+      {
+        id: "registered",
+        accessorFn: (item) => item.created_at,
+        header: t("telegramUsers.table.registered", "Registered"),
+        meta: { cellClassName: styles.muted },
+        cell: ({ row }) => formatDateTime(row.original.created_at),
+      },
+      {
+        id: "status",
+        accessorFn: (item) => (item.is_active ? 1 : 0),
+        header: t("common.status", "Status"),
+        meta: { cellClassName: styles.statusCell, headerClassName: styles.statusHeader },
+        cell: ({ row }) => (
+          <span className={clsx(styles.badge, row.original.is_active ? styles.active : styles.inactive)}>
+            {row.original.is_active
+              ? t("common.active", "Active")
+              : t("common.inactive", "Inactive")}
+          </span>
+        ),
+      },
+      {
+        id: "actions",
+        header: t("common.actions", "Actions"),
+        enableSorting: false,
+        enableHiding: false,
+        size: 240,
+        meta: { cellClassName: styles.actionsCell },
+        cell: ({ row }) => (
+          <div className={styles.actions}>
+            <Button variant="secondary" size="sm" onClick={() => openNotifications(row.original)}>
+              {t("telegramUsers.actions.notifications", "Notifications")}
+            </Button>
+            <Button
+              variant="danger"
+              size="sm"
+              disabled={deletingUserId === row.original.id}
+              onClick={() => void handleDelete(row.original)}
+            >
+              {deletingUserId === row.original.id ? "…" : t("common.delete", "Delete")}
+            </Button>
+          </div>
+        ),
+      },
+    ],
+    [deletingUserId, t],
+  );
+
   if (!canManageUsers) {
     return (
       <div className={styles.page}>
@@ -252,92 +363,13 @@ export function TelegramUsersPage() {
           </div>
         ) : (
           <div className={styles.tableScroll}>
-          <table className={styles.tbl}>
-            <thead>
-              <tr>
-                <th>{t("common.name", "Name")}</th>
-                <th>{t("telegramUsers.table.type", "Type")}</th>
-                <th>{t("telegramUsers.table.username", "Username")}</th>
-                <th>{t("telegramUsers.table.chatId", "Chat ID")}</th>
-                <th>{t("telegramUsers.table.language", "Language")}</th>
-                <th>{t("telegramUsers.table.notifications", "Notifications")}</th>
-                <th>{t("telegramUsers.table.scope", "Scope")}</th>
-                <th>{t("telegramUsers.receiptLanguage", "Receipt language")}</th>
-                <th>{t("telegramUsers.table.registered", "Registered")}</th>
-                <th className={styles.statusHeader}>{t("common.status", "Status")}</th>
-                <th>{t("common.actions", "Actions")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {users.map((item) => (
-                <tr key={item.id}>
-                  <td className={styles.nameCell} data-label={t("common.name", "Name")}>{displayName(item, t)}</td>
-                  <td data-label={t("telegramUsers.table.type", "Type")}>
-                    <span className={styles.badge}>{chatTypeLabel(item, t)}</span>
-                  </td>
-                  <td className={styles.muted} data-label={t("telegramUsers.table.username", "Username")}>
-                    {item.username ? `@${item.username}` : "—"}
-                  </td>
-                  <td className={styles.id} data-label={t("telegramUsers.table.chatId", "Chat ID")}>
-                    {item.chat_id}
-                  </td>
-                  <td className={styles.muted} data-label={t("telegramUsers.table.language", "Language")}>
-                    {item.language_code ?? "—"}
-                  </td>
-                  <td className={clsx(styles.muted, styles.notificationsCell)} data-label={t("telegramUsers.table.notifications", "Notifications")}>
-                    <span className={styles.notificationSummary}>
-                      {notificationsSummary(item, t)}
-                    </span>
-                  </td>
-                  <td className={clsx(styles.muted, styles.scopeCell)} data-label={t("telegramUsers.table.scope", "Scope")}>
-                    {item.is_active ? scopeSummary(item, t) : "—"}
-                  </td>
-                  <td className={styles.muted} data-label={t("telegramUsers.receiptLanguage", "Receipt language")}>
-                    {t(
-                      receiptLanguageLabelKey(item.receipt_language as TelegramReceiptLanguage),
-                      item.receipt_language.toUpperCase(),
-                    )}
-                  </td>
-                  <td className={styles.muted} data-label={t("telegramUsers.table.registered", "Registered")}>
-                    {formatDateTime(item.created_at)}
-                  </td>
-                  <td className={styles.statusCell} data-label={t("common.status", "Status")}>
-                    <span
-                      className={clsx(
-                        styles.badge,
-                        item.is_active ? styles.active : styles.inactive,
-                      )}
-                    >
-                      {item.is_active
-                        ? t("common.active", "Active")
-                        : t("common.inactive", "Inactive")}
-                    </span>
-                  </td>
-                  <td className={styles.actionsCell} data-label={t("common.actions", "Actions")}>
-                    <div className={styles.actions}>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        onClick={() => openNotifications(item)}
-                      >
-                        {t("telegramUsers.actions.notifications", "Notifications")}
-                      </Button>
-                      <Button
-                        variant="danger"
-                        size="sm"
-                        disabled={deletingUserId === item.id}
-                        onClick={() => void handleDelete(item)}
-                      >
-                        {deletingUserId === item.id
-                          ? "…"
-                          : t("common.delete", "Delete")}
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+            <DataTable
+              tableKey="telegramUsers.list"
+              data={users}
+              columns={columns}
+              className={styles.tbl}
+              getRowId={(item) => String(item.id)}
+            />
           </div>
         )}
       </div>

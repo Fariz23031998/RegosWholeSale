@@ -3,11 +3,14 @@ import clsx from "clsx";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { usePermissions } from "@/hooks/use-permissions";
 import { fetchProductGroups } from "@/lib/catalog-api";
 import { fetchPartnerGroups } from "@/lib/partners-api";
 import { CategoryAllowlistField } from "./CategoryAllowlistField";
 import { expandProductGroupIds, filterProductGroups } from "@/lib/category-scope";
 import { subscribeReferenceOptionsEvents } from "@/lib/catalog-events";
+import { fetchLabelStations, fetchLabelTemplates } from "@/lib/label-templates-api";
+import { labelPrinterNames } from "@/lib/print-product-labels";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
 import {
   subscribeSettingsEvents,
@@ -17,8 +20,10 @@ import {
   clearUserPosSettings,
   clearUserRegosDefaults,
   fetchCompanyPosSettings,
+  fetchUserLabelPrintSettingsById,
   fetchUserPosSettingsById,
   fetchUserRegosDefaultsById,
+  patchUserLabelPrintSettingsById,
   patchUserPosSettingsById,
   patchUserRegosDefaultsById,
 } from "@/lib/users-api";
@@ -40,6 +45,7 @@ import type {
   VatCalculationType,
 } from "@/types/settings";
 import { getVatCalculationTypeOptions } from "@/types/settings";
+import type { LabelPrintService, LabelTemplate, UserLabelPrintMethod } from "@/types/label-templates";
 import type { UserDetail } from "@/types/users";
 import styles from "./Users.module.css";
 
@@ -90,13 +96,29 @@ function applyRegosDefaults(defaults: {
 }
 
 function isUserSettingsEventForUser(event: SettingsEventMessage, userId: number): boolean {
-  if (event.namespace !== "pos" && event.namespace !== "regos_defaults") return false;
+  if (
+    event.namespace !== "pos" &&
+    event.namespace !== "regos_defaults" &&
+    event.namespace !== "label_print" &&
+    event.namespace !== "label_templates"
+  ) {
+    return false;
+  }
   if (event.scope === "company") return true;
   return event.user_id === userId;
 }
 
+function printServiceLabel(service: LabelPrintService): string {
+  if (service.name.trim().toLowerCase() === service.printer_name.trim().toLowerCase()) {
+    return service.name;
+  }
+  return `${service.name} (${service.printer_name})`;
+}
+
 export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const { t } = useLanguage();
+  const { canManagePrintSettings } = usePermissions();
+  const canEditLabelPrint = canManagePrintSettings();
   const vatOptions = getVatCalculationTypeOptions(t);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -132,6 +154,15 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [derivedFirm, setDerivedFirm] = useState<RegosDefaultOption | null>(null);
   const [zeroQuantity, setZeroQuantity] = useState(false);
   const [zeroPrice, setZeroPrice] = useState(false);
+  const [labelTemplates, setLabelTemplates] = useState<LabelTemplate[]>([]);
+  const [labelServices, setLabelServices] = useState<LabelPrintService[]>([]);
+  const [labelConnectedPrinters, setLabelConnectedPrinters] = useState<string[]>([]);
+  const [labelTemplateId, setLabelTemplateId] = useState("");
+  const [labelServiceId, setLabelServiceId] = useState("");
+  const [labelPrinterName, setLabelPrinterName] = useState("");
+  const [labelMethod, setLabelMethod] = useState<UserLabelPrintMethod>("service");
+  const [labelPrompt, setLabelPrompt] = useState(true);
+  const [labelUseWarehouseQuantity, setLabelUseWarehouseQuantity] = useState(false);
   const reloadSettingsRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
@@ -159,8 +190,15 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         fetchRegosReferenceOptions(token, {
           cacheScope: { companyId: user.company_id },
         }),
+        canEditLabelPrint
+          ? Promise.all([
+              fetchUserLabelPrintSettingsById(token, user.id),
+              fetchLabelTemplates(token),
+              fetchLabelStations(token).catch(() => ({ stations: [] })),
+            ])
+          : Promise.resolve(null),
       ])
-        .then(([userPosRes, companyPosRes, groupsRes, partnerGroupsRes, userRegosRes, refOptions]) => {
+        .then(([userPosRes, companyPosRes, groupsRes, partnerGroupsRes, userRegosRes, refOptions, labelRes]) => {
           if (cancelled) return;
           setAllowOutOfStock(userPosRes.settings.allow_out_of_stock);
           setAutoOpenQtyKeypad(userPosRes.settings.auto_open_qty_keypad);
@@ -202,6 +240,21 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           setZeroQuantity(regos.zeroQuantity);
           setZeroPrice(regos.zeroPrice);
           setOptions(refOptions);
+          if (labelRes) {
+            const [labelSettings, labelCompany, stationsResponse] = labelRes;
+            const nextTemplates = labelCompany.settings.templates;
+            const nextServices = labelCompany.settings.print.services ?? [];
+            const savedPrinter = labelSettings.settings.printer_name?.trim() ?? "";
+            setLabelTemplates(nextTemplates);
+            setLabelServices(nextServices);
+            setLabelConnectedPrinters(labelPrinterNames(stationsResponse.stations));
+            setLabelTemplateId(labelSettings.settings.template_id ?? nextTemplates[0]?.id ?? "");
+            setLabelServiceId(labelSettings.settings.service_id ?? nextServices[0]?.id ?? "");
+            setLabelPrinterName(savedPrinter);
+            setLabelMethod(labelSettings.settings.method);
+            setLabelPrompt(labelSettings.settings.prompt_before_print);
+            setLabelUseWarehouseQuantity(labelSettings.settings.use_warehouse_quantity);
+          }
         })
         .catch((err) => {
           if (!cancelled) setError(formatAuthError(err));
@@ -217,7 +270,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, token, user]);
+  }, [canEditLabelPrint, open, token, user]);
 
   useEffect(() => {
     if (!open || !user) return;
@@ -288,6 +341,16 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           zero_quantity: zeroQuantity,
           zero_price: zeroPrice,
         }),
+        canEditLabelPrint
+          ? patchUserLabelPrintSettingsById(token, user.id, {
+              template_id: labelTemplateId || null,
+              service_id: labelServiceId || null,
+              printer_name: labelPrinterName.trim() || null,
+              method: labelMethod,
+              prompt_before_print: labelPrompt,
+              use_warehouse_quantity: labelUseWarehouseQuantity,
+            })
+          : Promise.resolve(null),
       ]);
       setAllowOutOfStock(posRes.settings.allow_out_of_stock);
       setAutoOpenQtyKeypad(posRes.settings.auto_open_qty_keypad);
@@ -374,6 +437,15 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   };
 
   const busy = loading || saving || resettingPos || resettingRegos;
+  const labelPrinterOptions = useMemo(() => {
+    const names = [...labelConnectedPrinters];
+    const saved = labelPrinterName.trim();
+    if (saved && !names.some((name) => name.toLowerCase() === saved.toLowerCase())) {
+      names.unshift(saved);
+    }
+    return names;
+  }, [labelConnectedPrinters, labelPrinterName]);
+
   const defaultCategoryGroups = useMemo(
     () => filterProductGroups(productGroups, allowedProductGroupIds),
     [allowedProductGroupIds, productGroups],
@@ -824,6 +896,136 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
             <span className={styles.slider} />
           </span>
         </label>
+
+        {canEditLabelPrint ? (
+          <>
+            <div className={styles.sectionTitle}>
+              {t("users.settings.labelPrint", "Label print")}
+            </div>
+            <p className={styles.hint}>
+              {t(
+                "users.settings.labelPrintDesc",
+                "Default printer, template, and print method for this user.",
+              )}
+            </p>
+            <label className={styles.field}>
+              <span className={styles.label}>{t("products.defaultTemplate", "Default template")}</span>
+              <select
+                className={styles.select}
+                value={labelTemplateId}
+                disabled={busy || labelTemplates.length === 0}
+                onChange={(event) => setLabelTemplateId(event.target.value)}
+              >
+                {labelTemplates.map((template) => (
+                  <option key={template.id} value={template.id}>
+                    {template.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {labelTemplates.length === 0 ? (
+              <p className={styles.hint}>{t("products.noTemplates", "No label template is configured.")}</p>
+            ) : null}
+            <label className={styles.field}>
+              <span className={styles.label}>{t("products.service", "Print service")}</span>
+              <select
+                className={styles.select}
+                value={labelServiceId}
+                disabled={busy || labelServices.length === 0}
+                onChange={(event) => setLabelServiceId(event.target.value)}
+              >
+                {labelServices.map((service) => (
+                  <option key={service.id} value={service.id}>
+                    {printServiceLabel(service)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {labelServices.length === 0 ? (
+              <p className={styles.hint}>{t("products.noServices", "No print service is configured.")}</p>
+            ) : null}
+            <label className={styles.field}>
+              <span className={styles.label}>{t("products.defaultPrinter", "Default printer")}</span>
+              <select
+                className={styles.select}
+                value={labelPrinterName}
+                disabled={busy}
+                onChange={(event) => setLabelPrinterName(event.target.value)}
+              >
+                <option value="">{t("products.noPrinterPreference", "No preference")}</option>
+                {labelPrinterOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {labelPrinterOptions.length === 0 ? (
+              <p className={styles.hint}>
+                {t(
+                  "products.noConnectedPrinters",
+                  "No connected label printers. Connect Print Service to choose a default.",
+                )}
+              </p>
+            ) : null}
+            <label className={styles.field}>
+              <span className={styles.label}>{t("products.printMethod", "Printing method")}</span>
+              <select
+                className={styles.select}
+                value={labelMethod}
+                disabled={busy}
+                onChange={(event) => setLabelMethod(event.target.value as UserLabelPrintMethod)}
+              >
+                <option value="service">{t("products.printMethodService", "Print Service")}</option>
+                <option value="browser">{t("products.printMethodBrowser", "Browser")}</option>
+              </select>
+            </label>
+            <label className={styles.row}>
+              <div>
+                <div className={styles.rowTitle}>
+                  {t("products.promptBeforePrint", "Open print settings before printing")}
+                </div>
+                <div className={styles.rowDesc}>
+                  {t(
+                    "products.promptBeforePrintDesc",
+                    "Show the Print labels window before each print.",
+                  )}
+                </div>
+              </div>
+              <span className={styles.switch}>
+                <input
+                  type="checkbox"
+                  checked={labelPrompt}
+                  disabled={busy}
+                  onChange={(event) => setLabelPrompt(event.target.checked)}
+                />
+                <span className={styles.slider} />
+              </span>
+            </label>
+            <label className={styles.row}>
+              <div>
+                <div className={styles.rowTitle}>
+                  {t("products.useWarehouseQuantity", "Print by warehouse quantity")}
+                </div>
+                <div className={styles.rowDesc}>
+                  {t(
+                    "products.useWarehouseQuantityDesc",
+                    "Print one label per unit in stock for the selected warehouse.",
+                  )}
+                </div>
+              </div>
+              <span className={styles.switch}>
+                <input
+                  type="checkbox"
+                  checked={labelUseWarehouseQuantity}
+                  disabled={busy}
+                  onChange={(event) => setLabelUseWarehouseQuantity(event.target.checked)}
+                />
+                <span className={styles.slider} />
+              </span>
+            </label>
+          </>
+        ) : null}
 
         <div className={styles.modalActions}>
           <Button

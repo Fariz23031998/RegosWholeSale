@@ -170,6 +170,7 @@ class ReceiptOperationItem(BaseModel):
     department: ReceiptOperationItemNameRef = Field(default_factory=ReceiptOperationItemNameRef)
     vat: ReceiptOperationItemVat = Field(default_factory=ReceiptOperationItemVat)
     base_barcode: str | None = None
+    image_url: str | None = None
 
 
 class WholesaleOperationLine(BaseModel):

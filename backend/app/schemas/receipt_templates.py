@@ -71,6 +71,8 @@ class ReceiptTemplate(BaseModel):
     sections: ReceiptTemplateSections = Field(default_factory=ReceiptTemplateSections)
     line_sort: ReceiptTemplateLineSort = Field(default_factory=ReceiptTemplateLineSort)
     logos: list[ReceiptTemplateLogo] = Field(default_factory=list)
+    partner_debt_enabled: bool = False
+    partner_debt_negative_only: bool = False
     html: str = ""
     css: str = ""
 

@@ -2,8 +2,10 @@ import type { Sale, SalePaymentLine } from "@/data/seed";
 import type { TranslateFn } from "@/lib/dashboard-api";
 import {
   EMPTY_RECEIPT_OPERATION_ITEM,
+  mergeReceiptOperationItemImage,
   normalizeReceiptOperationItem,
   receiptOperationItemFromCatalogProduct,
+  receiptOperationItemImage,
 } from "@/lib/receipt-operation-item";
 import {
   buildOperationGroups,
@@ -173,9 +175,10 @@ function withOperationItem(
   line: WholesaleOperationLine,
   item = EMPTY_RECEIPT_OPERATION_ITEM,
 ): WholesaleOperationLine {
+  const normalized = normalizeReceiptOperationItem(line.item ?? item);
   return {
     ...line,
-    item: normalizeReceiptOperationItem(line.item ?? item),
+    item: mergeReceiptOperationItemImage(normalized, item),
   };
 }
 
@@ -211,7 +214,7 @@ type CartLineSource = Pick<
   | "itemGroupName"
   | "itemUnitName"
   | "itemBrand"
->;
+> & { image?: string };
 
 function resolveCartLinePrintMeta(
   item: CartLineSource,
@@ -230,6 +233,7 @@ function resolveCartLinePrintMeta(
     department: {
       name: itemGroupName || fromCatalog.department.name,
     },
+    image_url: fromCatalog.image_url || receiptOperationItemImage(item.image),
   });
 
   return {
@@ -355,7 +359,7 @@ function checkoutDocumentFromResult(
 export type CartDraftPrintInput = {
   items: Array<
     Pick<CartItem, "regosItemId" | "name" | "productId" | "qty" | "price" | "listPrice"> &
-      CartItemPrintMeta
+      CartItemPrintMeta & { image?: string }
   >;
   totals: { subtotal: number; discount: number; total: number };
   catalogProducts: Product[];
@@ -413,7 +417,7 @@ function mergeCartItemsWithWholesaleOperations(
           price2,
           amount: +(item.qty * item.price).toFixed(2),
         },
-        normalizeReceiptOperationItem(fromApi.item ?? details?.item),
+        details?.item ?? EMPTY_RECEIPT_OPERATION_ITEM,
       );
     }
 

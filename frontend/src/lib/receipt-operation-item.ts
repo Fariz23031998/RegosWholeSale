@@ -20,6 +20,7 @@ export type ReceiptOperationItem = {
   department: ReceiptOperationItemNameRef;
   vat: ReceiptOperationItemVat;
   base_barcode: string | null;
+  image_url: string | null;
 };
 
 export const EMPTY_RECEIPT_OPERATION_ITEM: ReceiptOperationItem = {
@@ -35,6 +36,7 @@ export const EMPTY_RECEIPT_OPERATION_ITEM: ReceiptOperationItem = {
   department: { name: null },
   vat: { name: null, value: null },
   base_barcode: null,
+  image_url: null,
 };
 
 type CatalogProductLike = {
@@ -43,7 +45,23 @@ type CatalogProductLike = {
   articul?: string;
   barcode?: string;
   category?: string;
+  image?: string;
 };
+
+export function receiptOperationItemImage(image: string | null | undefined): string | null {
+  const trimmed = image?.trim();
+  return trimmed ? trimmed : null;
+}
+
+export function mergeReceiptOperationItemImage(
+  item: ReceiptOperationItem,
+  fallback?: Partial<ReceiptOperationItem> | null,
+): ReceiptOperationItem {
+  if (item.image_url) return item;
+  const imageUrl = receiptOperationItemImage(fallback?.image_url);
+  if (!imageUrl) return item;
+  return { ...item, image_url: imageUrl };
+}
 
 export function receiptOperationItemFromCatalogProduct(
   product?: CatalogProductLike | null,
@@ -60,6 +78,7 @@ export function receiptOperationItemFromCatalogProduct(
     articul,
     base_barcode: product.barcode?.trim() || null,
     department: { name: product.category?.trim() || null },
+    image_url: receiptOperationItemImage(product.image),
   };
 }
 
@@ -77,6 +96,7 @@ export type ReceiptOperationTemplateFields = {
   item_vat_name: string | null;
   item_vat_value: number | null;
   item_base_barcode: string | null;
+  item_image: string | null;
 };
 
 export function receiptOperationTemplateFields(
@@ -96,6 +116,7 @@ export function receiptOperationTemplateFields(
     item_vat_name: item.vat.name,
     item_vat_value: item.vat.value,
     item_base_barcode: item.base_barcode,
+    item_image: item.image_url,
   };
 }
 
@@ -136,5 +157,6 @@ export function normalizeReceiptOperationItem(
           : null,
     },
     base_barcode: item.base_barcode ?? null,
+    image_url: receiptOperationItemImage(item.image_url),
   };
 }

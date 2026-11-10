@@ -1,6 +1,8 @@
 import { useQuery } from "@tanstack/react-query";
+import type { ColumnDef } from "@tanstack/react-table";
 import { useEffect, useMemo, useState } from "react";
 import clsx from "clsx";
+import { DataTable } from "@/components/DataTable/DataTable";
 import { CalendarRange, Coins, Download, Search, Users, Warehouse } from "lucide-react";
 import {
   Bar,
@@ -262,40 +264,66 @@ function DashboardPaymentTable({
   payments: DashboardPaymentRow[];
   t: TranslateFn;
 }) {
+  const columns = useMemo<ColumnDef<DashboardPaymentRow, any>[]>(
+    () => [
+      {
+        id: "receipt",
+        accessorFn: (payment) => payment.code || String(payment.id),
+        header: t("dashboard.payments.receipt"),
+        cell: ({ row }) => `#${row.original.code || row.original.id}`,
+      },
+      {
+        id: "date",
+        accessorFn: (payment) => payment.date,
+        header: t("common.date"),
+        cell: ({ row }) => formatPaymentDate(row.original.date),
+      },
+      {
+        id: "type",
+        accessorFn: (payment) => payment.payment_type_name ?? "",
+        header: t("common.type"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "partner",
+        accessorFn: (payment) => payment.partner_name ?? "",
+        header: t("dashboard.payments.partner"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "user",
+        accessorFn: (payment) => payment.attached_user_name ?? "",
+        header: t("dashboard.payments.user"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "exchangeRate",
+        accessorFn: (payment) => payment.exchange_rate ?? 0,
+        header: t("dashboard.payments.exchangeRate"),
+        meta: { align: "right", cellClassName: styles.right, headerClassName: styles.right },
+        cell: ({ row }) => formatOptionalExchangeRate(row.original.exchange_rate),
+      },
+      {
+        id: "amount",
+        accessorFn: (payment) => payment.amount ?? 0,
+        header: t("common.amount"),
+        meta: { align: "right", cellClassName: styles.right, headerClassName: styles.right },
+        cell: ({ row }) => (
+          <AmountWithCurrency amount={row.original.amount ?? 0} currency={row.original.currency} />
+        ),
+      },
+    ],
+    [t],
+  );
   return (
     <div className={styles.paymentTableWrap}>
-      <table className={styles.paymentTable}>
-        <thead>
-          <tr>
-            <th>{t("dashboard.payments.receipt")}</th>
-            <th>{t("common.date")}</th>
-            <th>{t("common.type")}</th>
-            <th>{t("dashboard.payments.partner")}</th>
-            <th>{t("dashboard.payments.user")}</th>
-            <th className={styles.right}>{t("dashboard.payments.exchangeRate")}</th>
-            <th className={styles.right}>{t("common.amount")}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {payments.map((payment) => (
-            <tr key={payment.id}>
-              <td data-label={t("dashboard.payments.receipt")}>#{payment.code || payment.id}</td>
-              <td data-label={t("common.date")}>{formatPaymentDate(payment.date)}</td>
-              <td data-label={t("common.type")}>{payment.payment_type_name ?? "—"}</td>
-              <td data-label={t("dashboard.payments.partner")}>{payment.partner_name ?? "—"}</td>
-              <td data-label={t("dashboard.payments.user")}>
-                {payment.attached_user_name ?? "—"}
-              </td>
-              <td data-label={t("dashboard.payments.exchangeRate")} className={styles.right}>
-                {formatOptionalExchangeRate(payment.exchange_rate)}
-              </td>
-              <td data-label={t("common.amount")} className={styles.right}>
-                <AmountWithCurrency amount={payment.amount ?? 0} currency={payment.currency} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      <DataTable
+        tableKey="dashboard.payments"
+        data={payments}
+        columns={columns}
+        className={styles.paymentTable}
+        getRowId={(payment) => String(payment.id)}
+      />
     </div>
   );
 }
@@ -612,6 +640,69 @@ export function DashboardPage() {
   const filteredOutOfStockProducts = useMemo(
     () => outOfStockProducts.filter((row) => outOfStockMatchesSearch(row, outOfStockSearchQuery)),
     [outOfStockProducts, outOfStockSearchQuery],
+  );
+  const outOfStockColumns = useMemo<ColumnDef<DashboardOutOfStockRow, any>[]>(
+    () => [
+      {
+        id: "product",
+        accessorFn: (row) => row.product_name,
+        header: t("dashboard.outOfStock.columns.product"),
+        size: 220,
+        meta: { cellClassName: styles.nameCell },
+      },
+      {
+        id: "code",
+        accessorFn: (row) => row.code,
+        header: t("dashboard.outOfStock.columns.code"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "barcode",
+        accessorFn: (row) => row.barcode,
+        header: t("dashboard.outOfStock.columns.barcode"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "warehouse",
+        accessorFn: (row) => row.stock_name,
+        header: t("dashboard.outOfStock.columns.warehouse"),
+      },
+      {
+        id: "quantity",
+        accessorFn: (row) => row.quantity,
+        header: t("dashboard.outOfStock.columns.quantity"),
+        meta: { align: "right", cellClassName: styles.num, headerClassName: styles.num },
+        cell: ({ row }) => formatQty(row.original.quantity),
+      },
+      {
+        id: "minQuantity",
+        accessorFn: (row) => row.min_quantity,
+        header: t("dashboard.outOfStock.columns.minQuantity"),
+        meta: { align: "right", cellClassName: styles.num, headerClassName: styles.num },
+        cell: ({ row }) => formatQty(row.original.min_quantity),
+      },
+      {
+        id: "lastPurchaseCost",
+        accessorFn: (row) => row.last_purchase_cost ?? 0,
+        header: t("dashboard.outOfStock.columns.lastPurchaseCost"),
+        meta: { align: "right", cellClassName: styles.num, headerClassName: styles.num },
+        cell: ({ row }) => formatOptionalCurrency(row.original.last_purchase_cost),
+      },
+      {
+        id: "price",
+        accessorFn: (row) => row.price,
+        header: t("dashboard.outOfStock.columns.price"),
+        meta: { align: "right", cellClassName: styles.num, headerClassName: styles.num },
+        cell: ({ row }) => formatCurrency(row.original.price),
+      },
+      {
+        id: "detectedAt",
+        accessorFn: (row) => row.detected_at,
+        header: t("dashboard.outOfStock.columns.detectedAt"),
+        cell: ({ row }) => formatDateTime(row.original.detected_at),
+      },
+    ],
+    [t],
   );
   const outOfStockError = outOfStockQuery.error
     ? formatAuthError(outOfStockQuery.error, t("dashboard.outOfStock.loadError"))
@@ -1447,36 +1538,13 @@ export function DashboardPage() {
             </div>
           ) : (
             <div className={styles.productsTableWrap}>
-              <table className={styles.productsTable}>
-                <thead>
-                  <tr>
-                    <th>{t("dashboard.outOfStock.columns.product")}</th>
-                    <th>{t("dashboard.outOfStock.columns.code")}</th>
-                    <th>{t("dashboard.outOfStock.columns.barcode")}</th>
-                    <th>{t("dashboard.outOfStock.columns.warehouse")}</th>
-                    <th className={styles.num}>{t("dashboard.outOfStock.columns.quantity")}</th>
-                    <th className={styles.num}>{t("dashboard.outOfStock.columns.minQuantity")}</th>
-                    <th className={styles.num}>{t("dashboard.outOfStock.columns.lastPurchaseCost")}</th>
-                    <th className={styles.num}>{t("dashboard.outOfStock.columns.price")}</th>
-                    <th>{t("dashboard.outOfStock.columns.detectedAt")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredOutOfStockProducts.map((row) => (
-                    <tr key={`${row.product_id}-${row.stock_id}`}>
-                      <td className={styles.nameCell}>{row.product_name}</td>
-                      <td>{row.code || "—"}</td>
-                      <td>{row.barcode || "—"}</td>
-                      <td>{row.stock_name}</td>
-                      <td className={styles.num}>{formatQty(row.quantity)}</td>
-                      <td className={styles.num}>{formatQty(row.min_quantity)}</td>
-                      <td className={styles.num}>{formatOptionalCurrency(row.last_purchase_cost)}</td>
-                      <td className={styles.num}>{formatCurrency(row.price)}</td>
-                      <td>{formatDateTime(row.detected_at)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <DataTable
+                tableKey="dashboard.outOfStock"
+                data={filteredOutOfStockProducts}
+                columns={outOfStockColumns}
+                className={styles.productsTable}
+                getRowId={(row) => `${row.product_id}-${row.stock_id}`}
+              />
             </div>
           )}
         </div>

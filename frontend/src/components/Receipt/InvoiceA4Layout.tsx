@@ -2,6 +2,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import type { ReceiptPrintContext } from "@/lib/receipt-print-context";
 import type { ReceiptTemplate } from "@/types/receipt-templates";
 import { formatCurrency, formatDate, formatDateTime } from "@/lib/format";
+import { visiblePartnerDebtLines } from "@/lib/partner-debt";
 import {
   formatAmountWithCurrency,
   getSalePaymentState,
@@ -23,6 +24,9 @@ export function InvoiceA4Layout({ template, context }: Props) {
   const { closedWithoutPayment, currenciesDiffer } = getSalePaymentState(sale);
   const docId = context.document_code ?? sale.id;
   const totalWithWords = getSaleTotalWithWords(template, sale);
+  const partnerDebtLines = template.partner_debt_enabled
+    ? visiblePartnerDebtLines(context.partner_balances, template.partner_debt_negative_only)
+    : [];
 
   return (
     <div className={styles.invoice}>
@@ -76,6 +80,25 @@ export function InvoiceA4Layout({ template, context }: Props) {
             <div className={styles.partnerName}>{context.partner_name}</div>
           </div>
         )}
+        {partnerDebtLines.length > 0 && (
+          <div className={styles.infoBlock}>
+            <div className={styles.infoLabel}>
+              {t("receipt.labels.partnerDebt", "Partner debt")}
+            </div>
+            {partnerDebtLines.map((line, index) => (
+              <div
+                key={`${line.firm_id ?? "firm"}-${line.currency_id ?? index}`}
+                className={styles.partnerDebtLine}
+              >
+                {line.firm_name ? <span>{line.firm_name}</span> : <span />}
+                <span>
+                  {formatCurrency(line.amount)}
+                  {line.currency_code ? ` ${line.currency_code}` : ""}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {sections.items && (
@@ -93,16 +116,26 @@ export function InvoiceA4Layout({ template, context }: Props) {
             </tr>
           </thead>
           <tbody>
-            {sale.items.map((item) => (
-              <tr key={item.productId}>
-                <td>{item.name}</td>
-                <td className={styles.numCell}>{item.qty}</td>
-                <td className={styles.numCell}>{formatCurrency(item.price)}</td>
-                <td className={styles.numCell}>
-                  {formatCurrency(item.price * item.qty)}
-                </td>
-              </tr>
-            ))}
+            {context.operations.map((line) => {
+              const imageUrl = line.item?.image_url?.trim();
+              return (
+                <tr key={line.id}>
+                  <td>
+                    <div className={styles.itemCell}>
+                      {imageUrl ? (
+                        <img src={imageUrl} alt="" className={styles.itemImage} />
+                      ) : null}
+                      <span>{line.item_name}</span>
+                    </div>
+                  </td>
+                  <td className={styles.numCell}>{line.quantity}</td>
+                  <td className={styles.numCell}>{formatCurrency(line.price)}</td>
+                  <td className={styles.numCell}>
+                    {formatCurrency(line.price * line.quantity)}
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}

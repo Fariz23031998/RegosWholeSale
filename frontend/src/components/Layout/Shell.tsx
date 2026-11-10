@@ -1,8 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "@tanstack/react-router";
 import {
   ArrowDownUp,
   ArrowLeftRight,
+  BadgeDollarSign,
   ChevronDown,
   ClipboardList,
   LayoutDashboard,
@@ -16,6 +17,7 @@ import {
   Receipt,
   Settings,
   ShoppingCart,
+  Tag,
   Undo2,
   Users,
   Wallet,
@@ -30,6 +32,7 @@ import { SellContextBar } from "@/components/POS/SellContextBar";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { ThemeSelector } from "@/components/ThemeSelector";
 import { CacheManagement } from "@/components/Layout/CacheManagement";
+import { ProductsTopBarProvider } from "@/components/Layout/products-top-bar";
 import { NotificationMenu } from "@/components/Notifications/NotificationMenu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -62,6 +65,7 @@ type NavItem = NavLinkItem | NavGroupItem;
 
 const NAV: NavItem[] = [
   { kind: "link", to: "/", labelKey: "nav.sell", icon: ShoppingCart, permission: "pos.access" },
+  { kind: "link", to: "/products", labelKey: "nav.products", icon: Tag, permission: "labels.print" },
   { kind: "link", to: "/sales", labelKey: "nav.sales", icon: Receipt, permission: "sales.read" },
   {
     kind: "group",
@@ -70,6 +74,12 @@ const NAV: NavItem[] = [
     icon: Package,
     children: [
       { to: "/purchases", labelKey: "nav.purchases", icon: PackagePlus, permission: "purchase.read" },
+      {
+        to: "/price-documents",
+        labelKey: "nav.priceDocuments",
+        icon: BadgeDollarSign,
+        permission: "prices.read",
+      },
       {
         to: "/partner-returns",
         labelKey: "nav.partnerReturns",
@@ -143,10 +153,21 @@ export function Shell() {
   const [stockOpen, setStockOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const sellContextHydrated = useSellContext((s) => s.hydrated);
-  const { can, canChangePosContext } = usePermissions();
+  const { can, canChangePosContext, canChangeWarehouse, canChangePriceType } = usePermissions();
   const isSellPage = location.pathname === "/";
+  const isProductsPage =
+    location.pathname === "/products" || location.pathname.startsWith("/products/");
   const showSellContext = isSellPage && canChangePosContext() && sellContextHydrated;
-  const showCatalogViewToggle = isSellPage && isCompactTopBar;
+  const showProductsContext =
+    isProductsPage &&
+    can("labels.print") &&
+    sellContextHydrated &&
+    (canChangeWarehouse() || canChangePriceType());
+  const showCatalogViewToggle = (isSellPage || isProductsPage) && isCompactTopBar;
+  const [openProductSettings, setOpenProductSettings] = useState<(() => void) | null>(null);
+  const registerProductSettings = useCallback((open: (() => void) | null) => {
+    setOpenProductSettings(() => open);
+  }, []);
 
   const stockGroup = NAV.find((item): item is NavGroupItem => item.kind === "group" && item.id === "stock");
   const stockChildActive = Boolean(
@@ -186,6 +207,7 @@ export function Shell() {
   };
 
   return (
+    <ProductsTopBarProvider register={registerProductSettings}>
     <div className={styles.shell}>
       {sidebarOpen && (
         <button
@@ -331,10 +353,26 @@ export function Shell() {
               <Menu size={20} />
             </button>
             {showSellContext ? <SellContextBar className={styles.topBarContext} /> : null}
+            {showProductsContext ? (
+              <SellContextBar className={styles.productsContext} showPartner={false} />
+            ) : null}
             {showCatalogViewToggle ? (
               <CatalogViewToggle className={styles.topBarViewToggle} />
             ) : null}
-            <NotificationMenu />
+            <div className={styles.topBarEnd}>
+              {isProductsPage && openProductSettings ? (
+                <button
+                  type="button"
+                  className={styles.menuBtn}
+                  aria-label={t("products.settings", "Print settings")}
+                  title={t("products.settings", "Print settings")}
+                  onClick={openProductSettings}
+                >
+                  <Settings size={18} />
+                </button>
+              ) : null}
+              <NotificationMenu />
+            </div>
           </div>
         )}
         <Outlet />
@@ -350,5 +388,6 @@ export function Shell() {
         />
       )}
     </div>
+    </ProductsTopBarProvider>
   );
 }

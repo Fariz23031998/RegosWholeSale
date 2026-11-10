@@ -17,6 +17,7 @@ const itemDetails = {
   department: { name: null },
   vat: { name: null, value: null },
   base_barcode: null,
+  image_url: null,
 };
 
 const lines: WholesaleOperationLine[] = [

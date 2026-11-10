@@ -4,6 +4,7 @@ import type {
   Partner,
   PartnerBalanceMode,
   PartnerBalanceResponse,
+  PartnerDebtResponse,
   PartnerCreateRequest,
   PartnerGroupsResponse,
   PartnerPayDebtRequest,
@@ -168,6 +169,13 @@ export async function fetchPartnerBalance(
   return apiRequest(`/api/v1/regos/partners/${partnerId}/balance?${params.toString()}`, {
     token,
   });
+}
+
+export async function fetchPartnerDebt(
+  token: string,
+  partnerId: number,
+): Promise<PartnerDebtResponse> {
+  return apiRequest(`/api/v1/regos/partners/${partnerId}/debt`, { token });
 }
 
 export async function payPartnerDebt(

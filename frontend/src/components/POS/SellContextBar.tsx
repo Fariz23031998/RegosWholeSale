@@ -25,6 +25,8 @@ type SellContextBarProps = {
 
   className?: string;
 
+  showPartner?: boolean;
+
 };
 
 
@@ -129,7 +131,7 @@ function SellContextPartnerField({
   );
 }
 
-function SellContextFields({
+export function SellContextFields({
   layout,
   showPartner = true,
 }: {
@@ -248,7 +250,7 @@ function SellContextFields({
 
 
 
-export function SellContextBar({ className }: SellContextBarProps) {
+export function SellContextBar({ className, showPartner = true }: SellContextBarProps) {
 
   const { t } = useLanguage();
 
@@ -298,7 +300,7 @@ export function SellContextBar({ className }: SellContextBarProps) {
 
           </button>
 
-          <SellContextPartnerField layout="compact" />
+          {showPartner ? <SellContextPartnerField layout="compact" /> : null}
 
         </div>
 
@@ -332,9 +334,9 @@ export function SellContextBar({ className }: SellContextBarProps) {
 
   return (
 
-    <div className={clsx(styles.sellContext, className)}>
+    <div className={clsx(styles.sellContext, !showPartner && styles.sellContextPair, className)}>
 
-      <SellContextFields layout="inline" />
+      <SellContextFields layout="inline" showPartner={showPartner} />
 
     </div>
 

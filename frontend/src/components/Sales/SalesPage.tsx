@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import clsx from "clsx";
 import { CalendarRange, Printer, Scale, Search, Users, Warehouse } from "lucide-react";
+import { DataTable } from "@/components/DataTable/DataTable";
 import { PartnerBalanceModal } from "@/components/POS/PartnerBalanceModal";
 import { Button } from "@/components/posui/Button";
 import { ReceiptModal } from "@/components/Receipt/ReceiptModal";
@@ -278,6 +280,104 @@ export function SalesPage() {
     }
   };
 
+  const columns = useMemo<ColumnDef<WholesaleDocument, any>[]>(
+    () => [
+      {
+        id: "receipt",
+        accessorFn: (doc) => doc.code || String(doc.id),
+        header: t("sales.table.receipt"),
+        cell: ({ row }) => `#${row.original.code || row.original.id}`,
+        meta: { cellClassName: styles.id },
+      },
+      {
+        id: "time",
+        accessorFn: (doc) => doc.date,
+        header: t("common.time"),
+        cell: ({ row }) =>
+          row.original.date > 0
+            ? formatDateTime(new Date(row.original.date * 1000).toISOString())
+            : "—",
+      },
+      {
+        id: "partner",
+        accessorFn: (doc) => doc.partner_name ?? "",
+        header: t("sales.table.partner"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "attachedUser",
+        accessorFn: (doc) => doc.attached_user_name ?? "",
+        header: t("sales.table.attachedUser"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "warehouse",
+        accessorFn: (doc) => doc.stock_name ?? "",
+        header: t("sales.table.warehouse"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "total",
+        accessorFn: (doc) => doc.amount ?? 0,
+        header: t("common.total"),
+        meta: { align: "right", cellClassName: styles.right, headerClassName: styles.right },
+        cell: ({ row }) => (
+          <span style={{ fontWeight: 600 }}>{formatCurrency(row.original.amount ?? 0)}</span>
+        ),
+      },
+      {
+        id: "actions",
+        header: () => null,
+        enableSorting: false,
+        enableHiding: false,
+        size: 112,
+        meta: {
+          label: t("sales.print"),
+          cellClassName: styles.printCol,
+          headerClassName: styles.printCol,
+        },
+        cell: ({ row }) => {
+          const doc = row.original;
+          return (
+            <div className={styles.rowActions}>
+              {doc.partner_id ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("partners.balance.view", "View balance for {{name}}", {
+                    name: doc.partner_name ?? String(doc.partner_id),
+                  })}
+                  onClick={() =>
+                    setBalancePartner({
+                      id: doc.partner_id!,
+                      name: doc.partner_name ?? String(doc.partner_id),
+                    })
+                  }
+                >
+                  <Scale size={16} />
+                </Button>
+              ) : null}
+              {canPrintDocuments() ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("sales.printReceipt", undefined, { id: doc.code || doc.id })}
+                  disabled={printingId === doc.id}
+                  onClick={() => void printDocument(doc)}
+                >
+                  <Printer size={16} />
+                </Button>
+              ) : null}
+            </div>
+          );
+        },
+      },
+    ],
+    [canPrintDocuments, printingId, t, token],
+  );
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -420,87 +520,15 @@ export function SalesPage() {
         ) : filtered.length === 0 ? (
           <div className={styles.empty}>{t("sales.emptySearch")}</div>
         ) : (
-          <table className={styles.tbl}>
-            <thead>
-              <tr>
-                <th>{t("sales.table.receipt")}</th>
-                <th>{t("common.time")}</th>
-                <th>{t("sales.table.partner")}</th>
-                <th>{t("sales.table.attachedUser")}</th>
-                <th>{t("sales.table.warehouse")}</th>
-                <th className={styles.right}>{t("common.total")}</th>
-                <th className={styles.printCol} aria-label={t("sales.print")} />
-              </tr>
-            </thead>
-            <tbody>
-              {filtered.map((doc) => (
-                <tr
-                  key={doc.id}
-                  onClick={() => void openDocument(doc)}
-                  style={{ cursor: detailLoading ? "wait" : "pointer" }}
-                >
-                  <td className={styles.id} data-label={t("sales.table.receipt")}>
-                    #{doc.code || doc.id}
-                  </td>
-                  <td data-label={t("common.time")}>
-                    {doc.date > 0
-                      ? formatDateTime(new Date(doc.date * 1000).toISOString())
-                      : "—"}
-                  </td>
-                  <td data-label={t("sales.table.partner")}>{doc.partner_name ?? "—"}</td>
-                  <td data-label={t("sales.table.attachedUser")}>
-                    {doc.attached_user_name ?? "—"}
-                  </td>
-                  <td data-label={t("sales.table.warehouse")}>{doc.stock_name ?? "—"}</td>
-                  <td
-                    className={styles.right}
-                    data-label={t("common.total")}
-                    style={{ fontWeight: 600 }}
-                  >
-                    {formatCurrency(doc.amount ?? 0)}
-                  </td>
-                  <td className={styles.printCol} data-label={t("common.actions")}>
-                    <div className={styles.rowActions}>
-                      {doc.partner_id ? (
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          aria-label={t("partners.balance.view", "View balance for {{name}}", {
-                            name: doc.partner_name ?? String(doc.partner_id),
-                          })}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setBalancePartner({
-                              id: doc.partner_id!,
-                              name: doc.partner_name ?? String(doc.partner_id),
-                            });
-                          }}
-                        >
-                          <Scale size={16} />
-                        </Button>
-                      ) : null}
-                      {canPrintDocuments() ? (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        aria-label={t("sales.printReceipt", undefined, { id: doc.code || doc.id })}
-                        disabled={printingId === doc.id}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          void printDocument(doc);
-                        }}
-                      >
-                        <Printer size={16} />
-                      </Button>
-                      ) : null}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <DataTable
+            tableKey="sales.list"
+            data={filtered}
+            columns={columns}
+            className={styles.tbl}
+            getRowId={(doc) => String(doc.id)}
+            onRowClick={(doc) => void openDocument(doc)}
+            rowStyle={() => ({ cursor: detailLoading ? "wait" : "pointer" })}
+          />
         )}
       </div>
 

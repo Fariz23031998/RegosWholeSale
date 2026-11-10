@@ -6,6 +6,7 @@ import type {
   WholesalePaymentLine,
 } from "@/lib/sales-api";
 import { SalesDetailContent } from "./SalesDetailContent";
+import styles from "./Sales.module.css";
 
 type Props = {
   document: WholesaleDocument;
@@ -26,7 +27,14 @@ export function SalesDetailModal({
   const title = t("sales.detail.title", undefined, { code: document.code || document.id });
 
   return (
-    <Modal open onClose={onClose} title={title} size="lg">
+    <Modal
+      open
+      onClose={onClose}
+      title={title}
+      size="lg"
+      modalClassName={styles.detailModal}
+      bodyClassName={styles.detailModalBody}
+    >
       <SalesDetailContent
         document={document}
         operations={operations}

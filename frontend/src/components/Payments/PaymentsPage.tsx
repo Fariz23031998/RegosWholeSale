@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import clsx from "clsx";
 import { CalendarRange, Plus, Search, Users } from "lucide-react";
+import { DataTable } from "@/components/DataTable/DataTable";
 import { DashboardPeriodModal } from "@/components/Dashboard/DashboardPeriodModal";
 import {
   DashboardPartnersModal,
@@ -176,6 +178,89 @@ export function PaymentsPage() {
     [documents],
   );
 
+  const columns = useMemo<ColumnDef<PaymentDocument, any>[]>(
+    () => [
+      {
+        id: "code",
+        accessorFn: (doc) => doc.code,
+        header: t("payments.table.code", "Code"),
+        meta: { cellClassName: styles.code },
+      },
+      {
+        id: "date",
+        accessorFn: (doc) => doc.date,
+        header: t("payments.table.date", "Date"),
+        cell: ({ row }) => formatDateTime(new Date(row.original.date * 1000).toISOString()),
+      },
+      {
+        id: "partner",
+        accessorFn: (doc) => doc.partner_name ?? "",
+        header: t("payments.partner", "Partner"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "paymentType",
+        accessorFn: (doc) => doc.payment_type_name ?? "",
+        header: t("payments.paymentType", "Payment type"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "category",
+        accessorFn: (doc) => doc.category_name ?? "",
+        header: t("payments.category", "Category"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "attachedUser",
+        accessorFn: (doc) => doc.attached_user_name ?? "",
+        header: t("sales.table.attachedUser", "Attached user"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "status",
+        accessorFn: (doc) =>
+          doc.deleted_mark ? "deleted" : doc.performed ? "performed" : "draft",
+        header: t("payments.status", "Status"),
+        cell: ({ row }) => {
+          const doc = row.original;
+          return (
+            <span
+              className={clsx(
+                styles.badge,
+                doc.deleted_mark || !doc.performed
+                  ? styles.draft
+                  : direction === "income"
+                    ? styles.income
+                    : styles.outcome,
+              )}
+            >
+              {doc.deleted_mark
+                ? t("payments.status.deletedMark", "Marked for deletion")
+                : doc.performed
+                  ? t("payments.status.performed", "Performed")
+                  : t("payments.status.draft", "Draft")}
+            </span>
+          );
+        },
+      },
+      {
+        id: "amount",
+        accessorFn: (doc) => doc.amount ?? 0,
+        header: t("payments.amount", "Amount"),
+        meta: { align: "right", cellClassName: styles.right, headerClassName: styles.right },
+        cell: ({ row }) => (
+          <>
+            {formatCurrency(row.original.amount ?? 0)}
+            {row.original.currency?.code_chr ? (
+              <span className={styles.muted}> {row.original.currency.code_chr}</span>
+            ) : null}
+          </>
+        ),
+      },
+    ],
+    [direction, t],
+  );
+
   if (!canView) {
     return (
       <div className={styles.page}>
@@ -289,70 +374,20 @@ export function PaymentsPage() {
       {error ? <div className={styles.empty}>{error}</div> : null}
 
       <div className={styles.table}>
-        <table className={styles.tbl}>
-          <thead>
-            <tr>
-              <th>{t("payments.table.code", "Code")}</th>
-              <th>{t("payments.table.date", "Date")}</th>
-              <th>{t("payments.partner", "Partner")}</th>
-              <th>{t("payments.paymentType", "Payment type")}</th>
-              <th>{t("payments.category", "Category")}</th>
-              <th>{t("sales.table.attachedUser", "Attached user")}</th>
-              <th>{t("payments.status", "Status")}</th>
-              <th className={styles.right}>{t("payments.amount", "Amount")}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={8} className={styles.empty}>
-                  {t("payments.loading", "Loading payments…")}
-                </td>
-              </tr>
-            ) : documents.length === 0 ? (
-              <tr>
-                <td colSpan={8} className={styles.empty}>
-                  {t("payments.empty", "No payments match these filters.")}
-                </td>
-              </tr>
-            ) : (
-              documents.map((doc) => (
-                <tr key={doc.id} onClick={() => setSelected(doc)}>
-                  <td className={styles.code}>{doc.code}</td>
-                  <td>{formatDateTime(new Date(doc.date * 1000).toISOString())}</td>
-                  <td>{doc.partner_name ?? "—"}</td>
-                  <td>{doc.payment_type_name ?? "—"}</td>
-                  <td>{doc.category_name ?? "—"}</td>
-                  <td>{doc.attached_user_name ?? "—"}</td>
-                  <td>
-                    <span
-                      className={clsx(
-                        styles.badge,
-                        doc.deleted_mark || !doc.performed
-                          ? styles.draft
-                          : direction === "income"
-                            ? styles.income
-                            : styles.outcome,
-                      )}
-                    >
-                      {doc.deleted_mark
-                        ? t("payments.status.deletedMark", "Marked for deletion")
-                        : doc.performed
-                          ? t("payments.status.performed", "Performed")
-                          : t("payments.status.draft", "Draft")}
-                    </span>
-                  </td>
-                  <td className={styles.right}>
-                    {formatCurrency(doc.amount ?? 0)}
-                    {doc.currency?.code_chr ? (
-                      <span className={styles.muted}> {doc.currency.code_chr}</span>
-                    ) : null}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+        <DataTable
+          tableKey="payments.list"
+          data={documents}
+          columns={columns}
+          className={styles.tbl}
+          getRowId={(doc) => String(doc.id)}
+          onRowClick={setSelected}
+          isLoading={loading && documents.length === 0}
+          emptyMessage={
+            loading
+              ? t("payments.loading", "Loading payments…")
+              : t("payments.empty", "No payments match these filters.")
+          }
+        />
         <div className={styles.cardList}>
           {loading ? (
             <div className={styles.empty}>{t("payments.loading", "Loading payments…")}</div>

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "template": {
+    "name": "58×30 mm shelf label",
+    "is_default": false,
+    "paper": {
+      "width_mm": 58,
+      "height_mm": 30
+    },
+    "html": "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\" />\n</head>\n<body>\n  <div class=\"label\">\n    <div class=\"top\">\n      <img class=\"product\" src=\"{{ image_src }}\" alt=\"\" />\n      <div class=\"info\">\n        <div class=\"name\">{{ name }}</div>\n        <div class=\"price-row\">\n          <span class=\"price\">{{formatNumber price}}</span>\n          <span class=\"currency\">{{ currency }}</span>\n        </div>\n        <div class=\"meta\">{{ articul }}</div>\n      </div>\n      <div class=\"brand\">{{logoImg \"Primary\"}}</div>\n    </div>\n    <div class=\"bottom\">\n      <img class=\"barcode\" src=\"{{ barcode_src }}\" alt=\"\" />\n      <div class=\"code\">{{ barcode }}</div>\n    </div>\n  </div>\n</body>\n</html>",
+    "css": "html, body {\n  margin: 0;\n  padding: 0;\n  font-family: Arial, Helvetica, sans-serif;\n  color: #000;\n}\n\n.label {\n  box-sizing: border-box;\n  width: 58mm;\n  height: 30mm;\n  padding: 1.4mm 1.6mm 1.2mm;\n  display: flex;\n  flex-direction: column;\n  justify-content: space-between;\n  overflow: hidden;\n}\n\n.top {\n  display: flex;\n  align-items: flex-start;\n  gap: 1.6mm;\n  min-height: 0;\n}\n\nimg.product {\n  flex: 0 0 auto;\n  width: 11mm;\n  height: 11mm;\n  object-fit: cover;\n  border: 0.2mm solid #111;\n}\n\nimg.product[src=\"\"] {\n  display: none;\n}\n\n.info {\n  flex: 1 1 auto;\n  min-width: 0;\n  display: flex;\n  flex-direction: column;\n  gap: 0.4mm;\n}\n\n.name {\n  font-size: 9.5px;\n  font-weight: 700;\n  line-height: 1.15;\n  max-height: 2.3em;\n  overflow: hidden;\n  word-break: break-word;\n}\n\n.price-row {\n  display: flex;\n  align-items: baseline;\n  gap: 1mm;\n  margin-top: 0.3mm;\n}\n\n.price {\n  font-size: 16px;\n  font-weight: 800;\n  letter-spacing: -0.02em;\n  line-height: 1;\n}\n\n.currency {\n  font-size: 9px;\n  font-weight: 700;\n}\n\n.meta {\n  font-size: 7.5px;\n  line-height: 1.1;\n  opacity: 0.9;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.brand {\n  flex: 0 0 auto;\n  max-width: 10mm;\n}\n\n.brand img {\n  display: block;\n  max-width: 10mm;\n  max-height: 6mm;\n  width: auto;\n  height: auto;\n}\n\n.bottom {\n  display: flex;\n  align-items: flex-end;\n  gap: 1.4mm;\n  margin-top: 0.8mm;\n}\n\nimg.barcode {\n  height: 8.5mm;\n  width: auto;\n  max-width: 38mm;\n  object-fit: contain;\n  object-position: left bottom;\n}\n\n.code {\n  font-size: 7.5px;\n  font-weight: 600;\n  letter-spacing: 0.02em;\n  line-height: 1;\n  padding-bottom: 0.4mm;\n  white-space: nowrap;\n}",
+    "logos": [],
+    "version": 1
+  }
+}

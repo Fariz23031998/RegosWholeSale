@@ -25,6 +25,20 @@ export type PartnerBalanceResponse = {
   rows: PartnerBalanceRow[];
 };
 
+export type PartnerDebtLine = {
+  firm_id: number | null;
+  firm_name: string | null;
+  currency_id: number | null;
+  currency_code: string | null;
+  currency_name: string | null;
+  exchange_rate: number | null;
+  amount: number;
+};
+
+export type PartnerDebtResponse = {
+  lines: PartnerDebtLine[];
+};
+
 export type PartnerBalanceMode = "native" | "base_currency";
 
 export type PartnerPayDebtPaymentLine = {

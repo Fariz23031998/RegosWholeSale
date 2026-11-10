@@ -12,6 +12,7 @@ from app.services.cbu_exchange_rates import (
 )
 from app.services.exchange_rate_sync import sync_exchange_rates_for_all_companies
 from app.services.out_of_stock_products import clean_out_of_stock_products
+from app.services.partner_balance_notify import notify_due_partner_balances
 from app.services.receipt_shares import clean_expired_receipt_shares
 
 logger = logging.getLogger("regos.backend")
@@ -22,6 +23,7 @@ OUT_OF_STOCK_CLEANUP_MINUTE = 0
 OUT_OF_STOCK_RETENTION_DAYS = 7
 RECEIPT_SHARE_CLEANUP_HOUR = 3
 RECEIPT_SHARE_CLEANUP_MINUTE = 30
+PARTNER_BALANCE_NOTIFY_INTERVAL_SECONDS = 30
 
 
 def seconds_until_next_daily_run(
@@ -165,3 +167,15 @@ async def exchange_rate_sync_loop() -> None:
                 logger.info("Exchange rate sync completed for %s companies", len(results))
         except Exception:
             logger.error("Daily exchange rate sync failed", exc_info=True)
+
+
+async def partner_balance_notify_loop() -> None:
+    while True:
+        try:
+            async with async_session_factory() as session:
+                sent = await notify_due_partner_balances(session)
+            if sent:
+                logger.info("Sent %s partner balance notifications", sent)
+        except Exception:
+            logger.error("Partner balance notification failed", exc_info=True)
+        await asyncio.sleep(PARTNER_BALANCE_NOTIFY_INTERVAL_SECONDS)

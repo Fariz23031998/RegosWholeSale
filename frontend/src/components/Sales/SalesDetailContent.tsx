@@ -1,3 +1,6 @@
+import { useMemo } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { DataTable } from "@/components/DataTable/DataTable";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatCurrency, formatDateTime } from "@/lib/format";
 import type {
@@ -21,9 +24,84 @@ export function SalesDetailContent({
   loading = false,
 }: Props) {
   const { t } = useLanguage();
+  const right = { align: "right" as const, cellClassName: styles.right, headerClassName: styles.right };
+  const lineColumns = useMemo<ColumnDef<WholesaleOperationLine, any>[]>(
+    () => [
+      {
+        id: "code",
+        accessorFn: (op) => op.item_code ?? "",
+        header: t("sales.detail.table.code"),
+        cell: ({ row }) => row.original.item_code || "—",
+        meta: { cellClassName: styles.id },
+      },
+      {
+        id: "product",
+        accessorFn: (op) => op.item_name ?? "",
+        header: t("sales.detail.table.product"),
+        size: 240,
+        cell: ({ row }) =>
+          row.original.item_name ?? t("sales.itemFallback", undefined, { id: row.original.item_id }),
+      },
+      {
+        id: "qty",
+        accessorFn: (op) => op.quantity,
+        header: t("sales.detail.table.qty"),
+        meta: right,
+      },
+      {
+        id: "price",
+        accessorFn: (op) => op.price,
+        header: t("sales.detail.table.price"),
+        meta: right,
+        cell: ({ row }) => formatCurrency(row.original.price),
+      },
+      {
+        id: "amount",
+        accessorFn: (op) => op.amount ?? op.price * op.quantity,
+        header: t("common.amount"),
+        meta: right,
+        cell: ({ row }) => formatCurrency(row.original.amount ?? row.original.price * row.original.quantity),
+      },
+    ],
+    [t],
+  );
+  const paymentColumns = useMemo<ColumnDef<WholesalePaymentLine, any>[]>(
+    () => [
+      {
+        id: "receipt",
+        accessorFn: (payment) => payment.code || String(payment.id),
+        header: t("sales.table.receipt"),
+        cell: ({ row }) => `#${row.original.code || row.original.id}`,
+        meta: { cellClassName: styles.id },
+      },
+      {
+        id: "date",
+        accessorFn: (payment) => payment.date,
+        header: t("common.date"),
+        cell: ({ row }) =>
+          row.original.date > 0
+            ? formatDateTime(new Date(row.original.date * 1000).toISOString())
+            : "—",
+      },
+      {
+        id: "type",
+        accessorFn: (payment) => payment.payment_type_name ?? "",
+        header: t("common.type"),
+        cell: ({ getValue }) => getValue<string>() || "—",
+      },
+      {
+        id: "amount",
+        accessorFn: (payment) => payment.amount ?? 0,
+        header: t("common.amount"),
+        meta: right,
+        cell: ({ row }) => formatCurrency(row.original.amount ?? 0),
+      },
+    ],
+    [t],
+  );
 
   return (
-    <>
+    <div className={styles.detailStack}>
       <div className={styles.detailMeta}>
         <div>
           <span className={styles.detailLabel}>{t("common.date")}</span>
@@ -59,38 +137,13 @@ export function SalesDetailContent({
           <div className={styles.detailEmpty}>{t("sales.detail.noProducts")}</div>
         ) : (
           <div className={styles.detailTableWrap}>
-            <table className={styles.detailTable}>
-              <thead>
-                <tr>
-                  <th>{t("sales.detail.table.code")}</th>
-                  <th>{t("sales.detail.table.product")}</th>
-                  <th className={styles.right}>{t("sales.detail.table.qty")}</th>
-                  <th className={styles.right}>{t("sales.detail.table.price")}</th>
-                  <th className={styles.right}>{t("common.amount")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {operations.map((op) => (
-                  <tr key={op.id}>
-                    <td className={styles.id} data-label={t("sales.detail.table.code")}>
-                      {op.item_code || "—"}
-                    </td>
-                    <td data-label={t("sales.detail.table.product")}>
-                      {op.item_name ?? t("sales.itemFallback", undefined, { id: op.item_id })}
-                    </td>
-                    <td className={styles.right} data-label={t("sales.detail.table.qty")}>
-                      {op.quantity}
-                    </td>
-                    <td className={styles.right} data-label={t("sales.detail.table.price")}>
-                      {formatCurrency(op.price)}
-                    </td>
-                    <td className={styles.right} data-label={t("common.amount")}>
-                      {formatCurrency(op.amount ?? op.price * op.quantity)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              tableKey="sales.detail.lines"
+              data={operations}
+              columns={lineColumns}
+              className={styles.detailTable}
+              getRowId={(op) => String(op.id)}
+            />
           </div>
         )}
       </div>
@@ -103,37 +156,16 @@ export function SalesDetailContent({
           <div className={styles.detailEmpty}>{t("sales.detail.noPayments")}</div>
         ) : (
           <div className={styles.detailTableWrap}>
-            <table className={styles.detailTable}>
-              <thead>
-                <tr>
-                  <th>{t("sales.table.receipt")}</th>
-                  <th>{t("common.date")}</th>
-                  <th>{t("common.type")}</th>
-                  <th className={styles.right}>{t("common.amount")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {payments.map((payment) => (
-                  <tr key={payment.id}>
-                    <td className={styles.id} data-label={t("sales.table.receipt")}>
-                      #{payment.code || payment.id}
-                    </td>
-                    <td data-label={t("common.date")}>
-                      {payment.date > 0
-                        ? formatDateTime(new Date(payment.date * 1000).toISOString())
-                        : "—"}
-                    </td>
-                    <td data-label={t("common.type")}>{payment.payment_type_name ?? "—"}</td>
-                    <td className={styles.right} data-label={t("common.amount")}>
-                      {formatCurrency(payment.amount ?? 0)}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+            <DataTable
+              tableKey="sales.detail.payments"
+              data={payments}
+              columns={paymentColumns}
+              className={styles.detailTable}
+              getRowId={(payment) => String(payment.id)}
+            />
           </div>
         )}
       </div>
-    </>
+    </div>
   );
 }

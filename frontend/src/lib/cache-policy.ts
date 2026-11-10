@@ -5,9 +5,9 @@ type CacheEnabledListener = () => void;
 const listeners = new Set<CacheEnabledListener>();
 
 function readStoredValue(): boolean {
-  if (typeof localStorage === "undefined") return true;
+  if (typeof localStorage === "undefined") return false;
   const raw = localStorage.getItem(CACHE_ENABLED_KEY);
-  if (raw === null) return true;
+  if (raw === null) return false;
   return raw === "true";
 }
 

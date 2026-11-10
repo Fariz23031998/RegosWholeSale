@@ -75,6 +75,7 @@ type SettingsSectionId =
   | "appearance"
   | "pos"
   | "receiptTemplates"
+  | "labelTemplates"
   | "regos"
   | "telegram"
   | "defaults"
@@ -85,7 +86,7 @@ type SettingsNavItem = {
   titleKey: string;
   titleFallback: string;
   requiresManage?: boolean;
-  to?: "/receipt-templates";
+  to?: "/receipt-templates" | "/label-templates";
 };
 
 const SETTINGS_NAV: SettingsNavItem[] = [
@@ -106,6 +107,13 @@ const SETTINGS_NAV: SettingsNavItem[] = [
     titleFallback: "Receipt templates",
     requiresManage: true,
     to: "/receipt-templates",
+  },
+  {
+    id: "labelTemplates",
+    titleKey: "settings.labelTemplates.title",
+    titleFallback: "Label templates",
+    requiresManage: true,
+    to: "/label-templates",
   },
   {
     id: "regos",

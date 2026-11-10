@@ -11,19 +11,23 @@ const CATEGORY_GAP = 8;
 type Props = {
   groups: ProductGroup[];
   featuredOnly: boolean;
+  showFeatured?: boolean;
   selectedGroupId: number | null;
-  onSelectFeatured: () => void;
+  onSelectFeatured?: () => void;
   onSelectAll: () => void;
   onSelectGroup: (groupId: number) => void;
+  className?: string;
 };
 
 export function CategoryBar({
   groups,
   featuredOnly,
+  showFeatured = true,
   selectedGroupId,
   onSelectFeatured,
   onSelectAll,
   onSelectGroup,
+  className,
 }: Props) {
   const { t } = useLanguage();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -43,15 +47,19 @@ export function CategoryBar({
     }
 
     const chipEls = Array.from(measure.querySelectorAll<HTMLElement>("[data-chip]"));
-    if (chipEls.length < 3) {
+    const prefixCount = showFeatured ? 2 : 1;
+    if (chipEls.length < prefixCount + 1) {
       setVisibleGroupCount(groups.length);
       return;
     }
 
-    const fixedWidth =
-      chipEls[0].offsetWidth + CATEGORY_GAP + chipEls[1].offsetWidth;
+    let fixedWidth = 0;
+    for (let index = 0; index < prefixCount; index += 1) {
+      fixedWidth += chipEls[index].offsetWidth;
+      if (index > 0) fixedWidth += CATEGORY_GAP;
+    }
     const showAllWidth = chipEls[chipEls.length - 1].offsetWidth;
-    const groupChips = chipEls.slice(2, -1);
+    const groupChips = chipEls.slice(prefixCount, -1);
 
     let used = fixedWidth;
     let fit = 0;
@@ -71,7 +79,7 @@ export function CategoryBar({
     }
 
     setVisibleGroupCount(fit);
-  }, [groups]);
+  }, [groups, showFeatured]);
 
   useLayoutEffect(() => {
     recomputeVisible();
@@ -89,11 +97,13 @@ export function CategoryBar({
   const visibleGroups = groups.slice(0, visibleGroupCount);
 
   return (
-    <div className={styles.categoriesWrap}>
+    <div className={clsx(styles.categoriesWrap, className)}>
       <div ref={measureRef} className={styles.categoriesMeasure} aria-hidden>
-        <button type="button" className={clsx(styles.chip, styles.chipIcon)} data-chip>
-          <Star size={14} />
-        </button>
+        {showFeatured ? (
+          <button type="button" className={clsx(styles.chip, styles.chipIcon)} data-chip>
+            <Star size={14} />
+          </button>
+        ) : null}
         <button type="button" className={styles.chip} data-chip>
           {t("pos.categories.all", "All")}
         </button>
@@ -108,15 +118,17 @@ export function CategoryBar({
       </div>
 
       <div ref={containerRef} className={styles.categories}>
-        <button
-          type="button"
-          className={clsx(styles.chip, styles.chipIcon, featuredOnly && styles.chipActive)}
-          onClick={onSelectFeatured}
-          aria-label={t("pos.categories.featuredAria", "Featured products")}
-          title={t("pos.categories.featured", "Featured")}
-        >
-          <Star size={14} fill={featuredOnly ? "currentColor" : "none"} />
-        </button>
+        {showFeatured ? (
+          <button
+            type="button"
+            className={clsx(styles.chip, styles.chipIcon, featuredOnly && styles.chipActive)}
+            onClick={() => onSelectFeatured?.()}
+            aria-label={t("pos.categories.featuredAria", "Featured products")}
+            title={t("pos.categories.featured", "Featured")}
+          >
+            <Star size={14} fill={featuredOnly ? "currentColor" : "none"} />
+          </button>
+        ) : null}
         <button
           type="button"
           className={clsx(
@@ -157,6 +169,7 @@ export function CategoryBar({
         onClose={() => setModalOpen(false)}
         groups={groups}
         featuredOnly={featuredOnly}
+        showFeatured={showFeatured}
         selectedGroupId={selectedGroupId}
         onSelectFeatured={onSelectFeatured}
         onSelectAll={onSelectAll}

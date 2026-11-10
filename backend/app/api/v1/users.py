@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, require_permission
+from app.core.exceptions import forbidden
 from app.database import get_db
+from app.schemas.label_templates import UserLabelPrintPatchRequest, UserLabelPrintSettingsResponse
 from app.schemas.pos import UserPosSettingsPatchRequest, UserPosSettingsResponse
 from app.schemas.settings import RegosDefaultsPatchRequest, RegosDefaultsResponse
 from app.schemas.users import (
@@ -14,6 +16,7 @@ from app.schemas.users import (
 )
 from app.services import pos_settings as pos_settings_service
 from app.services import regos_defaults as regos_defaults_service
+from app.services import user_label_print as user_label_print_service
 from app.services import users as users_service
 from app.services.permissions import set_user_permission_rules
 from app.services.settings_change import notify_settings_updated
@@ -249,3 +252,49 @@ async def clear_user_regos_defaults(
         user_id=user.id,
     )
     return RegosDefaultsResponse(defaults=defaults)
+
+
+def _require_manage_user_print_settings(current: CurrentUser) -> None:
+    if not current.has("labels.manage_print_settings"):
+        raise forbidden(
+            "Missing permission: labels.manage_print_settings",
+            "FORBIDDEN",
+        )
+
+
+@router.get("/{user_id}/settings/label-print", response_model=UserLabelPrintSettingsResponse)
+async def get_user_label_print_settings(
+    user_id: int,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> UserLabelPrintSettingsResponse:
+    _require_manage_user_print_settings(current)
+    user = await get_company_user(session, current.company_id, user_id)
+    settings = await user_label_print_service.get_effective_user_label_print(
+        session, user.id, current.company_id
+    )
+    return UserLabelPrintSettingsResponse(settings=settings)
+
+
+@router.patch("/{user_id}/settings/label-print", response_model=UserLabelPrintSettingsResponse)
+async def patch_user_label_print_settings(
+    user_id: int,
+    body: UserLabelPrintPatchRequest,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> UserLabelPrintSettingsResponse:
+    _require_manage_user_print_settings(current)
+    user = await get_company_user(session, current.company_id, user_id)
+    settings = await user_label_print_service.patch_user_label_print(
+        session,
+        user,
+        body.model_dump(),
+    )
+    await notify_settings_updated(
+        session,
+        current.company_id,
+        scope="employee",
+        namespace="label_print",
+        user_id=user.id,
+    )
+    return UserLabelPrintSettingsResponse(settings=settings)

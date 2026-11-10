@@ -14,6 +14,7 @@ import type {
   WholesalePaymentLine,
   WholesaleReturnDocument,
 } from "@/lib/sales-api";
+import type { PartnerDebtLine } from "@/types/partners";
 
 export type DocumentPrintKind = "sale" | "return";
 
@@ -28,6 +29,7 @@ export type DocumentPrintContext = {
   partner_name?: string | null;
   stock_name?: string | null;
   document_code?: string | null;
+  partner_balances?: PartnerDebtLine[];
 };
 
 /** @deprecated Use DocumentPrintContext */
@@ -153,6 +155,11 @@ const sampleOperations: WholesaleOperationLine[] = [
       department: { name: "Автожон" },
       vat: { name: "НДС 12%", value: 12 },
       base_barcode: "4601234567890",
+      image_url:
+        "data:image/svg+xml;charset=UTF-8," +
+        encodeURIComponent(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 40 40"><rect width="40" height="40" fill="#dbeafe"/><circle cx="20" cy="16" r="6" fill="#2563eb"/></svg>`,
+        ),
     },
   },
   {
@@ -232,6 +239,26 @@ export const SAMPLE_RECEIPT_CONTEXT: DocumentPrintContext = {
   operation_groups: buildOperationGroups(sampleOperations),
   totals: sampleTotals,
   payments: samplePayments,
+  partner_balances: [
+    {
+      firm_id: 1,
+      firm_name: "Main firm",
+      currency_id: 1,
+      currency_code: "UZS",
+      currency_name: "Sum",
+      exchange_rate: 1,
+      amount: 150000,
+    },
+    {
+      firm_id: 1,
+      firm_name: "Main firm",
+      currency_id: 2,
+      currency_code: "USD",
+      currency_name: "Dollar",
+      exchange_rate: 11987,
+      amount: -25.5,
+    },
+  ],
   sale: {
     id: "13 705",
     createdAt: new Date("2026-06-22T12:00:00Z").toISOString(),

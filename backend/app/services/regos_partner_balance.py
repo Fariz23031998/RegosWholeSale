@@ -1,9 +1,15 @@
+from datetime import datetime, time
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.regos_api import regos_async_api_request_for_company
+from app.models import Company
 from app.services.regos_defaults import _extract_currency_reference, _extract_nested_reference
+
+_FALLBACK_TIMEZONE = "Asia/Tashkent"
 
 
 async def get_partner_balance(
@@ -42,6 +48,81 @@ async def get_partner_balance(
     rows = [_map_balance_row(row) for row in result if isinstance(row, dict)]
     rows.sort(key=_balance_row_sort_key, reverse=True)
     return {"rows": rows}
+
+
+def resolve_company_timezone(name: str | None) -> ZoneInfo:
+    for candidate in (name, _FALLBACK_TIMEZONE):
+        if not isinstance(candidate, str) or not candidate.strip():
+            continue
+        try:
+            return ZoneInfo(candidate.strip())
+        except (ZoneInfoNotFoundError, ValueError):
+            continue
+    return ZoneInfo("UTC")
+
+
+def company_today_bounds(
+    timezone_name: str | None,
+    now: datetime | None = None,
+) -> tuple[int, int]:
+    tz = resolve_company_timezone(timezone_name)
+    current = now.astimezone(tz) if now is not None else datetime.now(tz)
+    start = datetime.combine(current.date(), time.min, tzinfo=tz)
+    end = datetime.combine(current.date(), time(23, 59, 59), tzinfo=tz)
+    return int(start.timestamp()), int(end.timestamp())
+
+
+def extract_partner_debt_lines(rows: list[Any]) -> list[dict[str, Any]]:
+    lines: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict) or row.get("entity_type") != "Currency":
+            continue
+        amount = _coerce_float(row.get("end_amount"))
+        if amount == 0:
+            continue
+        currency = row.get("currency") if isinstance(row.get("currency"), dict) else {}
+        firm = row.get("firm") if isinstance(row.get("firm"), dict) else {}
+        firm_id = firm.get("id")
+        currency_id = currency.get("id")
+        lines.append(
+            {
+                "firm_id": firm_id if isinstance(firm_id, int) and firm_id > 0 else None,
+                "firm_name": _coerce_text(firm.get("name")),
+                "currency_id": currency_id if isinstance(currency_id, int) and currency_id > 0 else None,
+                "currency_code": _coerce_text(currency.get("code_chr")),
+                "currency_name": _coerce_text(currency.get("name")),
+                "exchange_rate": _coerce_positive_float(currency.get("exchange_rate")),
+                "amount": amount,
+            }
+        )
+    return lines
+
+
+async def get_partner_debt(
+    session: AsyncSession,
+    company_id: int,
+    *,
+    partner_id: int,
+) -> dict[str, list[dict[str, Any]]]:
+    result = await session.execute(select(Company.timezone).where(Company.id == company_id))
+    timezone_name = result.scalar_one_or_none()
+    start_date, end_date = company_today_bounds(timezone_name)
+    response = await regos_async_api_request_for_company(
+        session,
+        company_id,
+        "partnerbalance/get",
+        {
+            "partner_id": partner_id,
+            "start_date": start_date,
+            "end_date": end_date,
+            "grouping": True,
+            "include_balance_rows": True,
+        },
+    )
+    result_rows = response.get("result") or []
+    if not isinstance(result_rows, list):
+        result_rows = []
+    return {"lines": extract_partner_debt_lines(result_rows)}
 
 
 def _balance_row_sort_key(row: dict[str, Any]) -> tuple[int, int]:

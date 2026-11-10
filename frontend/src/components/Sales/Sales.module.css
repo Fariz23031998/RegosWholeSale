@@ -1,14 +1,21 @@
 .page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   padding: var(--space-6) var(--space-6) var(--space-10);
-  width: 80%;
+  width: 100%;
   max-width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
 }
-
-@media (max-width: 1499px) {
-  .page {
-    width: 100%;
-  }
+.page > * {
+  flex-shrink: 0;
+}
+.page > .table {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 .header {
   display: flex;
@@ -42,6 +49,8 @@
 }
 
 .table {
+  display: flex;
+  flex-direction: column;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -129,6 +138,43 @@
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
+}
+
+.detailModal {
+  height: min(90vh, 900px);
+}
+
+.detailModalBody {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.detailStack {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  height: 100%;
+  min-height: 0;
+}
+
+.detailStack > .detailSection {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.detailStack .detailSectionTitle {
+  flex-shrink: 0;
+}
+
+.detailStack .detailTableWrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .detailMeta {

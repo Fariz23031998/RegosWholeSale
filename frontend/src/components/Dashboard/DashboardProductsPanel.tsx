@@ -1,5 +1,8 @@
+import { useMemo } from "react";
+import type { ColumnDef, Table } from "@tanstack/react-table";
 import { Download, Search } from "lucide-react";
 import clsx from "clsx";
+import { columnHeaderLabel, DataTable } from "@/components/DataTable/DataTable";
 import type { DashboardProductRow, DashboardProductTotals, TranslateFn } from "@/lib/dashboard-api";
 import { formatCurrency } from "@/lib/format";
 import styles from "./Dashboard.module.css";
@@ -24,36 +27,76 @@ function productMatchesSearch(product: DashboardProductRow, query: string): bool
   return haystack.some((value) => value.includes(query));
 }
 
-function DashboardProductTotalsRow({
+const numMeta = {
+  align: "right" as const,
+  cellClassName: styles.num,
+  headerClassName: styles.num,
+};
+
+const identityColumnIds = new Set(["code", "name", "category"]);
+
+function totalsText(id: string, totals: DashboardProductTotals): string {
+  switch (id) {
+    case "purchaseCost":
+    case "avgPrice":
+    case "priceWithoutDiscount":
+      return "—";
+    case "totalWithoutDiscount":
+      return formatCurrency(totals.total_without_discount ?? 0);
+    case "sellQty":
+      return formatQty(totals.sold_quantity);
+    case "sellCost":
+      return formatCurrency(totals.sold_purchase_cost);
+    case "sellTotal":
+      return formatCurrency(totals.sold_total);
+    case "refundQty":
+      return formatQty(totals.refund_quantity);
+    case "refundCost":
+      return formatCurrency(totals.refund_purchase_cost);
+    case "refundTotal":
+      return formatCurrency(totals.refund_total);
+    case "netQty":
+      return formatQty(totals.net_sold_quantity);
+    case "netCost":
+      return formatCurrency(totals.net_purchase_cost);
+    case "netTotal":
+      return formatCurrency(totals.net_total_sells);
+    case "grossProfit":
+      return formatCurrency(totals.net_gross_profit);
+    default:
+      return "";
+  }
+}
+
+function ProductTotalsRow({
+  table,
   totals,
-  t,
-  showWithoutDiscount,
+  label,
 }: {
+  table: Table<DashboardProductRow>;
   totals: DashboardProductTotals;
-  t: TranslateFn;
-  showWithoutDiscount: boolean;
+  label: string;
 }) {
+  let labelPlaced = false;
   return (
     <tr className={styles.productsTotalRow}>
-      <td colSpan={3}>{t("dashboard.products.totalRow")}</td>
-      <td className={styles.num}>—</td>
-      <td className={styles.num}>—</td>
-      {showWithoutDiscount ? (
-        <>
-          <td className={styles.num}>—</td>
-          <td className={styles.num}>{formatCurrency(totals.total_without_discount ?? 0)}</td>
-        </>
-      ) : null}
-      <td className={styles.num}>{formatQty(totals.sold_quantity)}</td>
-      <td className={styles.num}>{formatCurrency(totals.sold_purchase_cost)}</td>
-      <td className={styles.num}>{formatCurrency(totals.sold_total)}</td>
-      <td className={styles.num}>{formatQty(totals.refund_quantity)}</td>
-      <td className={styles.num}>{formatCurrency(totals.refund_purchase_cost)}</td>
-      <td className={styles.num}>{formatCurrency(totals.refund_total)}</td>
-      <td className={styles.num}>{formatQty(totals.net_sold_quantity)}</td>
-      <td className={styles.num}>{formatCurrency(totals.net_purchase_cost)}</td>
-      <td className={styles.num}>{formatCurrency(totals.net_total_sells)}</td>
-      <td className={styles.num}>{formatCurrency(totals.net_gross_profit)}</td>
+      {table.getVisibleLeafColumns().map((column) => {
+        const identity = identityColumnIds.has(column.id);
+        let text = totalsText(column.id, totals);
+        if (identity) {
+          text = labelPlaced ? "" : label;
+          labelPlaced = true;
+        }
+        return (
+          <td
+            key={column.id}
+            className={identity ? undefined : styles.num}
+            data-label={columnHeaderLabel(column)}
+          >
+            {text}
+          </td>
+        );
+      })}
     </tr>
   );
 }
@@ -90,8 +133,166 @@ export function DashboardProductsPanel({
   const searchQuery = search.trim().toLowerCase();
   const filteredProducts = products.filter((product) => productMatchesSearch(product, searchQuery));
   const showWithoutDiscount = tabId === "discountedProducts";
-  const tableColSpan = showWithoutDiscount ? 17 : 15;
-  const productGroupColSpan = showWithoutDiscount ? 7 : 5;
+  const columns = useMemo<ColumnDef<DashboardProductRow, any>[]>(() => {
+    const qtyHeader = t("dashboard.products.col.qty");
+    const costHeader = t("dashboard.products.col.purchaseCost");
+    const money = (value: number) => formatCurrency(value);
+    const identity: ColumnDef<DashboardProductRow, any>[] = [
+      {
+        id: "code",
+        accessorFn: (product) => product.code,
+        header: t("dashboard.products.col.code"),
+        cell: ({ row }) => row.original.code || "—",
+      },
+      {
+        id: "name",
+        accessorFn: (product) => product.name,
+        header: t("dashboard.products.col.name"),
+        size: 220,
+        meta: { cellClassName: styles.nameCell },
+        cell: ({ row }) => (
+          <span title={row.original.name}>{row.original.name}</span>
+        ),
+      },
+      {
+        id: "category",
+        accessorFn: (product) => product.category,
+        header: t("dashboard.products.col.category"),
+        cell: ({ row }) => row.original.category || "—",
+      },
+      {
+        id: "purchaseCost",
+        accessorFn: (product) => product.purchase_cost ?? 0,
+        header: costHeader,
+        meta: numMeta,
+        cell: ({ row }) => formatOptionalCurrency(row.original.purchase_cost),
+      },
+      {
+        id: "avgPrice",
+        accessorFn: (product) => product.average_price,
+        header: t("dashboard.products.col.avgPrice"),
+        meta: numMeta,
+        cell: ({ row }) => formatCurrency(row.original.average_price),
+      },
+    ];
+    if (showWithoutDiscount) {
+      identity.push(
+        {
+          id: "priceWithoutDiscount",
+          accessorFn: (product) => product.price_without_discount ?? 0,
+          header: t("dashboard.products.col.priceWithoutDiscount"),
+          meta: numMeta,
+          cell: ({ row }) => formatCurrency(row.original.price_without_discount ?? 0),
+        },
+        {
+          id: "totalWithoutDiscount",
+          accessorFn: (product) => product.total_without_discount ?? 0,
+          header: t("dashboard.products.col.totalWithoutDiscount"),
+          meta: numMeta,
+          cell: ({ row }) => formatCurrency(row.original.total_without_discount ?? 0),
+        },
+      );
+    }
+    return [
+      {
+        id: "product",
+        header: t(`${copyPrefix}.title`),
+        meta: { headerClassName: styles.groupHead },
+        columns: identity,
+      },
+      {
+        id: "sell",
+        header: t("dashboard.products.group.sell"),
+        meta: { headerClassName: styles.groupHead },
+        columns: [
+          {
+            id: "sellQty",
+            accessorFn: (product) => product.sold_quantity,
+            header: qtyHeader,
+            meta: numMeta,
+            cell: ({ row }) => formatQty(row.original.sold_quantity),
+          },
+          {
+            id: "sellCost",
+            accessorFn: (product) => product.sold_purchase_cost,
+            header: costHeader,
+            meta: numMeta,
+            cell: ({ row }) => money(row.original.sold_purchase_cost),
+          },
+          {
+            id: "sellTotal",
+            accessorFn: (product) => product.sold_total,
+            header: t("dashboard.products.col.totalSells"),
+            meta: numMeta,
+            cell: ({ row }) => money(row.original.sold_total),
+          },
+        ],
+      },
+      {
+        id: "refund",
+        header: t("dashboard.products.group.refund"),
+        meta: { headerClassName: styles.groupHead },
+        columns: [
+          {
+            id: "refundQty",
+            accessorFn: (product) => product.refund_quantity,
+            header: qtyHeader,
+            meta: numMeta,
+            cell: ({ row }) => formatQty(row.original.refund_quantity),
+          },
+          {
+            id: "refundCost",
+            accessorFn: (product) => product.refund_purchase_cost,
+            header: costHeader,
+            meta: numMeta,
+            cell: ({ row }) => money(row.original.refund_purchase_cost),
+          },
+          {
+            id: "refundTotal",
+            accessorFn: (product) => product.refund_total,
+            header: t("dashboard.products.col.totalRefunds"),
+            meta: numMeta,
+            cell: ({ row }) => money(row.original.refund_total),
+          },
+        ],
+      },
+      {
+        id: "net",
+        header: t("dashboard.products.group.net"),
+        meta: { headerClassName: styles.groupHead },
+        columns: [
+          {
+            id: "netQty",
+            accessorFn: (product) => product.net_sold_quantity,
+            header: qtyHeader,
+            meta: numMeta,
+            cell: ({ row }) => formatQty(row.original.net_sold_quantity),
+          },
+          {
+            id: "netCost",
+            accessorFn: (product) => product.net_purchase_cost,
+            header: costHeader,
+            meta: numMeta,
+            cell: ({ row }) => money(row.original.net_purchase_cost),
+          },
+          {
+            id: "netTotal",
+            accessorFn: (product) => product.net_total_sells,
+            header: t("dashboard.products.col.totalSells"),
+            meta: numMeta,
+            cell: ({ row }) => money(row.original.net_total_sells),
+          },
+          {
+            id: "grossProfit",
+            accessorFn: (product) => product.net_gross_profit,
+            header: t("dashboard.products.col.grossProfit"),
+            meta: numMeta,
+            cell: ({ row }) => money(row.original.net_gross_profit),
+          },
+        ],
+      },
+    ];
+  }, [copyPrefix, showWithoutDiscount, t]);
 
   return (
     <div
@@ -144,97 +345,28 @@ export function DashboardProductsPanel({
         </div>
       ) : (
         <div className={styles.productsTableWrap}>
-          <table className={styles.productsTable}>
-            <thead>
-              <tr>
-                <th className={styles.groupHead} colSpan={productGroupColSpan}>
-                  {t(`${copyPrefix}.title`)}
-                </th>
-                <th className={styles.groupHead} colSpan={3}>
-                  {t("dashboard.products.group.sell")}
-                </th>
-                <th className={styles.groupHead} colSpan={3}>
-                  {t("dashboard.products.group.refund")}
-                </th>
-                <th className={styles.groupHead} colSpan={4}>
-                  {t("dashboard.products.group.net")}
-                </th>
-              </tr>
-              <tr>
-                <th>{t("dashboard.products.col.code")}</th>
-                <th>{t("dashboard.products.col.name")}</th>
-                <th>{t("dashboard.products.col.category")}</th>
-                <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
-                <th className={styles.num}>{t("dashboard.products.col.avgPrice")}</th>
-                {showWithoutDiscount ? (
-                  <>
-                    <th className={styles.num}>{t("dashboard.products.col.priceWithoutDiscount")}</th>
-                    <th className={styles.num}>{t("dashboard.products.col.totalWithoutDiscount")}</th>
-                  </>
-                ) : null}
-                <th className={styles.num}>{t("dashboard.products.col.qty")}</th>
-                <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
-                <th className={styles.num}>{t("dashboard.products.col.totalSells")}</th>
-                <th className={styles.num}>{t("dashboard.products.col.qty")}</th>
-                <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
-                <th className={styles.num}>{t("dashboard.products.col.totalRefunds")}</th>
-                <th className={styles.num}>{t("dashboard.products.col.qty")}</th>
-                <th className={styles.num}>{t("dashboard.products.col.purchaseCost")}</th>
-                <th className={styles.num}>{t("dashboard.products.col.totalSells")}</th>
-                <th className={styles.num}>{t("dashboard.products.col.grossProfit")}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading && products.length === 0 ? (
-                <tr>
-                    <td colSpan={tableColSpan} style={{ color: "var(--color-text-muted)", padding: "24px 10px" }}>
-                    {t(`${copyPrefix}.loading`)}
-                  </td>
-                </tr>
-              ) : (
-                <>
-                  {totals && !searchQuery ? (
-                    <DashboardProductTotalsRow
+          <DataTable
+            tableKey={
+              tabId === "discountedProducts" ? "dashboard.discountedProducts" : "dashboard.products"
+            }
+            data={filteredProducts}
+            columns={columns}
+            className={styles.productsTable}
+            getRowId={(product) => String(product.item_id)}
+            isLoading={loading && products.length === 0}
+            emptyMessage={t(`${copyPrefix}.loading`)}
+            topRow={
+              totals && !searchQuery
+                ? (table) => (
+                    <ProductTotalsRow
+                      table={table}
                       totals={totals}
-                      t={t}
-                      showWithoutDiscount={showWithoutDiscount}
+                      label={t("dashboard.products.totalRow")}
                     />
-                  ) : null}
-                  {filteredProducts.map((product) => (
-                    <tr key={product.item_id}>
-                      <td>{product.code || "—"}</td>
-                      <td className={styles.nameCell} title={product.name}>
-                        {product.name}
-                      </td>
-                      <td>{product.category || "—"}</td>
-                      <td className={styles.num}>{formatOptionalCurrency(product.purchase_cost)}</td>
-                      <td className={styles.num}>{formatCurrency(product.average_price)}</td>
-                      {showWithoutDiscount ? (
-                        <>
-                          <td className={styles.num}>
-                            {formatCurrency(product.price_without_discount ?? 0)}
-                          </td>
-                          <td className={styles.num}>
-                            {formatCurrency(product.total_without_discount ?? 0)}
-                          </td>
-                        </>
-                      ) : null}
-                      <td className={styles.num}>{formatQty(product.sold_quantity)}</td>
-                      <td className={styles.num}>{formatCurrency(product.sold_purchase_cost)}</td>
-                      <td className={styles.num}>{formatCurrency(product.sold_total)}</td>
-                      <td className={styles.num}>{formatQty(product.refund_quantity)}</td>
-                      <td className={styles.num}>{formatCurrency(product.refund_purchase_cost)}</td>
-                      <td className={styles.num}>{formatCurrency(product.refund_total)}</td>
-                      <td className={styles.num}>{formatQty(product.net_sold_quantity)}</td>
-                      <td className={styles.num}>{formatCurrency(product.net_purchase_cost)}</td>
-                      <td className={styles.num}>{formatCurrency(product.net_total_sells)}</td>
-                      <td className={styles.num}>{formatCurrency(product.net_gross_profit)}</td>
-                    </tr>
-                  ))}
-                </>
-              )}
-            </tbody>
-          </table>
+                  )
+                : undefined
+            }
+          />
         </div>
       )}
     </div>

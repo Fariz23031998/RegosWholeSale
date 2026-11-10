@@ -35,11 +35,15 @@ describe("cache-policy", () => {
     resetCachePolicyForTests();
   });
 
-  it("defaults to enabled when no preference is stored", () => {
-    expect(isCacheEnabled()).toBe(true);
+  it("defaults to disabled when no preference is stored", () => {
+    expect(isCacheEnabled()).toBe(false);
   });
 
-  it("persists disabled state in localStorage", () => {
+  it("persists enabled and disabled state in localStorage", () => {
+    setCacheEnabled(true);
+    expect(isCacheEnabled()).toBe(true);
+    expect(localStorage.getItem("cache_enabled")).toBe("true");
+
     setCacheEnabled(false);
     expect(isCacheEnabled()).toBe(false);
     expect(localStorage.getItem("cache_enabled")).toBe("false");
@@ -49,17 +53,17 @@ describe("cache-policy", () => {
     const listener = vi.fn();
     const unsubscribe = subscribeCacheEnabled(listener);
 
-    setCacheEnabled(false);
-    expect(listener).toHaveBeenCalledTimes(1);
-
-    setCacheEnabled(false);
+    setCacheEnabled(true);
     expect(listener).toHaveBeenCalledTimes(1);
 
     setCacheEnabled(true);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    setCacheEnabled(false);
     expect(listener).toHaveBeenCalledTimes(2);
 
     unsubscribe();
-    setCacheEnabled(false);
+    setCacheEnabled(true);
     expect(listener).toHaveBeenCalledTimes(2);
   });
 });

@@ -167,6 +167,13 @@
   box-shadow: var(--shadow-lg);
 }
 
+.sortMenuPortal {
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 1200;
+}
+
 .sortMenuLabel {
   padding: 6px 10px 4px;
   font-size: 11px;
@@ -240,6 +247,13 @@
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
+}
+
+.sellContextPair {
+  grid-template-columns: repeat(2, minmax(140px, 220px));
+  width: max-content;
+  max-width: 100%;
+  flex: 0 1 auto;
 }
 
 .sellContextField {

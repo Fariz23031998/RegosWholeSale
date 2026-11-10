@@ -1,5 +1,9 @@
 import { apiRequest } from "@/lib/api";
 import type {
+  UserLabelPrintPatchRequest,
+  UserLabelPrintSettingsResponse,
+} from "@/types/label-templates";
+import type {
   PosSettingsResponse,
   RegosDefaultsPatchRequest,
   RegosDefaultsResponse,
@@ -94,6 +98,25 @@ export async function patchUserRegosDefaultsById(
   body: RegosDefaultsPatchRequest,
 ): Promise<RegosDefaultsResponse> {
   return apiRequest(`/api/v1/users/${userId}/settings/regos-defaults`, {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
+export async function fetchUserLabelPrintSettingsById(
+  token: string,
+  userId: number,
+): Promise<UserLabelPrintSettingsResponse> {
+  return apiRequest(`/api/v1/users/${userId}/settings/label-print`, { token });
+}
+
+export async function patchUserLabelPrintSettingsById(
+  token: string,
+  userId: number,
+  body: UserLabelPrintPatchRequest,
+): Promise<UserLabelPrintSettingsResponse> {
+  return apiRequest(`/api/v1/users/${userId}/settings/label-print`, {
     method: "PATCH",
     token,
     body,

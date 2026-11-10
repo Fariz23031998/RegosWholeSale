@@ -129,6 +129,8 @@ Plain template objects (without `version` wrapper) are also accepted if they con
 | `header` | object | yes | Company block (see below). |
 | `invoice_title` | string | no | Title for A4 invoices (e.g. `"INVOICE"`, `"НАКЛАДНАЯ"`). |
 | `footer_text` | string | no | Footer message; available as `{{footer_text}}` in HTML. |
+| `partner_debt_enabled` | boolean | no | When true, built-in A4 invoices print the partner's current balance and HTML templates receive `partner_balances`. Default `false`. |
+| `partner_debt_negative_only` | boolean | no | When true, only negative closings are shown (the firm owes the partner). Default `false`. |
 | `amount_in_words_language` | `"ru"` \| `"uz"` \| `"en"` \| `"tj"` \| `null` | no | Language for amount-in-words variables. `null` = off. |
 | `sections` | object | no | Section toggles for **built-in** layouts only. |
 | `line_sort` | object | no | Sort order for line items (built-in + HTML). |
@@ -256,6 +258,7 @@ Nested properties:
 | `total_in_words` | Words for `totals.amount` (requires `amount_in_words_language`) |
 | `total_with_words` | Full formatted line with number + words + currency |
 | `amount_in_words_language` | Active language code or empty |
+| `partner_balances` | Current partner closings when partner debt is enabled. See [Partner debt](#partner-debt). |
 
 ### `document` — Regos wholesale document
 
@@ -313,8 +316,9 @@ Loop with `{{#each operations}}…{{/each}}`.
 | `item_vat_name` | VAT type name |
 | `item_vat_value` | VAT rate/value |
 | `item_base_barcode` | Base barcode |
+| `item_image` | Product image URL (`item.image_url`). Empty when the product has no photo. Use `{{itemImg}}` to print the photo. `{{item_image}}` is the URL text. |
 
-Inside `{{#each operations}}`, use `{{item_name}}`, `{{item_articul}}`, `{{item_color_name}}`, etc.
+Inside `{{#each operations}}`, use `{{item_name}}`, `{{item_articul}}`, `{{item_color_name}}`, and `{{itemImg}}` for the product photo.
 
 ### `operation_groups[]` — lines grouped by product group
 
@@ -425,6 +429,7 @@ Use helpers inside `{{...}}`:
 | `mul` | `{{mul price2 quantity}}` or `{{price2 * quantity}}` | Multiplication |
 | `div` | `{{div amount quantity}}` or `{{amount / quantity}}` | Division (divisor `0` → `0`) |
 | `logoImg` | `{{logoImg "Primary"}}` or `{{logoImg "Stamp" 80}}` | Renders an `<img>` for the named logo; optional second argument overrides max width (px) |
+| `itemImg` | `{{itemImg}}` inside `{{#each operations}}` or `{{#each lines}}` | Renders the line's product photo as `<img class="item-image">`. Empty when the product has no photo. |
 
 ### Arithmetic in `{{...}}`
 
@@ -578,6 +583,25 @@ Built-in layouts render all configured logos above the company name automaticall
 ```
 
 Also available: `{{partner_name}}`, `{{document.stock_name}}` / `{{stock_name}}` for warehouse.
+
+### Partner debt
+
+Turn on **Partner debt** in the template editor. **Only negative balance** keeps closings below zero. Positive means the partner owes the firm; negative means the firm owes the partner. The list is the current balance for today, one line per firm and currency.
+
+Built-in A4 invoices print this under Bill to. HTML templates use `partner_balances` (empty when partner debt is off):
+
+```handlebars
+{{#each partner_balances}}
+<div>{{firm_name}}: {{formatCurrency amount}} {{currency_code}}</div>
+{{/each}}
+```
+
+| Variable | Description |
+|----------|-------------|
+| `partner_balances[].firm_name` | Firm name |
+| `partner_balances[].amount` | Signed closing balance |
+| `partner_balances[].currency_code` | Currency code (`UZS`, `USD`, …) |
+| `partner_balances[].exchange_rate` | Current rate from the currency catalog |
 
 ### Cashier and document meta
 

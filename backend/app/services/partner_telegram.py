@@ -9,9 +9,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.core.exceptions import bad_request, not_found, unauthorized
 from app.models import Company, PartnerTelegramAccount, PartnerTelegramBot, PartnerTelegramLinkState
+from app.schemas.partner_telegram import PORTAL_PAGE_KEYS, default_enabled_pages
 from app.services import document_telegram_format as fmt
+from app.services import regos_groups
 from app.services import regos_partners
 from app.services import telegram as telegram_service
+from app.services.pos_settings import _normalize_id_list
 from app.services.subscriptions import is_subscription_active
 from app.services.telegram_i18n import t
 from app.services.telegram_languages import default_receipt_language
@@ -22,6 +25,12 @@ PARTNER_DOCUMENT_KINDS = frozenset(
     {"purchase", "return_purchase", "wholesale", "wholesale_return"}
 )
 PARTNER_LANGUAGES = frozenset({"uz", "ru", "en"})
+DOCUMENT_KIND_TO_PAGE = {
+    "wholesale": "purchases",
+    "wholesale-return": "purchase_returns",
+    "purchase": "shipments",
+    "purchase-return": "shipment_returns",
+}
 _PHONE_SPLIT = re.compile(r"[,;]")
 # Regos often stores the 9-digit national number; Telegram shares +998…
 _UZ_COUNTRY_CODE = "998"
@@ -175,6 +184,52 @@ async def _get_bot_by_public_key(
     return result.scalar_one_or_none()
 
 
+def _balance_notify_templates(value: Any) -> dict[str, str]:
+    source = value if isinstance(value, dict) else {}
+    templates: dict[str, str] = {}
+    for lang in ("uz", "ru", "en"):
+        raw = source.get(lang, "")
+        templates[lang] = raw.strip() if isinstance(raw, str) else ""
+    return templates
+
+
+def _balance_notify_days(value: Any) -> list[int]:
+    if not isinstance(value, list):
+        return []
+    days: list[int] = []
+    for item in value:
+        if isinstance(item, bool):
+            continue
+        if isinstance(item, int):
+            days.append(item)
+        elif isinstance(item, str) and item.lstrip("-").isdigit():
+            days.append(int(item))
+    return days
+
+
+def _normalize_enabled_pages(value: Any) -> dict[str, bool]:
+    pages = default_enabled_pages()
+    if isinstance(value, dict):
+        for key, enabled in value.items():
+            if key in pages:
+                pages[key] = bool(enabled)
+    return pages
+
+
+def _normalize_page_overrides(value: Any) -> dict[str, bool]:
+    if not isinstance(value, dict):
+        return {}
+    known = set(PORTAL_PAGE_KEYS)
+    return {key: bool(enabled) for key, enabled in value.items() if key in known}
+
+
+def resolve_enabled_pages(bot_pages: Any, overrides: Any) -> dict[str, bool]:
+    base = _normalize_enabled_pages(bot_pages)
+    for key, enabled in _normalize_page_overrides(overrides).items():
+        base[key] = enabled
+    return base
+
+
 def bot_to_dict(row: PartnerTelegramBot) -> dict[str, Any]:
     return {
         "configured": True,
@@ -187,8 +242,25 @@ def bot_to_dict(row: PartnerTelegramBot) -> dict[str, Any]:
         "default_price_type_id": row.default_price_type_id,
         "allow_catalog_warehouse_selection": bool(row.allow_catalog_warehouse_selection),
         "allow_self_registration": bool(row.allow_self_registration),
+        "show_product_quantities": bool(row.show_product_quantities),
+        "auto_open_qty_keypad": bool(row.auto_open_qty_keypad),
         "default_partner_group_id": row.default_partner_group_id,
+        "catalog_product_group_ids": _normalize_id_list(row.catalog_product_group_ids),
+        "enabled_pages": _normalize_enabled_pages(row.enabled_pages),
+        "balance_notify_enabled": bool(row.balance_notify_enabled),
+        "balance_notify_time": row.balance_notify_time or "09:00",
+        "balance_notify_option": row.balance_notify_option or "daily",
+        "balance_notify_days": _balance_notify_days(row.balance_notify_days),
+        "balance_notify_templates": _balance_notify_templates(row.balance_notify_templates),
+        "order_document_type": _normalize_order_document_type(row.order_document_type),
+        "order_booked": bool(row.order_booked),
     }
+
+
+def _normalize_order_document_type(value: Any) -> str:
+    if value == "doc_wholesale":
+        return "doc_wholesale"
+    return "doc_order_from_partner"
 
 
 def _empty_bot() -> dict[str, Any]:
@@ -203,7 +275,18 @@ def _empty_bot() -> dict[str, Any]:
         "default_price_type_id": None,
         "allow_catalog_warehouse_selection": False,
         "allow_self_registration": False,
+        "show_product_quantities": True,
+        "auto_open_qty_keypad": False,
         "default_partner_group_id": None,
+        "catalog_product_group_ids": [],
+        "enabled_pages": default_enabled_pages(),
+        "balance_notify_enabled": False,
+        "balance_notify_time": "09:00",
+        "balance_notify_option": "daily",
+        "balance_notify_days": [],
+        "balance_notify_templates": {"uz": "", "ru": "", "en": ""},
+        "order_document_type": "doc_order_from_partner",
+        "order_booked": True,
     }
 
 
@@ -629,7 +712,15 @@ async def _list_all_partners(session: AsyncSession, company_id: int) -> list[dic
     return collected
 
 
-def account_to_dict(row: PartnerTelegramAccount, partner_name: str | None = None) -> dict[str, Any]:
+def account_to_dict(
+    row: PartnerTelegramAccount,
+    partner_name: str | None = None,
+    *,
+    bot: PartnerTelegramBot | None = None,
+    bot_pages: Any = None,
+) -> dict[str, Any]:
+    overrides = _normalize_page_overrides(row.page_overrides)
+    pages_source = bot.enabled_pages if bot is not None else bot_pages
     return {
         "id": row.id,
         "telegram_user_id": row.telegram_user_id,
@@ -644,12 +735,15 @@ def account_to_dict(row: PartnerTelegramAccount, partner_name: str | None = None
         "link_state": row.link_state,
         "warehouse_id": row.warehouse_id,
         "price_type_id": row.price_type_id,
+        "page_overrides": overrides,
+        "enabled_pages": resolve_enabled_pages(pages_source, overrides),
         "has_password": bool(row.password_hash),
         "created_at": row.created_at,
     }
 
 
 async def list_accounts(session: AsyncSession, company_id: int) -> list[dict[str, Any]]:
+    bot = await _get_bot_by_company(session, company_id)
     result = await session.execute(
         select(PartnerTelegramAccount)
         .where(PartnerTelegramAccount.company_id == company_id)
@@ -662,7 +756,11 @@ async def list_accounts(session: AsyncSession, company_id: int) -> list[dict[str
         [row.regos_partner_id for row in rows if isinstance(row.regos_partner_id, int)],
     )
     return [
-        account_to_dict(row, names.get(row.regos_partner_id) if row.regos_partner_id else None)
+        account_to_dict(
+            row,
+            names.get(row.regos_partner_id) if row.regos_partner_id else None,
+            bot=bot,
+        )
         for row in rows
     ]
 
@@ -807,11 +905,40 @@ async def update_bot_settings(
         groups = await regos_partners.list_partner_groups(session, company_id)
         if not any(item.get("id") == group_id for item in groups.get("groups") or []):
             raise bad_request("That partner group was not found.", "REGOS_PARTNER_GROUP_INVALID")
+    catalog_group_ids = _normalize_id_list(settings.get("catalog_product_group_ids"))
+    if catalog_group_ids:
+        product_groups = await regos_groups.list_groups(session, company_id)
+        known = {
+            item.get("id")
+            for item in product_groups.get("groups") or []
+            if isinstance(item.get("id"), int)
+        }
+        catalog_group_ids = [item for item in catalog_group_ids if item in known]
     row.default_warehouse_id = warehouse_id if isinstance(warehouse_id, int) else None
     row.default_price_type_id = price_type_id if isinstance(price_type_id, int) else None
     row.default_partner_group_id = group_id if isinstance(group_id, int) else None
+    row.catalog_product_group_ids = catalog_group_ids
     row.allow_catalog_warehouse_selection = bool(settings.get("allow_catalog_warehouse_selection"))
     row.allow_self_registration = bool(settings.get("allow_self_registration"))
+    row.show_product_quantities = bool(settings.get("show_product_quantities", True))
+    if "auto_open_qty_keypad" in settings:
+        row.auto_open_qty_keypad = bool(settings.get("auto_open_qty_keypad"))
+    if "enabled_pages" in settings:
+        row.enabled_pages = _normalize_enabled_pages(settings.get("enabled_pages"))
+    if "balance_notify_enabled" in settings:
+        row.balance_notify_enabled = bool(settings.get("balance_notify_enabled"))
+    if "balance_notify_time" in settings and isinstance(settings.get("balance_notify_time"), str):
+        row.balance_notify_time = settings["balance_notify_time"]
+    if "balance_notify_option" in settings and isinstance(settings.get("balance_notify_option"), str):
+        row.balance_notify_option = settings["balance_notify_option"]
+    if "balance_notify_days" in settings:
+        row.balance_notify_days = _balance_notify_days(settings.get("balance_notify_days"))
+    if "balance_notify_templates" in settings:
+        row.balance_notify_templates = _balance_notify_templates(settings.get("balance_notify_templates"))
+    if "order_document_type" in settings:
+        row.order_document_type = _normalize_order_document_type(settings.get("order_document_type"))
+    if "order_booked" in settings:
+        row.order_booked = bool(settings.get("order_booked"))
     await session.flush()
     return bot_to_dict(row)
 
@@ -851,10 +978,13 @@ async def update_account(
             account.price_type_id = price_type_id
         else:
             account.price_type_id = None
+    if "page_overrides" in changes:
+        account.page_overrides = _normalize_page_overrides(changes.get("page_overrides"))
     await session.flush()
     if partner_name is None and account.regos_partner_id:
         partner_name = await _partner_name(session, company_id, account.regos_partner_id)
-    return account_to_dict(account, partner_name)
+    bot = await _get_bot_by_company(session, company_id)
+    return account_to_dict(account, partner_name, bot=bot)
 
 
 async def assign_partner(

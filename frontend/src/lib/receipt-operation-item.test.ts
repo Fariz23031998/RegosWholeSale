@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   expandOperationTemplateFields,
+  mergeReceiptOperationItemImage,
   normalizeReceiptOperationItem,
   receiptOperationItemFromCatalogProduct,
 } from "@/lib/receipt-operation-item";
@@ -18,6 +19,15 @@ describe("receipt operation item", () => {
     expect(item.articul).toBe("ART-1");
     expect(item.base_barcode).toBe("123");
     expect(item.department.name).toBe("Parts");
+    expect(item.image_url).toBeNull();
+  });
+
+  it("copies a catalog product image", () => {
+    const item = receiptOperationItemFromCatalogProduct({
+      name: "Widget",
+      image: " https://cdn.example.test/widget.png ",
+    });
+    expect(item.image_url).toBe("https://cdn.example.test/widget.png");
   });
 
   it("falls back to sku when articul is missing", () => {
@@ -39,6 +49,23 @@ describe("receipt operation item", () => {
     expect(item.articul).toBe("A-1");
     expect(item.color.name).toBe("Blue");
     expect(item.vat.value).toBe(12);
+    expect(item.image_url).toBeNull();
+  });
+
+  it("keeps a non-empty image and drops blanks", () => {
+    expect(
+      normalizeReceiptOperationItem({ image_url: " https://cdn.example.test/a.png " }).image_url,
+    ).toBe("https://cdn.example.test/a.png");
+    expect(normalizeReceiptOperationItem({ image_url: "  " }).image_url).toBeNull();
+  });
+
+  it("fills a missing image from the fallback item", () => {
+    const merged = mergeReceiptOperationItemImage(
+      normalizeReceiptOperationItem({ articul: "A-1", image_url: "" }),
+      { image_url: "https://cdn.example.test/fallback.png" },
+    );
+    expect(merged.image_url).toBe("https://cdn.example.test/fallback.png");
+    expect(merged.articul).toBe("A-1");
   });
 
   it("flattens item fields for template variables", () => {
@@ -56,11 +83,13 @@ describe("receipt operation item", () => {
         articul: "A-1",
         color: { name: "Blue" },
         vat: { name: "VAT", value: 12 },
+        image_url: "https://cdn.example.test/widget.png",
       },
     });
     expect(line.item_articul).toBe("A-1");
     expect(line.item_color_name).toBe("Blue");
     expect(line.item_vat_name).toBe("VAT");
     expect(line.item_vat_value).toBe(12);
+    expect(line.item_image).toBe("https://cdn.example.test/widget.png");
   });
 });

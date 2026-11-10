@@ -1,6 +1,6 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { z } from "zod";
-import { PartnerDocumentPage } from "@/components/PartnerApp/PartnerRecords";
+import { PartnerStockDocumentPage } from "@/components/PartnerApp/PartnerRecords";
 
 const searchSchema = z.object({
   id: z.number().optional(),
@@ -16,8 +16,8 @@ function ShipmentsRoute() {
   const { id } = Route.useSearch();
   const navigate = useNavigate();
   return (
-    <PartnerDocumentPage
-      kind="wholesale"
+    <PartnerStockDocumentPage
+      kind="purchase"
       titleKey="partnerApp.wholesale"
       titleFallback="Shipments"
       documentId={id}

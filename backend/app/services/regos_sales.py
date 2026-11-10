@@ -1883,13 +1883,15 @@ async def create_booked_partner_order(
     defaults: dict[str, Any],
     description: str | None,
     lines: list[dict[str, Any]],
+    *,
+    booked: bool = True,
 ) -> dict[str, Any]:
     order_doc = await _add_order_from_partner_document(
         session,
         company_id,
         defaults,
         description,
-        booked=True,
+        booked=booked,
     )
     doc_id = int(order_doc["id"])
     await _regos_call(session, company_id, "docorderfrompartner/lock", {"ids": [doc_id]})
@@ -1898,6 +1900,25 @@ async def create_booked_partner_order(
     finally:
         await _regos_call(session, company_id, "docorderfrompartner/unlock", {"ids": [doc_id]})
     return order_doc
+
+
+async def create_partner_wholesale_draft(
+    session: AsyncSession,
+    company_id: int,
+    defaults: dict[str, Any],
+    description: str | None,
+    lines: list[dict[str, Any]],
+) -> dict[str, Any]:
+    wholesale_doc = await _add_wholesale_document(
+        session, company_id, defaults, description
+    )
+    doc_id = int(wholesale_doc["id"])
+    await _regos_call(session, company_id, "docwholesale/lock", {"ids": [doc_id]})
+    try:
+        await _add_wholesale_operations(session, company_id, doc_id, lines)
+    finally:
+        await _regos_call(session, company_id, "docwholesale/unlock", {"ids": [doc_id]})
+    return wholesale_doc
 
 
 async def _add_order_from_partner_operations(
@@ -2790,6 +2811,7 @@ def _map_operation_item(product: dict[str, Any]) -> dict[str, Any]:
             "value": parsed_vat_value,
         },
         "base_barcode": _coerce_operation_text(product.get("base_barcode")),
+        "image_url": _coerce_operation_text(product.get("image_url")),
     }
 
 

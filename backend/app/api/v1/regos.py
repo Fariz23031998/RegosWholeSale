@@ -30,6 +30,7 @@ from app.schemas.partners import (
     FirmsListResponse,
     Partner,
     PartnerBalanceResponse,
+    PartnerDebtResponse,
     PartnerCreateRequest,
     PartnerCreateResponse,
     PartnerGroupsResponse,
@@ -49,6 +50,13 @@ from app.schemas.items import (
     RegosTaxVatsResponse,
     RegosUnitsResponse,
 )
+from app.schemas.prices import (
+    PriceDocument,
+    PriceDocumentOperationsResponse,
+    PriceDocumentsResponse,
+    SetProductPricesRequest,
+    SetProductPricesResponse,
+)
 from app.schemas.settings import RegosReferenceOptionsResponse
 from app.services import events_log as events_log_service
 from app.services import catalog_events as catalog_events_service
@@ -64,6 +72,12 @@ from app.services import regos_partners as regos_partners_service
 from app.services import regos_payment_linking as regos_payment_linking_service
 from app.services import regos_payment_types as regos_payment_types_service
 from app.services import regos_products as regos_products_service
+from app.services.regos_prices.price_documents.price_documents import (
+    get_price_document,
+    list_price_document_operations,
+    list_price_documents,
+)
+from app.services.regos_prices.set_product_prices.set_product_prices import set_product_prices
 from app.services import regos_tokens as regos_tokens_service
 from app.services.settings_change import notify_settings_updated
 from app.services.permissions import POS_CONTEXT_CHANGE_PERMISSIONS
@@ -72,6 +86,14 @@ router = APIRouter(prefix="/regos", tags=["regos"])
 
 _POS_CONTEXT_OR_SETTINGS = ("settings.manage", *POS_CONTEXT_CHANGE_PERMISSIONS)
 _PARTNER_OR_SETTINGS = ("settings.manage", "pos.change_partner")
+_PARTNER_DEBT_READ = (
+    "settings.manage",
+    "pos.change_partner",
+    "pos.access",
+    "sales.read",
+    "sales.write",
+    "returns.manage",
+)
 _PARTNER_PAY_DEBT = ("sales.write", "settings.manage", "pos.change_partner")
 _ITEM_CREATE = ("settings.manage", "stock.item_create")
 _ITEM_EDIT = ("settings.manage", "stock.item_edit")
@@ -256,7 +278,7 @@ async def get_regos_products(
     zero_price: bool | None = Query(default=None),
     sort_column: str | None = Query(default=None, max_length=64),
     sort_direction: str | None = Query(default=None, max_length=8),
-    current: CurrentUser = Depends(require_permission("pos.access")),
+    current: CurrentUser = Depends(require_any_permission("pos.access", "labels.print")),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogProductsResponse:
     await regos_defaults_service.assert_catalog_scope_allowed(
@@ -287,12 +309,76 @@ async def get_regos_products(
     return CatalogProductsResponse(**data)
 
 
+@router.post("/products/prices", response_model=SetProductPricesResponse)
+async def set_regos_product_prices(
+    body: SetProductPricesRequest,
+    current: CurrentUser = Depends(require_permission("prices.write")),
+    session: AsyncSession = Depends(get_db),
+) -> SetProductPricesResponse:
+    result = await set_product_prices(
+        session,
+        current.company_id,
+        current.id,
+        current.permissions,
+        price_type_id=body.price_type_id,
+        lines=[line.model_dump() for line in body.lines],
+    )
+    return SetProductPricesResponse(**result)
+
+
+@router.get("/price-documents", response_model=PriceDocumentsResponse)
+async def get_price_documents(
+    start_date: int | None = Query(default=None, ge=0),
+    end_date: int | None = Query(default=None, ge=0),
+    search: str | None = Query(default=None, max_length=255),
+    price_type_id: int | None = Query(default=None, ge=1),
+    offset: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=500),
+    current: CurrentUser = Depends(require_permission("prices.read")),
+    session: AsyncSession = Depends(get_db),
+) -> PriceDocumentsResponse:
+    data = await list_price_documents(
+        session,
+        current.company_id,
+        start_date=start_date,
+        end_date=end_date,
+        search=search,
+        price_type_id=price_type_id,
+        limit=limit,
+        offset=offset,
+    )
+    return PriceDocumentsResponse(**data)
+
+
+@router.get("/price-documents/{document_id}", response_model=PriceDocument)
+async def get_price_document_detail(
+    document_id: int,
+    current: CurrentUser = Depends(require_permission("prices.read")),
+    session: AsyncSession = Depends(get_db),
+) -> PriceDocument:
+    document = await get_price_document(session, current.company_id, document_id)
+    return PriceDocument(**document)
+
+
+@router.get(
+    "/price-documents/{document_id}/operations",
+    response_model=PriceDocumentOperationsResponse,
+)
+async def get_price_document_operations(
+    document_id: int,
+    current: CurrentUser = Depends(require_permission("prices.read")),
+    session: AsyncSession = Depends(get_db),
+) -> PriceDocumentOperationsResponse:
+    data = await list_price_document_operations(session, current.company_id, document_id)
+    return PriceDocumentOperationsResponse(**data)
+
+
 @router.get("/products/by-ids", response_model=CatalogProductsResponse)
 async def get_regos_products_by_ids(
     ids: str = Query(..., min_length=1, max_length=4000),
     warehouse_id: int | None = Query(default=None, ge=1),
     price_type_id: int | None = Query(default=None, ge=1),
-    current: CurrentUser = Depends(require_permission("pos.access")),
+    current: CurrentUser = Depends(require_any_permission("pos.access", "labels.print")),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogProductsResponse:
     await regos_defaults_service.assert_catalog_scope_allowed(
@@ -447,7 +533,7 @@ async def sync_meta(
 
 @router.get("/product-groups", response_model=CatalogGroupsResponse)
 async def get_regos_product_groups(
-    current: CurrentUser = Depends(require_permission("pos.access")),
+    current: CurrentUser = Depends(require_any_permission("pos.access", "labels.print")),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogGroupsResponse:
     data = await regos_groups_service.list_groups(session, current.company_id)
@@ -721,6 +807,20 @@ async def get_regos_partner_balance(
         in_base_currency=in_base_currency,
     )
     return PartnerBalanceResponse(**data)
+
+
+@router.get("/partners/{partner_id}/debt", response_model=PartnerDebtResponse)
+async def get_regos_partner_debt(
+    partner_id: int,
+    current: CurrentUser = Depends(require_any_permission(*_PARTNER_DEBT_READ)),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerDebtResponse:
+    data = await regos_partner_balance_service.get_partner_debt(
+        session,
+        current.company_id,
+        partner_id=partner_id,
+    )
+    return PartnerDebtResponse(**data)
 
 
 @router.post(

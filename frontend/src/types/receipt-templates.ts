@@ -70,6 +70,8 @@ export type ReceiptTemplate = {
   sections: ReceiptTemplateSections;
   line_sort: ReceiptTemplateLineSort;
   logos: ReceiptTemplateLogo[];
+  partner_debt_enabled: boolean;
+  partner_debt_negative_only: boolean;
   html: string;
   css: string;
 };

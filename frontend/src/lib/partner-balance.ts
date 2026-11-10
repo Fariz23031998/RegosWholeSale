@@ -64,6 +64,21 @@ export function toBalanceAmount(value: unknown): number {
   return 0;
 }
 
+/**
+ * Flip firm-ledger amounts into the partner's perspective:
+ * debit ↔ credit, and negate opening/closing balances.
+ * Preserves end = start + debit - credit.
+ */
+export function toPartnerPerspectiveRow(row: PartnerBalanceRow): PartnerBalanceRow {
+  return {
+    ...row,
+    start_amount: -toBalanceAmount(row.start_amount),
+    end_amount: -toBalanceAmount(row.end_amount),
+    debit: toBalanceAmount(row.credit),
+    credit: toBalanceAmount(row.debit),
+  };
+}
+
 export function compareOperationsDesc(a: PartnerBalanceRow, b: PartnerBalanceRow): number {
   if (b.date !== a.date) {
     return b.date - a.date;
@@ -132,6 +147,42 @@ function resolveGroupExchangeRate(
 
 function roundMoney(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * Signed closing balance of every currency group, converted into `targetCurrency`.
+ * Positive means the partner owes the firm; negative means the firm owes the partner.
+ */
+export function balanceTotalInCurrency(
+  groups: CurrencyGroup[],
+  targetCurrency: RegosCurrencyOption | null | undefined,
+): number {
+  if (!targetCurrency?.id) return 0;
+
+  const knownRates = new Map<number, number>();
+  for (const group of groups) {
+    const currencyId = group.currency?.id;
+    const rate = group.currency?.exchange_rate;
+    if (typeof currencyId === "number" && typeof rate === "number" && rate > 0) {
+      knownRates.set(currencyId, rate);
+    }
+  }
+  if (typeof targetCurrency.exchange_rate === "number" && targetCurrency.exchange_rate > 0) {
+    knownRates.set(targetCurrency.id, targetCurrency.exchange_rate);
+  }
+
+  const targetGroup = groups.find((group) => group.currency?.id === targetCurrency.id);
+  const targetRate = targetGroup
+    ? resolveGroupExchangeRate(targetGroup, knownRates)
+    : (knownRates.get(targetCurrency.id) ?? 1);
+
+  let sum = 0;
+  for (const group of groups) {
+    const closing = toBalanceAmount(group.closingTotal);
+    if (closing === 0) continue;
+    sum += convertBetweenRates(closing, resolveGroupExchangeRate(group, knownRates), targetRate);
+  }
+  return roundMoney(sum);
 }
 
 /**

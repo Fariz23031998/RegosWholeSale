@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import type { ColumnDef } from "@tanstack/react-table";
 import { ArrowLeft, Check, Lock, Pencil, Plus, RotateCcw, Search, Trash2, Unlock } from "lucide-react";
+import { DataTable } from "@/components/DataTable/DataTable";
 import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -139,6 +141,101 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
         );
       })
     : operations;
+
+  const lineColumns = useMemo<ColumnDef<StockOperationLine, any>[]>(() => {
+    const amountText = (op: StockOperationLine) =>
+      def.showCost && op.cost != null
+        ? formatCurrency(op.cost * op.quantity)
+        : op.amount != null
+          ? formatCurrency(op.amount)
+          : op.price != null
+            ? formatCurrency(op.price * op.quantity)
+            : "—";
+    const defs: ColumnDef<StockOperationLine, any>[] = [
+      {
+        id: "code",
+        accessorFn: (op) => op.item_code ?? "",
+        header: t("stock.detail.table.code", "Code"),
+        cell: ({ row }) => row.original.item_code || "—",
+        meta: { cellClassName: styles.id },
+      },
+      {
+        id: "product",
+        accessorFn: (op) => op.item_name ?? "",
+        header: t("stock.detail.table.product", "Product"),
+        size: 240,
+        cell: ({ row }) => row.original.item_name ?? `#${row.original.item_id}`,
+      },
+      {
+        id: "qty",
+        accessorFn: (op) => op.quantity,
+        header: t("stock.detail.table.qty", "Qty"),
+        meta: { align: "right", cellClassName: styles.right, headerClassName: styles.right },
+      },
+    ];
+    if (def.showCost) {
+      defs.push({
+        id: "cost",
+        accessorFn: (op) => op.cost ?? 0,
+        header: t("stock.detail.table.cost", "Cost"),
+        meta: { align: "right", cellClassName: styles.right, headerClassName: styles.right },
+        cell: ({ row }) => (row.original.cost != null ? formatCurrency(row.original.cost) : "—"),
+      });
+    }
+    if (def.showPrice) {
+      defs.push({
+        id: "price",
+        accessorFn: (op) => op.price ?? 0,
+        header: t("stock.detail.table.price", "Price"),
+        meta: { align: "right", cellClassName: styles.right, headerClassName: styles.right },
+        cell: ({ row }) => (row.original.price != null ? formatCurrency(row.original.price) : "—"),
+      });
+    }
+    defs.push({
+      id: "amount",
+      accessorFn: (op) => op.amount ?? op.price ?? op.cost ?? 0,
+      header: t("common.amount"),
+      meta: { align: "right", cellClassName: styles.right, headerClassName: styles.right },
+      cell: ({ row }) => amountText(row.original),
+    });
+    if (canWrite && !done) {
+      defs.push({
+        id: "actions",
+        header: () => null,
+        enableSorting: false,
+        enableHiding: false,
+        size: 96,
+        meta: { label: t("common.actions") },
+        cell: ({ row }) => (
+          <div className={styles.lineActions}>
+            <Button
+              type="button"
+              size="icon"
+              variant="secondary"
+              disabled={busy}
+              aria-label={t("common.edit", "Edit")}
+              title={t("common.edit", "Edit")}
+              onClick={() => setUpdateLine(row.original)}
+            >
+              <Pencil size={16} />
+            </Button>
+            <Button
+              type="button"
+              size="icon"
+              variant="danger"
+              disabled={busy}
+              aria-label={t("common.delete", "Delete")}
+              title={t("common.delete", "Delete")}
+              onClick={() => confirmDeleteLine(row.original)}
+            >
+              <Trash2 size={16} />
+            </Button>
+          </div>
+        ),
+      });
+    }
+    return defs;
+  }, [busy, canWrite, def, done, t]);
 
   const lineActions = (op: StockOperationLine) => (
     <div className={styles.lineActions}>
@@ -359,52 +456,13 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
             ) : (
               <>
                 <div className={styles.detailTableWrap}>
-                  <table className={styles.detailTable}>
-                    <thead>
-                      <tr>
-                        <th>{t("stock.detail.table.code", "Code")}</th>
-                        <th>{t("stock.detail.table.product", "Product")}</th>
-                        <th className={styles.right}>{t("stock.detail.table.qty", "Qty")}</th>
-                        {def.showCost && (
-                          <th className={styles.right}>{t("stock.detail.table.cost", "Cost")}</th>
-                        )}
-                        {def.showPrice && (
-                          <th className={styles.right}>{t("stock.detail.table.price", "Price")}</th>
-                        )}
-                        <th className={styles.right}>{t("common.amount")}</th>
-                        {canWrite && !done && <th />}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredOperations.map((op) => (
-                        <tr key={op.id}>
-                          <td className={styles.id}>{op.item_code || "—"}</td>
-                          <td>{op.item_name ?? `#${op.item_id}`}</td>
-                          <td className={styles.right}>{op.quantity}</td>
-                          {def.showCost && (
-                            <td className={styles.right}>
-                              {op.cost != null ? formatCurrency(op.cost) : "—"}
-                            </td>
-                          )}
-                          {def.showPrice && (
-                            <td className={styles.right}>
-                              {op.price != null ? formatCurrency(op.price) : "—"}
-                            </td>
-                          )}
-                          <td className={styles.right}>
-                            {def.showCost && op.cost != null
-                              ? formatCurrency(op.cost * op.quantity)
-                              : op.amount != null
-                                ? formatCurrency(op.amount)
-                                : op.price != null
-                                  ? formatCurrency(op.price * op.quantity)
-                                  : "—"}
-                          </td>
-                          {canWrite && !done && <td>{lineActions(op)}</td>}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <DataTable
+                    tableKey="stockDoc.lines"
+                    data={filteredOperations}
+                    columns={lineColumns}
+                    className={styles.detailTable}
+                    getRowId={(op) => String(op.id)}
+                  />
                 </div>
 
                 <div className={styles.lineCards}>

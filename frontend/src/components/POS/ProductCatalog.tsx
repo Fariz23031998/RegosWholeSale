@@ -10,6 +10,7 @@ import {
   useState,
 } from "react";
 import clsx from "clsx";
+import { CatalogSortMenu } from "@/components/POS/CatalogSortMenu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useBookedOrderContinuation } from "@/hooks/use-booked-order-continuation";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -48,11 +49,6 @@ import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { applyDefaultCategory } from "@/lib/default-category";
 import { expandProductGroupIds, filterProductGroups } from "@/lib/category-scope";
-import {
-  catalogSortFromOptionId,
-  catalogSortToOptionId,
-  CATALOG_SORT_OPTIONS,
-} from "@/lib/catalog-sort";
 import {
   catalogCanLoadMore,
   catalogEffectiveNextOffset,
@@ -183,6 +179,7 @@ export function ProductCatalog() {
   const setCatalogSort = useCatalog((s) => s.setCatalogSort);
   const [returnOpen, setReturnOpen] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
+  const sortButtonRef = useRef<HTMLButtonElement | null>(null);
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [categoryReady, setCategoryReady] = useState(false);
@@ -217,26 +214,6 @@ export function ProductCatalog() {
     const timer = window.setTimeout(() => setSearch(q.trim()), 250);
     return () => window.clearTimeout(timer);
   }, [isBarcodeMode, q]);
-
-  useEffect(() => {
-    if (!sortOpen) return;
-
-    const onPointerDown = (event: PointerEvent) => {
-      if (sortMenuRef.current?.contains(event.target as Node)) return;
-      setSortOpen(false);
-    };
-
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setSortOpen(false);
-    };
-
-    document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("keydown", onKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("keydown", onKeyDown);
-    };
-  }, [sortOpen]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
@@ -1182,8 +1159,9 @@ export function ProductCatalog() {
                 </button>
               </>
             ) : null}
-            <div ref={sortMenuRef} className={styles.sortMenuWrap}>
+            <div className={styles.sortMenuWrap}>
               <button
+                ref={sortButtonRef}
                 type="button"
                 className={clsx(
                   styles.catalogFilterBtn,
@@ -1202,30 +1180,14 @@ export function ProductCatalog() {
                 <ArrowUpDown size={16} />
                 <span className={styles.catalogFilterBtnLabel}>{t("pos.sort", "Sort")}</span>
               </button>
-              {sortOpen ? (
-                <div className={styles.sortMenu} role="menu" aria-label={t("pos.sortBy", "Sort by")}>
-                  <div className={styles.sortMenuLabel}>{t("pos.sortBy", "Sort by")}</div>
-                  {CATALOG_SORT_OPTIONS.map((option) => {
-                    const isActive = catalogSortToOptionId(catalogSort) === option.id;
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        role="menuitemradio"
-                        aria-checked={isActive}
-                        className={clsx(styles.sortMenuItem, isActive && styles.sortMenuItemActive)}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          setCatalogSort(catalogSortFromOptionId(option.id));
-                          setSortOpen(false);
-                        }}
-                      >
-                        {t(option.labelKey, option.fallback)}
-                      </button>
-                    );
-                  })}
-                </div>
-              ) : null}
+              <CatalogSortMenu
+                open={sortOpen}
+                catalogSort={catalogSort}
+                anchorRef={sortButtonRef}
+                menuRef={sortMenuRef}
+                onClose={() => setSortOpen(false)}
+                onSelect={setCatalogSort}
+              />
             </div>
             <button
               type="button"

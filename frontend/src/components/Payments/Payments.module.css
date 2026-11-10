@@ -1,14 +1,23 @@
 .page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
   padding: var(--space-6) var(--space-6) var(--space-10);
-  width: 80%;
+  width: 100%;
   max-width: 100%;
   margin: 0 auto;
+  box-sizing: border-box;
 }
 
-@media (max-width: 1499px) {
-  .page {
-    width: 100%;
-  }
+.page > * {
+  flex-shrink: 0;
+}
+
+.page > .table {
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .header {
@@ -64,6 +73,8 @@
 }
 
 .table {
+  display: flex;
+  flex-direction: column;
   background: var(--color-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -408,8 +419,8 @@
     font-size: 22px;
   }
 
-  .table {
-    overflow: visible;
+  .table > :first-child:not(.empty):not(.cardList) {
+    display: none;
   }
 
   .tbl {
@@ -418,6 +429,9 @@
 
   .cardList {
     display: block;
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
   }
 
   .detailGrid {

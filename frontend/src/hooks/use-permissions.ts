@@ -23,6 +23,9 @@ export function usePermissions() {
       canPostponeSale: () => permissions.includes("sales.postpone"),
       canContinueSale: () => permissions.includes("sales.continue"),
       canPrintDocuments: () => permissions.includes("documents.print"),
+      canPrintLabels: () => permissions.includes("labels.print"),
+      canManageOwnPrintSettings: () => permissions.includes("labels.manage_own_print_settings"),
+      canManagePrintSettings: () => permissions.includes("labels.manage_print_settings"),
     }),
     [permissions],
   );

@@ -22,8 +22,9 @@ type Props = {
   onClose: () => void;
   groups: ProductGroup[];
   featuredOnly: boolean;
+  showFeatured?: boolean;
   selectedGroupId: number | null;
-  onSelectFeatured: () => void;
+  onSelectFeatured?: () => void;
   onSelectAll: () => void;
   onSelectGroup: (groupId: number) => void;
 };
@@ -33,6 +34,7 @@ export function CategoryPickerModal({
   onClose,
   groups,
   featuredOnly,
+  showFeatured = true,
   selectedGroupId,
   onSelectFeatured,
   onSelectAll,
@@ -56,7 +58,7 @@ export function CategoryPickerModal({
   }, [groups, search]);
 
   const selectFeatured = () => {
-    onSelectFeatured();
+    onSelectFeatured?.();
     onClose();
   };
 
@@ -79,15 +81,17 @@ export function CategoryPickerModal({
       bodyClassName={styles.categoryModalBody}
     >
       <div className={styles.categoryModalQuick}>
-        <button
-          type="button"
-          className={clsx(styles.chip, styles.chipIcon, featuredOnly && styles.chipActive)}
-          onClick={selectFeatured}
-          aria-label={t("pos.categories.featuredAria", "Featured products")}
-          title={t("pos.categories.featured", "Featured")}
-        >
-          <Star size={14} fill={featuredOnly ? "currentColor" : "none"} />
-        </button>
+        {showFeatured ? (
+          <button
+            type="button"
+            className={clsx(styles.chip, styles.chipIcon, featuredOnly && styles.chipActive)}
+            onClick={selectFeatured}
+            aria-label={t("pos.categories.featuredAria", "Featured products")}
+            title={t("pos.categories.featured", "Featured")}
+          >
+            <Star size={14} fill={featuredOnly ? "currentColor" : "none"} />
+          </button>
+        ) : null}
         <button
           type="button"
           className={clsx(

@@ -11,6 +11,8 @@ SettingsNamespace = Literal[
     "pos",
     "regos_defaults",
     "receipt_templates",
+    "label_templates",
+    "label_print",
     "exchange_rate_sync",
     "regos_token",
     "payment_linking",

@@ -1,11 +1,21 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildCheckoutCartLines,
   buildPrintContextFromCartDraft,
   buildPrintContextFromCheckout,
   buildPrintContextFromReturn,
   buildPrintContextFromWholesale,
+  loadPrintContextFromCartDraft,
 } from "@/lib/receipt-context-builder";
+import { fetchWholesaleOperations } from "@/lib/sales-api";
+
+vi.mock("@/lib/sales-api", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/sales-api")>("@/lib/sales-api");
+  return {
+    ...actual,
+    fetchWholesaleOperations: vi.fn(),
+  };
+});
 import type { Sale } from "@/data/seed";
 import type { Product } from "@/types/catalog";
 import type {
@@ -280,5 +290,104 @@ describe("receipt context builder", () => {
     expect(context.operations[0]?.item_group_name).toBe("Brakes");
     expect(context.operations[0]?.item?.articul).toBe("ART-42");
     expect(context.operation_groups[0]?.name).toBe("Brakes");
+  });
+
+  it("copies the catalog product image onto a cart draft line", () => {
+    const context = buildPrintContextFromCartDraft({
+      items: [{ productId: "p1", regosItemId: 42, name: "Brake Pad Set", price: 10, qty: 1 }],
+      totals: { subtotal: 10, discount: 0, total: 10 },
+      catalogProducts: [
+        {
+          id: "p1",
+          regos_item_id: 42,
+          group_id: 9,
+          name: "Brake Pad Set",
+          price: 10,
+          category: "Brakes",
+          stock: 10,
+          image: "https://cdn.example.test/pad.png",
+          sku: "BP-42",
+        },
+      ],
+      saleCurrency: null,
+    });
+
+    expect(context.operations[0]?.item?.image_url).toBe("https://cdn.example.test/pad.png");
+  });
+
+  it("uses the cart image when the catalog photo is missing", () => {
+    const context = buildPrintContextFromCartDraft({
+      items: [
+        {
+          productId: "p1",
+          regosItemId: 42,
+          name: "Brake Pad Set",
+          price: 10,
+          qty: 1,
+          image: "https://cdn.example.test/cart.png",
+        },
+      ],
+      totals: { subtotal: 10, discount: 0, total: 10 },
+      catalogProducts: [],
+      saleCurrency: null,
+    });
+
+    expect(context.operations[0]?.item?.image_url).toBe("https://cdn.example.test/cart.png");
+  });
+
+  it("keeps the catalog photo when a reprinted operation has no image", async () => {
+    vi.mocked(fetchWholesaleOperations).mockResolvedValue({
+      operations: [
+        {
+          id: 1,
+          document_id: 213,
+          item_id: 42,
+          item_code: "BP-42",
+          item_name: "Brake Pad Set",
+          quantity: 2,
+          price: 10,
+          price2: 10,
+          amount: 20,
+          item: {
+            fullname: "Brake Pad Set",
+            description: null,
+            articul: "ART-42",
+            color: { name: null },
+            size: { name: null },
+            producer: { name: null },
+            country: { name: null },
+            icps: null,
+            package_code: null,
+            department: { name: "Brakes" },
+            vat: { name: null, value: null },
+            base_barcode: null,
+            image_url: null,
+          },
+        },
+      ],
+    });
+
+    const context = await loadPrintContextFromCartDraft("token", {
+      items: [{ productId: "p1", regosItemId: 42, name: "Brake Pad Set", price: 10, qty: 2 }],
+      totals: { subtotal: 20, discount: 0, total: 20 },
+      catalogProducts: [
+        {
+          id: "p1",
+          regos_item_id: 42,
+          group_id: 9,
+          name: "Brake Pad Set",
+          price: 10,
+          category: "Brakes",
+          stock: 10,
+          image: "https://cdn.example.test/pad.png",
+          sku: "BP-42",
+        },
+      ],
+      saleCurrency: null,
+      wholesaleDocId: 213,
+    });
+
+    expect(context.operations[0]?.item?.articul).toBe("ART-42");
+    expect(context.operations[0]?.item?.image_url).toBe("https://cdn.example.test/pad.png");
   });
 });

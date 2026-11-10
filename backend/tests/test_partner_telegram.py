@@ -134,6 +134,286 @@ async def test_partner_bot_requires_mini_app_link(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_partner_bot_can_hide_product_quantities(client, monkeypatch):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-qty@test.com")
+    saved = await _save_bot(client, token)
+    assert saved["show_product_quantities"] is True
+
+    updated = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json={
+            "default_warehouse_id": None,
+            "default_price_type_id": None,
+            "allow_catalog_warehouse_selection": False,
+            "allow_self_registration": False,
+            "show_product_quantities": False,
+            "default_partner_group_id": None,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["show_product_quantities"] is False
+
+
+@pytest.mark.asyncio
+async def test_partner_bot_saves_auto_open_qty_keypad(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-keypad@test.com")
+    saved = await _save_bot(client, token)
+    assert saved["auto_open_qty_keypad"] is False
+
+    updated = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(auto_open_qty_keypad=True),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["auto_open_qty_keypad"] is True
+
+    account_id, company_id, _public_key = await _linked_account(session_factory)
+
+    async def defaults(session, company_id):
+        return {
+            "warehouse": {"id": 3, "name": "Main"},
+            "price_type": {"id": 4, "name": "Wholesale"},
+            "currency": {"id": 1, "name": "UZS", "exchange_rate": 1},
+            "vat_calculation_type": "Include",
+        }
+
+    monkeypatch.setattr("app.services.partner_telegram_webapp._shop_defaults", defaults)
+
+    from app.core.security import create_partner_telegram_token
+
+    access = create_partner_telegram_token(account_id=account_id, company_id=company_id)
+    options = await client.get(
+        "/api/v1/partner-telegram/webapp/catalog-options",
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert options.status_code == 200, options.text
+    assert options.json()["auto_open_qty_keypad"] is True
+
+
+def _settings_body(**overrides):
+    body = {
+        "default_warehouse_id": None,
+        "default_price_type_id": None,
+        "allow_catalog_warehouse_selection": False,
+        "allow_self_registration": False,
+        "show_product_quantities": True,
+        "default_partner_group_id": None,
+        "catalog_product_group_ids": [],
+        "order_document_type": "doc_order_from_partner",
+        "order_booked": True,
+        "auto_open_qty_keypad": False,
+    }
+    body.update(overrides)
+    return body
+
+
+@pytest.mark.asyncio
+async def test_partner_bot_saves_catalog_categories(client, monkeypatch):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-categories@test.com")
+    saved = await _save_bot(client, token)
+    assert saved["catalog_product_group_ids"] == []
+
+    async def groups(session, company_id):
+        return {
+            "groups": [
+                {"id": 1, "parent_id": None, "name": "Food", "path": "Food"},
+                {"id": 3, "parent_id": 1, "name": "Rice", "path": "Food/Rice"},
+            ]
+        }
+
+    monkeypatch.setattr("app.services.partner_telegram.regos_groups.list_groups", groups)
+
+    updated = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(catalog_product_group_ids=[3, 1, 1, 0, -4]),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["catalog_product_group_ids"] == [3, 1]
+
+    cleared = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(catalog_product_group_ids=[]),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["catalog_product_group_ids"] == []
+
+
+@pytest.mark.asyncio
+async def test_partner_bot_saves_balance_schedule(client, monkeypatch):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-balance-schedule@test.com")
+    saved = await _save_bot(client, token)
+    assert saved["balance_notify_enabled"] is False
+    assert saved["balance_notify_time"] == "09:00"
+    assert saved["balance_notify_option"] == "daily"
+    assert saved["balance_notify_days"] == []
+
+    updated = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            balance_notify_enabled=True,
+            balance_notify_time="10:30",
+            balance_notify_option="weekdays",
+            balance_notify_days=[2, 0, 0],
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert updated.status_code == 200, updated.text
+    body = updated.json()
+    assert body["balance_notify_enabled"] is True
+    assert body["balance_notify_time"] == "10:30"
+    assert body["balance_notify_option"] == "weekdays"
+    assert body["balance_notify_days"] == [0, 2]
+
+    fetched = await client.get(
+        "/api/v1/partner-telegram/bot",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert fetched.status_code == 200
+    assert fetched.json()["balance_notify_days"] == [0, 2]
+    assert fetched.json()["balance_notify_templates"] == {"uz": "", "ru": "", "en": ""}
+
+    templated = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            balance_notify_enabled=True,
+            balance_notify_time="10:30",
+            balance_notify_option="weekdays",
+            balance_notify_days=[0, 2],
+            balance_notify_templates={
+                "uz": "  Salom {{partner_id}}  ",
+                "ru": "ID {{partner_id}}\n{{balances}}",
+                "en": "Partner {{partner_id}}",
+                "tj": "ignored",
+            },
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert templated.status_code == 200, templated.text
+    assert templated.json()["balance_notify_templates"] == {
+        "uz": "Salom {{partner_id}}",
+        "ru": "ID {{partner_id}}\n{{balances}}",
+        "en": "Partner {{partner_id}}",
+    }
+
+    too_long = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            balance_notify_templates={"uz": "", "ru": "", "en": "x" * 3501},
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert too_long.status_code == 422
+
+    invalid_time = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(balance_notify_time="25:00"),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert invalid_time.status_code == 422
+
+    empty_days = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(balance_notify_option="monthly", balance_notify_days=[]),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert empty_days.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_partner_catalog_limits_groups_products_and_orders(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-catalog-scope@test.com")
+    await _save_bot(client, token)
+    account_id, company_id, _public_key = await _linked_account(session_factory)
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        bot.catalog_product_group_ids = [1]
+        await session.commit()
+
+    from app.core.security import create_partner_telegram_token
+
+    access = create_partner_telegram_token(account_id=account_id, company_id=company_id)
+    captured: list[dict] = []
+
+    async def defaults(session, company_id):
+        return {
+            "warehouse": {"id": 3, "name": "Main"},
+            "price_type": {"id": 4, "name": "Wholesale"},
+            "currency": {"id": 1, "name": "UZS", "exchange_rate": 1},
+            "vat_calculation_type": "Include",
+        }
+
+    async def groups(session, company_id):
+        return {
+            "groups": [
+                {"id": 1, "parent_id": None, "name": "Food", "path": "Food"},
+                {"id": 3, "parent_id": 1, "name": "Rice", "path": "Food/Rice"},
+                {"id": 9, "parent_id": None, "name": "Other", "path": "Other"},
+            ]
+        }
+
+    async def regos(session, company_id, endpoint, payload):
+        captured.append({"endpoint": endpoint, "payload": payload})
+        return {"result": [], "next_offset": 0, "total": 0}
+
+    async def products(session, company_id, product_ids, **kwargs):
+        return {
+            9: {
+                "id": 9,
+                "name": "Soap",
+                "price": 100.0,
+                "available": 4,
+                "unit_name": "pcs",
+                "image": "",
+                "sku": "S",
+                "group_id": 9,
+            }
+        }
+
+    async def partner(session, company_id, partner_id):
+        return {"id": partner_id, "name": "Acme"}
+
+    monkeypatch.setattr("app.services.partner_telegram_webapp._shop_defaults", defaults)
+    monkeypatch.setattr("app.services.partner_telegram_webapp.regos_groups.list_groups", groups)
+    monkeypatch.setattr("app.services.partner_telegram_webapp.regos_async_api_request_for_company", regos)
+    monkeypatch.setattr("app.services.partner_telegram_webapp._load_products_for_order", products)
+    monkeypatch.setattr("app.services.partner_telegram_webapp.regos_partners.get_partner_by_id", partner)
+
+    headers = {"Authorization": f"Bearer {access}"}
+    listed = await client.get("/api/v1/partner-telegram/webapp/product-groups", headers=headers)
+    assert listed.status_code == 200, listed.text
+    assert [item["id"] for item in listed.json()["groups"]] == [1, 3]
+
+    response = await client.get("/api/v1/partner-telegram/webapp/products", headers=headers)
+    assert response.status_code == 200, response.text
+    assert captured[-1]["payload"]["group_ids"] == [1, 3]
+
+    outside = await client.get("/api/v1/partner-telegram/webapp/products?group_id=9", headers=headers)
+    assert outside.status_code == 200, outside.text
+    assert outside.json()["products"] == []
+    assert outside.json()["total"] == 0
+    assert captured[-1]["payload"]["group_ids"] == [1, 3]
+
+    order = await client.post(
+        "/api/v1/partner-telegram/webapp/orders",
+        json={"is_takeaway": True, "address": "", "items": [{"product_id": 9, "quantity": 1}]},
+        headers=headers,
+    )
+    assert order.status_code == 400, order.text
+    assert order.json()["code"] == "PARTNER_ORDER_PRODUCT_UNAVAILABLE"
+
+
+@pytest.mark.asyncio
 async def test_phone_link_and_staff_correction(client, monkeypatch, session_factory):
     calls = _mock_telegram_api(monkeypatch)
     token = await _owner_token(client, "partner-link@test.com")
@@ -334,10 +614,11 @@ async def test_order_uses_linked_partner_and_catalog_price(client, monkeypatch, 
     async def partner(session, company_id, partner_id):
         return {"id": partner_id, "name": "Acme"}
 
-    async def create_order(session, company_id, order_defaults, description, lines):
+    async def create_order(session, company_id, order_defaults, description, lines, *, booked=True):
         captured["partner_id"] = order_defaults["partner"]["id"]
         captured["lines"] = lines
         captured["description"] = description
+        captured["booked"] = booked
         return {"id": 80, "code": "OFP-80"}
 
     monkeypatch.setattr("app.services.partner_telegram_webapp._shop_defaults", defaults)
@@ -360,6 +641,153 @@ async def test_order_uses_linked_partner_and_catalog_price(client, monkeypatch, 
     assert captured["partner_id"] == 15
     assert captured["lines"][0]["price"] == 1200.0
     assert "Yunusabad" in captured["description"]
+    assert captured["booked"] is True
+
+
+@pytest.mark.asyncio
+async def test_partner_bot_saves_order_document_settings(client, monkeypatch):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-order-doc@test.com")
+    saved = await _save_bot(client, token)
+    assert saved["order_document_type"] == "doc_order_from_partner"
+    assert saved["order_booked"] is True
+
+    updated = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            order_document_type="doc_wholesale",
+            order_booked=False,
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["order_document_type"] == "doc_wholesale"
+    assert updated.json()["order_booked"] is False
+
+    partner_order = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            order_document_type="doc_order_from_partner",
+            order_booked=False,
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert partner_order.status_code == 200, partner_order.text
+    assert partner_order.json()["order_document_type"] == "doc_order_from_partner"
+    assert partner_order.json()["order_booked"] is False
+
+
+@pytest.mark.asyncio
+async def test_order_create_respects_booked_and_wholesale_settings(
+    client, monkeypatch, session_factory
+):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-order-modes@test.com")
+    await _save_bot(client, token)
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        company = (await session.execute(select(Company))).scalar_one()
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        bot.order_document_type = "doc_order_from_partner"
+        bot.order_booked = False
+        account = PartnerTelegramAccount(
+            company_id=company.id,
+            bot_id=bot.id,
+            telegram_user_id=71,
+            chat_id=71,
+            phone="998901234567",
+            language_code="ru",
+            regos_partner_id=15,
+            link_state=PartnerTelegramLinkState.linked.value,
+        )
+        session.add(account)
+        await session.commit()
+        await session.refresh(account)
+        account_id = account.id
+        company_id = company.id
+
+    from app.core.security import create_partner_telegram_token
+
+    access = create_partner_telegram_token(account_id=account_id, company_id=company_id)
+    captured: dict = {}
+
+    async def defaults(session, company_id):
+        return {
+            "warehouse": {"id": 3, "name": "Main"},
+            "price_type": {"id": 4, "name": "Wholesale"},
+            "currency": {"id": 1, "name": "UZS", "exchange_rate": 1},
+            "vat_calculation_type": "Include",
+        }
+
+    async def products(session, company_id, product_ids, **kwargs):
+        return {
+            9: {
+                "id": 9,
+                "name": "Rice",
+                "price": 1200.0,
+                "available": 4,
+                "unit_name": "kg",
+                "image": "",
+                "sku": "R",
+            }
+        }
+
+    async def partner(session, company_id, partner_id):
+        return {"id": partner_id, "name": "Acme"}
+
+    async def create_partner_order(session, company_id, order_defaults, description, lines, *, booked=True):
+        captured["path"] = "partner"
+        captured["booked"] = booked
+        return {"id": 81, "code": "OFP-81"}
+
+    async def create_wholesale(session, company_id, order_defaults, description, lines):
+        captured["path"] = "wholesale"
+        return {"id": 82, "code": "WS-82"}
+
+    monkeypatch.setattr("app.services.partner_telegram_webapp._shop_defaults", defaults)
+    monkeypatch.setattr("app.services.partner_telegram_webapp._load_products_for_order", products)
+    monkeypatch.setattr("app.services.partner_telegram_webapp.regos_partners.get_partner_by_id", partner)
+    monkeypatch.setattr(
+        "app.services.partner_telegram_webapp.regos_sales.create_booked_partner_order",
+        create_partner_order,
+    )
+    monkeypatch.setattr(
+        "app.services.partner_telegram_webapp.regos_sales.create_partner_wholesale_draft",
+        create_wholesale,
+    )
+
+    headers = {"Authorization": f"Bearer {access}"}
+    payload = {
+        "is_takeaway": True,
+        "address": "",
+        "items": [{"product_id": 9, "quantity": 1}],
+    }
+    unbooked = await client.post(
+        "/api/v1/partner-telegram/webapp/orders",
+        json=payload,
+        headers=headers,
+    )
+    assert unbooked.status_code == 200, unbooked.text
+    assert unbooked.json()["order_id"] == 81
+    assert captured["path"] == "partner"
+    assert captured["booked"] is False
+
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        bot.order_document_type = "doc_wholesale"
+        await session.commit()
+
+    wholesale = await client.post(
+        "/api/v1/partner-telegram/webapp/orders",
+        json=payload,
+        headers=headers,
+    )
+    assert wholesale.status_code == 200, wholesale.text
+    assert wholesale.json()["order_id"] == 82
+    assert captured["path"] == "wholesale"
 
 
 @pytest.mark.asyncio
@@ -738,6 +1166,81 @@ async def test_catalog_uses_partner_then_bot_then_company_defaults(client, monke
 
 
 @pytest.mark.asyncio
+async def test_catalog_uses_bot_defaults_when_company_settings_have_no_currency(
+    client, monkeypatch, session_factory
+):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-bot-defaults@test.com")
+    await _save_bot(client, token)
+    account_id, company_id, _public_key = await _linked_account(session_factory)
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        bot.default_warehouse_id = 8
+        bot.default_price_type_id = 9
+        await session.commit()
+
+    from app.core.security import create_partner_telegram_token
+
+    access = create_partner_telegram_token(account_id=account_id, company_id=company_id)
+    captured: list[dict] = []
+
+    async def defaults(session, company_id):
+        return {
+            "warehouse": None,
+            "price_type": None,
+            "currency": None,
+            "firm": None,
+        }
+
+    async def resolve_price(session, company_id, value):
+        return (
+            {"id": value, "name": "Wholesale"},
+            {"id": 1, "name": "Uzbek som", "code_chr": "UZS", "exchange_rate": 1},
+        )
+
+    async def resolve_warehouse(session, company_id, value):
+        return {"id": value, "name": "Main"}, {"id": 2, "name": "Firm"}
+
+    async def regos(session, company_id, endpoint, payload):
+        captured.append(payload)
+        return {"result": [], "next_offset": 0, "total": 0}
+
+    monkeypatch.setattr("app.services.partner_telegram_webapp._shop_defaults", defaults)
+    monkeypatch.setattr(
+        "app.services.partner_telegram_webapp.regos_defaults_service._resolve_price_type_reference",
+        resolve_price,
+    )
+    monkeypatch.setattr(
+        "app.services.partner_telegram_webapp.regos_defaults_service._resolve_warehouse_reference",
+        resolve_warehouse,
+    )
+    monkeypatch.setattr("app.services.partner_telegram_webapp.regos_async_api_request_for_company", regos)
+
+    response = await client.get(
+        "/api/v1/partner-telegram/webapp/products",
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert captured[-1]["stock_id"] == 8
+    assert captured[-1]["price_type_id"] == 9
+    assert body["currency_name"] == "Uzbek som"
+    assert body["currency_code"] == "UZS"
+
+    options = await client.get(
+        "/api/v1/partner-telegram/webapp/catalog-options",
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert options.status_code == 200, options.text
+    assert options.json()["currency_code"] == "UZS"
+    assert options.json()["show_product_quantities"] is True
+    assert body["warehouse_id"] == 8
+    assert body["price_type_id"] == 9
+
+
+@pytest.mark.asyncio
 async def test_password_login_uses_a_bot_code(client, monkeypatch, session_factory):
     _mock_telegram_api(monkeypatch)
     token = await _owner_token(client, "partner-password@test.com")
@@ -903,3 +1406,150 @@ async def test_self_registration_matches_or_creates_a_partner(client, monkeypatc
     assert confirmed.json()["account"]["regos_partner_id"] == 55
     assert confirmed.json()["account"]["link_state"] == "linked"
     assert len(created) == 1
+
+
+def test_resolve_enabled_pages_merges_bot_defaults_and_overrides():
+    from app.services.partner_telegram import resolve_enabled_pages
+
+    pages = resolve_enabled_pages(
+        {"catalog": True, "orders": False, "unknown": False},
+        {"orders": True, "payments": False},
+    )
+    assert pages["catalog"] is True
+    assert pages["orders"] is True
+    assert pages["payments"] is False
+    assert pages["dashboard"] is True
+    assert "unknown" not in pages
+
+
+@pytest.mark.asyncio
+async def test_partner_bot_saves_enabled_pages(client, monkeypatch):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-pages@test.com")
+    saved = await _save_bot(client, token)
+    assert saved["enabled_pages"]["catalog"] is True
+    assert saved["enabled_pages"]["payments"] is True
+
+    updated = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            enabled_pages={
+                "catalog": True,
+                "dashboard": False,
+                "orders": True,
+                "purchases": False,
+                "purchase_returns": True,
+                "shipments": True,
+                "shipment_returns": False,
+                "payments": False,
+                "reconciliation": True,
+            }
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert updated.status_code == 200, updated.text
+    pages = updated.json()["enabled_pages"]
+    assert pages["catalog"] is True
+    assert pages["dashboard"] is False
+    assert pages["purchases"] is False
+    assert pages["payments"] is False
+    assert pages["reconciliation"] is True
+
+
+@pytest.mark.asyncio
+async def test_account_page_overrides_and_webapp_guard(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-page-override@test.com")
+    await _save_bot(client, token)
+    await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            enabled_pages={
+                "catalog": True,
+                "dashboard": True,
+                "orders": True,
+                "purchases": True,
+                "purchase_returns": True,
+                "shipments": True,
+                "shipment_returns": True,
+                "payments": False,
+                "reconciliation": True,
+            }
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    account_id, company_id, _public_key = await _linked_account(session_factory)
+
+    accounts = await client.get(
+        "/api/v1/partner-telegram/accounts",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert accounts.status_code == 200, accounts.text
+    row = next(item for item in accounts.json() if item["id"] == account_id)
+    assert row["page_overrides"] == {}
+    assert row["enabled_pages"]["payments"] is False
+    assert row["enabled_pages"]["catalog"] is True
+
+    patched = await client.patch(
+        f"/api/v1/partner-telegram/accounts/{account_id}",
+        json={"page_overrides": {"payments": True, "catalog": False}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["page_overrides"] == {"payments": True, "catalog": False}
+    assert patched.json()["enabled_pages"]["payments"] is True
+    assert patched.json()["enabled_pages"]["catalog"] is False
+
+    cleared = await client.patch(
+        f"/api/v1/partner-telegram/accounts/{account_id}",
+        json={"page_overrides": {}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert cleared.status_code == 200, cleared.text
+    assert cleared.json()["page_overrides"] == {}
+    assert cleared.json()["enabled_pages"]["payments"] is False
+
+    from app.core.security import create_partner_telegram_token
+
+    access = create_partner_telegram_token(account_id=account_id, company_id=company_id)
+
+    async def defaults(session, company_id):
+        return {
+            "warehouse": {"id": 3, "name": "Main"},
+            "price_type": {"id": 4, "name": "Wholesale"},
+            "currency": {"id": 1, "name": "UZS"},
+        }
+
+    async def empty_products(session, company_id, endpoint, payload):
+        return {"result": [], "next_offset": 0, "total": 0}
+
+    monkeypatch.setattr("app.services.partner_telegram_webapp._shop_defaults", defaults)
+    monkeypatch.setattr(
+        "app.services.partner_telegram_webapp.regos_async_api_request_for_company",
+        empty_products,
+    )
+
+    blocked = await client.get(
+        "/api/v1/partner-telegram/webapp/payments",
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert blocked.status_code == 403
+    assert blocked.json()["code"] == "PARTNER_PAGE_DISABLED"
+
+    allowed = await client.get(
+        "/api/v1/partner-telegram/webapp/products",
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert allowed.status_code == 200, allowed.text
+
+    await client.patch(
+        f"/api/v1/partner-telegram/accounts/{account_id}",
+        json={"page_overrides": {"catalog": False}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    catalog_blocked = await client.get(
+        "/api/v1/partner-telegram/webapp/products",
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert catalog_blocked.status_code == 403
+    assert catalog_blocked.json()["code"] == "PARTNER_PAGE_DISABLED"

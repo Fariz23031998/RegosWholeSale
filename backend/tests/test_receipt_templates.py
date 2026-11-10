@@ -30,6 +30,8 @@ async def test_get_seeds_default_receipt_templates(client: AsyncClient) -> None:
     invoice = next(t for t in data["templates"] if t["format"] == "a4")
     assert invoice["invoice_title"] == "INVOICE"
     assert invoice["sections"]["partner"] is True
+    assert invoice["partner_debt_enabled"] is False
+    assert invoice["partner_debt_negative_only"] is False
 
 
 @pytest.mark.asyncio
@@ -82,6 +84,17 @@ async def test_patch_receipt_template_amount_in_words_language(client: AsyncClie
     assert patched.status_code == 200
     saved = patched.json()["settings"]["templates"][0]
     assert saved["amount_in_words_language"] == "ru"
+    templates[0]["partner_debt_enabled"] = True
+    templates[0]["partner_debt_negative_only"] = True
+    debt_patch = await client.patch(
+        "/api/v1/company/settings/receipt-templates",
+        headers=headers,
+        json={"templates": templates},
+    )
+    assert debt_patch.status_code == 200
+    saved_debt = debt_patch.json()["settings"]["templates"][0]
+    assert saved_debt["partner_debt_enabled"] is True
+    assert saved_debt["partner_debt_negative_only"] is True
 
     cleared = await client.patch(
         "/api/v1/company/settings/receipt-templates",

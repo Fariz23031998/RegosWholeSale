@@ -1,10 +1,25 @@
 import enum
+import json
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, String, UniqueConstraint, false, func
+from sqlalchemy import JSON, BigInteger, Boolean, DateTime, ForeignKey, String, UniqueConstraint, false, func, text, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
+
+_DEFAULT_ENABLED_PAGES = {
+    "catalog": True,
+    "dashboard": True,
+    "orders": True,
+    "purchases": True,
+    "purchase_returns": True,
+    "shipments": True,
+    "shipment_returns": True,
+    "payments": True,
+    "reconciliation": True,
+}
+# Space after ":" avoids SQLAlchemy text() bind-param parsing of ":true".
+_DEFAULT_ENABLED_PAGES_SQL = "'" + json.dumps(_DEFAULT_ENABLED_PAGES) + "'"
 
 
 class PartnerTelegramLinkState(str, enum.Enum):
@@ -32,7 +47,50 @@ class PartnerTelegramBot(Base, TimestampMixin):
     allow_self_registration: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
+    show_product_quantities: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
+    auto_open_qty_keypad: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     default_partner_group_id: Mapped[int | None] = mapped_column(nullable=True)
+    catalog_product_group_ids: Mapped[list[int]] = mapped_column(
+        JSON, nullable=False, default=list, server_default=text("'[]'")
+    )
+    enabled_pages: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=lambda: dict(_DEFAULT_ENABLED_PAGES),
+        server_default=text(_DEFAULT_ENABLED_PAGES_SQL),
+    )
+    balance_notify_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    balance_notify_time: Mapped[str] = mapped_column(
+        String(5), nullable=False, default="09:00", server_default="09:00"
+    )
+    balance_notify_option: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="daily", server_default="daily"
+    )
+    balance_notify_days: Mapped[list[int]] = mapped_column(
+        JSON, nullable=False, default=list, server_default=text("'[]'")
+    )
+    balance_notify_last_slot: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    balance_notify_templates: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=lambda: {"uz": "", "ru": "", "en": ""},
+        server_default=text("""'{"uz":"","ru":"","en":""}'"""),
+    )
+    order_document_type: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+        default="doc_order_from_partner",
+        server_default="doc_order_from_partner",
+    )
+    order_booked: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
     )
@@ -75,6 +133,9 @@ class PartnerTelegramAccount(Base, TimestampMixin):
     )
     warehouse_id: Mapped[int | None] = mapped_column(nullable=True)
     price_type_id: Mapped[int | None] = mapped_column(nullable=True)
+    page_overrides: Mapped[dict] = mapped_column(
+        JSON, nullable=False, default=dict, server_default=text("'{}'")
+    )
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     company: Mapped["Company"] = relationship("Company", back_populates="partner_telegram_accounts")

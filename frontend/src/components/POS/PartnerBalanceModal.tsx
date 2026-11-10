@@ -1,6 +1,7 @@
 import clsx from "clsx";
-import { CalendarRange, ChevronDown, ChevronRight, RefreshCw } from "lucide-react";
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { CalendarRange, RefreshCw } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ReconciliationTable } from "@/components/DataTable/ReconciliationTable";
 import { DashboardPeriodModal } from "@/components/Dashboard/DashboardPeriodModal";
 import { PartnerPayDebtModal } from "@/components/POS/PartnerPayDebtModal";
 import { Button } from "@/components/posui/Button";
@@ -433,101 +434,36 @@ export function PartnerBalanceModal({
         ) : null}
 
         <div className={styles.partnerBalanceTableWrap}>
-          <table className={styles.partnerBalanceTable}>
-            <thead>
-              <tr>
-                <th>{colCurrency}</th>
-                <th>{colDocumentType}</th>
-                <th>{colDocumentCode}</th>
-                <th>{colDate}</th>
-                <th className={styles.partnerBalanceNum}>{colOpening}</th>
-                <th className={styles.partnerBalanceNum}>{colDebit}</th>
-                <th className={styles.partnerBalanceNum}>{colCredit}</th>
-                <th className={styles.partnerBalanceNum}>{colClosing}</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr>
-                  <td colSpan={8} className={styles.partnerBalanceEmpty}>
-                    {t("partners.balance.loading", "Loading balance...")}
-                  </td>
-                </tr>
-              ) : groupedRows.length === 0 ? (
-                <tr>
-                  <td colSpan={8} className={styles.partnerBalanceEmpty}>
-                    {t("partners.balance.empty", "No transactions for this period.")}
-                  </td>
-                </tr>
-              ) : (
-                groupedRows.map((group) => {
-                  const currencyName = group.currency?.name ?? t("common.unknown", "Unknown");
-                  const isCollapsed = collapsedGroups.has(group.key);
-
-                  return (
-                    <Fragment key={group.key}>
-                      <tr className={styles.partnerBalanceGroupRow}>
-                        <td colSpan={4} className={styles.partnerBalanceGroupHeading}>
-                          <div className={styles.partnerBalanceGroupLabel}>
-                            <span>{currencyName}</span>
-                            <button
-                              type="button"
-                              className={styles.partnerBalanceGroupToggle}
-                              onClick={() => toggleGroup(group.key)}
-                              aria-expanded={!isCollapsed}
-                              aria-label={
-                                isCollapsed
-                                  ? t("partners.balance.showOperations", "Show operations for {{currency}}", {
-                                      currency: currencyName,
-                                    })
-                                  : t("partners.balance.hideOperations", "Hide operations for {{currency}}", {
-                                      currency: currencyName,
-                                    })
-                              }
-                            >
-                              {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                            </button>
-                          </div>
-                        </td>
-                        <td className={styles.partnerBalanceNum} data-label={colOpening} />
-                        <td className={styles.partnerBalanceNum} data-label={colDebit}>
-                          {formatAmount(group.debitTotal)}
-                        </td>
-                        <td className={styles.partnerBalanceNum} data-label={colCredit}>
-                          {formatAmount(group.creditTotal)}
-                        </td>
-                        <td className={styles.partnerBalanceNum} data-label={colClosing}>
-                          {formatAmount(group.closingTotal)}
-                        </td>
-                      </tr>
-                      {!isCollapsed
-                        ? group.rows.map((row) => (
-                            <tr key={row.id || `${group.key}-${row.document_code}-${row.date}`}>
-                              <td data-label={colCurrency}>{row.currency?.name ?? "—"}</td>
-                              <td data-label={colDocumentType}>{row.document_type?.name ?? "—"}</td>
-                              <td data-label={colDocumentCode}>{row.document_code ?? "—"}</td>
-                              <td data-label={colDate}>{formatUnixDateTime(row.date)}</td>
-                              <td className={styles.partnerBalanceNum} data-label={colOpening}>
-                                {formatAmount(row.start_amount)}
-                              </td>
-                              <td className={styles.partnerBalanceNum} data-label={colDebit}>
-                                {formatAmount(row.debit)}
-                              </td>
-                              <td className={styles.partnerBalanceNum} data-label={colCredit}>
-                                {formatAmount(row.credit)}
-                              </td>
-                              <td className={styles.partnerBalanceNum} data-label={colClosing}>
-                                {formatAmount(row.end_amount)}
-                              </td>
-                            </tr>
-                          ))
-                        : null}
-                    </Fragment>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+          <ReconciliationTable
+            tableKey="pos.partnerBalance"
+            groups={groupedRows}
+            collapsed={collapsedGroups}
+            onToggle={toggleGroup}
+            loading={loading}
+            loadingMessage={t("partners.balance.loading", "Loading balance...")}
+            emptyMessage={t("partners.balance.empty", "No transactions for this period.")}
+            className={styles.partnerBalanceTable}
+            numClassName={styles.partnerBalanceNum}
+            groupRowClassName={styles.partnerBalanceGroupRow}
+            groupHeadingClassName={styles.partnerBalanceGroupHeading}
+            groupLabelClassName={styles.partnerBalanceGroupLabel}
+            groupToggleClassName={styles.partnerBalanceGroupToggle}
+            emptyClassName={styles.partnerBalanceEmpty}
+            headers={{
+              currency: colCurrency,
+              documentType: colDocumentType,
+              documentCode: colDocumentCode,
+              date: colDate,
+              opening: colOpening,
+              debit: colDebit,
+              credit: colCredit,
+              closing: colClosing,
+            }}
+            formatAmount={formatAmount}
+            formatDate={formatUnixDateTime}
+            rowCurrency={(row) => row.currency?.name ?? "—"}
+            groupCurrency={(group) => group.currency?.name ?? t("common.unknown", "Unknown")}
+          />
         </div>
       </Modal>
 
