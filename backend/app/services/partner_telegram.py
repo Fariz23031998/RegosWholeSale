@@ -526,7 +526,7 @@ async def handle_webhook_update(
 
     text = message.get("text")
     if isinstance(text, str) and text.strip().split()[0].split("@")[0] == "/start":
-        await _handle_start(bot, message, sender)
+        await _handle_start(session, bot, message, sender)
         return
 
     lang = _prompt_language(sender.get("language_code") if isinstance(sender.get("language_code"), str) else None)
@@ -538,12 +538,33 @@ async def handle_webhook_update(
     )
 
 
-async def _handle_start(bot: PartnerTelegramBot, message: dict[str, Any], sender: dict[str, Any]) -> None:
+async def _handle_start(
+    session: AsyncSession,
+    bot: PartnerTelegramBot,
+    message: dict[str, Any],
+    sender: dict[str, Any],
+) -> None:
     chat = message.get("chat") if isinstance(message.get("chat"), dict) else {}
+    chat_id = int(chat["id"])
     lang = _prompt_language(sender.get("language_code") if isinstance(sender.get("language_code"), str) else None)
+    # Some bots ignore the default menu button (e.g. BotFather override). Always attach a
+    # per-chat web_app button once we know the chat, using the stored language when present.
+    account = await _get_account(session, bot.company_id, int(sender["id"]))
+    if account is not None:
+        account.chat_id = chat_id
+        menu_lang = (
+            account.language_code
+            if account.language_code in PARTNER_LANGUAGES
+            else lang
+        )
+        await _set_chat_menu_button(
+            bot, lang=menu_lang, chat_id=chat_id, best_effort=True
+        )
+    else:
+        await _set_chat_menu_button(bot, lang=lang, chat_id=chat_id, best_effort=True)
     await _send(
         bot,
-        int(chat["id"]),
+        chat_id,
         t("partnerTelegram.askContact", lang),
         _contact_keyboard(lang),
     )
@@ -592,6 +613,11 @@ async def _handle_contact(
     await session.flush()
 
     prompt_lang = account.language_code or lang
+    # Ensure the mini-app menu exists for this chat before language is confirmed.
+    # Needed when the bot's default menu button cannot be changed via the API.
+    await _set_chat_menu_button(
+        bot, lang=prompt_lang, chat_id=chat_id, best_effort=True
+    )
     await _send(bot, chat_id, t("partnerTelegram.askLanguage", prompt_lang), _language_keyboard())
 
 

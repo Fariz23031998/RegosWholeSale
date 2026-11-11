@@ -512,6 +512,12 @@ async def test_phone_link_and_staff_correction(client, monkeypatch, session_fact
         }
     })
     assert start.status_code == 200
+    start_menu = [
+        payload
+        for method, payload in calls
+        if method == "setChatMenuButton" and payload.get("chat_id") == 501
+    ]
+    assert start_menu[-1]["menu_button"]["text"] == "App"
 
     contact = await client.post(f"/api/v1/partner-telegram/webhook/{secret}", json={
         "message": {
@@ -522,6 +528,13 @@ async def test_phone_link_and_staff_correction(client, monkeypatch, session_fact
         }
     })
     assert contact.status_code == 200
+    contact_menu = [
+        payload
+        for method, payload in calls
+        if method == "setChatMenuButton" and payload.get("chat_id") == 501
+    ]
+    # Contact payload has no Telegram language_code, so prompt language defaults to ru.
+    assert contact_menu[-1]["menu_button"]["text"] == "Приложение"
 
     language = await client.post(f"/api/v1/partner-telegram/webhook/{secret}", json={
         "callback_query": {
