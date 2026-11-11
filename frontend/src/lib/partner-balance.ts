@@ -1,6 +1,93 @@
 import type { PartnerBalanceRow } from "@/types/partners";
+import type { PartnerPortalPageKey } from "@/lib/partner-portal-pages";
 import type { RegosCurrencyOption } from "@/types/settings";
 import { convertBetweenRates } from "@/lib/currency-conversion";
+
+/** Partner portal routes that open a stock document via `?id=`. */
+export type PartnerBalanceDocumentRoute = {
+  to:
+    | "/partner/$publicKey/purchases"
+    | "/partner/$publicKey/purchase-returns"
+    | "/partner/$publicKey/shipments"
+    | "/partner/$publicKey/shipment-returns";
+  pageKey: Extract<
+    PartnerPortalPageKey,
+    "purchases" | "purchase_returns" | "shipments" | "shipment_returns"
+  >;
+  documentId: number;
+};
+
+/**
+ * Regos DocumentType ids used in partner balance rows.
+ * Verified against Regos ItemOperation examples (id 1 = Purchase) and
+ * PartnerBalance examples (id 5 = Payment). Labels in
+ * `partnerTelegram.balance.documentType.*` historically swapped 1/9 and 2/11.
+ */
+const DOCUMENT_TYPE_ROUTES: Record<
+  number,
+  Pick<PartnerBalanceDocumentRoute, "to" | "pageKey">
+> = {
+  // Purchase / DocPurchase → partner "Shipments"
+  1: { to: "/partner/$publicKey/shipments", pageKey: "shipments" },
+  // Return to partner / DocReturnsToPartner → partner "Shipment returns"
+  2: { to: "/partner/$publicKey/shipment-returns", pageKey: "shipment_returns" },
+  // Wholesale / DocWholeSale → partner "Purchases"
+  9: { to: "/partner/$publicKey/purchases", pageKey: "purchases" },
+  // Wholesale return / DocWholeSaleReturn → partner "Purchase returns"
+  11: { to: "/partner/$publicKey/purchase-returns", pageKey: "purchase_returns" },
+};
+
+/** Match Regos (or localized) type names. More specific patterns first. */
+const DOCUMENT_TYPE_NAME_ROUTES: Array<{
+  match: RegExp;
+  route: Pick<PartnerBalanceDocumentRoute, "to" | "pageKey">;
+}> = [
+  {
+    match: /return from partner|возврат от|wholesale.?return|wholesalereturn|оптов.*возврат/i,
+    route: { to: "/partner/$publicKey/purchase-returns", pageKey: "purchase_returns" },
+  },
+  {
+    match: /return to partner|возврат партн|returns.?to.?partner|returnspurchase|purchase.?return/i,
+    route: { to: "/partner/$publicKey/shipment-returns", pageKey: "shipment_returns" },
+  },
+  {
+    match: /wholesale|оптов|docwholesale|ulgurji/i,
+    route: { to: "/partner/$publicKey/purchases", pageKey: "purchases" },
+  },
+  {
+    match: /warehouse.?receipt|приход|docpurchase|\bpurchase\b|покупк/i,
+    route: { to: "/partner/$publicKey/shipments", pageKey: "shipments" },
+  },
+];
+
+/**
+ * Resolve a reconciliation row to a partner document detail route.
+ * Prefers the Regos type name (what the table shows), then falls back to type id.
+ * Returns null for payments, unknown types, or missing document ids.
+ */
+export function resolvePartnerBalanceDocumentRoute(
+  row: Pick<PartnerBalanceRow, "document_id" | "document_type">,
+): PartnerBalanceDocumentRoute | null {
+  const documentId = row.document_id;
+  if (documentId == null || documentId <= 0) return null;
+
+  const typeName = row.document_type?.name?.trim() ?? "";
+  if (typeName) {
+    if (/payment|оплат|платёж|платеж/i.test(typeName)) return null;
+    for (const entry of DOCUMENT_TYPE_NAME_ROUTES) {
+      if (entry.match.test(typeName)) return { ...entry.route, documentId };
+    }
+  }
+
+  const typeId = row.document_type?.id;
+  if (typeof typeId === "number" && typeId > 0) {
+    if (typeId === 5) return null;
+    const mapped = DOCUMENT_TYPE_ROUTES[typeId];
+    if (mapped) return { ...mapped, documentId };
+  }
+
+  return null;
+}
 
 export type CurrencyGroup = {
   key: string;

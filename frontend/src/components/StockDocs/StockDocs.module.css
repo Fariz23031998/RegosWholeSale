@@ -141,13 +141,17 @@
   cursor: pointer;
 }
 
-.typeTab:hover {
+.typeTab:not(.typeTabActive):hover {
   color: var(--color-text);
 }
 
 .typeTabActive {
   background: var(--color-filter-active-bg);
   border-color: var(--color-filter-active-border);
+  color: var(--color-filter-active-text);
+}
+
+.typeTabActive:hover {
   color: var(--color-filter-active-text);
 }
 

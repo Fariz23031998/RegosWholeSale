@@ -234,7 +234,40 @@ def _map_partner(row: dict[str, Any]) -> dict[str, Any]:
         "oked": _coerce_text(row.get("oked")),
         "vat_index": _coerce_text(row.get("vat_index")),
         "deleted_mark": bool(row.get("deleted_mark")),
+        "fields": _map_partner_fields(row.get("fields")),
     }
+
+
+def _map_partner_fields(raw_fields: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw_fields, list):
+        return []
+    mapped: list[dict[str, Any]] = []
+    for item in raw_fields:
+        if not isinstance(item, dict):
+            continue
+        field_id = item.get("id")
+        key = _coerce_text(item.get("key"))
+        if not key:
+            continue
+        mapped.append(
+            {
+                "id": field_id if isinstance(field_id, int) and field_id > 0 else None,
+                "key": key,
+                "name": _coerce_text(item.get("name")) or key,
+                "value": _coerce_field_value(item.get("value")),
+            }
+        )
+    return mapped
+
+
+def _coerce_field_value(value: Any) -> str | None:
+    if value is None or isinstance(value, bool):
+        return None if value is None else ("true" if value else "false")
+    if isinstance(value, (int, float)):
+        if isinstance(value, float) and value.is_integer():
+            return str(int(value))
+        return str(value)
+    return _coerce_text(value)
 
 
 def _normalize_legal_status(value: Any) -> str | None:

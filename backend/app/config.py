@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite+aiosqlite:///./data/regos.db"
     secret_key: str = "change-me-in-production"
     access_token_expire_minutes: int = 480
+    partner_access_token_expire_hours: int = 24
     cors_origins: str = "http://localhost:5173,http://localhost:3000,http://localhost:8080"
     algorithm: str = "HS256"
     app_name: str = "Regos Wholesale"

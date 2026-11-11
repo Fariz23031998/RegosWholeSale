@@ -1,4 +1,4 @@
-import { apiRequest } from "@/lib/api";
+import { apiRequest, apiUpload } from "@/lib/api";
 import type { PartnerEnabledPages, PartnerPortalPageKey } from "@/lib/partner-portal-pages";
 import type { PartnerBalanceRow } from "@/types/partners";
 
@@ -189,6 +189,43 @@ export async function savePartnerTelegramBotSettings(
 
 export async function fetchPartnerTelegramAccounts(token: string): Promise<PartnerTelegramAccount[]> {
   return apiRequest("/api/v1/partner-telegram/accounts", { token });
+}
+
+export type PartnerTelegramImportFieldOption = {
+  id: string;
+  label: string;
+  kind: "standard" | "custom" | string;
+};
+
+export type PartnerTelegramImportFieldsResponse = {
+  fields: PartnerTelegramImportFieldOption[];
+};
+
+export type PartnerTelegramImportFromFieldResponse = {
+  created: number;
+  already_imported: number;
+  skipped_empty: number;
+  skipped_invalid: number;
+  skipped_duplicate: number;
+  skipped_partner_linked: number;
+  total_partners: number;
+};
+
+export async function fetchPartnerTelegramImportFields(
+  token: string,
+): Promise<PartnerTelegramImportFieldsResponse> {
+  return apiRequest("/api/v1/partner-telegram/accounts/import-fields", { token });
+}
+
+export async function importPartnerTelegramAccountsFromField(
+  token: string,
+  fieldId: string,
+): Promise<PartnerTelegramImportFromFieldResponse> {
+  return apiRequest("/api/v1/partner-telegram/accounts/import-from-field", {
+    method: "POST",
+    token,
+    body: { field_id: fieldId },
+  });
 }
 
 export async function assignPartnerTelegramAccount(
@@ -464,4 +501,17 @@ export async function fetchPartnerDashboardProducts(
   if (startDate) params.set("start_date", startDate);
   params.set("end_date", endDate);
   return apiRequest(`/api/v1/partner-telegram/webapp/dashboard/products?${params}`, { token });
+}
+
+export async function sendPartnerExcelToTelegram(
+  token: string,
+  file: Blob,
+  filename: string,
+  caption?: string,
+): Promise<{ ok: boolean; filename: string }> {
+  const form = new FormData();
+  form.append("file", file, filename);
+  form.append("filename", filename);
+  if (caption) form.append("caption", caption);
+  return apiUpload("/api/v1/partner-telegram/webapp/send-excel", form, { token });
 }

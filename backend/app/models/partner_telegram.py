@@ -9,6 +9,7 @@ from app.models.base import Base, TimestampMixin
 
 _DEFAULT_ENABLED_PAGES = {
     "catalog": True,
+    "create_orders": True,
     "dashboard": True,
     "orders": True,
     "purchases": True,

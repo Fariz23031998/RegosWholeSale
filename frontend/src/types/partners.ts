@@ -71,6 +71,13 @@ export type PartnerPayDebtResponse = {
 
 export type PartnerLegalStatus = "Legal" | "Natural";
 
+export type PartnerFieldValue = {
+  id: number | null;
+  key: string;
+  name: string;
+  value: string | null;
+};
+
 export type Partner = {
   id: number;
   name: string;
@@ -90,6 +97,7 @@ export type Partner = {
   oked: string | null;
   vat_index: string | null;
   deleted_mark: boolean;
+  fields?: PartnerFieldValue[];
 };
 
 export type PartnerGroup = {

@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi import APIRouter, Depends, File, Form, Header, Query, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import (
@@ -16,6 +16,9 @@ from app.schemas.partner_telegram import (
     PartnerOrderCreateRequest,
     PartnerTelegramAccountResponse,
     PartnerTelegramAccountUpdateRequest,
+    PartnerTelegramImportFieldsResponse,
+    PartnerTelegramImportFromFieldRequest,
+    PartnerTelegramImportFromFieldResponse,
     PartnerPasswordConfirmRequest,
     PartnerPasswordLoginRequest,
     PartnerPasswordRequest,
@@ -88,6 +91,27 @@ async def list_partner_accounts(
 ) -> list[PartnerTelegramAccountResponse]:
     accounts = await partner_telegram_service.list_accounts(session, current.company_id)
     return [PartnerTelegramAccountResponse(**account) for account in accounts]
+
+
+@router.get("/accounts/import-fields", response_model=PartnerTelegramImportFieldsResponse)
+async def list_partner_account_import_fields(
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerTelegramImportFieldsResponse:
+    fields = await partner_telegram_service.list_import_fields(session, current.company_id)
+    return PartnerTelegramImportFieldsResponse(fields=fields)
+
+
+@router.post("/accounts/import-from-field", response_model=PartnerTelegramImportFromFieldResponse)
+async def import_partner_accounts_from_field(
+    body: PartnerTelegramImportFromFieldRequest,
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerTelegramImportFromFieldResponse:
+    summary = await partner_telegram_service.import_accounts_from_field(
+        session, current.company_id, body.field_id
+    )
+    return PartnerTelegramImportFromFieldResponse(**summary)
 
 
 @router.patch("/accounts/{account_id}", response_model=PartnerTelegramAccountResponse)
@@ -264,14 +288,13 @@ async def partner_webapp_order_detail(
 
 
 @router.post("/webapp/orders")
-async def partner_webapp_create_order(
-    body: PartnerOrderCreateRequest,
+async def partner_webapp_create_order(    body: PartnerOrderCreateRequest,
     current: CurrentPartnerAccount = Depends(require_linked_partner_account),
     session: AsyncSession = Depends(get_db),
 ) -> dict:
     if not current.regos_partner_id:
         raise bad_request("Partner account is not linked", "PARTNER_TELEGRAM_NOT_LINKED")
-    await webapp_service.require_partner_page(session, current.id, "catalog")
+    await webapp_service.require_partner_page(session, current.id, "create_orders")
     return await webapp_service.create_order(
         session,
         company_id=current.company_id,
@@ -393,4 +416,24 @@ async def partner_webapp_dashboard_products(
         mode=mode,
         start_date=start_date,
         end_date=end_date,
+    )
+
+
+@router.post("/webapp/send-excel")
+async def partner_webapp_send_excel(
+    current: CurrentPartnerAccount = Depends(require_linked_partner_account),
+    session: AsyncSession = Depends(get_db),
+    file: UploadFile = File(...),
+    filename: str | None = Form(default=None),
+    caption: str | None = Form(default=None),
+) -> dict:
+    payload = await file.read(webapp_service.EXCEL_UPLOAD_MAX_BYTES + 1)
+    if len(payload) > webapp_service.EXCEL_UPLOAD_MAX_BYTES:
+        raise bad_request("Excel file is too large.", "EXCEL_FILE_TOO_LARGE")
+    return await webapp_service.send_excel_to_chat(
+        session,
+        account_id=current.id,
+        file_bytes=payload,
+        filename=filename or file.filename,
+        caption=caption,
     )

@@ -91,9 +91,15 @@ def test_only_a_positive_latest_balance_is_notified():
         7,
         [("Main", "UZS", 60000), ("Shop", "USD", 10)],
         "en",
-        "Hello {{partner_id}}\n{{balances}}",
+        "Hello {{partner_name}} ({{partner_id}})\n{{balances}}\n---\n{{balances_positive}}",
+        partner_name="Acme LLC",
     )
-    assert custom == "Hello 7\n🏢 Main (UZS): -60 000\n🏢 Shop (USD): -10"
+    assert custom == (
+        "Hello Acme LLC (7)\n"
+        "🏢 Main (UZS): -60 000\n🏢 Shop (USD): -10\n"
+        "---\n"
+        "🏢 Main (UZS): 60 000\n🏢 Shop (USD): 10"
+    )
 
 
 def test_excel_uses_the_partner_sign_convention():

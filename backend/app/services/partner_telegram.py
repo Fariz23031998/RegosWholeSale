@@ -11,6 +11,7 @@ from app.core.exceptions import bad_request, not_found, unauthorized
 from app.models import Company, PartnerTelegramAccount, PartnerTelegramBot, PartnerTelegramLinkState
 from app.schemas.partner_telegram import PORTAL_PAGE_KEYS, default_enabled_pages
 from app.services import document_telegram_format as fmt
+from app.services import regos_fields as regos_fields_service
 from app.services import regos_groups
 from app.services import regos_partners
 from app.services import telegram as telegram_service
@@ -763,6 +764,160 @@ async def list_accounts(session: AsyncSession, company_id: int) -> list[dict[str
         )
         for row in rows
     ]
+
+
+_STANDARD_IMPORT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("oked", "OKED"),
+    ("inn", "INN"),
+    ("description", "Description"),
+    ("phones", "Phones"),
+    ("email", "Email"),
+    ("address", "Address"),
+    ("fullname", "Full name"),
+    ("boss_name", "Boss name"),
+    ("bank_name", "Bank name"),
+    ("mfo", "MFO"),
+    ("rs", "Bank account"),
+    ("vat_index", "VAT index"),
+)
+_CUSTOM_FIELD_PREFIX = "field:"
+
+
+def parse_telegram_user_id(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value if value > 0 else None
+    if isinstance(value, float):
+        if not value.is_integer() or value <= 0:
+            return None
+        return int(value)
+    text = str(value).strip()
+    if not text or not text.isdigit():
+        return None
+    parsed = int(text)
+    return parsed if parsed > 0 else None
+
+
+def _partner_field_raw_value(partner: dict[str, Any], field_id: str) -> Any:
+    if field_id.startswith(_CUSTOM_FIELD_PREFIX):
+        key = field_id[len(_CUSTOM_FIELD_PREFIX) :].strip()
+        if not key:
+            return None
+        for item in partner.get("fields") or []:
+            if isinstance(item, dict) and str(item.get("key") or "").strip() == key:
+                return item.get("value")
+        return None
+    return partner.get(field_id)
+
+
+async def list_import_fields(session: AsyncSession, company_id: int) -> list[dict[str, Any]]:
+    fields: list[dict[str, Any]] = [
+        {"id": field_id, "label": label, "kind": "standard"}
+        for field_id, label in _STANDARD_IMPORT_FIELDS
+    ]
+    custom = await regos_fields_service.list_partner_custom_fields(session, company_id)
+    for item in custom:
+        key = str(item.get("key") or "").strip()
+        if not key:
+            continue
+        name = str(item.get("name") or "").strip() or key
+        fields.append({"id": f"{_CUSTOM_FIELD_PREFIX}{key}", "label": name, "kind": "custom"})
+    return fields
+
+
+async def import_accounts_from_field(
+    session: AsyncSession,
+    company_id: int,
+    field_id: str,
+) -> dict[str, int]:
+    bot = await _get_bot_by_company(session, company_id)
+    if bot is None:
+        raise bad_request(
+            "Partner Telegram bot is not configured.",
+            "PARTNER_TELEGRAM_BOT_NOT_CONFIGURED",
+        )
+
+    cleaned_field = field_id.strip()
+    known_standard = {item[0] for item in _STANDARD_IMPORT_FIELDS}
+    if cleaned_field.startswith(_CUSTOM_FIELD_PREFIX):
+        custom_key = cleaned_field[len(_CUSTOM_FIELD_PREFIX) :].strip()
+        if not custom_key:
+            raise bad_request("Invalid import field.", "PARTNER_TELEGRAM_IMPORT_FIELD_INVALID")
+    elif cleaned_field not in known_standard:
+        raise bad_request("Invalid import field.", "PARTNER_TELEGRAM_IMPORT_FIELD_INVALID")
+
+    partners = await _list_all_partners(session, company_id)
+    existing = await session.execute(
+        select(PartnerTelegramAccount).where(PartnerTelegramAccount.company_id == company_id)
+    )
+    accounts = list(existing.scalars().all())
+    by_telegram = {row.telegram_user_id: row for row in accounts}
+    linked_partners = {
+        row.regos_partner_id: row
+        for row in accounts
+        if row.link_state == PartnerTelegramLinkState.linked.value
+        and isinstance(row.regos_partner_id, int)
+    }
+
+    summary = {
+        "created": 0,
+        "already_imported": 0,
+        "skipped_empty": 0,
+        "skipped_invalid": 0,
+        "skipped_duplicate": 0,
+        "skipped_partner_linked": 0,
+        "total_partners": len(partners),
+    }
+
+    for partner in partners:
+        partner_id = partner.get("id")
+        if not isinstance(partner_id, int) or partner_id <= 0:
+            continue
+        raw_value = _partner_field_raw_value(partner, cleaned_field)
+        if raw_value is None or (isinstance(raw_value, str) and not raw_value.strip()):
+            summary["skipped_empty"] += 1
+            continue
+        telegram_user_id = parse_telegram_user_id(raw_value)
+        if telegram_user_id is None:
+            summary["skipped_invalid"] += 1
+            continue
+
+        existing_account = by_telegram.get(telegram_user_id)
+        if existing_account is not None:
+            if (
+                existing_account.regos_partner_id == partner_id
+                and existing_account.link_state == PartnerTelegramLinkState.linked.value
+            ):
+                summary["already_imported"] += 1
+            else:
+                summary["skipped_duplicate"] += 1
+            continue
+
+        linked_account = linked_partners.get(partner_id)
+        if linked_account is not None and linked_account.telegram_user_id != telegram_user_id:
+            summary["skipped_partner_linked"] += 1
+            continue
+
+        phone = partner.get("phones")
+        phone_text = phone.strip() if isinstance(phone, str) and phone.strip() else None
+        account = PartnerTelegramAccount(
+            company_id=company_id,
+            bot_id=bot.id,
+            telegram_user_id=telegram_user_id,
+            chat_id=telegram_user_id,
+            phone=phone_text,
+            regos_partner_id=partner_id,
+            link_state=PartnerTelegramLinkState.linked.value,
+        )
+        session.add(account)
+        await session.flush()
+        by_telegram[telegram_user_id] = account
+        linked_partners[partner_id] = account
+        summary["created"] += 1
+
+    await session.flush()
+    return summary
 
 
 async def _partner_names(

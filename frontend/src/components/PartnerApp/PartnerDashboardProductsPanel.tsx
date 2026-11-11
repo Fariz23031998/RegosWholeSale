@@ -11,6 +11,7 @@ import type {
   PartnerDashboardProductTotals,
 } from "@/lib/partner-telegram-api";
 import { formatAmount } from "./partner-format";
+import { usePartnerExcelExport } from "./usePartnerExcelExport";
 
 function formatQty(value: number): string {
   if (Number.isInteger(value)) return String(value);
@@ -113,6 +114,7 @@ export function PartnerDashboardProductsPanel({
   filePrefix: string;
 }) {
   const { t } = useLanguage();
+  const { exporting, exportLabel, runExport } = usePartnerExcelExport();
   const [search, setSearch] = useState("");
   const searchQuery = search.trim().toLowerCase();
   const filteredProducts = useMemo(
@@ -282,20 +284,22 @@ export function PartnerDashboardProductsPanel({
           <button
             type="button"
             className={dashboardStyles.exportButton}
-            disabled={loading || filteredProducts.length === 0}
+            disabled={loading || exporting || filteredProducts.length === 0}
             onClick={() =>
-              exportPartnerDashboardProductsToExcel({
-                title,
-                periodLabel,
-                products: filteredProducts,
-                totals: resolvedTotals,
-                t,
-                filePrefix,
-              })
+              void runExport(() =>
+                exportPartnerDashboardProductsToExcel({
+                  title,
+                  periodLabel,
+                  products: filteredProducts,
+                  totals: resolvedTotals,
+                  t,
+                  filePrefix,
+                }),
+              )
             }
           >
             <Download size={14} />
-            {t("partnerApp.exportExcel", "Export to Excel")}
+            {exportLabel}
           </button>
         </div>
       ) : null}

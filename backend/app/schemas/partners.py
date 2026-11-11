@@ -9,6 +9,13 @@ class PartnerGroup(BaseModel):
     name: str
 
 
+class PartnerFieldValue(BaseModel):
+    id: int | None = Field(default=None, ge=1)
+    key: str
+    name: str
+    value: str | None = None
+
+
 class Partner(BaseModel):
     id: int = Field(ge=1)
     name: str
@@ -28,6 +35,7 @@ class Partner(BaseModel):
     oked: str | None = None
     vat_index: str | None = None
     deleted_mark: bool = False
+    fields: list[PartnerFieldValue] = Field(default_factory=list)
 
 
 class PartnersListResponse(BaseModel):

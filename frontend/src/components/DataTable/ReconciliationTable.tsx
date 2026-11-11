@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useMemo } from "react";
+import { Fragment, useCallback, useMemo, type ReactNode } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { ChevronDown, ChevronRight } from "lucide-react";
 import { columnHeaderLabel, DataTable } from "@/components/DataTable/DataTable";
@@ -45,6 +45,8 @@ export function ReconciliationTable({
   formatDate,
   rowCurrency,
   groupCurrency,
+  renderRowAction,
+  rowActionClassName,
 }: {
   tableKey: string;
   groups: CurrencyGroup[];
@@ -65,6 +67,9 @@ export function ReconciliationTable({
   formatDate: (value: number) => string;
   rowCurrency: (row: PartnerBalanceRow) => string;
   groupCurrency: (group: CurrencyGroup) => string;
+  /** Optional open-document control rendered beside the document code. */
+  renderRowAction?: (row: PartnerBalanceRow) => ReactNode;
+  rowActionClassName?: string;
 }) {
   const { t } = useLanguage();
   const data = useMemo(() => groups.flatMap((group) => group.rows), [groups]);
@@ -193,6 +198,17 @@ export function ReconciliationTable({
                         else if (column.id === "debit") text = formatAmount(row.debit);
                         else if (column.id === "credit") text = formatAmount(row.credit);
                         else if (column.id === "closing") text = formatAmount(row.end_amount);
+                        if (column.id === "documentCode" && renderRowAction) {
+                          const action = renderRowAction(row);
+                          return (
+                            <td key={column.id} data-label={columnHeaderLabel(column)}>
+                              <div className={rowActionClassName}>
+                                <span>{text}</span>
+                                {action}
+                              </div>
+                            </td>
+                          );
+                        }
                         return (
                           <td
                             key={column.id}

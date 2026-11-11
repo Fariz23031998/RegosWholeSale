@@ -149,9 +149,13 @@ export function ProductsPage() {
   const [keypadProductId, setKeypadProductId] = useState<string | null>(null);
   const sortButtonRef = useRef<HTMLButtonElement | null>(null);
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
+  const pendingPrintAfterSettings = useRef(false);
 
   const canOverrideContext = canChangeWarehousePerm || canChangePriceTypePerm;
-  const openPrintSettings = useCallback(() => setSettingsOpen(true), []);
+  const openPrintSettings = useCallback(() => {
+    pendingPrintAfterSettings.current = false;
+    setSettingsOpen(true);
+  }, []);
   useRegisterProductsSettings(canPrintLabels() && canEditPrintSettings ? openPrintSettings : null);
   const catalogOverrides = useMemo(() => {
     const overrides: { warehouseId?: number; priceTypeId?: number } = {};
@@ -637,12 +641,98 @@ export function ProductsPage() {
     [catalogOverrides, catalogSort, selectProduct, t, token],
   );
 
+  const printWithPrefs = useCallback(
+    async (activePrefs: UserLabelPrintSettings) => {
+      if (!token || productIds.length === 0 || printing) return;
+      setPrintError("");
+      setPrintHtml("");
+      setPrinting(true);
+      try {
+        const templateId = activePrefs.template_id;
+        if (!templateId || (activePrefs.method === "service" && !activePrefs.service_id)) {
+          setPrintError(
+            !templateId
+              ? t("products.noTemplates", "No label template is configured.")
+              : t("products.noServices", "No print service is configured."),
+          );
+          return;
+        }
+
+        const company = await fetchLabelTemplates(token);
+        const templateOk = company.settings.templates.some((template) => template.id === templateId);
+        const service = company.settings.print.services.find(
+          (item) => item.id === activePrefs.service_id,
+        );
+        if (!templateOk || (activePrefs.method === "service" && !service)) {
+          setPrintError(
+            !templateOk
+              ? t("products.noTemplates", "No label template is configured.")
+              : t("products.noServices", "No print service is configured."),
+          );
+          return;
+        }
+        const usePerProductCopies =
+          Boolean(copiesByProductId) && !activePrefs.use_warehouse_quantity;
+        const target = {
+          templateId,
+          productIds,
+          copies: 1,
+          warehouseId: catalogOverrides.warehouseId,
+          priceTypeId: catalogOverrides.priceTypeId,
+          useWarehouseQuantity: activePrefs.use_warehouse_quantity,
+          copiesByProductId: usePerProductCopies ? copiesByProductId : undefined,
+        };
+        if (activePrefs.method === "browser") {
+          setPrintHtml(await renderLabelsInBrowser(token, target));
+          return;
+        }
+        const stations = await fetchLabelStations(token);
+        await printLabelsWithService(token, {
+          ...target,
+          printerName: service?.printer_name ?? "",
+          stationId: "",
+          printerOverride: activePrefs.printer_name?.trim() ?? "",
+          stations: stations.stations,
+        });
+      } catch (err: unknown) {
+        if (err instanceof ChooseLabelPrinterError) {
+          setPrintError(t("products.choosePrinter", "Choose a connected label printer."));
+          return;
+        }
+        if (err instanceof NoLabelQuantityError) {
+          setPrintError(
+            t(
+              "products.errors.noQuantity",
+              "No labels to print for the selected warehouse quantity.",
+            ),
+          );
+          return;
+        }
+        setPrintError(
+          err instanceof RenderLabelError
+            ? t("products.errors.render", "Failed to prepare labels")
+            : formatAuthError(err, t("products.errors.print", "Failed to print labels")),
+        );
+      } finally {
+        setPrinting(false);
+      }
+    },
+    [
+      catalogOverrides.priceTypeId,
+      catalogOverrides.warehouseId,
+      copiesByProductId,
+      printing,
+      productIds,
+      t,
+      token,
+    ],
+  );
+
   const printSelected = async () => {
     if (!token || productIds.length === 0 || printing) return;
     setPrintError("");
     setPrintHtml("");
 
-    setPrinting(true);
     try {
       let prefs = printPrefs;
       if (!prefs) {
@@ -650,82 +740,35 @@ export function ProductsPage() {
         prefs = response.settings;
         setPrintPrefs(prefs);
       }
-      const activePrefs = prefs;
 
-      if (activePrefs.prompt_before_print) {
-        setPrintOpen(true);
-        return;
-      }
-
-      const templateId = activePrefs.template_id;
-      if (!templateId || (activePrefs.method === "service" && !activePrefs.service_id)) {
-        setPrintError(
-          !templateId
-            ? t("products.noTemplates", "No label template is configured.")
-            : t("products.noServices", "No print service is configured."),
-        );
+      if (prefs.prompt_before_print) {
+        pendingPrintAfterSettings.current = true;
+        setSettingsOpen(true);
         return;
       }
 
-      const company = await fetchLabelTemplates(token);
-      const templateOk = company.settings.templates.some((template) => template.id === templateId);
-      const service = company.settings.print.services.find(
-        (item) => item.id === activePrefs.service_id,
-      );
-      if (!templateOk || (activePrefs.method === "service" && !service)) {
-        setPrintError(
-          !templateOk
-            ? t("products.noTemplates", "No label template is configured.")
-            : t("products.noServices", "No print service is configured."),
-        );
-        return;
-      }
-      const usePerProductCopies =
-        Boolean(copiesByProductId) && !activePrefs.use_warehouse_quantity;
-      const target = {
-        templateId,
-        productIds,
-        copies: 1,
-        warehouseId: catalogOverrides.warehouseId,
-        priceTypeId: catalogOverrides.priceTypeId,
-        useWarehouseQuantity: activePrefs.use_warehouse_quantity,
-        copiesByProductId: usePerProductCopies ? copiesByProductId : undefined,
-      };
-      if (activePrefs.method === "browser") {
-        setPrintHtml(await renderLabelsInBrowser(token, target));
-        return;
-      }
-      const stations = await fetchLabelStations(token);
-      await printLabelsWithService(token, {
-        ...target,
-        printerName: service?.printer_name ?? "",
-        stationId: "",
-        printerOverride: activePrefs.printer_name?.trim() ?? "",
-        stations: stations.stations,
-      });
+      await printWithPrefs(prefs);
     } catch (err: unknown) {
-      if (err instanceof ChooseLabelPrinterError) {
-        setPrintError(t("products.choosePrinter", "Choose a connected label printer."));
-        return;
-      }
-      if (err instanceof NoLabelQuantityError) {
-        setPrintError(
-          t(
-            "products.errors.noQuantity",
-            "No labels to print for the selected warehouse quantity.",
-          ),
-        );
-        return;
-      }
       setPrintError(
-        err instanceof RenderLabelError
-          ? t("products.errors.render", "Failed to prepare labels")
-          : formatAuthError(err, t("products.errors.print", "Failed to print labels")),
+        formatAuthError(err, t("products.errors.print", "Failed to print labels")),
       );
-    } finally {
-      setPrinting(false);
     }
   };
+
+  const handlePrintSettingsSaved = useCallback(
+    (settings: UserLabelPrintSettings) => {
+      setPrintPrefs(settings);
+      if (!pendingPrintAfterSettings.current) return;
+      pendingPrintAfterSettings.current = false;
+      void printWithPrefs(settings);
+    },
+    [printWithPrefs],
+  );
+
+  const handlePrintSettingsClose = useCallback(() => {
+    pendingPrintAfterSettings.current = false;
+    setSettingsOpen(false);
+  }, []);
 
   if (!canPrintLabels()) {
     return (
@@ -1017,8 +1060,8 @@ export function ProductsPage() {
       />
       <LabelPrintSettingsDialog
         open={settingsOpen}
-        onClose={() => setSettingsOpen(false)}
-        onSaved={setPrintPrefs}
+        onClose={handlePrintSettingsClose}
+        onSaved={handlePrintSettingsSaved}
       />
       {scannerOpen ? (
         <Suspense fallback={null}>

@@ -1,12 +1,21 @@
-import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
-import { CatalogViewToggle } from "@/components/POS/CatalogViewToggle";
 import { useCatalog } from "@/store/catalog";
 import {
   ClipboardList,
+  Home,
   LayoutDashboard,
   LogOut,
-  Menu,
   PackageMinus,
   PackagePlus,
   Scale,
@@ -48,16 +57,23 @@ type NavItem = {
   exact?: boolean;
 };
 
+type PartnerMobileCartNav = {
+  itemCount: number;
+  open: () => void;
+};
+
 type PartnerNavControls = {
   desktopNav: boolean;
   navHidden: boolean;
   showNav: () => void;
+  setMobileCartNav: (cart: PartnerMobileCartNav | null) => void;
 };
 
 const PartnerNavContext = createContext<PartnerNavControls>({
   desktopNav: false,
   navHidden: false,
   showNav: () => {},
+  setMobileCartNav: () => {},
 });
 
 export function usePartnerNav(): PartnerNavControls {
@@ -131,6 +147,21 @@ const NAV: NavItem[] = [
   },
 ];
 
+const BOTTOM_NAV_KEYS: PartnerPortalPageKey[] = [
+  "catalog",
+  "orders",
+  "payments",
+  "dashboard",
+];
+
+function isNavActive(item: NavItem, pathname: string, publicKey: string): boolean {
+  const path = item.to.replace("$publicKey", publicKey);
+  if (item.exact) {
+    return pathname === path || pathname === `${path}/`;
+  }
+  return pathname === path || pathname.startsWith(`${path}/`);
+}
+
 export function PartnerShell({ children }: { children: ReactNode }) {
   const { t } = useLanguage();
   const { publicKey, account, compact, logout } = usePartnerSession();
@@ -140,6 +171,10 @@ export function PartnerShell({ children }: { children: ReactNode }) {
   const [open, setOpen] = useState(false);
   const [navHidden, setNavHidden] = useState(false);
   const [isCompactTopBar, setIsCompactTopBar] = useState(false);
+  const [headerLinkCount, setHeaderLinkCount] = useState(0);
+  const [mobileCartNav, setMobileCartNavState] = useState<PartnerMobileCartNav | null>(null);
+  const topBarRef = useRef<HTMLDivElement | null>(null);
+  const measureRef = useRef<HTMLDivElement | null>(null);
   const name = account.partner_name || account.first_name || account.phone || "";
   const enabledPages = useMemo(
     () => normalizeEnabledPages(account.enabled_pages),
@@ -149,13 +184,32 @@ export function PartnerShell({ children }: { children: ReactNode }) {
     () => NAV.filter((item) => enabledPages[item.pageKey]),
     [enabledPages],
   );
+  const bottomNav = useMemo(
+    () =>
+      BOTTOM_NAV_KEYS.map((key) => visibleNav.find((item) => item.pageKey === key)).filter(
+        (item): item is NavItem => item != null,
+      ),
+    [visibleNav],
+  );
   const firstEnabledNav = visibleNav[0] ?? null;
   const catalogPath = `/partner/${publicKey}`;
   const isCatalogPage = location.pathname === catalogPath || location.pathname === `${catalogPath}/`;
-  const showCatalogViewToggle = isCatalogPage && isCompactTopBar;
   const desktopNav = !compact && !isCompactTopBar;
+  const showDesktopHeaderLinks = desktopNav && navHidden;
+  const showTopBar = showDesktopHeaderLinks;
+  const showMobileChrome = !desktopNav;
+  const showCatalogCartInNav = isCatalogPage && mobileCartNav != null;
   const currentPageKey = pageKeyFromPartnerPath(location.pathname, publicKey);
   const currentPageEnabled = currentPageKey == null ? true : enabledPages[currentPageKey];
+
+  const setMobileCartNav = useCallback((cart: PartnerMobileCartNav | null) => {
+    setMobileCartNavState(cart);
+  }, []);
+
+  const openMenu = useCallback(() => {
+    if (desktopNav) setNavHidden(false);
+    else setOpen(true);
+  }, [desktopNav]);
 
   useEffect(() => {
     setOpen(false);
@@ -189,104 +243,266 @@ export function PartnerShell({ children }: { children: ReactNode }) {
     return () => document.removeEventListener("keydown", onKeyDown);
   }, [open]);
 
+  useLayoutEffect(() => {
+    if (!showDesktopHeaderLinks) {
+      setHeaderLinkCount(0);
+      return;
+    }
+
+    const topBar = topBarRef.current;
+    const measureRoot = measureRef.current;
+    if (!topBar || !measureRoot) return;
+
+    const measure = () => {
+      const items = Array.from(measureRoot.children) as HTMLElement[];
+      if (items.length < 2) {
+        setHeaderLinkCount(0);
+        return;
+      }
+      const style = getComputedStyle(topBar);
+      const available =
+        topBar.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const buttonWidth = items[0].offsetWidth;
+      let used = buttonWidth;
+      let count = 0;
+      for (let i = 1; i < items.length; i += 1) {
+        const next = used + items[i].offsetWidth;
+        if (next > available + 0.5) break;
+        used = next;
+        count += 1;
+      }
+      setHeaderLinkCount(count);
+    };
+
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(topBar);
+    return () => observer.disconnect();
+  }, [showDesktopHeaderLinks, visibleNav, t, location.pathname]);
+
   const navControls: PartnerNavControls = {
     desktopNav,
     navHidden,
     showNav: () => setNavHidden(false),
+    setMobileCartNav,
   };
+
+  const bottomNavItems = useMemo(() => {
+    if (!showCatalogCartInNav) return bottomNav;
+    return bottomNav.filter((item) => item.pageKey !== "dashboard");
+  }, [bottomNav, showCatalogCartInNav]);
+
+  const bottomNavMid = Math.ceil(bottomNavItems.length / 2);
+  const bottomNavLeft = bottomNavItems.slice(0, bottomNavMid);
+  const bottomNavRight = bottomNavItems.slice(bottomNavMid);
+  const bottomNavSlotCount =
+    bottomNavItems.length + 1 + (showCatalogCartInNav ? 1 : 0);
+
+  const headerLinks = showDesktopHeaderLinks ? visibleNav.slice(0, headerLinkCount) : [];
 
   return (
     <PartnerNavContext.Provider value={navControls}>
-    <div
-      className={clsx(
-        styles.shell,
-        compact && styles.compact,
-        isCatalogPage && styles.shellCatalog,
-        desktopNav && navHidden && styles.navHidden,
-      )}
-    >
-      {open ? (
-        <button type="button" className={styles.backdrop} aria-label={t("nav.closeMenu", "Close menu")} onClick={() => setOpen(false)} />
-      ) : null}
-      <aside className={clsx(styles.sidebar, open && styles.sidebarOpen)}>
-        <div className={styles.sidebarHeader}>
-          <div className={styles.brand}>
-            <BrandLogo size="md" />
-            <div className={styles.brandSub}>{name}</div>
-          </div>
+      <div
+        className={clsx(
+          styles.shell,
+          compact && styles.compact,
+          isCatalogPage && styles.shellCatalog,
+          desktopNav && navHidden && styles.navHidden,
+          showMobileChrome && styles.hasMobileChrome,
+        )}
+      >
+        {open ? (
           <button
             type="button"
-            className={styles.iconBtn}
-            onClick={() => {
-              if (desktopNav) setNavHidden(true);
-              else setOpen(false);
-            }}
+            className={styles.backdrop}
             aria-label={t("nav.closeMenu", "Close menu")}
-          >
-            <X size={18} />
-          </button>
-        </div>
-        <nav className={styles.nav} aria-label={t("nav.main", "Main")}>
-          {visibleNav.map((item) => {
-            const path = item.to.replace("$publicKey", publicKey);
-            const active = item.exact
-              ? location.pathname === path || location.pathname === `${path}/`
-              : location.pathname === path || location.pathname.startsWith(`${path}/`);
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.to}
-                to={item.to}
-                params={{ publicKey }}
-                className={clsx(styles.navLink, active && styles.navLinkActive)}
-              >
-                <Icon size={18} />
-                <span>{t(item.labelKey, item.fallback)}</span>
-              </Link>
-            );
-          })}
-        </nav>
-        <div className={styles.sidebarFooter}>
-          <ThemeSelector variant="menu" />
-          <LanguageSelector variant="menu" />
-          {compact ? null : (
-            <button type="button" className={styles.navLink} onClick={logout}>
-              <LogOut size={18} />
-              <span>{t("partnerApp.signOut", "Sign out")}</span>
-            </button>
-          )}
-        </div>
-      </aside>
-      <div className={styles.main}>
-        <div className={styles.topBar}>
-          {!isCatalogPage || !desktopNav ? (
+            onClick={() => setOpen(false)}
+          />
+        ) : null}
+        <aside className={clsx(styles.sidebar, open && styles.sidebarOpen)}>
+          <div className={styles.sidebarHeader}>
+            <div className={styles.brand}>
+              <BrandLogo size="md" />
+              <div className={styles.brandSub}>{name}</div>
+            </div>
             <button
               type="button"
-              className={styles.menuBtn}
-              aria-expanded={desktopNav ? false : open}
-              aria-label={t("nav.openMenu", "Open menu")}
+              className={styles.iconBtn}
               onClick={() => {
-                if (desktopNav) setNavHidden(false);
-                else setOpen(true);
+                if (desktopNav) setNavHidden(true);
+                else setOpen(false);
               }}
+              aria-label={t("nav.closeMenu", "Close menu")}
             >
-              <Menu size={20} />
+              <X size={18} />
             </button>
-          ) : null}
-          <strong className={styles.topTitle}>{name}</strong>
-          {showCatalogViewToggle ? <CatalogViewToggle className={styles.topBarViewToggle} /> : null}
-        </div>
-        <div className={styles.content}>
-          {!firstEnabledNav ? (
-            <div className={styles.emptyState}>
-              {t("partnerApp.noPagesAvailable", "No portal pages are enabled for your account.")}
+          </div>
+          <nav className={styles.nav} aria-label={t("nav.main", "Main")}>
+            {visibleNav.map((item) => {
+              const active = isNavActive(item, location.pathname, publicKey);
+              const Icon = item.icon;
+              return (
+                <Link
+                  key={item.to}
+                  to={item.to}
+                  params={{ publicKey }}
+                  className={clsx(styles.navLink, active && styles.navLinkActive)}
+                >
+                  <Icon size={18} />
+                  <span>{t(item.labelKey, item.fallback)}</span>
+                </Link>
+              );
+            })}
+          </nav>
+          <div className={styles.sidebarFooter}>
+            <ThemeSelector variant="menu" />
+            <LanguageSelector variant="menu" />
+            {compact ? null : (
+              <button type="button" className={styles.navLink} onClick={logout}>
+                <LogOut size={18} />
+                <span>{t("partnerApp.signOut", "Sign out")}</span>
+              </button>
+            )}
+          </div>
+        </aside>
+        <div className={styles.main}>
+          {showTopBar ? (
+            <div
+              ref={topBarRef}
+              className={clsx(
+                styles.topBar,
+                showDesktopHeaderLinks && styles.topBarWithHeaderLinks,
+              )}
+            >
+              {showDesktopHeaderLinks ? (
+                <>
+                  <button
+                    type="button"
+                    className={styles.menuBtn}
+                    aria-expanded={false}
+                    aria-label={t("nav.openMenu", "Open menu")}
+                    onClick={openMenu}
+                  >
+                    <Home size={20} />
+                  </button>
+                  {headerLinks.map((item) => {
+                    const active = isNavActive(item, location.pathname, publicKey);
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.to}
+                        to={item.to}
+                        params={{ publicKey }}
+                        className={clsx(styles.headerNavLink, active && styles.navLinkActive)}
+                      >
+                        <Icon size={16} />
+                        <span>{t(item.labelKey, item.fallback)}</span>
+                      </Link>
+                    );
+                  })}
+                  <div ref={measureRef} className={styles.headerNavMeasure} aria-hidden="true">
+                    <span className={styles.menuBtn}>
+                      <Home size={20} />
+                    </span>
+                    {visibleNav.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <span key={item.to} className={styles.headerNavLink}>
+                          <Icon size={16} />
+                          <span>{t(item.labelKey, item.fallback)}</span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                </>
+              ) : null}
             </div>
-          ) : currentPageEnabled ? (
-            children
           ) : null}
+          <div className={styles.content}>
+            {!firstEnabledNav ? (
+              <div className={styles.emptyState}>
+                {t("partnerApp.noPagesAvailable", "No portal pages are enabled for your account.")}
+              </div>
+            ) : currentPageEnabled ? (
+              children
+            ) : null}
+          </div>
         </div>
+        {showMobileChrome ? (
+          bottomNavItems.length > 0 || showCatalogCartInNav ? (
+            <nav
+              className={styles.bottomNav}
+              aria-label={t("nav.main", "Main")}
+              style={{ gridTemplateColumns: `repeat(${Math.max(bottomNavSlotCount, 1)}, minmax(0, 1fr))` }}
+            >
+              {bottomNavLeft.map((item) => {
+                const active = isNavActive(item, location.pathname, publicKey);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    params={{ publicKey }}
+                    className={clsx(styles.bottomNavLink, active && styles.bottomNavLinkActive)}
+                    aria-label={t(item.labelKey, item.fallback)}
+                  >
+                    <Icon size={22} />
+                    <span>{t(item.labelKey, item.fallback)}</span>
+                  </Link>
+                );
+              })}
+              <button
+                type="button"
+                className={clsx(styles.menuBtn, styles.menuBtnMobile)}
+                aria-expanded={open}
+                aria-label={t("nav.openMenu", "Open menu")}
+                onClick={openMenu}
+              >
+                <Home size={20} />
+              </button>
+              {bottomNavRight.map((item) => {
+                const active = isNavActive(item, location.pathname, publicKey);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.to}
+                    to={item.to}
+                    params={{ publicKey }}
+                    className={clsx(styles.bottomNavLink, active && styles.bottomNavLinkActive)}
+                    aria-label={t(item.labelKey, item.fallback)}
+                  >
+                    <Icon size={22} />
+                    <span>{t(item.labelKey, item.fallback)}</span>
+                  </Link>
+                );
+              })}
+              {showCatalogCartInNav && mobileCartNav ? (
+                <button
+                  type="button"
+                  className={styles.bottomNavCart}
+                  onClick={mobileCartNav.open}
+                  aria-label={t("partnerApp.cart", "Cart")}
+                >
+                  <ShoppingCart size={22} />
+                  {mobileCartNav.itemCount > 0 ? (
+                    <span className={styles.bottomNavCartBadge}>{mobileCartNav.itemCount}</span>
+                  ) : null}
+                </button>
+              ) : null}
+            </nav>
+          ) : (
+            <button
+              type="button"
+              className={clsx(styles.menuBtn, styles.menuBtnMobile, styles.menuBtnMobileFixed)}
+              aria-expanded={open}
+              aria-label={t("nav.openMenu", "Open menu")}
+              onClick={openMenu}
+            >
+              <Home size={20} />
+            </button>
+          )
+        ) : null}
       </div>
-    </div>
     </PartnerNavContext.Provider>
   );
 }

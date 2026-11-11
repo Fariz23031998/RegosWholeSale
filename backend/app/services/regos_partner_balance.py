@@ -146,9 +146,9 @@ def _map_balance_row(row: dict[str, Any]) -> dict[str, Any]:
     document_type_raw = row.get("document_type")
     document_type = None
     if isinstance(document_type_raw, dict):
-        doc_type_id = document_type_raw.get("id")
+        doc_type_id = _coerce_positive_int(document_type_raw.get("id"))
         doc_type_name = document_type_raw.get("name")
-        if isinstance(doc_type_id, int) and doc_type_id > 0:
+        if doc_type_id is not None:
             document_type = {
                 "id": doc_type_id,
                 "name": _coerce_text(doc_type_name) or f"#{doc_type_id}",
@@ -159,12 +159,11 @@ def _map_balance_row(row: dict[str, Any]) -> dict[str, Any]:
     credit = _coerce_float(row.get("credit"))
     end_amount = start_amount + debit - credit
 
-    document_id = row.get("document_id")
     mapped: dict[str, Any] = {
         "id": row_id,
         "date": date,
         "document_code": _coerce_text(row.get("document_code")),
-        "document_id": document_id if isinstance(document_id, int) and document_id > 0 else None,
+        "document_id": _coerce_positive_int(row.get("document_id")),
         "document_type": document_type,
         "currency": _extract_currency_reference(row, "currency"),
         "firm": _extract_nested_reference(row, "firm"),
@@ -176,6 +175,16 @@ def _map_balance_row(row: dict[str, Any]) -> dict[str, Any]:
         "end_amount": end_amount,
     }
     return mapped
+
+
+def _coerce_positive_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
 
 
 def _coerce_float(value: Any) -> float:

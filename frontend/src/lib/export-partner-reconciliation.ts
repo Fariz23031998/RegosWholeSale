@@ -111,7 +111,7 @@ export function exportPartnerReconciliationToExcel(options: {
   periodLabel: string;
   rows: PartnerBalanceRow[];
   t: TranslateFn;
-}): void {
+}): { workbook: XLSX.WorkBook; filename: string } {
   const { title, periodLabel, rows, t } = options;
   const periodText = t("partners.balance.period", "For period: {{period}}", { period: periodLabel });
   const sheetRows: (string | number)[][] = [[title], [periodText], columnHeaders(t)];
@@ -193,5 +193,8 @@ export function exportPartnerReconciliationToExcel(options: {
   const workbook = XLSX.utils.book_new();
   const sheetName = sanitizeFileName(title).slice(0, 31) || "Reconciliation";
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-  XLSX.writeFile(workbook, `partner-reconciliation-${sanitizeFileName(periodLabel)}.xlsx`);
+  return {
+    workbook,
+    filename: `partner-reconciliation-${sanitizeFileName(periodLabel)}.xlsx`,
+  };
 }

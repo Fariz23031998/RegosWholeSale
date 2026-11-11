@@ -5,6 +5,7 @@ import {
   buildPartnerDebtSummary,
   debtsFromCurrencyGroups,
   groupRowsByCurrency,
+  resolvePartnerBalanceDocumentRoute,
   toBalanceAmount,
   toPartnerPerspectiveRow,
 } from "./partner-balance";
@@ -341,5 +342,39 @@ describe("buildPartnerDebtSummary", () => {
     expect(summary.creditBase).toBe(100_000);
     expect(summary.netDebtBase).toBe(0);
     expect(summary.payableByKey["1"]).toBe(0);
+  });
+});
+
+describe("resolvePartnerBalanceDocumentRoute", () => {
+  it("maps Regos purchase (id 1) to shipments and wholesale (id 9) to purchases", () => {
+    expect(
+      resolvePartnerBalanceDocumentRoute({
+        document_id: 489,
+        document_type: { id: 1, name: "Purchase" },
+      }),
+    ).toMatchObject({ to: "/partner/$publicKey/shipments", documentId: 489 });
+
+    expect(
+      resolvePartnerBalanceDocumentRoute({
+        document_id: 5601,
+        document_type: { id: 9, name: "Wholesale" },
+      }),
+    ).toMatchObject({ to: "/partner/$publicKey/purchases", documentId: 5601 });
+  });
+
+  it("prefers type name over conflicting ids and skips payments", () => {
+    expect(
+      resolvePartnerBalanceDocumentRoute({
+        document_id: 10,
+        document_type: { id: 1, name: "Оптовая продажа" },
+      }),
+    ).toMatchObject({ to: "/partner/$publicKey/purchases", documentId: 10 });
+
+    expect(
+      resolvePartnerBalanceDocumentRoute({
+        document_id: 42,
+        document_type: { id: 5, name: "Payment" },
+      }),
+    ).toBeNull();
   });
 });

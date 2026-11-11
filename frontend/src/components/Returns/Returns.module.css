@@ -42,11 +42,14 @@
   color: var(--color-text-muted);
   cursor: pointer;
 }
-.filter:hover { color: var(--color-text); }
+.filter:not(.filterActive):hover { color: var(--color-text); }
 .filterActive {
   border-color: var(--color-filter-active-border);
   color: var(--color-filter-active-text);
   background: var(--color-filter-active-bg);
+}
+.filterActive:hover {
+  color: var(--color-filter-active-text);
 }
 
 .table {

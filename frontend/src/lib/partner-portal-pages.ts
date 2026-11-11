@@ -1,5 +1,6 @@
 export const PARTNER_PORTAL_PAGE_KEYS = [
   "catalog",
+  "create_orders",
   "dashboard",
   "orders",
   "purchases",
@@ -14,11 +15,21 @@ export type PartnerPortalPageKey = (typeof PARTNER_PORTAL_PAGE_KEYS)[number];
 
 export type PartnerEnabledPages = Record<PartnerPortalPageKey, boolean>;
 
+/** Keys that map to partner portal routes / nav destinations. */
+export const PARTNER_PORTAL_ROUTE_KEYS = PARTNER_PORTAL_PAGE_KEYS.filter(
+  (key): key is Exclude<PartnerPortalPageKey, "create_orders"> => key !== "create_orders",
+);
+
 export const PARTNER_PORTAL_PAGE_META: Record<
   PartnerPortalPageKey,
   { labelKey: string; fallback: string; pathSuffix: string }
 > = {
   catalog: { labelKey: "partnerApp.catalog", fallback: "Catalog", pathSuffix: "" },
+  create_orders: {
+    labelKey: "partnerApp.createOrders",
+    fallback: "Create orders",
+    pathSuffix: "",
+  },
   dashboard: { labelKey: "partnerApp.dashboard", fallback: "Reports", pathSuffix: "/dashboard" },
   orders: { labelKey: "partnerApp.orders", fallback: "My orders", pathSuffix: "/orders" },
   purchases: { labelKey: "partnerApp.purchase", fallback: "Purchases", pathSuffix: "/purchases" },
@@ -44,6 +55,7 @@ export const PARTNER_PORTAL_PAGE_META: Record<
 export function defaultEnabledPages(): PartnerEnabledPages {
   return {
     catalog: true,
+    create_orders: true,
     dashboard: true,
     orders: true,
     purchases: true,
@@ -78,7 +90,7 @@ export function normalizePageOverrides(
 export function pageKeyFromPartnerPath(pathname: string, publicKey: string): PartnerPortalPageKey | null {
   const base = `/partner/${publicKey}`;
   if (pathname === base || pathname === `${base}/`) return "catalog";
-  for (const key of PARTNER_PORTAL_PAGE_KEYS) {
+  for (const key of PARTNER_PORTAL_ROUTE_KEYS) {
     if (key === "catalog") continue;
     const suffix = PARTNER_PORTAL_PAGE_META[key].pathSuffix;
     const path = `${base}${suffix}`;
@@ -92,7 +104,7 @@ export function firstEnabledPartnerPath(
   enabledPages: Partial<Record<string, boolean>> | null | undefined,
 ): string | null {
   const pages = normalizeEnabledPages(enabledPages);
-  for (const key of PARTNER_PORTAL_PAGE_KEYS) {
+  for (const key of PARTNER_PORTAL_ROUTE_KEYS) {
     if (!pages[key]) continue;
     return `/partner/${publicKey}${PARTNER_PORTAL_PAGE_META[key].pathSuffix}`;
   }

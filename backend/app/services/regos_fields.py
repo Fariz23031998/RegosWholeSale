@@ -223,3 +223,37 @@ def build_doc_payment_sale_id_filter(
         "operator": "Equal",
         "value": str(source_document_id),
     }
+
+PARTNER_ENTITY_TYPE = "Partner"
+
+
+async def list_partner_custom_fields(
+    session: AsyncSession,
+    company_id: int,
+) -> list[dict[str, Any]]:
+    """Return Regos custom Partner fields; empty list when unavailable."""
+    try:
+        response = await regos_async_api_request_for_company(
+            session,
+            company_id,
+            "field/get",
+            {"entity_type": PARTNER_ENTITY_TYPE},
+        )
+    except AppError as exc:
+        if _is_custom_fields_lookup_error(exc):
+            return []
+        raise
+
+    fields: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+    for item in response.get("result") or []:
+        if not isinstance(item, dict):
+            continue
+        mapped = _map_field(item)
+        key = mapped["key"]
+        if not key or key in seen_keys:
+            continue
+        seen_keys.add(key)
+        fields.append(mapped)
+    fields.sort(key=lambda item: (item["name"].lower(), item["key"]))
+    return fields

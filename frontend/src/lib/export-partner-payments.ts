@@ -96,7 +96,7 @@ export function exportPartnerPaymentsToExcel(options: {
   payments: PartnerPayment[];
   statusLabel: (payment: PartnerPayment) => string;
   t: TranslateFn;
-}): void {
+}): { workbook: XLSX.WorkBook; filename: string } {
   const { title, subtitle, payments, statusLabel, t } = options;
   const sheetRows: (string | number)[][] = [[title], [subtitle], columnHeaders(t)];
   for (const payment of payments) {
@@ -181,5 +181,8 @@ export function exportPartnerPaymentsToExcel(options: {
 
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Payments");
-  XLSX.writeFile(workbook, `partner-payments-${sanitizeFileName(subtitle)}.xlsx`);
+  return {
+    workbook,
+    filename: `partner-payments-${sanitizeFileName(subtitle)}.xlsx`,
+  };
 }

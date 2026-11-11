@@ -222,7 +222,7 @@ export function exportPartnerDashboardPaymentsToExcel(options: {
   periodLabel: string;
   statusLabel: (payment: PartnerPayment) => string;
   t: TranslateFn;
-}): void {
+}): { workbook: XLSX.WorkBook; filename: string } {
   const {
     incomePayments,
     outcomePayments,
@@ -267,5 +267,8 @@ export function exportPartnerDashboardPaymentsToExcel(options: {
     outcomeTitle.slice(0, 31),
   );
 
-  XLSX.writeFile(workbook, `partner-dashboard-payments-${sanitizeFileName(periodLabel)}.xlsx`);
+  return {
+    workbook,
+    filename: `partner-dashboard-payments-${sanitizeFileName(periodLabel)}.xlsx`,
+  };
 }

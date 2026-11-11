@@ -988,7 +988,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
                 <div className={styles.rowDesc}>
                   {t(
                     "products.promptBeforePrintDesc",
-                    "Show the Print labels window before each print.",
+                    "Show the Print settings window before each print.",
                   )}
                 </div>
               </div>

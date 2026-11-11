@@ -98,7 +98,7 @@ export function exportPartnerDocumentToExcel(options: {
   lines: PartnerDocumentLine[];
   statusLabel: string;
   t: TranslateFn;
-}): void {
+}): { workbook: XLSX.WorkBook; filename: string } {
   const { title, document, lines, statusLabel, t } = options;
   const meta: [string, string][] = [
     [t("common.date", "Date"), formatWhen(document.date)],
@@ -203,5 +203,8 @@ export function exportPartnerDocumentToExcel(options: {
   const sheetName = sanitizeFileName(title).slice(0, 31) || "Document";
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
   const code = document.code?.trim() || String(document.id);
-  XLSX.writeFile(workbook, `partner-document-${sanitizeFileName(code)}.xlsx`);
+  return {
+    workbook,
+    filename: `partner-document-${sanitizeFileName(code)}.xlsx`,
+  };
 }

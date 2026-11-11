@@ -645,6 +645,110 @@ async def test_order_uses_linked_partner_and_catalog_price(client, monkeypatch, 
 
 
 @pytest.mark.asyncio
+async def test_create_order_requires_create_orders_page(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-create-orders-guard@test.com")
+    await _save_bot(client, token)
+    account_id, company_id, _public_key = await _linked_account(session_factory)
+
+    patched = await client.patch(
+        f"/api/v1/partner-telegram/accounts/{account_id}",
+        json={"page_overrides": {"create_orders": False}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["enabled_pages"]["catalog"] is True
+    assert patched.json()["enabled_pages"]["create_orders"] is False
+
+    from app.core.security import create_partner_telegram_token
+
+    access = create_partner_telegram_token(account_id=account_id, company_id=company_id)
+    blocked = await client.post(
+        "/api/v1/partner-telegram/webapp/orders",
+        json={
+            "is_takeaway": True,
+            "address": "",
+            "phone": "998901112233",
+            "items": [{"product_id": 9, "quantity": 1}],
+        },
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert blocked.status_code == 403
+    assert blocked.json()["code"] == "PARTNER_PAGE_DISABLED"
+
+
+def test_sanitize_excel_filename():
+    from app.services.partner_telegram_webapp import sanitize_excel_filename
+
+    assert sanitize_excel_filename("../../evil.xlsx") == "evil.xlsx"
+    assert sanitize_excel_filename("report payments.xlsx") == "report_payments.xlsx"
+    assert sanitize_excel_filename("report") == "report.xlsx"
+    assert sanitize_excel_filename("") == "export.xlsx"
+
+
+@pytest.mark.asyncio
+async def test_webapp_send_excel_to_chat(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-send-excel@test.com")
+    await _save_bot(client, token)
+    account_id, company_id, _public_key = await _linked_account(session_factory)
+
+    from app.core.security import create_partner_telegram_token
+
+    access = create_partner_telegram_token(account_id=account_id, company_id=company_id)
+    captured: dict = {}
+
+    async def fake_send_document(bot_token, chat_id, file_bytes, filename, *, caption=None):
+        captured["chat_id"] = chat_id
+        captured["filename"] = filename
+        captured["bytes"] = file_bytes
+        captured["caption"] = caption
+        return True
+
+    monkeypatch.setattr(
+        "app.services.partner_telegram_webapp.telegram_service.send_document",
+        fake_send_document,
+    )
+
+    payload = b"PK\x03\x04fake-xlsx"
+    response = await client.post(
+        "/api/v1/partner-telegram/webapp/send-excel",
+        headers={"Authorization": f"Bearer {access}"},
+        files={"file": ("partner payments.xlsx", payload, "application/octet-stream")},
+        data={"filename": "partner payments.xlsx", "caption": "Payments"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["ok"] is True
+    assert response.json()["filename"] == "partner_payments.xlsx"
+    assert captured["chat_id"] == 80
+    assert captured["filename"] == "partner_payments.xlsx"
+    assert captured["bytes"] == payload
+    assert captured["caption"] == "Payments"
+
+    unauthorized = await client.post(
+        "/api/v1/partner-telegram/webapp/send-excel",
+        files={"file": ("a.xlsx", payload, "application/octet-stream")},
+    )
+    assert unauthorized.status_code == 401
+
+    async def fail_send(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(
+        "app.services.partner_telegram_webapp.telegram_service.send_document",
+        fail_send,
+    )
+    failed = await client.post(
+        "/api/v1/partner-telegram/webapp/send-excel",
+        headers={"Authorization": f"Bearer {access}"},
+        files={"file": ("a.xlsx", payload, "application/octet-stream")},
+        data={"filename": "a.xlsx"},
+    )
+    assert failed.status_code == 502
+    assert failed.json()["code"] == "TELEGRAM_SEND_FAILED"
+
+
+@pytest.mark.asyncio
 async def test_partner_bot_saves_order_document_settings(client, monkeypatch):
     _mock_telegram_api(monkeypatch)
     token = await _owner_token(client, "partner-order-doc@test.com")
@@ -1413,13 +1517,17 @@ def test_resolve_enabled_pages_merges_bot_defaults_and_overrides():
 
     pages = resolve_enabled_pages(
         {"catalog": True, "orders": False, "unknown": False},
-        {"orders": True, "payments": False},
+        {"orders": True, "payments": False, "create_orders": False},
     )
     assert pages["catalog"] is True
+    assert pages["create_orders"] is False
     assert pages["orders"] is True
     assert pages["payments"] is False
     assert pages["dashboard"] is True
     assert "unknown" not in pages
+
+    defaults = resolve_enabled_pages({}, {})
+    assert defaults["create_orders"] is True
 
 
 @pytest.mark.asyncio
@@ -1428,6 +1536,7 @@ async def test_partner_bot_saves_enabled_pages(client, monkeypatch):
     token = await _owner_token(client, "partner-pages@test.com")
     saved = await _save_bot(client, token)
     assert saved["enabled_pages"]["catalog"] is True
+    assert saved["enabled_pages"]["create_orders"] is True
     assert saved["enabled_pages"]["payments"] is True
 
     updated = await client.patch(
@@ -1435,6 +1544,7 @@ async def test_partner_bot_saves_enabled_pages(client, monkeypatch):
         json=_settings_body(
             enabled_pages={
                 "catalog": True,
+                "create_orders": False,
                 "dashboard": False,
                 "orders": True,
                 "purchases": False,
@@ -1450,6 +1560,7 @@ async def test_partner_bot_saves_enabled_pages(client, monkeypatch):
     assert updated.status_code == 200, updated.text
     pages = updated.json()["enabled_pages"]
     assert pages["catalog"] is True
+    assert pages["create_orders"] is False
     assert pages["dashboard"] is False
     assert pages["purchases"] is False
     assert pages["payments"] is False
@@ -1553,3 +1664,151 @@ async def test_account_page_overrides_and_webapp_guard(client, monkeypatch, sess
     )
     assert catalog_blocked.status_code == 403
     assert catalog_blocked.json()["code"] == "PARTNER_PAGE_DISABLED"
+
+
+@pytest.mark.asyncio
+async def test_import_accounts_from_oked_and_custom_field(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-import@test.com")
+    await _save_bot(client, token)
+    auth = {"Authorization": f"Bearer {token}"}
+
+    async def fake_custom_fields(session, company_id):
+        return [{"id": 3, "key": "tg_id", "name": "Telegram ID", "entity_type": "Partner", "data_type": "string"}]
+
+    monkeypatch.setattr(
+        "app.services.partner_telegram.regos_fields_service.list_partner_custom_fields",
+        fake_custom_fields,
+    )
+
+    fields = await client.get("/api/v1/partner-telegram/accounts/import-fields", headers=auth)
+    assert fields.status_code == 200, fields.text
+    field_ids = {item["id"] for item in fields.json()["fields"]}
+    assert "oked" in field_ids
+    assert "field:tg_id" in field_ids
+
+    async def partners_page(session, company_id, **kwargs):
+        return {
+            "partners": [
+                {"id": 1, "name": "Valid", "oked": "501001", "phones": "+998901111111", "fields": []},
+                {"id": 2, "name": "Empty", "oked": None, "fields": []},
+                {"id": 3, "name": "Invalid", "oked": "not-a-id", "fields": []},
+                {
+                    "id": 4,
+                    "name": "Custom",
+                    "oked": None,
+                    "fields": [{"id": 3, "key": "tg_id", "name": "Telegram ID", "value": "777001"}],
+                },
+            ],
+            "next_offset": 0,
+            "total": 4,
+        }
+
+    monkeypatch.setattr("app.services.partner_telegram.regos_partners.list_partners", partners_page)
+
+    first = await client.post(
+        "/api/v1/partner-telegram/accounts/import-from-field",
+        json={"field_id": "oked"},
+        headers=auth,
+    )
+    assert first.status_code == 200, first.text
+    assert first.json() == {
+        "created": 1,
+        "already_imported": 0,
+        "skipped_empty": 2,
+        "skipped_invalid": 1,
+        "skipped_duplicate": 0,
+        "skipped_partner_linked": 0,
+        "total_partners": 4,
+    }
+
+    again = await client.post(
+        "/api/v1/partner-telegram/accounts/import-from-field",
+        json={"field_id": "oked"},
+        headers=auth,
+    )
+    assert again.status_code == 200, again.text
+    assert again.json()["created"] == 0
+    assert again.json()["already_imported"] == 1
+    assert again.json()["skipped_empty"] == 2
+    assert again.json()["skipped_invalid"] == 1
+
+    custom = await client.post(
+        "/api/v1/partner-telegram/accounts/import-from-field",
+        json={"field_id": "field:tg_id"},
+        headers=auth,
+    )
+    assert custom.status_code == 200, custom.text
+    assert custom.json()["created"] == 1
+    assert custom.json()["skipped_empty"] == 3
+
+    accounts = await client.get("/api/v1/partner-telegram/accounts", headers=auth)
+    assert accounts.status_code == 200
+    by_telegram = {row["telegram_user_id"]: row for row in accounts.json()}
+    assert by_telegram[501001]["regos_partner_id"] == 1
+    assert by_telegram[501001]["link_state"] == "linked"
+    assert by_telegram[501001]["phone"] == "+998901111111"
+    assert by_telegram[777001]["regos_partner_id"] == 4
+    assert by_telegram[777001]["link_state"] == "linked"
+
+
+@pytest.mark.asyncio
+async def test_import_skips_duplicate_telegram_and_linked_partner(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-import-dup@test.com")
+    await _save_bot(client, token)
+    auth = {"Authorization": f"Bearer {token}"}
+
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        session.add(
+            PartnerTelegramAccount(
+                company_id=bot.company_id,
+                bot_id=bot.id,
+                telegram_user_id=9001,
+                chat_id=9001,
+                regos_partner_id=10,
+                link_state=PartnerTelegramLinkState.linked.value,
+            )
+        )
+        session.add(
+            PartnerTelegramAccount(
+                company_id=bot.company_id,
+                bot_id=bot.id,
+                telegram_user_id=9002,
+                chat_id=9002,
+                regos_partner_id=20,
+                link_state=PartnerTelegramLinkState.linked.value,
+            )
+        )
+        await session.commit()
+
+    async def partners_page(session, company_id, **kwargs):
+        return {
+            "partners": [
+                {"id": 11, "name": "DupTelegram", "oked": "9001", "fields": []},
+                {"id": 20, "name": "AlreadyLinkedPartner", "oked": "9003", "fields": []},
+            ],
+            "next_offset": 0,
+            "total": 2,
+        }
+
+    monkeypatch.setattr("app.services.partner_telegram.regos_partners.list_partners", partners_page)
+
+    response = await client.post(
+        "/api/v1/partner-telegram/accounts/import-from-field",
+        json={"field_id": "oked"},
+        headers=auth,
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {
+        "created": 0,
+        "already_imported": 0,
+        "skipped_empty": 0,
+        "skipped_invalid": 0,
+        "skipped_duplicate": 1,
+        "skipped_partner_linked": 1,
+        "total_partners": 2,
+    }

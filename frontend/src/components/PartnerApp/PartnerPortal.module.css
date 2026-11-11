@@ -49,21 +49,32 @@
 }
 
 .brandSub,
-.muted,
-.topTitle {
+.muted {
   color: var(--color-text-muted);
   font-size: 13px;
 }
 
-.topTitle {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.topBarViewToggle {
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
-.topBarViewToggle {
+.searchWithViewToggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+  width: 100%;
+}
+
+.searchWithViewToggle .searchInput {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.catalogViewToggle {
   flex-shrink: 0;
 }
 
@@ -152,6 +163,47 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+.topBarWithHeaderLinks {
+  position: relative;
+  justify-content: space-between;
+  gap: 0;
+}
+
+.headerNavLink {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  padding: 8px 12px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-size: 13px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.headerNavLink:hover {
+  background: var(--color-surface-2);
+  color: var(--color-text);
+}
+
+.headerNavMeasure {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  white-space: nowrap;
+  left: 0;
+  top: 0;
+}
+
+.headerNavMeasure .menuBtn,
+.headerNavMeasure .headerNavLink {
+  display: inline-flex;
+}
+
 .menuBtn,
 .iconBtn {
   width: 36px;
@@ -159,6 +211,7 @@
   display: none;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
@@ -166,6 +219,111 @@
 
 .iconBtn {
   display: none;
+}
+
+.menuBtnMobile {
+  display: none;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  border-radius: 999px;
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--color-text) 16%, transparent);
+  background: var(--color-surface);
+  align-self: center;
+  justify-self: center;
+}
+
+.menuBtnMobileFixed {
+  position: fixed;
+  z-index: 35;
+  left: 50%;
+  bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+}
+
+.bottomNav {
+  display: none;
+  position: fixed;
+  z-index: 30;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  align-items: center;
+  gap: 0;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom, 0px));
+  background: var(--color-surface);
+  border-top: 1px solid var(--color-border);
+}
+
+.bottomNavLink {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 6px 4px;
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  font-weight: 500;
+  text-decoration: none;
+  text-align: center;
+}
+
+.bottomNavLink span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.bottomNavLinkActive {
+  color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.bottomNavCart {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  margin: 0 auto;
+  border: 0;
+  border-radius: 999px;
+  background: var(--color-primary);
+  color: #fff;
+  cursor: pointer;
+  box-shadow: var(--shadow-md);
+}
+
+.bottomNavCartBadge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-danger, #ef4444);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hasMobileChrome {
+  /* Bottom nav with centered home button. */
+  --partner-mobile-chrome-offset: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+
+.hasMobileChrome .content {
+  padding-bottom: var(--partner-mobile-chrome-offset);
 }
 
 .content {
@@ -367,11 +525,6 @@
   flex: 1 1 320px;
   min-width: min(100%, 320px);
   margin-bottom: 0;
-}
-
-.catalogToolbarRow .menuBtn {
-  display: inline-flex;
-  flex-shrink: 0;
 }
 
 .catalogToolbarRow .searchInput {
@@ -661,9 +814,16 @@
     transform: translateX(0);
   }
 
-  .menuBtn,
   .iconBtn {
     display: inline-flex;
+  }
+
+  .menuBtnMobile {
+    display: inline-flex;
+  }
+
+  .bottomNav {
+    display: grid;
   }
 
   .backdrop {
@@ -721,14 +881,24 @@
     padding: var(--space-2) var(--space-3);
   }
 
-  .shellCatalog .menuBtn,
   .shellCatalog .iconBtn {
     width: 32px;
     height: 32px;
   }
 
   .shellCatalog .content {
-    padding: var(--space-2) var(--space-3) 0;
+    padding: var(--space-2) var(--space-3) var(--partner-mobile-chrome-offset, calc(64px + env(safe-area-inset-bottom, 0px)));
+  }
+
+  .searchWithViewToggle {
+    flex: 1 1 100%;
+    width: 100%;
+  }
+
+  .searchWithViewToggle .searchInput {
+    flex: 1 1 auto;
+    width: auto;
+    min-width: 0;
   }
 
   .shellCatalog .catalogToolbarRow {
@@ -766,9 +936,16 @@
   transform: translateX(0);
 }
 
-.compact .menuBtn,
 .compact .iconBtn {
   display: inline-flex;
+}
+
+.compact .menuBtnMobile {
+  display: inline-flex;
+}
+
+.compact .bottomNav {
+  display: grid;
 }
 
 .compact .backdrop {
@@ -778,6 +955,10 @@
   z-index: 40;
   border: 0;
   background: var(--color-overlay);
+}
+
+.compact.hasMobileChrome .content {
+  padding-bottom: var(--partner-mobile-chrome-offset);
 }
 
 .shellCatalog {
@@ -803,7 +984,12 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  padding-bottom: 0;
+}
+
+.hasMobileChrome.shellCatalog .content {
+  /* Keep the catalog viewport above the bottom nav. */
+  padding-bottom: var(--partner-mobile-chrome-offset);
+  box-sizing: border-box;
 }
 
 .shellCatalog .catalogLayout {
@@ -840,8 +1026,16 @@
     display: inline-flex;
   }
 
-  .shellCatalog:not(.compact) .topBar {
+  .shell:not(.compact):not(.navHidden) .topBar {
     display: none;
+  }
+
+  .shellCatalog:not(.compact):not(.navHidden) .topBar {
+    display: none;
+  }
+
+  .navHidden:not(.compact) .topBar {
+    display: flex;
   }
 
   .navHidden:not(.compact) {

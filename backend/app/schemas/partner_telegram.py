@@ -24,6 +24,7 @@ class PartnerBalanceNotifyTemplates(BaseModel):
 
 PORTAL_PAGE_KEYS = (
     "catalog",
+    "create_orders",
     "dashboard",
     "orders",
     "purchases",
@@ -158,6 +159,38 @@ class PartnerTelegramAccountResponse(BaseModel):
     enabled_pages: dict[str, bool] = Field(default_factory=default_enabled_pages)
     has_password: bool = False
     created_at: datetime
+
+
+class PartnerTelegramImportFieldOption(BaseModel):
+    id: str
+    label: str
+    kind: Literal["standard", "custom"]
+
+
+class PartnerTelegramImportFieldsResponse(BaseModel):
+    fields: list[PartnerTelegramImportFieldOption] = Field(default_factory=list)
+
+
+class PartnerTelegramImportFromFieldRequest(BaseModel):
+    field_id: str = Field(min_length=1, max_length=128)
+
+    @field_validator("field_id")
+    @classmethod
+    def field_id_must_be_nonempty(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            raise ValueError("field_id is required")
+        return cleaned
+
+
+class PartnerTelegramImportFromFieldResponse(BaseModel):
+    created: int = 0
+    already_imported: int = 0
+    skipped_empty: int = 0
+    skipped_invalid: int = 0
+    skipped_duplicate: int = 0
+    skipped_partner_linked: int = 0
+    total_partners: int = 0
 
 
 class PartnerTelegramAccountUpdateRequest(BaseModel):

@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TRANSLATIONS_DIR = ROOT / "backend" / "app" / "translations"
 LOCALES_OVERRIDE_DIR = Path(__file__).resolve().parent / "locales"
-VERSION = "1.1.4"
+VERSION = "1.1.5"
 SUPPORTED_LANGS = ("en", "ru", "uz", "tj")
 
 

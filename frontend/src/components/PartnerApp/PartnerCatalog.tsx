@@ -1,16 +1,18 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import clsx from "clsx";
-import { Menu, Minus, Plus, ShoppingBag, ShoppingCart, X } from "lucide-react";
+import { Minus, Plus, ShoppingBag, X } from "lucide-react";
 import { CartLineImage } from "@/components/Cart/CartLineImage";
 import cartStyles from "@/components/Cart/Cart.module.css";
 import { QtyKeypad } from "@/components/Cart/QtyKeypad";
+import { CatalogViewToggle } from "@/components/POS/CatalogViewToggle";
 import { CategoryBar } from "@/components/POS/CategoryBar";
 import posStyles from "@/components/POS/POS.module.css";
 import { Button } from "@/components/posui/Button";
 import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
 import type { ProductGroup } from "@/types/catalog";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { normalizeEnabledPages } from "@/lib/partner-portal-pages";
 import {
   createPartnerOrder,
   fetchPartnerCatalogOptions,
@@ -86,7 +88,10 @@ export function PartnerCatalog() {
   const { t } = useLanguage();
   const navigate = useNavigate();
   const { token, publicKey, account } = usePartnerSession();
-  const { desktopNav, navHidden, showNav } = usePartnerNav();
+  const canCreateOrders = useMemo(
+    () => normalizeEnabledPages(account.enabled_pages).create_orders,
+    [account.enabled_pages],
+  );
   const [panel, setPanel] = useState<Panel>("shop");
   const [cart, setCart] = useState<CartLine[]>(() => readCart(publicKey));
   const [search, setSearch] = useState("");
@@ -110,11 +115,20 @@ export function PartnerCatalog() {
   const [placing, setPlacing] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const { setMobileCartNav } = usePartnerNav();
   const view = useCatalog((s) => s.mobileViewMode);
 
   useEffect(() => {
     sessionStorage.setItem(partnerCartKey(publicKey), JSON.stringify(cart));
   }, [cart, publicKey]);
+
+  useEffect(() => {
+    if (!canCreateOrders) {
+      setPanel("shop");
+      setMobileCartOpen(false);
+      setKeypadFor(null);
+    }
+  }, [canCreateOrders]);
 
   useEffect(() => {
     const mq = window.matchMedia("(max-width: 900px)");
@@ -190,7 +204,7 @@ export function PartnerCatalog() {
   }, [allowWarehouse, filter, groupId, optionsReady, panel, search, token, warehouseId]);
 
   const add = (product: PartnerCatalogProduct) => {
-    if (product.available <= 0) return;
+    if (!canCreateOrders || product.available <= 0) return;
     setCart((current) =>
       current.some((line) => line.id === product.id)
         ? current.map((line) =>
@@ -218,6 +232,18 @@ export function PartnerCatalog() {
   const total = cart.reduce((sum, line) => sum + line.price * line.quantity, 0);
   const itemCount = cart.reduce((sum, line) => sum + line.quantity, 0);
   const keypadLine = cart.find((line) => line.id === keypadFor) ?? null;
+
+  const openMobileCart = useCallback(() => setMobileCartOpen(true), []);
+
+  useEffect(() => {
+    if (!canCreateOrders) {
+      setMobileCartNav(null);
+      return;
+    }
+    setMobileCartNav({ itemCount, open: openMobileCart });
+  }, [canCreateOrders, itemCount, openMobileCart, setMobileCartNav]);
+
+  useEffect(() => () => setMobileCartNav(null), [setMobileCartNav]);
 
   const setLineQty = (id: number, next: number) => {
     setCart((current) =>
@@ -263,7 +289,7 @@ export function PartnerCatalog() {
   return (
     <div className={styles.catalogLayout}>
       <section className={styles.catalog}>
-        {panel === "checkout" ? (
+        {canCreateOrders && panel === "checkout" ? (
           <div className={`${styles.panel} ${styles.checkoutPanel}`}>
             <div className={styles.checkoutHeader}>
               <button type="button" className={styles.textButton} onClick={() => setPanel("shop")}>
@@ -341,22 +367,15 @@ export function PartnerCatalog() {
             <div className={styles.catalogControls}>
               <div className={styles.catalogToolbarRow}>
                 <div className={styles.toolbar}>
-                  {desktopNav && navHidden ? (
-                    <button
-                      type="button"
-                      className={styles.menuBtn}
-                      onClick={showNav}
-                      aria-label={t("nav.openMenu", "Open menu")}
-                    >
-                      <Menu size={20} />
-                    </button>
-                  ) : null}
-                  <input
-                    className={`${styles.input} ${styles.searchInput}`}
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                    placeholder={t("partnerApp.search", "Search products")}
-                  />
+                  <div className={styles.searchWithViewToggle}>
+                    <input
+                      className={`${styles.input} ${styles.searchInput}`}
+                      value={search}
+                      onChange={(event) => setSearch(event.target.value)}
+                      placeholder={t("partnerApp.search", "Search products")}
+                    />
+                    <CatalogViewToggle className={styles.catalogViewToggle} />
+                  </div>
                   {allowWarehouse ? (
                     <label className={styles.field}>
                       {t("partnerApp.warehouse", "Warehouse")}
@@ -416,15 +435,18 @@ export function PartnerCatalog() {
                 return (
                   <div
                     key={product.id}
-                    className={clsx(posStyles.card, out && posStyles.cardDisabled)}
-                    role="button"
-                    tabIndex={out ? -1 : 0}
-                    aria-disabled={out}
+                    className={clsx(
+                      posStyles.card,
+                      (out || !canCreateOrders) && posStyles.cardDisabled,
+                    )}
+                    role={canCreateOrders ? "button" : undefined}
+                    tabIndex={canCreateOrders && !out ? 0 : -1}
+                    aria-disabled={out || !canCreateOrders}
                     onClick={() => {
-                      if (!out) add(product);
+                      if (canCreateOrders && !out) add(product);
                     }}
                     onKeyDown={(event) => {
-                      if (out) return;
+                      if (!canCreateOrders || out) return;
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
                         add(product);
@@ -464,20 +486,11 @@ export function PartnerCatalog() {
           </>
         )}
       </section>
-      <button
-        type="button"
-        className={cartStyles.fab}
-        onClick={() => setMobileCartOpen(true)}
-        aria-label={t("partnerApp.cart", "Cart")}
-      >
-        <ShoppingCart size={22} />
-        {itemCount > 0 ? <span className={cartStyles.fabBadge}>{itemCount}</span> : null}
-      </button>
-
-      {mobileCartOpen ? (
+      {canCreateOrders && mobileCartOpen ? (
         <div className={cartStyles.backdrop} onClick={() => setMobileCartOpen(false)} aria-hidden />
       ) : null}
 
+      {canCreateOrders ? (
       <aside
         className={clsx(styles.cart, mobileCartOpen && styles.cartOpen)}
         id="cart"
@@ -600,7 +613,9 @@ export function PartnerCatalog() {
           ) : null}
         </div>
       </aside>
+      ) : null}
 
+      {canCreateOrders ? (
       <QtyKeypad
         open={keypadLine !== null}
         initial={keypadLine?.quantity ?? 0}
@@ -613,6 +628,7 @@ export function PartnerCatalog() {
           setKeypadFor(null);
         }}
       />
+      ) : null}
     </div>
   );
 }

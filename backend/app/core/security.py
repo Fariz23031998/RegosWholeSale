@@ -37,7 +37,7 @@ def create_access_token(
 
 
 def create_partner_telegram_token(*, account_id: int, company_id: int) -> str:
-    expire = datetime.now(UTC) + timedelta(hours=12)
+    expire = datetime.now(UTC) + timedelta(hours=settings.partner_access_token_expire_hours)
     payload: dict[str, Any] = {
         "sub": str(account_id),
         "typ": "partner_telegram",

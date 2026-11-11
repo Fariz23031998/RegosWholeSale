@@ -2,9 +2,11 @@ import asyncio
 import hashlib
 import hmac
 import json
+import re
 import secrets
 import time
 from datetime import UTC, datetime, timedelta
+from pathlib import PurePosixPath
 from typing import Any
 from urllib.parse import parse_qsl
 
@@ -30,8 +32,12 @@ from app.services import regos_partners
 from app.services import regos_partner_balance
 from app.services import regos_payments
 from app.services import regos_sales
+from app.services import telegram as telegram_service
 from app.services.regos_products.helpers.map_product.map_product import map_product
 from app.services.telegram_i18n import t
+
+EXCEL_UPLOAD_MAX_BYTES = 10 * 1024 * 1024
+_UNSAFE_FILENAME = re.compile(r"[^\w.\-]+", re.UNICODE)
 
 INIT_DATA_MAX_AGE_SECONDS = 24 * 60 * 60
 PASSWORD_CODE_MINUTES = 10
@@ -1556,3 +1562,46 @@ async def get_partner_dashboard_products(
         "totals": totals,
         "total": len(products),
     }
+
+
+def sanitize_excel_filename(filename: str | None) -> str:
+    raw = PurePosixPath((filename or "").replace("\\", "/")).name.strip()
+    cleaned = _UNSAFE_FILENAME.sub("_", raw).strip("._")
+    if not cleaned.lower().endswith(".xlsx"):
+        cleaned = f"{cleaned or 'export'}.xlsx"
+    if cleaned.lower() == ".xlsx":
+        cleaned = "export.xlsx"
+    return cleaned[:180]
+
+
+async def send_excel_to_chat(
+    session: AsyncSession,
+    *,
+    account_id: int,
+    file_bytes: bytes,
+    filename: str | None,
+    caption: str | None = None,
+) -> dict[str, Any]:
+    if not file_bytes:
+        raise bad_request("Excel file is empty.", "EXCEL_FILE_EMPTY")
+    if len(file_bytes) > EXCEL_UPLOAD_MAX_BYTES:
+        raise bad_request("Excel file is too large.", "EXCEL_FILE_TOO_LARGE")
+
+    account = await session.get(PartnerTelegramAccount, account_id)
+    if account is None:
+        raise unauthorized("Invalid token", "INVALID_TOKEN")
+    bot = await partner_telegram_service._get_bot_by_company(session, account.company_id)
+    if bot is None:
+        raise bad_request("Partner bot is not configured.", "PARTNER_BOT_NOT_CONFIGURED")
+
+    safe_name = sanitize_excel_filename(filename)
+    sent = await telegram_service.send_document(
+        bot.bot_token,
+        account.chat_id,
+        file_bytes,
+        safe_name,
+        caption=caption,
+    )
+    if not sent:
+        raise AppError(502, "Failed to send Excel to Telegram.", "TELEGRAM_SEND_FAILED")
+    return {"ok": True, "filename": safe_name}

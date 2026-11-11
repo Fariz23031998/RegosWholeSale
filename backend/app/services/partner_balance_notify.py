@@ -24,7 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import PartnerTelegramAccount, PartnerTelegramBot, PartnerTelegramLinkState
-from app.services.partner_telegram import PARTNER_LANGUAGES, _subscription_allows
+from app.services.partner_telegram import PARTNER_LANGUAGES, _partner_name, _subscription_allows
 from app.services.regos_partner_balance import get_partner_balance
 from app.services.telegram_i18n import t
 from app.services import telegram as telegram_service
@@ -169,9 +169,14 @@ def positive_company_balances(rows: list[dict[str, Any]]) -> list[tuple[str, str
     return debts
 
 
-def format_balance_lines(balances: list[tuple[str, str, float]]) -> str:
+def format_balance_lines(
+    balances: list[tuple[str, str, float]],
+    *,
+    signed: bool = True,
+) -> str:
+    prefix = "-" if signed else ""
     return "\n".join(
-        f"🏢 {firm_name} ({currency_name}): -{format_number(amount)}"
+        f"🏢 {firm_name} ({currency_name}): {prefix}{format_number(amount)}"
         for firm_name, currency_name, amount in balances
     )
 
@@ -181,11 +186,19 @@ def format_balance_notification(
     balances: list[tuple[str, str, float]],
     lang: str,
     template: str | None = None,
+    *,
+    partner_name: str | None = None,
 ) -> str:
     balance_text = format_balance_lines(balances)
+    name = partner_name if isinstance(partner_name, str) and partner_name.strip() else str(partner_id)
     custom = template.strip() if isinstance(template, str) else ""
     if custom:
-        return custom.replace("{{partner_id}}", str(partner_id)).replace("{{balances}}", balance_text)
+        return (
+            custom.replace("{{partner_id}}", str(partner_id))
+            .replace("{{partner_name}}", name)
+            .replace("{{balances}}", balance_text)
+            .replace("{{balances_positive}}", format_balance_lines(balances, signed=False))
+        )
     lines = [
         t("partnerTelegram.balance.notifyTitle", lang),
         "",
@@ -515,6 +528,7 @@ async def _send_company_balances(
             logger.info("Partner %s has no negative balance, skipping notification", partner_id)
             continue
 
+        partner_display_name = await _partner_name(session, bot.company_id, partner_id)
         messages: dict[str, str] = {}
         files: dict[str, bytes] = {}
         for account in partner_accounts:
@@ -527,7 +541,13 @@ async def _send_company_balances(
                 templates = bot.balance_notify_templates if isinstance(bot.balance_notify_templates, dict) else {}
                 raw_template = templates.get(lang, "")
                 template = raw_template if isinstance(raw_template, str) else ""
-                messages[lang] = format_balance_notification(partner_id, debts, lang, template)
+                messages[lang] = format_balance_notification(
+                    partner_id,
+                    debts,
+                    lang,
+                    template,
+                    partner_name=partner_display_name,
+                )
                 files[lang] = build_partner_balance_excel(balance_rows, lang)
             text_ok = await telegram_service.send_message(
                 bot.bot_token,

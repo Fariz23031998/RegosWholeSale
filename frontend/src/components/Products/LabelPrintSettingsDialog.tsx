@@ -214,7 +214,7 @@ export function LabelPrintSettingsDialog({ open, onClose, onSaved }: Props) {
             <p className={styles.hint}>
               {t(
                 "products.promptBeforePrintDesc",
-                "Show the Print labels window before each print.",
+                "Show the Print settings window before each print.",
               )}
             </p>
           </span>

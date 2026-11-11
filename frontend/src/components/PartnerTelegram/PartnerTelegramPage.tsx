@@ -20,11 +20,14 @@ import {
   deletePartnerTelegramBot,
   fetchPartnerTelegramAccounts,
   fetchPartnerTelegramBot,
+  fetchPartnerTelegramImportFields,
+  importPartnerTelegramAccountsFromField,
   savePartnerTelegramBot,
   savePartnerTelegramBotSettings,
   updatePartnerTelegramAccount,
   type PartnerOrderDocumentType,
   type PartnerTelegramAccount,
+  type PartnerTelegramImportFromFieldResponse,
 } from "@/lib/partner-telegram-api";
 import { fetchPartnerGroups, fetchPartners } from "@/lib/partners-api";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
@@ -98,6 +101,12 @@ export function PartnerTelegramPage() {
     useState<PartnerOrderDocumentType>("doc_order_from_partner");
   const [orderBooked, setOrderBooked] = useState(true);
   const [activeTab, setActiveTab] = useState<PartnerTelegramTab>("bot");
+  const [importFieldId, setImportFieldId] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState("");
+  const [importSummary, setImportSummary] = useState<PartnerTelegramImportFromFieldResponse | null>(
+    null,
+  );
 
   const botQuery = useQuery({
     queryKey: ["partner-telegram", "bot", token],
@@ -108,6 +117,11 @@ export function PartnerTelegramPage() {
     queryKey: ["partner-telegram", "accounts", token],
     queryFn: () => fetchPartnerTelegramAccounts(token ?? ""),
     enabled: Boolean(token),
+  });
+  const importFieldsQuery = useQuery({
+    queryKey: ["partner-telegram", "import-fields", token],
+    queryFn: () => fetchPartnerTelegramImportFields(token ?? ""),
+    enabled: Boolean(token && botQuery.data?.configured && activeTab === "accounts"),
   });
   const referencesQuery = useQuery({
     queryKey: ["partner-telegram", "references", token],
@@ -562,7 +576,7 @@ export function PartnerTelegramPage() {
                     <p className={styles.hint}>
                       {t(
                         "partnerTelegram.balanceTemplatesHint",
-                        "Leave a language blank to use the built-in message. Placeholders: {{partner_id}} and {{balances}}.",
+                        "Leave a language blank to use the built-in message. Placeholders: {{partner_id}}, {{partner_name}}, {{balances}}, and {{balances_positive}}.",
                       )}
                     </p>
                     {(["uz", "ru", "en"] as const).map((lang) => (
@@ -601,6 +615,88 @@ export function PartnerTelegramPage() {
         </div>
       ) : (
         <div className={styles.tabPanel} role="tabpanel">
+          <section className={`${styles.card} ${styles.importCard}`}>
+            <h2 className={styles.cardTitle}>
+              {t("partnerTelegram.importTitle", "Import from Regos")}
+            </h2>
+            <p className={styles.hint}>
+              {t(
+                "partnerTelegram.importHint",
+                "Select the partner field that stores Telegram user IDs, then import linked accounts for partners already registered in the old system.",
+              )}
+            </p>
+            <div className={styles.formRow}>
+              <label className={styles.label}>
+                {t("partnerTelegram.importField", "Partner field")}
+                <select
+                  className={styles.input}
+                  value={importFieldId}
+                  disabled={importFieldsQuery.isPending || importing || !bot?.configured}
+                  onChange={(event) => {
+                    setImportFieldId(event.target.value);
+                    setImportError("");
+                    setImportSummary(null);
+                  }}
+                >
+                  <option value="">
+                    {t("partnerTelegram.importFieldPlaceholder", "Select a field")}
+                  </option>
+                  {(importFieldsQuery.data?.fields ?? []).map((field) => (
+                    <option key={field.id} value={field.id}>
+                      {field.label}
+                      {field.kind === "custom"
+                        ? ` (${t("partnerTelegram.importFieldCustom", "custom")})`
+                        : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <Button
+                type="button"
+                disabled={!importFieldId || importing || !bot?.configured}
+                onClick={() => {
+                  if (!token || !importFieldId) return;
+                  setImporting(true);
+                  setImportError("");
+                  setImportSummary(null);
+                  void importPartnerTelegramAccountsFromField(token, importFieldId)
+                    .then(async (summary) => {
+                      setImportSummary(summary);
+                      await queryClient.invalidateQueries({
+                        queryKey: ["partner-telegram", "accounts", token],
+                      });
+                    })
+                    .catch((error) => setImportError(formatAuthError(error)))
+                    .finally(() => setImporting(false));
+                }}
+              >
+                {importing
+                  ? t("partnerTelegram.importing", "Importing…")
+                  : t("partnerTelegram.importAction", "Import")}
+              </Button>
+            </div>
+            {importFieldsQuery.error ? (
+              <p className={styles.error}>{formatAuthError(importFieldsQuery.error)}</p>
+            ) : null}
+            {importError ? <p className={styles.error}>{importError}</p> : null}
+            {importSummary ? (
+              <p className={styles.meta}>
+                {t(
+                  "partnerTelegram.importSummary",
+                  "Created {{created}}, already imported {{already}}, empty {{empty}}, invalid {{invalid}}, duplicate Telegram ID {{duplicate}}, partner already linked {{linked}} (of {{total}} partners).",
+                  {
+                    created: importSummary.created,
+                    already: importSummary.already_imported,
+                    empty: importSummary.skipped_empty,
+                    invalid: importSummary.skipped_invalid,
+                    duplicate: importSummary.skipped_duplicate,
+                    linked: importSummary.skipped_partner_linked,
+                    total: importSummary.total_partners,
+                  },
+                )}
+              </p>
+            ) : null}
+          </section>
           <section className={`${styles.card} ${styles.accountsCard}`}>
             <h2 className={styles.cardTitle}>{t("partnerTelegram.accountsTitle", "Telegram accounts")}</h2>
             {accountsQuery.isPending ? <p className={styles.hint}>{t("common.loading", "Loading...")}</p> : null}

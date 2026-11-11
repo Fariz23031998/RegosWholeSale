@@ -10,6 +10,7 @@ import { formatDateTime } from "@/lib/format";
 import { exportPartnerDashboardPaymentsToExcel } from "@/lib/export-partner-dashboard-payments";
 import type { PartnerPayment } from "@/lib/partner-telegram-api";
 import { formatAmount } from "./partner-format";
+import { usePartnerExcelExport } from "./usePartnerExcelExport";
 
 type PaymentDirection = "income" | "outcome";
 
@@ -123,6 +124,7 @@ export function PartnerDashboardPaymentsPanel({
   error: string;
 }) {
   const { t } = useLanguage();
+  const { exporting, exportLabel, runExport } = usePartnerExcelExport();
   const [search, setSearch] = useState("");
   const [direction, setDirection] = useState<PaymentDirection>("income");
   const query = search.trim().toLowerCase();
@@ -230,21 +232,23 @@ export function PartnerDashboardPaymentsPanel({
           <button
             type="button"
             className={dashboardStyles.exportButton}
-            disabled={loading || incomePayments.length + outcomePayments.length === 0}
+            disabled={loading || exporting || incomePayments.length + outcomePayments.length === 0}
             onClick={() =>
-              exportPartnerDashboardPaymentsToExcel({
-                incomePayments,
-                outcomePayments,
-                incomeTotal,
-                outcomeTotal,
-                periodLabel,
-                statusLabel,
-                t,
-              })
+              void runExport(() =>
+                exportPartnerDashboardPaymentsToExcel({
+                  incomePayments,
+                  outcomePayments,
+                  incomeTotal,
+                  outcomeTotal,
+                  periodLabel,
+                  statusLabel,
+                  t,
+                }),
+              )
             }
           >
             <Download size={14} />
-            {t("partnerApp.exportExcel", "Export to Excel")}
+            {exportLabel}
           </button>
         </div>
       ) : null}

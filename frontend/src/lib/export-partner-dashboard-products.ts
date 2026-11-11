@@ -150,7 +150,7 @@ export function exportPartnerDashboardProductsToExcel(options: {
   totals: PartnerDashboardProductTotals;
   t: TranslateFn;
   filePrefix?: string;
-}): void {
+}): { workbook: XLSX.WorkBook; filename: string } {
   const { title, periodLabel, products, totals, t, filePrefix = "partner-products" } = options;
   const totalLabel = t("dashboard.products.totalRow", "Total");
   const sheetRows: (string | number)[][] = [
@@ -304,5 +304,8 @@ export function exportPartnerDashboardProductsToExcel(options: {
   const workbook = XLSX.utils.book_new();
   const sheetName = sanitizeFileName(title).slice(0, 31) || "Products";
   XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-  XLSX.writeFile(workbook, `${filePrefix}-${sanitizeFileName(periodLabel)}.xlsx`);
+  return {
+    workbook,
+    filename: `${filePrefix}-${sanitizeFileName(periodLabel)}.xlsx`,
+  };
 }

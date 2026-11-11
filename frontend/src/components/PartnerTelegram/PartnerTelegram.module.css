@@ -30,6 +30,11 @@
   overflow: auto;
 }
 
+.page > .tabPanel > .importCard {
+  flex: 0 0 auto;
+  overflow: visible;
+}
+
 .page > .tabPanel > .accountsCard {
   overflow: hidden;
 }

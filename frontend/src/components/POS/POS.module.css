@@ -726,6 +726,25 @@
   cursor: pointer;
 }
 
+.partnerBalanceRowAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  min-width: 0;
+}
+
+.partnerBalanceRowAction > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.partnerBalanceRowAction > button {
+  flex-shrink: 0;
+}
+
 .partnerBalanceGroupToggle:hover {
   background: color-mix(in srgb, var(--color-surface) 70%, var(--color-text) 5%);
   color: var(--color-text);
@@ -851,6 +870,10 @@
 
   .partnerBalanceGroupRow td:empty {
     display: none;
+  }
+
+  .partnerBalanceRowAction {
+    width: 100%;
   }
 
   .partnerBalanceNum {

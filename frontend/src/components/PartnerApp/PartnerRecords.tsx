@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
+import { useNavigate } from "@tanstack/react-router";
 import clsx from "clsx";
-import { ArrowLeft, CalendarRange, Download, RefreshCw, Search } from "lucide-react";
+import { ArrowLeft, CalendarRange, Download, RefreshCw, Search, SquareArrowOutUpRight } from "lucide-react";
 import { DataTable } from "@/components/DataTable/DataTable";
 import { ReconciliationTable } from "@/components/DataTable/ReconciliationTable";
 import { DashboardPeriodModal } from "@/components/Dashboard/DashboardPeriodModal";
@@ -29,8 +30,10 @@ import {
   buildPartnerDebtSummary,
   compareOperationsDesc,
   groupRowsByCurrency,
+  resolvePartnerBalanceDocumentRoute,
   toPartnerPerspectiveRow,
 } from "@/lib/partner-balance";
+import { normalizeEnabledPages } from "@/lib/partner-portal-pages";
 import {
   fetchPartnerDocument,
   fetchPartnerDocuments,
@@ -47,6 +50,7 @@ import { formatAuthError } from "@/store/auth";
 import { PartnerBalanceTotal } from "./PartnerBalanceTotal";
 import { usePartnerSession } from "./PartnerSession";
 import { formatAmount } from "./partner-format";
+import { usePartnerExcelExport } from "./usePartnerExcelExport";
 import styles from "./PartnerPortal.module.css";
 
 type PresetPeriod = Exclude<DashboardPeriodPreset, "custom">;
@@ -55,6 +59,7 @@ type PaymentDirection = "income" | "outcome";
 export function PartnerPaymentsPage() {
   const { t } = useLanguage();
   const { token } = usePartnerSession();
+  const { exporting, exportLabel, runExport } = usePartnerExcelExport();
   const [periodPreset, setPeriodPreset] = useState<DashboardPeriodPreset>("week");
   const [customRange, setCustomRange] = useState<DashboardCustomRange | null>(null);
   const [periodModalOpen, setPeriodModalOpen] = useState(false);
@@ -185,19 +190,21 @@ export function PartnerPaymentsPage() {
               type="button"
               size="sm"
               variant="secondary"
-              disabled={loading || visible.length === 0}
+              disabled={loading || exporting || visible.length === 0}
               onClick={() =>
-                exportPartnerPaymentsToExcel({
-                  title: t("partnerApp.payments", "Payments"),
-                  subtitle,
-                  payments: visible,
-                  statusLabel,
-                  t,
-                })
+                void runExport(() =>
+                  exportPartnerPaymentsToExcel({
+                    title: t("partnerApp.payments", "Payments"),
+                    subtitle,
+                    payments: visible,
+                    statusLabel,
+                    t,
+                  }),
+                )
               }
             >
               <Download size={14} />
-              {t("partnerApp.exportExcel", "Export to Excel")}
+              {exportLabel}
             </Button>
             <div className={dashboardStyles.filters}>
               {(["today", "week", "month", "all"] as PresetPeriod[]).map((value) => (
@@ -329,13 +336,19 @@ function statementAmount(value: number): string {
 
 export function PartnerReconciliationPage() {
   const { t } = useLanguage();
-  const { token, account } = usePartnerSession();
+  const navigate = useNavigate();
+  const { token, account, publicKey } = usePartnerSession();
+  const { exporting, exportLabel, runExport } = usePartnerExcelExport();
   const [periodRange, setPeriodRange] = useState<DashboardCustomRange>(currentYearRange);
   const [periodModalOpen, setPeriodModalOpen] = useState(false);
   const [rows, setRows] = useState<PartnerBalanceRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => new Set());
+  const enabledPages = useMemo(
+    () => normalizeEnabledPages(account.enabled_pages),
+    [account.enabled_pages],
+  );
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -400,18 +413,20 @@ export function PartnerReconciliationPage() {
           type="button"
           size="sm"
           variant="secondary"
-          disabled={loading || rows.length === 0}
+          disabled={loading || exporting || rows.length === 0}
           onClick={() =>
-            exportPartnerReconciliationToExcel({
-              title,
-              periodLabel,
-              rows: partnerRows,
-              t,
-            })
+            void runExport(() =>
+              exportPartnerReconciliationToExcel({
+                title,
+                periodLabel,
+                rows: partnerRows,
+                t,
+              }),
+            )
           }
         >
           <Download size={14} />
-          {t("partnerApp.exportExcel", "Export to Excel")}
+          {exportLabel}
         </Button>
         <button
           type="button"
@@ -499,6 +514,29 @@ export function PartnerReconciliationPage() {
               ? currencyLabel(group.currency) || t("common.unknown", "Unknown")
               : t("common.unknown", "Unknown")
           }
+          rowActionClassName={posStyles.partnerBalanceRowAction}
+          renderRowAction={(row) => {
+            const route = resolvePartnerBalanceDocumentRoute(row);
+            if (!route || !enabledPages[route.pageKey]) return null;
+            return (
+              <Button
+                type="button"
+                size="icon"
+                variant="secondary"
+                aria-label={t("partners.balance.openDocument", "Open document")}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  void navigate({
+                    to: route.to,
+                    params: { publicKey },
+                    search: { id: route.documentId },
+                  });
+                }}
+              >
+                <SquareArrowOutUpRight size={16} />
+              </Button>
+            );
+          }}
         />
       </div>
 
@@ -862,24 +900,19 @@ export function PartnerStockDocumentPage({
       return;
     }
     const known = documents.find((item) => item.id === documentId) ?? null;
-    setSelected(
-      known ?? {
-        id: documentId,
-        code: null,
-        date: null,
-        amount: null,
-        description: "",
-        status_id: null,
-        performed: null,
-      },
-    );
+    if (known) setSelected(known);
     setLinesLoading(true);
+    setError("");
     void fetchPartnerDocument(token, kind, documentId)
       .then((detail) => {
         setSelected(detail.document);
         setLines(detail.operations);
       })
-      .catch((loadError) => setError(formatAuthError(loadError)))
+      .catch((loadError) => {
+        setError(formatAuthError(loadError));
+        setSelected(known);
+        setLines([]);
+      })
       .finally(() => setLinesLoading(false));
   }, [documentId, documents, kind, token]);
 
@@ -949,20 +982,48 @@ export function PartnerStockDocumentPage({
     [t],
   );
 
-  if (documentId && selected) {
-    return (
-      <div className={styles.stockBleed}>
-        <StockDocumentView
-          title={t("stock.detail.title", "Document #{{code}}", { code: selected.code || selected.id })}
-          document={selected}
-          lines={lines}
-          loading={linesLoading}
-          lineQuery={lineQuery}
-          onLineQuery={setLineQuery}
-          onBack={onBack}
-        />
-      </div>
-    );
+  if (documentId) {
+    if (linesLoading && !selected) {
+      return (
+        <div className={styles.stockBleed}>
+          <div className={stockStyles.page}>
+            <button type="button" className={stockStyles.backLink} onClick={onBack}>
+              <ArrowLeft size={16} />
+              {t("common.back", "Back")}
+            </button>
+            <div className={stockStyles.empty}>{t("common.loading", "Loading...")}</div>
+          </div>
+        </div>
+      );
+    }
+    if (error && !selected) {
+      return (
+        <div className={styles.stockBleed}>
+          <div className={stockStyles.page}>
+            <button type="button" className={stockStyles.backLink} onClick={onBack}>
+              <ArrowLeft size={16} />
+              {t("common.back", "Back")}
+            </button>
+            <div className={stockStyles.error}>{error}</div>
+          </div>
+        </div>
+      );
+    }
+    if (selected) {
+      return (
+        <div className={styles.stockBleed}>
+          <StockDocumentView
+            title={t("stock.detail.title", "Document #{{code}}", { code: selected.code || selected.id })}
+            document={selected}
+            lines={lines}
+            loading={linesLoading}
+            lineQuery={lineQuery}
+            onLineQuery={setLineQuery}
+            onBack={onBack}
+          />
+        </div>
+      );
+    }
   }
 
   return (
@@ -1077,6 +1138,7 @@ function StockDocumentView({
   onBack: () => void;
 }) {
   const { t } = useLanguage();
+  const { exporting, exportLabel, runExport } = usePartnerExcelExport();
   const done = Boolean(document.performed);
   const query = lineQuery.trim().toLowerCase();
   const visible = query
@@ -1167,21 +1229,23 @@ function StockDocumentView({
           type="button"
           size="sm"
           variant="secondary"
-          disabled={loading || lines.length === 0}
+          disabled={loading || exporting || lines.length === 0}
           onClick={() =>
-            exportPartnerDocumentToExcel({
-              title,
-              document,
-              lines,
-              statusLabel:
-                statusLabel ??
-                (done ? t("stock.status.performed", "Performed") : t("stock.status.draft", "Draft")),
-              t,
-            })
+            void runExport(() =>
+              exportPartnerDocumentToExcel({
+                title,
+                document,
+                lines,
+                statusLabel:
+                  statusLabel ??
+                  (done ? t("stock.status.performed", "Performed") : t("stock.status.draft", "Draft")),
+                t,
+              }),
+            )
           }
         >
           <Download size={14} />
-          {t("partnerApp.exportExcel", "Export to Excel")}
+          {exportLabel}
         </Button>
         <div className={stockStyles.detailActionsSearch}>
           <Search size={16} className={stockStyles.searchIcon} aria-hidden />
