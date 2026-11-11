@@ -205,6 +205,8 @@ async def set_user_permission_rules(
     rules: list[dict[str, Any]],
 ) -> set[str]:
     if user.role in (UserRole.owner, UserRole.admin):
+        if not rules:
+            return set(ROLE_DEFAULTS[user.role])
         from app.core.exceptions import bad_request
 
         raise bad_request(

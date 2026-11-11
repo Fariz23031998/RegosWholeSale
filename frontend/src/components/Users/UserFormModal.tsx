@@ -206,7 +206,7 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
           end_time: normalizeScheduleTime(s.end_time)!,
         }));
 
-    const permission_rules = role === "employee" ? stateToRules(ruleState) : [];
+    const permission_rules = role === "employee" ? stateToRules(ruleState) : undefined;
 
     setSaving(true);
     try {
@@ -216,7 +216,7 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
           password,
           display_name: displayName.trim(),
           role,
-          permission_rules,
+          ...(permission_rules !== undefined ? { permission_rules } : {}),
           schedules: normalizedSchedules,
         });
         onSaved(created);
@@ -240,7 +240,9 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
       if (!isOwner) {
         body.role = role;
         body.is_active = isActive;
-        body.permission_rules = permission_rules;
+        if (role === "employee") {
+          body.permission_rules = permission_rules;
+        }
       }
 
       const updated = await patchUser(token, user!.id, body);

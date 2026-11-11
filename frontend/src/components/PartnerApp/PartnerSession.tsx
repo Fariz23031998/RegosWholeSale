@@ -13,7 +13,7 @@ import {
   type PartnerTelegramAccount,
 } from "@/lib/partner-telegram-api";
 import { formatAuthError } from "@/store/auth";
-import { partnerTokenKey } from "./partner-format";
+import { clearPartnerToken, readPartnerToken, writePartnerToken } from "./partner-format";
 import { PartnerShell } from "./PartnerShell";
 import styles from "./PartnerPortal.module.css";
 
@@ -65,7 +65,9 @@ export function PartnerPortal({ publicKey }: { publicKey: string }) {
     setAccount(next);
     setCompact(fromTelegram);
     if (!fromTelegram) {
-      sessionStorage.setItem(partnerTokenKey(publicKey), token);
+      writePartnerToken(publicKey, token);
+    } else {
+      clearPartnerToken(publicKey);
     }
     if (next.language_code === "uz" || next.language_code === "ru" || next.language_code === "en") {
       void changeLanguage(next.language_code);
@@ -115,7 +117,7 @@ export function PartnerPortal({ publicKey }: { publicKey: string }) {
         return;
       }
 
-      const stored = sessionStorage.getItem(partnerTokenKey(publicKey));
+      const stored = readPartnerToken(publicKey);
       if (!stored) {
         setGate("login");
         return;
@@ -126,7 +128,7 @@ export function PartnerPortal({ publicKey }: { publicKey: string }) {
         applySession(stored, me, false);
       } catch {
         if (cancelled) return;
-        sessionStorage.removeItem(partnerTokenKey(publicKey));
+        clearPartnerToken(publicKey);
         setGate("login");
       }
     })();
@@ -138,7 +140,7 @@ export function PartnerPortal({ publicKey }: { publicKey: string }) {
   }, [publicKey]);
 
   const logout = () => {
-    sessionStorage.removeItem(partnerTokenKey(publicKey));
+    clearPartnerToken(publicKey);
     setAccessToken(null);
     setAccount(null);
     setGate("login");

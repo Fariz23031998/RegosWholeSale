@@ -51,6 +51,12 @@ class PartnerTelegramBot(Base, TimestampMixin):
     show_product_quantities: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default=true()
     )
+    show_zero_quantity: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
+    show_zero_price: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )
     auto_open_qty_keypad: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )

@@ -16,6 +16,8 @@ export type PartnerTelegramBotConfig = {
   allow_catalog_warehouse_selection: boolean;
   allow_self_registration: boolean;
   show_product_quantities: boolean;
+  show_zero_quantity: boolean;
+  show_zero_price: boolean;
   auto_open_qty_keypad: boolean;
   default_partner_group_id: number | null;
   catalog_product_group_ids: number[];
@@ -94,6 +96,8 @@ export type PartnerCatalogOptions = {
   currency_name: string;
   currency_code: string;
   show_product_quantities: boolean;
+  show_zero_quantity: boolean;
+  show_zero_price: boolean;
   auto_open_qty_keypad: boolean;
 };
 
@@ -163,6 +167,8 @@ export async function savePartnerTelegramBotSettings(
     allow_catalog_warehouse_selection: boolean;
     allow_self_registration: boolean;
     show_product_quantities: boolean;
+    show_zero_quantity: boolean;
+    show_zero_price: boolean;
     auto_open_qty_keypad: boolean;
     default_partner_group_id: number | null;
     catalog_product_group_ids: number[];

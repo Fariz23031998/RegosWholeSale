@@ -418,6 +418,8 @@ async def catalog_options(session: AsyncSession, account_id: int) -> dict[str, A
         "currency_name": currency.get("name") or "",
         "currency_code": currency_code(currency),
         "show_product_quantities": bool(context["bot"].show_product_quantities),
+        "show_zero_quantity": bool(context["bot"].show_zero_quantity),
+        "show_zero_price": bool(context["bot"].show_zero_price),
         "auto_open_qty_keypad": bool(context["bot"].auto_open_qty_keypad),
     }
 
@@ -439,16 +441,20 @@ async def list_products(
     context = await resolve_shop(session, account_id, requested_warehouse_id=warehouse_id)
     defaults = context["defaults"]
     company_id = context["account"].company_id
-    if filter_type not in {None, "", "in-stock", "low-stock", "cheap", "expensive"}:
+    if filter_type not in {None, "", "all", "in-stock", "low-stock", "cheap", "expensive"}:
         raise bad_request("Unknown catalog filter.", "PARTNER_CATALOG_FILTER_INVALID")
     safe_limit = min(max(limit, 1), 50)
     safe_offset = max(offset, 0)
+    stock_filter = filter_type in {"in-stock", "low-stock"}
+    show_zero_quantity = bool(context["bot"].show_zero_quantity)
+    show_zero_price = bool(context["bot"].show_zero_price)
     payload: dict[str, Any] = {
         "stock_id": context["warehouse_id"],
         "price_type_id": context["price_type_id"],
         "sort_orders": [{"column": "Name", "direction": "ASC"}],
-        "zero_quantity": filter_type not in {"in-stock", "low-stock"},
-        "zero_price": False,
+        # Stock chips always hide zero qty; otherwise follow the bot setting.
+        "zero_quantity": False if stock_filter else show_zero_quantity,
+        "zero_price": show_zero_price,
         "image_size": "Large",
         "type": "Item",
         "deleted_mark": False,

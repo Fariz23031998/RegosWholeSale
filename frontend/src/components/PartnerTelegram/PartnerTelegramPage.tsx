@@ -88,6 +88,8 @@ export function PartnerTelegramPage() {
   const [allowWarehouse, setAllowWarehouse] = useState(false);
   const [allowRegistration, setAllowRegistration] = useState(false);
   const [showQuantities, setShowQuantities] = useState(true);
+  const [showZeroQuantity, setShowZeroQuantity] = useState(false);
+  const [showZeroPrice, setShowZeroPrice] = useState(false);
   const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
   const [enabledPages, setEnabledPages] = useState<PartnerEnabledPages>(defaultEnabledPages);
   const [catalogGroupIds, setCatalogGroupIds] = useState<number[]>([]);
@@ -148,6 +150,8 @@ export function PartnerTelegramPage() {
     setAllowWarehouse(bot.allow_catalog_warehouse_selection);
     setAllowRegistration(bot.allow_self_registration);
     setShowQuantities(bot.show_product_quantities);
+    setShowZeroQuantity(Boolean(bot.show_zero_quantity));
+    setShowZeroPrice(Boolean(bot.show_zero_price));
     setAutoOpenQtyKeypad(Boolean(bot.auto_open_qty_keypad));
     setEnabledPages(normalizeEnabledPages(bot.enabled_pages));
     setCatalogGroupIds(bot.catalog_product_group_ids ?? []);
@@ -206,6 +210,8 @@ export function PartnerTelegramPage() {
         allow_catalog_warehouse_selection: allowWarehouse,
         allow_self_registration: allowRegistration,
         show_product_quantities: showQuantities,
+        show_zero_quantity: showZeroQuantity,
+        show_zero_price: showZeroPrice,
         auto_open_qty_keypad: autoOpenQtyKeypad,
         default_partner_group_id: groupId ? Number(groupId) : null,
         catalog_product_group_ids: catalogGroupIds,
@@ -458,6 +464,42 @@ export function PartnerTelegramPage() {
                   <label className={styles.check}>
                     <input type="checkbox" checked={showQuantities} onChange={(event) => setShowQuantities(event.target.checked)} />
                     {t("partnerTelegram.showProductQuantities", "Show product quantities in the catalog")}
+                  </label>
+                  <label className={styles.check}>
+                    <input
+                      type="checkbox"
+                      checked={showZeroQuantity}
+                      onChange={(event) => setShowZeroQuantity(event.target.checked)}
+                    />
+                    <span>
+                      <span className={styles.fieldTitle}>
+                        {t("partnerTelegram.showZeroQuantity", "Show products with zero quantity")}
+                      </span>
+                      <span className={styles.fieldDesc} style={{ display: "block" }}>
+                        {t(
+                          "partnerTelegram.showZeroQuantityDesc",
+                          "Include out-of-stock products in the partner catalog (except when the partner selects In stock or Low stock).",
+                        )}
+                      </span>
+                    </span>
+                  </label>
+                  <label className={styles.check}>
+                    <input
+                      type="checkbox"
+                      checked={showZeroPrice}
+                      onChange={(event) => setShowZeroPrice(event.target.checked)}
+                    />
+                    <span>
+                      <span className={styles.fieldTitle}>
+                        {t("partnerTelegram.showZeroPrice", "Show products with zero price")}
+                      </span>
+                      <span className={styles.fieldDesc} style={{ display: "block" }}>
+                        {t(
+                          "partnerTelegram.showZeroPriceDesc",
+                          "Include products with a zero price in the partner catalog.",
+                        )}
+                      </span>
+                    </span>
                   </label>
                   <label className={styles.check}>
                     <input

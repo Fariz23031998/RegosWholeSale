@@ -201,6 +201,8 @@ def _settings_body(**overrides):
         "allow_catalog_warehouse_selection": False,
         "allow_self_registration": False,
         "show_product_quantities": True,
+        "show_zero_quantity": False,
+        "show_zero_price": False,
         "default_partner_group_id": None,
         "catalog_product_group_ids": [],
         "order_document_type": "doc_order_from_partner",
@@ -209,6 +211,69 @@ def _settings_body(**overrides):
     }
     body.update(overrides)
     return body
+
+
+@pytest.mark.asyncio
+async def test_partner_bot_saves_show_zero_catalog_settings(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-zero-catalog@test.com")
+    saved = await _save_bot(client, token)
+    assert saved["show_zero_quantity"] is False
+    assert saved["show_zero_price"] is False
+
+    updated = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(show_zero_quantity=True, show_zero_price=True),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert updated.status_code == 200, updated.text
+    assert updated.json()["show_zero_quantity"] is True
+    assert updated.json()["show_zero_price"] is True
+
+    account_id, company_id, _public_key = await _linked_account(session_factory)
+    captured: list[dict] = []
+
+    async def defaults(session, company_id):
+        return {
+            "warehouse": {"id": 3, "name": "Main"},
+            "price_type": {"id": 4, "name": "Wholesale"},
+            "currency": {"id": 1, "name": "UZS", "exchange_rate": 1},
+            "vat_calculation_type": "Include",
+        }
+
+    async def regos(session, company_id, endpoint, payload):
+        captured.append(payload)
+        return {"result": [], "next_offset": 0, "total": 0}
+
+    monkeypatch.setattr("app.services.partner_telegram_webapp._shop_defaults", defaults)
+    monkeypatch.setattr("app.services.partner_telegram_webapp.regos_async_api_request_for_company", regos)
+
+    from app.core.security import create_partner_telegram_token
+
+    access = create_partner_telegram_token(account_id=account_id, company_id=company_id)
+    options = await client.get(
+        "/api/v1/partner-telegram/webapp/catalog-options",
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert options.status_code == 200, options.text
+    assert options.json()["show_zero_quantity"] is True
+    assert options.json()["show_zero_price"] is True
+
+    all_products = await client.get(
+        "/api/v1/partner-telegram/webapp/products?filter_type=all",
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert all_products.status_code == 200, all_products.text
+    assert captured[-1]["zero_quantity"] is True
+    assert captured[-1]["zero_price"] is True
+
+    in_stock = await client.get(
+        "/api/v1/partner-telegram/webapp/products?filter_type=in-stock",
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert in_stock.status_code == 200, in_stock.text
+    assert captured[-1]["zero_quantity"] is False
+    assert captured[-1]["zero_price"] is True
 
 
 @pytest.mark.asyncio
@@ -420,6 +485,8 @@ async def test_phone_link_and_staff_correction(client, monkeypatch, session_fact
     saved = await _save_bot(client, token)
     menu_calls = [payload for method, payload in calls if method == "setChatMenuButton"]
     assert menu_calls[-1]["menu_button"]["web_app"]["url"] == saved["mini_app_url"]
+    assert menu_calls[-1]["menu_button"]["text"] == "App"
+    assert "chat_id" not in menu_calls[-1]
 
     async with session_factory() as session:
         from sqlalchemy import select
@@ -466,6 +533,14 @@ async def test_phone_link_and_staff_correction(client, monkeypatch, session_fact
     })
     assert language.status_code == 200
 
+    ru_menu = [
+        payload
+        for method, payload in calls
+        if method == "setChatMenuButton" and payload.get("chat_id") == 501
+    ]
+    assert ru_menu[-1]["menu_button"]["text"] == "Приложение"
+    assert ru_menu[-1]["menu_button"]["web_app"]["url"] == saved["mini_app_url"]
+
     accounts = await client.get(
         "/api/v1/partner-telegram/accounts",
         headers={"Authorization": f"Bearer {token}"},
@@ -496,6 +571,12 @@ async def test_phone_link_and_staff_correction(client, monkeypatch, session_fact
         }
     })
     assert again.status_code == 200
+    en_menu = [
+        payload
+        for method, payload in calls
+        if method == "setChatMenuButton" and payload.get("chat_id") == 501
+    ]
+    assert en_menu[-1]["menu_button"]["text"] == "App"
     accounts = await client.get(
         "/api/v1/partner-telegram/accounts",
         headers={"Authorization": f"Bearer {token}"},
@@ -529,7 +610,7 @@ async def test_phone_link_and_staff_correction(client, monkeypatch, session_fact
 
 @pytest.mark.asyncio
 async def test_ambiguous_phone_stays_unlinked(client, monkeypatch):
-    _mock_telegram_api(monkeypatch)
+    calls = _mock_telegram_api(monkeypatch)
     token = await _owner_token(client, "partner-ambiguous@test.com")
     bot = await _save_bot(client, token)
 
@@ -560,6 +641,12 @@ async def test_ambiguous_phone_stays_unlinked(client, monkeypatch):
             "message": {"chat": {"id": 8, "type": "private"}},
         }
     })
+    uz_menu = [
+        payload
+        for method, payload in calls
+        if method == "setChatMenuButton" and payload.get("chat_id") == 8
+    ]
+    assert uz_menu[-1]["menu_button"]["text"] == "Ilova"
     accounts = await client.get(
         "/api/v1/partner-telegram/accounts",
         headers={"Authorization": f"Bearer {token}"},

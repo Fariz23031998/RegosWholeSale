@@ -184,13 +184,20 @@ export function PartnerShell({ children }: { children: ReactNode }) {
     () => NAV.filter((item) => enabledPages[item.pageKey]),
     [enabledPages],
   );
-  const bottomNav = useMemo(
-    () =>
-      BOTTOM_NAV_KEYS.map((key) => visibleNav.find((item) => item.pageKey === key)).filter(
-        (item): item is NavItem => item != null,
-      ),
-    [visibleNav],
-  );
+  const bottomNav = useMemo(() => {
+    const preferred = BOTTOM_NAV_KEYS.map((key) =>
+      visibleNav.find((item) => item.pageKey === key),
+    ).filter((item): item is NavItem => item != null);
+    if (preferred.length >= BOTTOM_NAV_KEYS.length) return preferred;
+    const used = new Set(preferred.map((item) => item.pageKey));
+    const fallbacks = visibleNav.filter((item) => !used.has(item.pageKey));
+    const filled = [...preferred];
+    for (const item of fallbacks) {
+      if (filled.length >= BOTTOM_NAV_KEYS.length) break;
+      filled.push(item);
+    }
+    return filled;
+  }, [visibleNav]);
   const firstEnabledNav = visibleNav[0] ?? null;
   const catalogPath = `/partner/${publicKey}`;
   const isCatalogPage = location.pathname === catalogPath || location.pathname === `${catalogPath}/`;

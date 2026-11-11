@@ -100,6 +100,45 @@ async def test_owner_ignores_permission_rules(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_create_admin_with_empty_or_omitted_permission_rules(client: AsyncClient) -> None:
+    reg = await register_owner(client, email="admin-create@test.com", company_name="Admin Create Co")
+    owner_token = reg.json()["access_token"]
+
+    with_empty = await client.post(
+        "/api/v1/users",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={
+            "login": "admin-empty-rules",
+            "password": "password123",
+            "display_name": "Admin Empty Rules",
+            "role": "admin",
+            "permission_rules": [],
+        },
+    )
+    assert with_empty.status_code == 201, with_empty.text
+    empty_body = with_empty.json()
+    assert empty_body["role"] == "admin"
+    assert empty_body["permission_rules"] == []
+    assert "users.manage" in empty_body["permissions"]
+
+    omitted = await client.post(
+        "/api/v1/users",
+        headers={"Authorization": f"Bearer {owner_token}"},
+        json={
+            "login": "admin-omit-rules",
+            "password": "password123",
+            "display_name": "Admin Omit Rules",
+            "role": "admin",
+        },
+    )
+    assert omitted.status_code == 201, omitted.text
+    omit_body = omitted.json()
+    assert omit_body["role"] == "admin"
+    assert omit_body["permission_rules"] == []
+    assert "users.manage" in omit_body["permissions"]
+
+
+@pytest.mark.asyncio
 async def test_employee_without_print_cannot_load_templates(client: AsyncClient) -> None:
     reg = await register_owner(client, email="noprint@test.com", company_name="No Print Co")
     owner_token = reg.json()["access_token"]

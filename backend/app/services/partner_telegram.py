@@ -134,14 +134,44 @@ def mini_app_url(public_key: str) -> str:
     return f"{base}{suffix}"
 
 
-def _menu_button(public_key: str) -> dict[str, Any]:
+def _menu_button(public_key: str, text: str | None = None) -> dict[str, Any]:
     return {
         "menu_button": {
             "type": "web_app",
-            "text": "Orders",
+            "text": text or t("partnerTelegram.menuButton", "en"),
             "web_app": {"url": mini_app_url(public_key)},
         }
     }
+
+
+async def _set_chat_menu_button(
+    bot: PartnerTelegramBot,
+    *,
+    lang: str = "en",
+    chat_id: int | None = None,
+    best_effort: bool = False,
+) -> None:
+    url = mini_app_url(bot.public_key)
+    if not url:
+        return
+    payload = _menu_button(bot.public_key, t("partnerTelegram.menuButton", lang))
+    if chat_id is not None:
+        payload["chat_id"] = chat_id
+    try:
+        await telegram_service._telegram_api_call(
+            bot.bot_token,
+            "setChatMenuButton",
+            payload,
+        )
+    except Exception:
+        if not best_effort:
+            raise
+        logger.warning(
+            "Failed to set partner bot menu button company=%s chat_id=%s",
+            bot.company_id,
+            chat_id,
+            exc_info=True,
+        )
 
 
 def _require_public_urls() -> None:
@@ -244,6 +274,8 @@ def bot_to_dict(row: PartnerTelegramBot) -> dict[str, Any]:
         "allow_catalog_warehouse_selection": bool(row.allow_catalog_warehouse_selection),
         "allow_self_registration": bool(row.allow_self_registration),
         "show_product_quantities": bool(row.show_product_quantities),
+        "show_zero_quantity": bool(row.show_zero_quantity),
+        "show_zero_price": bool(row.show_zero_price),
         "auto_open_qty_keypad": bool(row.auto_open_qty_keypad),
         "default_partner_group_id": row.default_partner_group_id,
         "catalog_product_group_ids": _normalize_id_list(row.catalog_product_group_ids),
@@ -277,6 +309,8 @@ def _empty_bot() -> dict[str, Any]:
         "allow_catalog_warehouse_selection": False,
         "allow_self_registration": False,
         "show_product_quantities": True,
+        "show_zero_quantity": False,
+        "show_zero_price": False,
         "auto_open_qty_keypad": False,
         "default_partner_group_id": None,
         "catalog_product_group_ids": [],
@@ -310,13 +344,7 @@ async def _register_webhook_and_menu(row: PartnerTelegramBot) -> None:
                 "secret_token": row.webhook_secret,
             },
         )
-    url = mini_app_url(row.public_key)
-    if url:
-        await telegram_service._telegram_api_call(
-            row.bot_token,
-            "setChatMenuButton",
-            _menu_button(row.public_key),
-        )
+    await _set_chat_menu_button(row, lang="en")
 
 
 async def register_company_bot(
@@ -607,6 +635,9 @@ async def _handle_callback(
         return
 
     account.language_code = lang
+    await _set_chat_menu_button(
+        bot, lang=lang, chat_id=int(chat["id"]), best_effort=True
+    )
     if account.link_state == PartnerTelegramLinkState.linked.value and account.regos_partner_id:
         await session.flush()
         partner_name = await _partner_name(session, bot.company_id, account.regos_partner_id)
@@ -1076,6 +1107,10 @@ async def update_bot_settings(
     row.allow_catalog_warehouse_selection = bool(settings.get("allow_catalog_warehouse_selection"))
     row.allow_self_registration = bool(settings.get("allow_self_registration"))
     row.show_product_quantities = bool(settings.get("show_product_quantities", True))
+    if "show_zero_quantity" in settings:
+        row.show_zero_quantity = bool(settings.get("show_zero_quantity"))
+    if "show_zero_price" in settings:
+        row.show_zero_price = bool(settings.get("show_zero_price"))
     if "auto_open_qty_keypad" in settings:
         row.auto_open_qty_keypad = bool(settings.get("auto_open_qty_keypad"))
     if "enabled_pages" in settings:

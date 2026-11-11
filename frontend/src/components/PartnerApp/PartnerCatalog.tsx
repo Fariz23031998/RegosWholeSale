@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import clsx from "clsx";
 import { Minus, Plus, ShoppingBag, X } from "lucide-react";
@@ -40,6 +40,9 @@ type CartLine = {
 };
 
 type Panel = "shop" | "checkout";
+
+const CATALOG_PAGE_SIZE = 20;
+const LOAD_MORE_THRESHOLD_PX = 240;
 
 function productDisplayName(product: PartnerCatalogProduct): string {
   const unitName = product.unit_name.trim();
@@ -96,14 +99,20 @@ export function PartnerCatalog() {
   const [cart, setCart] = useState<CartLine[]>(() => readCart(publicKey));
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("in-stock");
+  const filterDefaultsForKey = useRef<string | null>(null);
   const [groupId, setGroupId] = useState<number | null>(null);
   const [groups, setGroups] = useState<PartnerProductGroup[]>([]);
   const [products, setProducts] = useState<PartnerCatalogProduct[]>([]);
+  const [nextOffset, setNextOffset] = useState(0);
+  const [catalogTotal, setCatalogTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [currency, setCurrency] = useState("");
   const [showQuantities, setShowQuantities] = useState(true);
+  const [showZeroQuantity, setShowZeroQuantity] = useState(false);
   const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
   const [keypadFor, setKeypadFor] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState("");
   const [optionsReady, setOptionsReady] = useState(false);
   const [allowWarehouse, setAllowWarehouse] = useState(false);
@@ -115,8 +124,45 @@ export function PartnerCatalog() {
   const [placing, setPlacing] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const productsRef = useRef<HTMLDivElement | null>(null);
+  const loadingMoreRef = useRef(false);
+  const lastRequestedOffsetRef = useRef<number | null>(null);
   const { setMobileCartNav } = usePartnerNav();
   const view = useCatalog((s) => s.mobileViewMode);
+
+  const catalogQuery = useMemo(
+    () => ({
+      search,
+      filterType: filter,
+      groupId,
+      warehouseId: allowWarehouse ? warehouseId : null,
+    }),
+    [allowWarehouse, filter, groupId, search, warehouseId],
+  );
+
+  const applyPage = useCallback(
+    (response: Awaited<ReturnType<typeof fetchPartnerProducts>>, mode: "replace" | "append") => {
+      setCurrency(response.currency_code || response.currency_name);
+      setNextOffset(response.next_offset);
+      setCatalogTotal(response.total);
+      let mergedLength = response.products.length;
+      setProducts((current) => {
+        if (mode === "replace") {
+          mergedLength = response.products.length;
+          return response.products;
+        }
+        const seen = new Set(current.map((item) => item.id));
+        const added = response.products.filter((item) => !seen.has(item.id));
+        const merged = [...current, ...added];
+        mergedLength = merged.length;
+        return merged;
+      });
+      const reachedTotal = response.total > 0 && mergedLength >= response.total;
+      const shortPage = response.products.length < CATALOG_PAGE_SIZE;
+      setHasMore(!reachedTotal && !shortPage && response.next_offset > 0);
+    },
+    [],
+  );
 
   useEffect(() => {
     sessionStorage.setItem(partnerCartKey(publicKey), JSON.stringify(cart));
@@ -165,7 +211,12 @@ export function PartnerCatalog() {
         setWarehouses(options.warehouses);
         setCurrency(options.currency_code || options.currency_name);
         setShowQuantities(options.show_product_quantities);
+        setShowZeroQuantity(Boolean(options.show_zero_quantity));
         setAutoOpenQtyKeypad(Boolean(options.auto_open_qty_keypad));
+        if (filterDefaultsForKey.current !== publicKey) {
+          filterDefaultsForKey.current = publicKey;
+          setFilter(options.show_zero_quantity ? "all" : "in-stock");
+        }
         const stored = Number(sessionStorage.getItem(partnerWarehouseKey(publicKey)) || "");
         const storedOk = options.warehouses.some((item) => item.id === stored);
         const next = options.allow_warehouse_selection && storedOk ? stored : options.warehouse_id;
@@ -187,21 +238,80 @@ export function PartnerCatalog() {
     const timer = window.setTimeout(() => {
       setLoading(true);
       setError("");
-      void fetchPartnerProducts(token, {
-        search,
-        filterType: filter,
-        groupId,
-        warehouseId: allowWarehouse ? warehouseId : null,
-      })
-        .then((response) => {
-          setProducts(response.products);
-          setCurrency(response.currency_code || response.currency_name);
+      setHasMore(false);
+      lastRequestedOffsetRef.current = 0;
+      void fetchPartnerProducts(token, { ...catalogQuery, offset: 0 })
+        .then((response) => applyPage(response, "replace"))
+        .catch((loadError) => {
+          setProducts([]);
+          setNextOffset(0);
+          setCatalogTotal(0);
+          setHasMore(false);
+          setError(formatAuthError(loadError));
         })
-        .catch((loadError) => setError(formatAuthError(loadError)))
         .finally(() => setLoading(false));
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [allowWarehouse, filter, groupId, optionsReady, panel, search, token, warehouseId]);
+  }, [applyPage, catalogQuery, optionsReady, panel, token]);
+
+  const loadMore = useCallback(async () => {
+    if (!optionsReady || panel !== "shop" || loading || loadingMoreRef.current || !hasMore) return;
+    const requestOffset = nextOffset > 0 ? nextOffset : products.length;
+    if (requestOffset <= 0) return;
+    if (lastRequestedOffsetRef.current === requestOffset) return;
+
+    loadingMoreRef.current = true;
+    lastRequestedOffsetRef.current = requestOffset;
+    setLoadingMore(true);
+    try {
+      const response = await fetchPartnerProducts(token, { ...catalogQuery, offset: requestOffset });
+      applyPage(response, "append");
+      if (response.products.length === 0) {
+        setHasMore(false);
+      }
+    } catch (loadError) {
+      lastRequestedOffsetRef.current = null;
+      setError(formatAuthError(loadError));
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }, [applyPage, catalogQuery, hasMore, loading, nextOffset, optionsReady, panel, products.length, token]);
+
+  const fillViewportIfNeeded = useCallback(() => {
+    if (loading || loadingMoreRef.current || !hasMore) return;
+    const el = productsRef.current;
+    if (!el || products.length === 0) return;
+    const remaining = el.scrollHeight - el.clientHeight;
+    if (remaining <= LOAD_MORE_THRESHOLD_PX) {
+      void loadMore();
+    }
+  }, [hasMore, loadMore, loading, products.length]);
+
+  useEffect(() => {
+    fillViewportIfNeeded();
+  }, [fillViewportIfNeeded, products.length, nextOffset, loading, loadingMore, hasMore]);
+
+  useEffect(() => {
+    const el = productsRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => fillViewportIfNeeded());
+    observer.observe(el);
+    window.addEventListener("resize", fillViewportIfNeeded);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", fillViewportIfNeeded);
+    };
+  }, [fillViewportIfNeeded]);
+
+  const handleProductsScroll = () => {
+    const el = productsRef.current;
+    if (!el || loading || loadingMoreRef.current || !hasMore) return;
+    const remaining = el.scrollHeight - el.scrollTop - el.clientHeight;
+    if (remaining < LOAD_MORE_THRESHOLD_PX) {
+      void loadMore();
+    }
+  };
 
   const add = (product: PartnerCatalogProduct) => {
     if (!canCreateOrders || product.available <= 0) return;
@@ -225,7 +335,6 @@ export function PartnerCatalog() {
     );
     if (autoOpenQtyKeypad) {
       setKeypadFor(product.id);
-      if (isMobile) setMobileCartOpen(true);
     }
   };
 
@@ -394,14 +503,30 @@ export function PartnerCatalog() {
                   ) : null}
                 </div>
                 <div className={styles.filters}>
-                  {(["in-stock", "low-stock", "cheap", "expensive"] as const).map((item) => (
+                  {(
+                    (showZeroQuantity
+                      ? (["all", "in-stock", "low-stock", "cheap", "expensive"] as const)
+                      : (["in-stock", "low-stock", "cheap", "expensive"] as const)
+                    )
+                  ).map((item) => (
                     <button
                       key={item}
                       type="button"
                       className={filter === item ? styles.chipOn : styles.chip}
                       onClick={() => setFilter(item)}
                     >
-                      {t(`partnerApp.${item === "in-stock" ? "inStock" : item === "low-stock" ? "lowStock" : item}`, item)}
+                      {t(
+                        `partnerApp.${
+                          item === "all"
+                            ? "allProducts"
+                            : item === "in-stock"
+                              ? "inStock"
+                              : item === "low-stock"
+                                ? "lowStock"
+                                : item
+                        }`,
+                        item === "all" ? "All" : item,
+                      )}
                     </button>
                   ))}
                 </div>
@@ -416,7 +541,11 @@ export function PartnerCatalog() {
                 onSelectGroup={setGroupId}
               />
             </div>
-            <div className={styles.catalogProducts}>
+            <div
+              ref={productsRef}
+              className={styles.catalogProducts}
+              onScroll={handleProductsScroll}
+            >
             {loading ? <p>{t("common.loading", "Loading...")}</p> : null}
             {error ? <p className={styles.error}>{error}</p> : null}
             {!loading && products.length === 0 ? <p>{t("partnerApp.emptyCatalog", "No products match this filter.")}</p> : null}
@@ -482,6 +611,18 @@ export function PartnerCatalog() {
                 );
               })}
             </div>
+            {loadingMore ? (
+              <div className={posStyles.loadMoreWrap}>
+                <p className={posStyles.loadMoreHint}>{t("common.loading", "Loading...")}</p>
+              </div>
+            ) : null}
+            {!loading && !loadingMore && hasMore && catalogTotal > products.length ? (
+              <div className={posStyles.loadMoreWrap}>
+                <p className={posStyles.loadMoreHint}>
+                  {t("partnerApp.scrollForMore", "Scroll for more products")}
+                </p>
+              </div>
+            ) : null}
             </div>
           </>
         )}

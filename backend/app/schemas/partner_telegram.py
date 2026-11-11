@@ -54,6 +54,8 @@ class PartnerTelegramBotResponse(BaseModel):
     allow_catalog_warehouse_selection: bool = False
     allow_self_registration: bool = False
     show_product_quantities: bool = True
+    show_zero_quantity: bool = False
+    show_zero_price: bool = False
     auto_open_qty_keypad: bool = False
     default_partner_group_id: int | None = None
     catalog_product_group_ids: list[int] = Field(default_factory=list)
@@ -79,6 +81,8 @@ class PartnerTelegramBotSettingsRequest(BaseModel):
     allow_catalog_warehouse_selection: bool = False
     allow_self_registration: bool = False
     show_product_quantities: bool = True
+    show_zero_quantity: bool = False
+    show_zero_price: bool = False
     auto_open_qty_keypad: bool = False
     default_partner_group_id: int | None = None
     catalog_product_group_ids: list[int] = Field(default_factory=list)
