@@ -13,6 +13,7 @@ from app.api.deps import (
 from app.core.exceptions import AppError, bad_request, not_found
 from app.database import get_db
 from app.schemas.partner_telegram import (
+    PartnerActivePartnerRequest,
     PartnerOrderCreateRequest,
     PartnerTelegramAccountResponse,
     PartnerTelegramAccountUpdateRequest,
@@ -88,8 +89,11 @@ async def delete_partner_bot(
 async def list_partner_accounts(
     current: CurrentUser = Depends(require_permission("settings.manage")),
     session: AsyncSession = Depends(get_db),
+    search: str | None = Query(default=None),
 ) -> list[PartnerTelegramAccountResponse]:
-    accounts = await partner_telegram_service.list_accounts(session, current.company_id)
+    accounts = await partner_telegram_service.list_accounts(
+        session, current.company_id, search=search
+    )
     return [PartnerTelegramAccountResponse(**account) for account in accounts]
 
 
@@ -130,6 +134,20 @@ async def update_partner_account(
     if updated is None:
         raise not_found("Partner Telegram account not found", "PARTNER_TELEGRAM_ACCOUNT_NOT_FOUND")
     return PartnerTelegramAccountResponse(**updated)
+
+
+@router.delete("/accounts/{account_id}", response_model=PartnerTelegramBotMessage)
+async def delete_partner_account(
+    account_id: int,
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerTelegramBotMessage:
+    deleted = await partner_telegram_service.delete_account(
+        session, current.company_id, account_id
+    )
+    if not deleted:
+        raise not_found("Partner Telegram account not found", "PARTNER_TELEGRAM_ACCOUNT_NOT_FOUND")
+    return PartnerTelegramBotMessage(message="Partner Telegram account deleted")
 
 
 @router.post("/webhook/{webhook_secret}")
@@ -203,6 +221,18 @@ async def partner_webapp_password_confirm(
         password=body.password,
     )
     return PartnerWebAppAuthResponse(**data)
+
+
+@router.post("/webapp/active-partner", response_model=PartnerTelegramAccountResponse)
+async def partner_webapp_set_active_partner(
+    body: PartnerActivePartnerRequest,
+    current: CurrentPartnerAccount = Depends(get_partner_telegram_account),
+    session: AsyncSession = Depends(get_db),
+) -> PartnerTelegramAccountResponse:
+    data = await partner_telegram_service.set_active_partner(
+        session, current.id, body.regos_partner_id
+    )
+    return PartnerTelegramAccountResponse(**data)
 
 
 @router.get("/webapp/me", response_model=PartnerTelegramAccountResponse)

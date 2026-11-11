@@ -165,6 +165,78 @@
   overflow: hidden;
 }
 
+.accountToolbar {
+  margin-bottom: var(--space-3);
+  max-width: 420px;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+  padding: 2px 8px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.active {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.inactive {
+  background: var(--color-surface-2);
+  color: var(--color-text-muted);
+}
+
+.partnerLinks {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 220px;
+}
+
+.partnerChip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  overflow: hidden;
+}
+
+.partnerChipActive {
+  border-color: var(--color-primary);
+}
+
+.partnerChipLabel {
+  flex: 1;
+  border: 0;
+  background: transparent;
+  color: var(--color-text);
+  text-align: left;
+  font-size: 13px;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.partnerChipLabel:disabled {
+  cursor: default;
+  font-weight: 600;
+}
+
+.partnerChipRemove {
+  border: 0;
+  border-left: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-text-muted);
+  padding: 6px 8px;
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+
 .tableWrap {
   display: flex;
   flex-direction: column;
@@ -235,6 +307,40 @@
   align-items: center;
   gap: 6px;
   font-size: 13px;
+}
+
+.scheduleList {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.scheduleCard {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-2);
+}
+
+.scheduleCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.scheduleCardTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.scheduleActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
 .pageList {

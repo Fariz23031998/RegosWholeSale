@@ -4,6 +4,13 @@ import type { PartnerBalanceRow } from "@/types/partners";
 
 export type PartnerOrderDocumentType = "doc_wholesale" | "doc_order_from_partner";
 
+export type PartnerBalanceNotifySchedule = {
+  id?: string | null;
+  time: string;
+  option: "daily" | "weekdays" | "monthly" | string;
+  days: number[];
+};
+
 export type PartnerTelegramBotConfig = {
   configured: boolean;
   bot_username: string | null;
@@ -23,9 +30,7 @@ export type PartnerTelegramBotConfig = {
   catalog_product_group_ids: number[];
   enabled_pages: PartnerEnabledPages;
   balance_notify_enabled: boolean;
-  balance_notify_time: string;
-  balance_notify_option: "daily" | "weekdays" | "monthly" | string;
-  balance_notify_days: number[];
+  balance_notify_schedules: PartnerBalanceNotifySchedule[];
   balance_notify_templates: {
     uz: string;
     ru: string;
@@ -40,6 +45,11 @@ export type PartnerTelegramBotMessage = {
   bot: PartnerTelegramBotConfig | null;
 };
 
+export type PartnerTelegramLinkedPartner = {
+  id: number;
+  name: string;
+};
+
 export type PartnerTelegramAccount = {
   id: number;
   telegram_user_id: number;
@@ -51,7 +61,9 @@ export type PartnerTelegramAccount = {
   language_code: string | null;
   regos_partner_id: number | null;
   partner_name: string | null;
+  partners: PartnerTelegramLinkedPartner[];
   link_state: "awaiting_language" | "unlinked" | "linked" | string;
+  is_active: boolean;
   warehouse_id: number | null;
   price_type_id: number | null;
   page_overrides: Partial<Record<PartnerPortalPageKey, boolean>>;
@@ -174,9 +186,7 @@ export async function savePartnerTelegramBotSettings(
     catalog_product_group_ids: number[];
     enabled_pages: PartnerEnabledPages;
     balance_notify_enabled: boolean;
-    balance_notify_time: string;
-    balance_notify_option: "daily" | "weekdays" | "monthly";
-    balance_notify_days: number[];
+    balance_notify_schedules: PartnerBalanceNotifySchedule[];
     balance_notify_templates: {
       uz: string;
       ru: string;
@@ -193,8 +203,15 @@ export async function savePartnerTelegramBotSettings(
   });
 }
 
-export async function fetchPartnerTelegramAccounts(token: string): Promise<PartnerTelegramAccount[]> {
-  return apiRequest("/api/v1/partner-telegram/accounts", { token });
+export async function fetchPartnerTelegramAccounts(
+  token: string,
+  options?: { search?: string },
+): Promise<PartnerTelegramAccount[]> {
+  const params = new URLSearchParams();
+  const search = options?.search?.trim();
+  if (search) params.set("search", search);
+  const query = params.toString();
+  return apiRequest(`/api/v1/partner-telegram/accounts${query ? `?${query}` : ""}`, { token });
 }
 
 export type PartnerTelegramImportFieldOption = {
@@ -246,6 +263,26 @@ export async function assignPartnerTelegramAccount(
   });
 }
 
+export async function setPartnerTelegramAccountPartners(
+  token: string,
+  accountId: number,
+  regosPartnerIds: number[],
+  activePartnerId?: number | null,
+): Promise<PartnerTelegramAccount> {
+  const body: {
+    regos_partner_ids: number[];
+    regos_partner_id?: number | null;
+  } = { regos_partner_ids: regosPartnerIds };
+  if (activePartnerId !== undefined) {
+    body.regos_partner_id = activePartnerId;
+  }
+  return apiRequest(`/api/v1/partner-telegram/accounts/${accountId}`, {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
 export async function updatePartnerTelegramAccount(
   token: string,
   accountId: number,
@@ -253,12 +290,36 @@ export async function updatePartnerTelegramAccount(
     warehouse_id?: number | null;
     price_type_id?: number | null;
     page_overrides?: Partial<Record<PartnerPortalPageKey, boolean>>;
+    is_active?: boolean;
+    regos_partner_ids?: number[];
+    regos_partner_id?: number | null;
   },
 ): Promise<PartnerTelegramAccount> {
   return apiRequest(`/api/v1/partner-telegram/accounts/${accountId}`, {
     method: "PATCH",
     token,
     body,
+  });
+}
+
+export async function deletePartnerTelegramAccount(
+  token: string,
+  accountId: number,
+): Promise<{ message: string }> {
+  return apiRequest(`/api/v1/partner-telegram/accounts/${accountId}`, {
+    method: "DELETE",
+    token,
+  });
+}
+
+export async function setPartnerWebAppActivePartner(
+  token: string,
+  regosPartnerId: number,
+): Promise<PartnerTelegramAccount> {
+  return apiRequest("/api/v1/partner-telegram/webapp/active-partner", {
+    method: "POST",
+    token,
+    body: { regos_partner_id: regosPartnerId },
   });
 }
 

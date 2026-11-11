@@ -92,15 +92,19 @@ class LanguageService {
   async initialize(): Promise<SupportedLanguage> {
     this.setLoading(true);
     const detectedLang = this.detectBrowserLanguage();
-    const storedLang = await getLanguageSetting<SupportedLanguage>("current_language");
-    const langToUse: SupportedLanguage = storedLang ?? detectedLang;
 
     try {
+      const storedLang = await getLanguageSetting<SupportedLanguage>("current_language");
+      const langToUse: SupportedLanguage = storedLang ?? detectedLang;
       await this.loadLanguage(langToUse);
     } catch (error) {
       console.error("Error loading language:", error);
       this.applyLanguage("en", this.getFallbackTranslations());
-      await saveLanguageSetting("current_language", "en");
+      try {
+        await saveLanguageSetting("current_language", "en");
+      } catch {
+        // Storage may be blocked (Safari private / insecure context).
+      }
     } finally {
       this.setLoading(false);
     }

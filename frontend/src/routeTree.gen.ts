@@ -9,60 +9,49 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as TableCheckRouteImport } from './routes/table-check'
-import { Route as ResetPasswordRouteImport } from './routes/reset-password'
-import { Route as RegisterRouteImport } from './routes/register'
-import { Route as LoginRouteImport } from './routes/login'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as RegisterRouteImport } from './routes/register'
+import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as TableCheckRouteImport } from './routes/table-check'
 import { Route as AppIndexRouteImport } from './routes/_app.index'
-import { Route as PartnerPublicKeyRouteImport } from './routes/partner.$publicKey'
-import { Route as AppUsersRouteImport } from './routes/_app.users'
-import { Route as AppTelegramUsersRouteImport } from './routes/_app.telegram-users'
-import { Route as AppSettingsRouteImport } from './routes/_app.settings'
-import { Route as AppSalesRouteImport } from './routes/_app.sales'
-import { Route as AppReturnsRouteImport } from './routes/_app.returns'
-import { Route as AppReceiptTemplatesRouteImport } from './routes/_app.receipt-templates'
-import { Route as AppPurchasesRouteImport } from './routes/_app.purchases'
-import { Route as AppProductsRouteImport } from './routes/_app.products'
-import { Route as AppPriceDocumentsRouteImport } from './routes/_app.price-documents'
-import { Route as AppPaymentsRouteImport } from './routes/_app.payments'
-import { Route as AppPartnerTelegramRouteImport } from './routes/_app.partner-telegram'
-import { Route as AppPartnerReturnsRouteImport } from './routes/_app.partner-returns'
-import { Route as AppMovementsRouteImport } from './routes/_app.movements'
-import { Route as AppLabelTemplatesRouteImport } from './routes/_app.label-templates'
-import { Route as AppInventoriesRouteImport } from './routes/_app.inventories'
-import { Route as AppInoutsRouteImport } from './routes/_app.inouts'
 import { Route as AppDashboardRouteImport } from './routes/_app.dashboard'
-import { Route as PartnerPublicKeyIndexRouteImport } from './routes/partner.$publicKey.index'
-import { Route as PublicTemplatesTokenRouteImport } from './routes/public.templates.$token'
-import { Route as PartnerPublicKeyShipmentsRouteImport } from './routes/partner.$publicKey.shipments'
-import { Route as PartnerPublicKeyShipmentReturnsRouteImport } from './routes/partner.$publicKey.shipment-returns'
-import { Route as PartnerPublicKeyReconciliationRouteImport } from './routes/partner.$publicKey.reconciliation'
-import { Route as PartnerPublicKeyPurchasesRouteImport } from './routes/partner.$publicKey.purchases'
-import { Route as PartnerPublicKeyPurchaseReturnsRouteImport } from './routes/partner.$publicKey.purchase-returns'
-import { Route as PartnerPublicKeyPaymentsRouteImport } from './routes/partner.$publicKey.payments'
-import { Route as PartnerPublicKeyOrdersRouteImport } from './routes/partner.$publicKey.orders'
-import { Route as PartnerPublicKeyDashboardRouteImport } from './routes/partner.$publicKey.dashboard'
-import { Route as AppPurchasesIdRouteImport } from './routes/_app.purchases_.$id'
-import { Route as AppPriceDocumentsIdRouteImport } from './routes/_app.price-documents_.$id'
-import { Route as AppPartnerReturnsIdRouteImport } from './routes/_app.partner-returns_.$id'
-import { Route as AppMovementsIdRouteImport } from './routes/_app.movements_.$id'
-import { Route as AppInventoriesIdRouteImport } from './routes/_app.inventories_.$id'
+import { Route as AppInoutsRouteImport } from './routes/_app.inouts'
+import { Route as AppInventoriesRouteImport } from './routes/_app.inventories'
+import { Route as AppLabelTemplatesRouteImport } from './routes/_app.label-templates'
+import { Route as AppMovementsRouteImport } from './routes/_app.movements'
+import { Route as AppPartnerReturnsRouteImport } from './routes/_app.partner-returns'
+import { Route as AppPartnerTelegramRouteImport } from './routes/_app.partner-telegram'
+import { Route as AppPaymentsRouteImport } from './routes/_app.payments'
+import { Route as AppPriceDocumentsRouteImport } from './routes/_app.price-documents'
+import { Route as AppProductsRouteImport } from './routes/_app.products'
+import { Route as AppPurchasesRouteImport } from './routes/_app.purchases'
+import { Route as AppReceiptTemplatesRouteImport } from './routes/_app.receipt-templates'
+import { Route as AppReturnsRouteImport } from './routes/_app.returns'
+import { Route as AppSalesRouteImport } from './routes/_app.sales'
+import { Route as AppSettingsRouteImport } from './routes/_app.settings'
+import { Route as AppTelegramUsersRouteImport } from './routes/_app.telegram-users'
+import { Route as AppUsersRouteImport } from './routes/_app.users'
+import { Route as PartnerPublicKeyRouteImport } from './routes/partner.$publicKey'
 import { Route as AppInoutsIdRouteImport } from './routes/_app.inouts_.$id'
+import { Route as AppInventoriesIdRouteImport } from './routes/_app.inventories_.$id'
+import { Route as AppMovementsIdRouteImport } from './routes/_app.movements_.$id'
+import { Route as AppPartnerReturnsIdRouteImport } from './routes/_app.partner-returns_.$id'
+import { Route as AppPriceDocumentsIdRouteImport } from './routes/_app.price-documents_.$id'
+import { Route as AppPurchasesIdRouteImport } from './routes/_app.purchases_.$id'
+import { Route as PartnerPublicKeyIndexRouteImport } from './routes/partner.$publicKey.index'
+import { Route as PartnerPublicKeyDashboardRouteImport } from './routes/partner.$publicKey.dashboard'
+import { Route as PartnerPublicKeyOrdersRouteImport } from './routes/partner.$publicKey.orders'
+import { Route as PartnerPublicKeyPaymentsRouteImport } from './routes/partner.$publicKey.payments'
+import { Route as PartnerPublicKeyPurchaseReturnsRouteImport } from './routes/partner.$publicKey.purchase-returns'
+import { Route as PartnerPublicKeyPurchasesRouteImport } from './routes/partner.$publicKey.purchases'
+import { Route as PartnerPublicKeyReconciliationRouteImport } from './routes/partner.$publicKey.reconciliation'
+import { Route as PartnerPublicKeyShipmentReturnsRouteImport } from './routes/partner.$publicKey.shipment-returns'
+import { Route as PartnerPublicKeyShipmentsRouteImport } from './routes/partner.$publicKey.shipments'
+import { Route as PublicTemplatesTokenRouteImport } from './routes/public.templates.$token'
 
-const TableCheckRoute = TableCheckRouteImport.update({
-  id: '/table-check',
-  path: '/table-check',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ResetPasswordRoute = ResetPasswordRouteImport.update({
-  id: '/reset-password',
-  path: '/reset-password',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const RegisterRoute = RegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
+const AppRoute = AppRouteImport.update({
+  id: '/_app',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -70,8 +59,19 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AppRoute = AppRouteImport.update({
-  id: '/_app',
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetPasswordRoute = ResetPasswordRouteImport.update({
+  id: '/reset-password',
+  path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TableCheckRoute = TableCheckRouteImport.update({
+  id: '/table-check',
+  path: '/table-check',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AppIndexRoute = AppIndexRouteImport.update({
@@ -79,84 +79,9 @@ const AppIndexRoute = AppIndexRouteImport.update({
   path: '/',
   getParentRoute: () => AppRoute,
 } as any)
-const PartnerPublicKeyRoute = PartnerPublicKeyRouteImport.update({
-  id: '/partner/$publicKey',
-  path: '/partner/$publicKey',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AppUsersRoute = AppUsersRouteImport.update({
-  id: '/users',
-  path: '/users',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppTelegramUsersRoute = AppTelegramUsersRouteImport.update({
-  id: '/telegram-users',
-  path: '/telegram-users',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSettingsRoute = AppSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppSalesRoute = AppSalesRouteImport.update({
-  id: '/sales',
-  path: '/sales',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppReturnsRoute = AppReturnsRouteImport.update({
-  id: '/returns',
-  path: '/returns',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppReceiptTemplatesRoute = AppReceiptTemplatesRouteImport.update({
-  id: '/receipt-templates',
-  path: '/receipt-templates',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPurchasesRoute = AppPurchasesRouteImport.update({
-  id: '/purchases',
-  path: '/purchases',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppProductsRoute = AppProductsRouteImport.update({
-  id: '/products',
-  path: '/products',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPriceDocumentsRoute = AppPriceDocumentsRouteImport.update({
-  id: '/price-documents',
-  path: '/price-documents',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPaymentsRoute = AppPaymentsRouteImport.update({
-  id: '/payments',
-  path: '/payments',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPartnerTelegramRoute = AppPartnerTelegramRouteImport.update({
-  id: '/partner-telegram',
-  path: '/partner-telegram',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPartnerReturnsRoute = AppPartnerReturnsRouteImport.update({
-  id: '/partner-returns',
-  path: '/partner-returns',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppMovementsRoute = AppMovementsRouteImport.update({
-  id: '/movements',
-  path: '/movements',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppLabelTemplatesRoute = AppLabelTemplatesRouteImport.update({
-  id: '/label-templates',
-  path: '/label-templates',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppInventoriesRoute = AppInventoriesRouteImport.update({
-  id: '/inventories',
-  path: '/inventories',
+const AppDashboardRoute = AppDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
   getParentRoute: () => AppRoute,
 } as any)
 const AppInoutsRoute = AppInoutsRouteImport.update({
@@ -164,60 +89,119 @@ const AppInoutsRoute = AppInoutsRouteImport.update({
   path: '/inouts',
   getParentRoute: () => AppRoute,
 } as any)
-const AppDashboardRoute = AppDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
+const AppInventoriesRoute = AppInventoriesRouteImport.update({
+  id: '/inventories',
+  path: '/inventories',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppLabelTemplatesRoute = AppLabelTemplatesRouteImport.update({
+  id: '/label-templates',
+  path: '/label-templates',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMovementsRoute = AppMovementsRouteImport.update({
+  id: '/movements',
+  path: '/movements',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPartnerReturnsRoute = AppPartnerReturnsRouteImport.update({
+  id: '/partner-returns',
+  path: '/partner-returns',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPartnerTelegramRoute = AppPartnerTelegramRouteImport.update({
+  id: '/partner-telegram',
+  path: '/partner-telegram',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPaymentsRoute = AppPaymentsRouteImport.update({
+  id: '/payments',
+  path: '/payments',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPriceDocumentsRoute = AppPriceDocumentsRouteImport.update({
+  id: '/price-documents',
+  path: '/price-documents',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppProductsRoute = AppProductsRouteImport.update({
+  id: '/products',
+  path: '/products',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPurchasesRoute = AppPurchasesRouteImport.update({
+  id: '/purchases',
+  path: '/purchases',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReceiptTemplatesRoute = AppReceiptTemplatesRouteImport.update({
+  id: '/receipt-templates',
+  path: '/receipt-templates',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppReturnsRoute = AppReturnsRouteImport.update({
+  id: '/returns',
+  path: '/returns',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSalesRoute = AppSalesRouteImport.update({
+  id: '/sales',
+  path: '/sales',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoute = AppSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppTelegramUsersRoute = AppTelegramUsersRouteImport.update({
+  id: '/telegram-users',
+  path: '/telegram-users',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppUsersRoute = AppUsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => AppRoute,
+} as any)
+const PartnerPublicKeyRoute = PartnerPublicKeyRouteImport.update({
+  id: '/partner/$publicKey',
+  path: '/partner/$publicKey',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AppInoutsIdRoute = AppInoutsIdRouteImport.update({
+  id: '/inouts_/$id',
+  path: '/inouts/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInventoriesIdRoute = AppInventoriesIdRouteImport.update({
+  id: '/inventories_/$id',
+  path: '/inventories/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppMovementsIdRoute = AppMovementsIdRouteImport.update({
+  id: '/movements_/$id',
+  path: '/movements/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPartnerReturnsIdRoute = AppPartnerReturnsIdRouteImport.update({
+  id: '/partner-returns_/$id',
+  path: '/partner-returns/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPriceDocumentsIdRoute = AppPriceDocumentsIdRouteImport.update({
+  id: '/price-documents_/$id',
+  path: '/price-documents/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppPurchasesIdRoute = AppPurchasesIdRouteImport.update({
+  id: '/purchases_/$id',
+  path: '/purchases/$id',
   getParentRoute: () => AppRoute,
 } as any)
 const PartnerPublicKeyIndexRoute = PartnerPublicKeyIndexRouteImport.update({
   id: '/',
   path: '/',
-  getParentRoute: () => PartnerPublicKeyRoute,
-} as any)
-const PublicTemplatesTokenRoute = PublicTemplatesTokenRouteImport.update({
-  id: '/public/templates/$token',
-  path: '/public/templates/$token',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PartnerPublicKeyShipmentsRoute =
-  PartnerPublicKeyShipmentsRouteImport.update({
-    id: '/shipments',
-    path: '/shipments',
-    getParentRoute: () => PartnerPublicKeyRoute,
-  } as any)
-const PartnerPublicKeyShipmentReturnsRoute =
-  PartnerPublicKeyShipmentReturnsRouteImport.update({
-    id: '/shipment-returns',
-    path: '/shipment-returns',
-    getParentRoute: () => PartnerPublicKeyRoute,
-  } as any)
-const PartnerPublicKeyReconciliationRoute =
-  PartnerPublicKeyReconciliationRouteImport.update({
-    id: '/reconciliation',
-    path: '/reconciliation',
-    getParentRoute: () => PartnerPublicKeyRoute,
-  } as any)
-const PartnerPublicKeyPurchasesRoute =
-  PartnerPublicKeyPurchasesRouteImport.update({
-    id: '/purchases',
-    path: '/purchases',
-    getParentRoute: () => PartnerPublicKeyRoute,
-  } as any)
-const PartnerPublicKeyPurchaseReturnsRoute =
-  PartnerPublicKeyPurchaseReturnsRouteImport.update({
-    id: '/purchase-returns',
-    path: '/purchase-returns',
-    getParentRoute: () => PartnerPublicKeyRoute,
-  } as any)
-const PartnerPublicKeyPaymentsRoute =
-  PartnerPublicKeyPaymentsRouteImport.update({
-    id: '/payments',
-    path: '/payments',
-    getParentRoute: () => PartnerPublicKeyRoute,
-  } as any)
-const PartnerPublicKeyOrdersRoute = PartnerPublicKeyOrdersRouteImport.update({
-  id: '/orders',
-  path: '/orders',
   getParentRoute: () => PartnerPublicKeyRoute,
 } as any)
 const PartnerPublicKeyDashboardRoute =
@@ -226,35 +210,51 @@ const PartnerPublicKeyDashboardRoute =
     path: '/dashboard',
     getParentRoute: () => PartnerPublicKeyRoute,
   } as any)
-const AppPurchasesIdRoute = AppPurchasesIdRouteImport.update({
-  id: '/purchases_/$id',
-  path: '/purchases/$id',
-  getParentRoute: () => AppRoute,
+const PartnerPublicKeyOrdersRoute = PartnerPublicKeyOrdersRouteImport.update({
+  id: '/orders',
+  path: '/orders',
+  getParentRoute: () => PartnerPublicKeyRoute,
 } as any)
-const AppPriceDocumentsIdRoute = AppPriceDocumentsIdRouteImport.update({
-  id: '/price-documents_/$id',
-  path: '/price-documents/$id',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppPartnerReturnsIdRoute = AppPartnerReturnsIdRouteImport.update({
-  id: '/partner-returns_/$id',
-  path: '/partner-returns/$id',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppMovementsIdRoute = AppMovementsIdRouteImport.update({
-  id: '/movements_/$id',
-  path: '/movements/$id',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppInventoriesIdRoute = AppInventoriesIdRouteImport.update({
-  id: '/inventories_/$id',
-  path: '/inventories/$id',
-  getParentRoute: () => AppRoute,
-} as any)
-const AppInoutsIdRoute = AppInoutsIdRouteImport.update({
-  id: '/inouts_/$id',
-  path: '/inouts/$id',
-  getParentRoute: () => AppRoute,
+const PartnerPublicKeyPaymentsRoute =
+  PartnerPublicKeyPaymentsRouteImport.update({
+    id: '/payments',
+    path: '/payments',
+    getParentRoute: () => PartnerPublicKeyRoute,
+  } as any)
+const PartnerPublicKeyPurchaseReturnsRoute =
+  PartnerPublicKeyPurchaseReturnsRouteImport.update({
+    id: '/purchase-returns',
+    path: '/purchase-returns',
+    getParentRoute: () => PartnerPublicKeyRoute,
+  } as any)
+const PartnerPublicKeyPurchasesRoute =
+  PartnerPublicKeyPurchasesRouteImport.update({
+    id: '/purchases',
+    path: '/purchases',
+    getParentRoute: () => PartnerPublicKeyRoute,
+  } as any)
+const PartnerPublicKeyReconciliationRoute =
+  PartnerPublicKeyReconciliationRouteImport.update({
+    id: '/reconciliation',
+    path: '/reconciliation',
+    getParentRoute: () => PartnerPublicKeyRoute,
+  } as any)
+const PartnerPublicKeyShipmentReturnsRoute =
+  PartnerPublicKeyShipmentReturnsRouteImport.update({
+    id: '/shipment-returns',
+    path: '/shipment-returns',
+    getParentRoute: () => PartnerPublicKeyRoute,
+  } as any)
+const PartnerPublicKeyShipmentsRoute =
+  PartnerPublicKeyShipmentsRouteImport.update({
+    id: '/shipments',
+    path: '/shipments',
+    getParentRoute: () => PartnerPublicKeyRoute,
+  } as any)
+const PublicTemplatesTokenRoute = PublicTemplatesTokenRouteImport.update({
+  id: '/public/templates/$token',
+  path: '/public/templates/$token',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
@@ -519,25 +519,11 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/table-check': {
-      id: '/table-check'
-      path: '/table-check'
-      fullPath: '/table-check'
-      preLoaderRoute: typeof TableCheckRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/reset-password': {
-      id: '/reset-password'
-      path: '/reset-password'
-      fullPath: '/reset-password'
-      preLoaderRoute: typeof ResetPasswordRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/register': {
-      id: '/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof RegisterRouteImport
+    '/_app': {
+      id: '/_app'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AppRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -547,11 +533,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_app': {
-      id: '/_app'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AppRouteImport
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset-password': {
+      id: '/reset-password'
+      path: '/reset-password'
+      fullPath: '/reset-password'
+      preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/table-check': {
+      id: '/table-check'
+      path: '/table-check'
+      fullPath: '/table-check'
+      preLoaderRoute: typeof TableCheckRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_app/': {
@@ -561,116 +561,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppIndexRouteImport
       parentRoute: typeof AppRoute
     }
-    '/partner/$publicKey': {
-      id: '/partner/$publicKey'
-      path: '/partner/$publicKey'
-      fullPath: '/partner/$publicKey'
-      preLoaderRoute: typeof PartnerPublicKeyRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_app/users': {
-      id: '/_app/users'
-      path: '/users'
-      fullPath: '/users'
-      preLoaderRoute: typeof AppUsersRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/telegram-users': {
-      id: '/_app/telegram-users'
-      path: '/telegram-users'
-      fullPath: '/telegram-users'
-      preLoaderRoute: typeof AppTelegramUsersRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/settings': {
-      id: '/_app/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof AppSettingsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/sales': {
-      id: '/_app/sales'
-      path: '/sales'
-      fullPath: '/sales'
-      preLoaderRoute: typeof AppSalesRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/returns': {
-      id: '/_app/returns'
-      path: '/returns'
-      fullPath: '/returns'
-      preLoaderRoute: typeof AppReturnsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/receipt-templates': {
-      id: '/_app/receipt-templates'
-      path: '/receipt-templates'
-      fullPath: '/receipt-templates'
-      preLoaderRoute: typeof AppReceiptTemplatesRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/purchases': {
-      id: '/_app/purchases'
-      path: '/purchases'
-      fullPath: '/purchases'
-      preLoaderRoute: typeof AppPurchasesRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/products': {
-      id: '/_app/products'
-      path: '/products'
-      fullPath: '/products'
-      preLoaderRoute: typeof AppProductsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/price-documents': {
-      id: '/_app/price-documents'
-      path: '/price-documents'
-      fullPath: '/price-documents'
-      preLoaderRoute: typeof AppPriceDocumentsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/payments': {
-      id: '/_app/payments'
-      path: '/payments'
-      fullPath: '/payments'
-      preLoaderRoute: typeof AppPaymentsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/partner-telegram': {
-      id: '/_app/partner-telegram'
-      path: '/partner-telegram'
-      fullPath: '/partner-telegram'
-      preLoaderRoute: typeof AppPartnerTelegramRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/partner-returns': {
-      id: '/_app/partner-returns'
-      path: '/partner-returns'
-      fullPath: '/partner-returns'
-      preLoaderRoute: typeof AppPartnerReturnsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/movements': {
-      id: '/_app/movements'
-      path: '/movements'
-      fullPath: '/movements'
-      preLoaderRoute: typeof AppMovementsRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/label-templates': {
-      id: '/_app/label-templates'
-      path: '/label-templates'
-      fullPath: '/label-templates'
-      preLoaderRoute: typeof AppLabelTemplatesRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/inventories': {
-      id: '/_app/inventories'
-      path: '/inventories'
-      fullPath: '/inventories'
-      preLoaderRoute: typeof AppInventoriesRouteImport
+    '/_app/dashboard': {
+      id: '/_app/dashboard'
+      path: '/dashboard'
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AppDashboardRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/inouts': {
@@ -680,109 +575,123 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInoutsRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/dashboard': {
-      id: '/_app/dashboard'
-      path: '/dashboard'
-      fullPath: '/dashboard'
-      preLoaderRoute: typeof AppDashboardRouteImport
+    '/_app/inventories': {
+      id: '/_app/inventories'
+      path: '/inventories'
+      fullPath: '/inventories'
+      preLoaderRoute: typeof AppInventoriesRouteImport
       parentRoute: typeof AppRoute
     }
-    '/partner/$publicKey/': {
-      id: '/partner/$publicKey/'
-      path: '/'
-      fullPath: '/partner/$publicKey/'
-      preLoaderRoute: typeof PartnerPublicKeyIndexRouteImport
-      parentRoute: typeof PartnerPublicKeyRoute
+    '/_app/label-templates': {
+      id: '/_app/label-templates'
+      path: '/label-templates'
+      fullPath: '/label-templates'
+      preLoaderRoute: typeof AppLabelTemplatesRouteImport
+      parentRoute: typeof AppRoute
     }
-    '/public/templates/$token': {
-      id: '/public/templates/$token'
-      path: '/public/templates/$token'
-      fullPath: '/public/templates/$token'
-      preLoaderRoute: typeof PublicTemplatesTokenRouteImport
+    '/_app/movements': {
+      id: '/_app/movements'
+      path: '/movements'
+      fullPath: '/movements'
+      preLoaderRoute: typeof AppMovementsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/partner-returns': {
+      id: '/_app/partner-returns'
+      path: '/partner-returns'
+      fullPath: '/partner-returns'
+      preLoaderRoute: typeof AppPartnerReturnsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/partner-telegram': {
+      id: '/_app/partner-telegram'
+      path: '/partner-telegram'
+      fullPath: '/partner-telegram'
+      preLoaderRoute: typeof AppPartnerTelegramRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/payments': {
+      id: '/_app/payments'
+      path: '/payments'
+      fullPath: '/payments'
+      preLoaderRoute: typeof AppPaymentsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/price-documents': {
+      id: '/_app/price-documents'
+      path: '/price-documents'
+      fullPath: '/price-documents'
+      preLoaderRoute: typeof AppPriceDocumentsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/products': {
+      id: '/_app/products'
+      path: '/products'
+      fullPath: '/products'
+      preLoaderRoute: typeof AppProductsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/purchases': {
+      id: '/_app/purchases'
+      path: '/purchases'
+      fullPath: '/purchases'
+      preLoaderRoute: typeof AppPurchasesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/receipt-templates': {
+      id: '/_app/receipt-templates'
+      path: '/receipt-templates'
+      fullPath: '/receipt-templates'
+      preLoaderRoute: typeof AppReceiptTemplatesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/returns': {
+      id: '/_app/returns'
+      path: '/returns'
+      fullPath: '/returns'
+      preLoaderRoute: typeof AppReturnsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/sales': {
+      id: '/_app/sales'
+      path: '/sales'
+      fullPath: '/sales'
+      preLoaderRoute: typeof AppSalesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings': {
+      id: '/_app/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AppSettingsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/telegram-users': {
+      id: '/_app/telegram-users'
+      path: '/telegram-users'
+      fullPath: '/telegram-users'
+      preLoaderRoute: typeof AppTelegramUsersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/users': {
+      id: '/_app/users'
+      path: '/users'
+      fullPath: '/users'
+      preLoaderRoute: typeof AppUsersRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/partner/$publicKey': {
+      id: '/partner/$publicKey'
+      path: '/partner/$publicKey'
+      fullPath: '/partner/$publicKey'
+      preLoaderRoute: typeof PartnerPublicKeyRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/partner/$publicKey/shipments': {
-      id: '/partner/$publicKey/shipments'
-      path: '/shipments'
-      fullPath: '/partner/$publicKey/shipments'
-      preLoaderRoute: typeof PartnerPublicKeyShipmentsRouteImport
-      parentRoute: typeof PartnerPublicKeyRoute
-    }
-    '/partner/$publicKey/shipment-returns': {
-      id: '/partner/$publicKey/shipment-returns'
-      path: '/shipment-returns'
-      fullPath: '/partner/$publicKey/shipment-returns'
-      preLoaderRoute: typeof PartnerPublicKeyShipmentReturnsRouteImport
-      parentRoute: typeof PartnerPublicKeyRoute
-    }
-    '/partner/$publicKey/reconciliation': {
-      id: '/partner/$publicKey/reconciliation'
-      path: '/reconciliation'
-      fullPath: '/partner/$publicKey/reconciliation'
-      preLoaderRoute: typeof PartnerPublicKeyReconciliationRouteImport
-      parentRoute: typeof PartnerPublicKeyRoute
-    }
-    '/partner/$publicKey/purchases': {
-      id: '/partner/$publicKey/purchases'
-      path: '/purchases'
-      fullPath: '/partner/$publicKey/purchases'
-      preLoaderRoute: typeof PartnerPublicKeyPurchasesRouteImport
-      parentRoute: typeof PartnerPublicKeyRoute
-    }
-    '/partner/$publicKey/purchase-returns': {
-      id: '/partner/$publicKey/purchase-returns'
-      path: '/purchase-returns'
-      fullPath: '/partner/$publicKey/purchase-returns'
-      preLoaderRoute: typeof PartnerPublicKeyPurchaseReturnsRouteImport
-      parentRoute: typeof PartnerPublicKeyRoute
-    }
-    '/partner/$publicKey/payments': {
-      id: '/partner/$publicKey/payments'
-      path: '/payments'
-      fullPath: '/partner/$publicKey/payments'
-      preLoaderRoute: typeof PartnerPublicKeyPaymentsRouteImport
-      parentRoute: typeof PartnerPublicKeyRoute
-    }
-    '/partner/$publicKey/orders': {
-      id: '/partner/$publicKey/orders'
-      path: '/orders'
-      fullPath: '/partner/$publicKey/orders'
-      preLoaderRoute: typeof PartnerPublicKeyOrdersRouteImport
-      parentRoute: typeof PartnerPublicKeyRoute
-    }
-    '/partner/$publicKey/dashboard': {
-      id: '/partner/$publicKey/dashboard'
-      path: '/dashboard'
-      fullPath: '/partner/$publicKey/dashboard'
-      preLoaderRoute: typeof PartnerPublicKeyDashboardRouteImport
-      parentRoute: typeof PartnerPublicKeyRoute
-    }
-    '/_app/purchases_/$id': {
-      id: '/_app/purchases_/$id'
-      path: '/purchases/$id'
-      fullPath: '/purchases/$id'
-      preLoaderRoute: typeof AppPurchasesIdRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/price-documents_/$id': {
-      id: '/_app/price-documents_/$id'
-      path: '/price-documents/$id'
-      fullPath: '/price-documents/$id'
-      preLoaderRoute: typeof AppPriceDocumentsIdRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/partner-returns_/$id': {
-      id: '/_app/partner-returns_/$id'
-      path: '/partner-returns/$id'
-      fullPath: '/partner-returns/$id'
-      preLoaderRoute: typeof AppPartnerReturnsIdRouteImport
-      parentRoute: typeof AppRoute
-    }
-    '/_app/movements_/$id': {
-      id: '/_app/movements_/$id'
-      path: '/movements/$id'
-      fullPath: '/movements/$id'
-      preLoaderRoute: typeof AppMovementsIdRouteImport
+    '/_app/inouts_/$id': {
+      id: '/_app/inouts_/$id'
+      path: '/inouts/$id'
+      fullPath: '/inouts/$id'
+      preLoaderRoute: typeof AppInoutsIdRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/inventories_/$id': {
@@ -792,12 +701,103 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInventoriesIdRouteImport
       parentRoute: typeof AppRoute
     }
-    '/_app/inouts_/$id': {
-      id: '/_app/inouts_/$id'
-      path: '/inouts/$id'
-      fullPath: '/inouts/$id'
-      preLoaderRoute: typeof AppInoutsIdRouteImport
+    '/_app/movements_/$id': {
+      id: '/_app/movements_/$id'
+      path: '/movements/$id'
+      fullPath: '/movements/$id'
+      preLoaderRoute: typeof AppMovementsIdRouteImport
       parentRoute: typeof AppRoute
+    }
+    '/_app/partner-returns_/$id': {
+      id: '/_app/partner-returns_/$id'
+      path: '/partner-returns/$id'
+      fullPath: '/partner-returns/$id'
+      preLoaderRoute: typeof AppPartnerReturnsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/price-documents_/$id': {
+      id: '/_app/price-documents_/$id'
+      path: '/price-documents/$id'
+      fullPath: '/price-documents/$id'
+      preLoaderRoute: typeof AppPriceDocumentsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/purchases_/$id': {
+      id: '/_app/purchases_/$id'
+      path: '/purchases/$id'
+      fullPath: '/purchases/$id'
+      preLoaderRoute: typeof AppPurchasesIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/partner/$publicKey/': {
+      id: '/partner/$publicKey/'
+      path: '/'
+      fullPath: '/partner/$publicKey/'
+      preLoaderRoute: typeof PartnerPublicKeyIndexRouteImport
+      parentRoute: typeof PartnerPublicKeyRoute
+    }
+    '/partner/$publicKey/dashboard': {
+      id: '/partner/$publicKey/dashboard'
+      path: '/dashboard'
+      fullPath: '/partner/$publicKey/dashboard'
+      preLoaderRoute: typeof PartnerPublicKeyDashboardRouteImport
+      parentRoute: typeof PartnerPublicKeyRoute
+    }
+    '/partner/$publicKey/orders': {
+      id: '/partner/$publicKey/orders'
+      path: '/orders'
+      fullPath: '/partner/$publicKey/orders'
+      preLoaderRoute: typeof PartnerPublicKeyOrdersRouteImport
+      parentRoute: typeof PartnerPublicKeyRoute
+    }
+    '/partner/$publicKey/payments': {
+      id: '/partner/$publicKey/payments'
+      path: '/payments'
+      fullPath: '/partner/$publicKey/payments'
+      preLoaderRoute: typeof PartnerPublicKeyPaymentsRouteImport
+      parentRoute: typeof PartnerPublicKeyRoute
+    }
+    '/partner/$publicKey/purchase-returns': {
+      id: '/partner/$publicKey/purchase-returns'
+      path: '/purchase-returns'
+      fullPath: '/partner/$publicKey/purchase-returns'
+      preLoaderRoute: typeof PartnerPublicKeyPurchaseReturnsRouteImport
+      parentRoute: typeof PartnerPublicKeyRoute
+    }
+    '/partner/$publicKey/purchases': {
+      id: '/partner/$publicKey/purchases'
+      path: '/purchases'
+      fullPath: '/partner/$publicKey/purchases'
+      preLoaderRoute: typeof PartnerPublicKeyPurchasesRouteImport
+      parentRoute: typeof PartnerPublicKeyRoute
+    }
+    '/partner/$publicKey/reconciliation': {
+      id: '/partner/$publicKey/reconciliation'
+      path: '/reconciliation'
+      fullPath: '/partner/$publicKey/reconciliation'
+      preLoaderRoute: typeof PartnerPublicKeyReconciliationRouteImport
+      parentRoute: typeof PartnerPublicKeyRoute
+    }
+    '/partner/$publicKey/shipment-returns': {
+      id: '/partner/$publicKey/shipment-returns'
+      path: '/shipment-returns'
+      fullPath: '/partner/$publicKey/shipment-returns'
+      preLoaderRoute: typeof PartnerPublicKeyShipmentReturnsRouteImport
+      parentRoute: typeof PartnerPublicKeyRoute
+    }
+    '/partner/$publicKey/shipments': {
+      id: '/partner/$publicKey/shipments'
+      path: '/shipments'
+      fullPath: '/partner/$publicKey/shipments'
+      preLoaderRoute: typeof PartnerPublicKeyShipmentsRouteImport
+      parentRoute: typeof PartnerPublicKeyRoute
+    }
+    '/public/templates/$token': {
+      id: '/public/templates/$token'
+      path: '/public/templates/$token'
+      fullPath: '/public/templates/$token'
+      preLoaderRoute: typeof PublicTemplatesTokenRouteImport
+      parentRoute: typeof rootRouteImport
     }
   }
 }

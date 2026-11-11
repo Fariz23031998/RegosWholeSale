@@ -16,7 +16,7 @@ import {
   type PartnerPortalPageKey,
 } from "@/lib/partner-portal-pages";
 import {
-  assignPartnerTelegramAccount,
+  deletePartnerTelegramAccount,
   deletePartnerTelegramBot,
   fetchPartnerTelegramAccounts,
   fetchPartnerTelegramBot,
@@ -24,7 +24,9 @@ import {
   importPartnerTelegramAccountsFromField,
   savePartnerTelegramBot,
   savePartnerTelegramBotSettings,
+  setPartnerTelegramAccountPartners,
   updatePartnerTelegramAccount,
+  type PartnerBalanceNotifySchedule,
   type PartnerOrderDocumentType,
   type PartnerTelegramAccount,
   type PartnerTelegramImportFromFieldResponse,
@@ -37,6 +39,18 @@ import styles from "./PartnerTelegram.module.css";
 
 type PageOverrideChoice = "default" | "on" | "off";
 type PartnerTelegramTab = "bot" | "accounts";
+type BalanceScheduleOption = "daily" | "weekdays" | "monthly";
+
+type BalanceScheduleDraft = {
+  key: string;
+  id?: string;
+  time: string;
+  option: BalanceScheduleOption;
+  weekdays: number[];
+  monthDays: string;
+};
+
+const MAX_BALANCE_SCHEDULES = 10;
 
 const WEEKDAYS = [
   ["monday", 0, "Monday"],
@@ -53,18 +67,60 @@ function toggleDay(current: number[], day: number): number[] {
   return next.sort((left, right) => left - right);
 }
 
-function balanceDaysToSave(
-  option: "daily" | "weekdays" | "monthly",
-  weekdays: number[],
-  monthDays: string,
-): number[] {
-  if (option === "weekdays") return weekdays;
-  if (option !== "monthly") return [];
-  const days = monthDays
-    .split(/[^0-9]+/)
+function newScheduleKey(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `schedule-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+function createBalanceScheduleDraft(
+  partial?: Partial<Omit<BalanceScheduleDraft, "key">> & { key?: string },
+): BalanceScheduleDraft {
+  return {
+    key: partial?.key ?? newScheduleKey(),
+    id: partial?.id,
+    time: partial?.time ?? "09:00",
+    option: partial?.option ?? "daily",
+    weekdays: partial?.weekdays ?? [],
+    monthDays: partial?.monthDays ?? "",
+  };
+}
+
+function parseMonthDays(monthDays: string): number[] {
+  const matches = monthDays.match(/-?\d+/g) ?? [];
+  const days = matches
     .map((item) => Number(item))
-    .filter((item) => item >= 1 && item <= 31);
+    .filter((item) => Number.isInteger(item) && item !== 0 && item >= -31 && item <= 31);
   return [...new Set(days)].sort((left, right) => left - right);
+}
+
+function balanceDaysToSave(schedule: BalanceScheduleDraft): number[] {
+  if (schedule.option === "weekdays") return schedule.weekdays;
+  if (schedule.option !== "monthly") return [];
+  return parseMonthDays(schedule.monthDays);
+}
+
+function scheduleDraftFromApi(schedule: PartnerBalanceNotifySchedule): BalanceScheduleDraft {
+  const option: BalanceScheduleOption =
+    schedule.option === "weekdays" || schedule.option === "monthly" ? schedule.option : "daily";
+  const days = Array.isArray(schedule.days) ? schedule.days : [];
+  return createBalanceScheduleDraft({
+    id: typeof schedule.id === "string" && schedule.id ? schedule.id : undefined,
+    time: schedule.time || "09:00",
+    option,
+    weekdays: option === "weekdays" ? days : [],
+    monthDays: option === "monthly" ? days.join(", ") : "",
+  });
+}
+
+function schedulesToSave(schedules: BalanceScheduleDraft[]): PartnerBalanceNotifySchedule[] {
+  return schedules.map((schedule) => ({
+    ...(schedule.id ? { id: schedule.id } : {}),
+    time: schedule.time || "09:00",
+    option: schedule.option,
+    days: balanceDaysToSave(schedule),
+  }));
 }
 
 function accountName(account: PartnerTelegramAccount): string {
@@ -94,10 +150,9 @@ export function PartnerTelegramPage() {
   const [enabledPages, setEnabledPages] = useState<PartnerEnabledPages>(defaultEnabledPages);
   const [catalogGroupIds, setCatalogGroupIds] = useState<number[]>([]);
   const [balanceEnabled, setBalanceEnabled] = useState(false);
-  const [balanceTime, setBalanceTime] = useState("09:00");
-  const [balanceOption, setBalanceOption] = useState<"daily" | "weekdays" | "monthly">("daily");
-  const [balanceDays, setBalanceDays] = useState<number[]>([]);
-  const [monthDays, setMonthDays] = useState("");
+  const [balanceSchedules, setBalanceSchedules] = useState<BalanceScheduleDraft[]>(() => [
+    createBalanceScheduleDraft(),
+  ]);
   const [balanceTemplates, setBalanceTemplates] = useState({ uz: "", ru: "", en: "" });
   const [orderDocumentType, setOrderDocumentType] =
     useState<PartnerOrderDocumentType>("doc_order_from_partner");
@@ -109,6 +164,15 @@ export function PartnerTelegramPage() {
   const [importSummary, setImportSummary] = useState<PartnerTelegramImportFromFieldResponse | null>(
     null,
   );
+  const [accountSearchInput, setAccountSearchInput] = useState("");
+  const [accountSearch, setAccountSearch] = useState("");
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setAccountSearch(accountSearchInput.trim());
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [accountSearchInput]);
 
   const botQuery = useQuery({
     queryKey: ["partner-telegram", "bot", token],
@@ -116,8 +180,8 @@ export function PartnerTelegramPage() {
     enabled: Boolean(token),
   });
   const accountsQuery = useQuery({
-    queryKey: ["partner-telegram", "accounts", token],
-    queryFn: () => fetchPartnerTelegramAccounts(token ?? ""),
+    queryKey: ["partner-telegram", "accounts", token, accountSearch],
+    queryFn: () => fetchPartnerTelegramAccounts(token ?? "", { search: accountSearch }),
     enabled: Boolean(token),
   });
   const importFieldsQuery = useQuery({
@@ -156,19 +220,8 @@ export function PartnerTelegramPage() {
     setEnabledPages(normalizeEnabledPages(bot.enabled_pages));
     setCatalogGroupIds(bot.catalog_product_group_ids ?? []);
     setBalanceEnabled(Boolean(bot.balance_notify_enabled));
-    setBalanceTime(bot.balance_notify_time || "09:00");
-    const option = bot.balance_notify_option === "weekdays" || bot.balance_notify_option === "monthly"
-      ? bot.balance_notify_option
-      : "daily";
-    setBalanceOption(option);
-    const days = bot.balance_notify_days ?? [];
-    if (option === "monthly") {
-      setMonthDays(days.join(", "));
-      setBalanceDays([]);
-    } else {
-      setBalanceDays(days);
-      setMonthDays("");
-    }
+    const loadedSchedules = (bot.balance_notify_schedules ?? []).map(scheduleDraftFromApi);
+    setBalanceSchedules(loadedSchedules.length > 0 ? loadedSchedules : [createBalanceScheduleDraft()]);
     const templates = bot.balance_notify_templates;
     setBalanceTemplates({
       uz: templates?.uz ?? "",
@@ -217,9 +270,7 @@ export function PartnerTelegramPage() {
         catalog_product_group_ids: catalogGroupIds,
         enabled_pages: enabledPages,
         balance_notify_enabled: balanceEnabled,
-        balance_notify_time: balanceTime || "09:00",
-        balance_notify_option: balanceOption,
-        balance_notify_days: balanceDaysToSave(balanceOption, balanceDays, monthDays),
+        balance_notify_schedules: schedulesToSave(balanceSchedules),
         balance_notify_templates: balanceTemplates,
         order_document_type: orderDocumentType,
         order_booked: orderBooked,
@@ -272,9 +323,19 @@ export function PartnerTelegramPage() {
         cell: ({ getValue }) => getValue<string>() || "—",
       },
       {
+        id: "status",
+        accessorFn: (account) => (account.is_active ? "active" : "inactive"),
+        header: t("common.status", "Status"),
+        size: 110,
+      },
+      {
         id: "partner",
-        accessorFn: (account) => account.partner_name ?? "",
+        accessorFn: (account) =>
+          (account.partners ?? [])
+            .map((partner) => partner.name)
+            .join(", ") || account.partner_name || "",
         header: t("partnerTelegram.partner", "Partner"),
+        size: 260,
       },
       {
         id: "warehouse",
@@ -293,7 +354,7 @@ export function PartnerTelegramPage() {
         header: t("common.actions", "Actions"),
         enableSorting: false,
         enableHiding: false,
-        size: 240,
+        size: 280,
       },
     ],
     [t],
@@ -553,66 +614,167 @@ export function PartnerTelegramPage() {
                   <p className={styles.hint}>
                     {t(
                       "partnerTelegram.balanceScheduleHint",
-                      "At the chosen time, linked partners who owe the company receive a balance message and an Excel file.",
+                      "At each scheduled time, linked partners who owe the company receive a balance message and an Excel file. All schedules share the same message templates.",
                     )}
                   </p>
-                  <label className={styles.label}>
-                    {t("partnerTelegram.balanceTime", "Time")}
-                    <input
-                      className={styles.input}
-                      type="time"
-                      value={balanceTime}
-                      onChange={(event) => setBalanceTime(event.target.value)}
-                    />
-                  </label>
-                  <label className={styles.label}>
-                    {t("partnerTelegram.balanceOption", "Schedule")}
-                    <select
-                      className={styles.input}
-                      value={balanceOption}
-                      onChange={(event) => {
-                        const next = event.target.value as "daily" | "weekdays" | "monthly";
-                        setBalanceOption(next);
-                        if (next === "weekdays" && balanceDays.length === 0) setBalanceDays([0]);
-                        if (next === "monthly" && !monthDays.trim()) setMonthDays("1");
-                      }}
-                    >
-                      <option value="daily">{t("partnerTelegram.balanceOption.daily", "Every day")}</option>
-                      <option value="weekdays">{t("partnerTelegram.balanceOption.weekdays", "Selected weekdays")}</option>
-                      <option value="monthly">{t("partnerTelegram.balanceOption.monthly", "Selected days of the month")}</option>
-                    </select>
-                  </label>
-                  {balanceOption === "weekdays" ? (
-                    <div>
-                      <div className={styles.label}>{t("partnerTelegram.balanceWeekdays", "Weekdays")}</div>
-                      <div className={styles.dayList}>
-                        {WEEKDAYS.map(([key, day, label]) => (
-                          <label key={key}>
+                  <div className={styles.label}>{t("partnerTelegram.balanceSchedules", "Schedules")}</div>
+                  <div className={styles.scheduleList}>
+                    {balanceSchedules.map((schedule, index) => (
+                      <div key={schedule.key} className={styles.scheduleCard}>
+                        <div className={styles.scheduleCardHeader}>
+                          <div className={styles.scheduleCardTitle}>
+                            {t("partnerTelegram.balanceScheduleItem", "Schedule {{n}}").replace(
+                              "{{n}}",
+                              String(index + 1),
+                            )}
+                          </div>
+                          {balanceSchedules.length > 1 ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              disabled={savingBot}
+                              onClick={() =>
+                                setBalanceSchedules((current) =>
+                                  current.filter((item) => item.key !== schedule.key),
+                                )
+                              }
+                            >
+                              {t("partnerTelegram.balanceRemoveSchedule", "Remove")}
+                            </Button>
+                          ) : null}
+                        </div>
+                        <label className={styles.label}>
+                          {t("partnerTelegram.balanceTime", "Time")}
+                          <input
+                            className={styles.input}
+                            type="time"
+                            value={schedule.time}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setBalanceSchedules((current) =>
+                                current.map((item) =>
+                                  item.key === schedule.key ? { ...item, time: value } : item,
+                                ),
+                              );
+                            }}
+                          />
+                        </label>
+                        <label className={styles.label}>
+                          {t("partnerTelegram.balanceOption", "Schedule")}
+                          <select
+                            className={styles.input}
+                            value={schedule.option}
+                            onChange={(event) => {
+                              const next = event.target.value as BalanceScheduleOption;
+                              setBalanceSchedules((current) =>
+                                current.map((item) => {
+                                  if (item.key !== schedule.key) return item;
+                                  return {
+                                    ...item,
+                                    option: next,
+                                    weekdays:
+                                      next === "weekdays" && item.weekdays.length === 0
+                                        ? [0]
+                                        : item.weekdays,
+                                    monthDays:
+                                      next === "monthly" && !item.monthDays.trim()
+                                        ? "1"
+                                        : item.monthDays,
+                                  };
+                                }),
+                              );
+                            }}
+                          >
+                            <option value="daily">
+                              {t("partnerTelegram.balanceOption.daily", "Every day")}
+                            </option>
+                            <option value="weekdays">
+                              {t("partnerTelegram.balanceOption.weekdays", "Selected weekdays")}
+                            </option>
+                            <option value="monthly">
+                              {t(
+                                "partnerTelegram.balanceOption.monthly",
+                                "Selected days of the month",
+                              )}
+                            </option>
+                          </select>
+                        </label>
+                        {schedule.option === "weekdays" ? (
+                          <div>
+                            <div className={styles.label}>
+                              {t("partnerTelegram.balanceWeekdays", "Weekdays")}
+                            </div>
+                            <div className={styles.dayList}>
+                              {WEEKDAYS.map(([key, day, label]) => (
+                                <label key={key}>
+                                  <input
+                                    type="checkbox"
+                                    checked={schedule.weekdays.includes(day)}
+                                    onChange={() =>
+                                      setBalanceSchedules((current) =>
+                                        current.map((item) =>
+                                          item.key === schedule.key
+                                            ? {
+                                                ...item,
+                                                weekdays: toggleDay(item.weekdays, day),
+                                              }
+                                            : item,
+                                        ),
+                                      )
+                                    }
+                                  />
+                                  {t(`partnerTelegram.weekday.${key}`, label)}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ) : null}
+                        {schedule.option === "monthly" ? (
+                          <label className={styles.label}>
+                            {t("partnerTelegram.balanceMonthDays", "Days of the month")}
                             <input
-                              type="checkbox"
-                              checked={balanceDays.includes(day)}
-                              onChange={() => setBalanceDays((current) => toggleDay(current, day))}
+                              className={styles.input}
+                              value={schedule.monthDays}
+                              onChange={(event) => {
+                                const value = event.target.value;
+                                setBalanceSchedules((current) =>
+                                  current.map((item) =>
+                                    item.key === schedule.key
+                                      ? { ...item, monthDays: value }
+                                      : item,
+                                  ),
+                                );
+                              }}
+                              placeholder="1, 15, -1"
                             />
-                            {t(`partnerTelegram.weekday.${key}`, label)}
+                            <span className={styles.hint}>
+                              {t(
+                                "partnerTelegram.balanceMonthDaysHint",
+                                "Comma-separated days from 1 to 31. Use negative values to count from the end of the month (−1 = last day, −2 = second-to-last).",
+                              )}
+                            </span>
                           </label>
-                        ))}
+                        ) : null}
                       </div>
-                    </div>
-                  ) : null}
-                  {balanceOption === "monthly" ? (
-                    <label className={styles.label}>
-                      {t("partnerTelegram.balanceMonthDays", "Days of the month")}
-                      <input
-                        className={styles.input}
-                        value={monthDays}
-                        onChange={(event) => setMonthDays(event.target.value)}
-                        placeholder="1, 15"
-                      />
-                      <span className={styles.hint}>
-                        {t("partnerTelegram.balanceMonthDaysHint", "Comma-separated days from 1 to 31.")}
-                      </span>
-                    </label>
-                  ) : null}
+                    ))}
+                  </div>
+                  <div className={styles.scheduleActions}>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      disabled={savingBot || balanceSchedules.length >= MAX_BALANCE_SCHEDULES}
+                      onClick={() =>
+                        setBalanceSchedules((current) => [
+                          ...current,
+                          createBalanceScheduleDraft(),
+                        ])
+                      }
+                    >
+                      {t("partnerTelegram.balanceAddSchedule", "Add schedule")}
+                    </Button>
+                  </div>
                   <div>
                     <div className={styles.label}>{t("partnerTelegram.balanceTemplates", "Message templates")}</div>
                     <p className={styles.hint}>
@@ -706,6 +868,7 @@ export function PartnerTelegramPage() {
                       setImportSummary(summary);
                       await queryClient.invalidateQueries({
                         queryKey: ["partner-telegram", "accounts", token],
+                        exact: false,
                       });
                     })
                     .catch((error) => setImportError(formatAuthError(error)))
@@ -741,10 +904,25 @@ export function PartnerTelegramPage() {
           </section>
           <section className={`${styles.card} ${styles.accountsCard}`}>
             <h2 className={styles.cardTitle}>{t("partnerTelegram.accountsTitle", "Telegram accounts")}</h2>
+            <div className={styles.accountToolbar}>
+              <input
+                className={styles.input}
+                value={accountSearchInput}
+                onChange={(event) => setAccountSearchInput(event.target.value)}
+                placeholder={t(
+                  "partnerTelegram.searchAccounts",
+                  "Search by name, phone, username, or partner",
+                )}
+              />
+            </div>
             {accountsQuery.isPending ? <p className={styles.hint}>{t("common.loading", "Loading...")}</p> : null}
             {accountsQuery.error ? <p className={styles.error}>{formatAuthError(accountsQuery.error)}</p> : null}
             {!accountsQuery.isPending && accounts.length === 0 ? (
-              <p className={styles.hint}>{t("partnerTelegram.empty", "No partner has opened the bot yet.")}</p>
+              <p className={styles.hint}>
+                {accountSearch
+                  ? t("partnerTelegram.searchEmpty", "No accounts match this search.")
+                  : t("partnerTelegram.empty", "No partner has opened the bot yet.")}
+              </p>
             ) : null}
             {accounts.length > 0 ? (
               <div className={styles.tableWrap}>
@@ -761,6 +939,7 @@ export function PartnerTelegramPage() {
                         account={row.original}
                         columns={table.getVisibleLeafColumns()}
                         token={token ?? ""}
+                        accountSearch={accountSearch}
                         warehouses={referencesQuery.data?.warehouses ?? []}
                         priceTypes={referencesQuery.data?.price_types ?? []}
                         botEnabledPages={normalizeEnabledPages(bot?.enabled_pages)}
@@ -781,6 +960,7 @@ function AccountRow({
   account,
   columns,
   token,
+  accountSearch,
   warehouses,
   priceTypes,
   botEnabledPages,
@@ -788,6 +968,7 @@ function AccountRow({
   account: PartnerTelegramAccount;
   columns: Column<PartnerTelegramAccount, unknown>[];
   token: string;
+  accountSearch: string;
   warehouses: { id: number; name: string }[];
   priceTypes: { id: number; name: string }[];
   botEnabledPages: PartnerEnabledPages;
@@ -802,6 +983,15 @@ function AccountRow({
   const [draftOverrides, setDraftOverrides] = useState<Partial<Record<PartnerPortalPageKey, boolean>>>(
     () => normalizePageOverrides(account.page_overrides),
   );
+  const linkedPartners = account.partners ?? [];
+  const linkedIds = linkedPartners.map((partner) => partner.id);
+
+  const refreshAccounts = async () => {
+    await queryClient.invalidateQueries({
+      queryKey: ["partner-telegram", "accounts", token],
+      exact: false,
+    });
+  };
 
   useEffect(() => {
     setDraftOverrides(normalizePageOverrides(account.page_overrides));
@@ -815,18 +1005,20 @@ function AccountRow({
     }
     const timer = window.setTimeout(() => {
       void fetchPartners(token, { search: query, limit: 8 })
-        .then((response) => setResults(response.partners))
+        .then((response) =>
+          setResults(response.partners.filter((partner) => !linkedIds.includes(partner.id))),
+        )
         .catch(() => setResults([]));
     }, 250);
     return () => window.clearTimeout(timer);
-  }, [search, token]);
+  }, [search, token, linkedIds.join(",")]);
 
   const saveOption = async (field: "warehouse_id" | "price_type_id", value: number | null) => {
     setBusy(true);
     setError("");
     try {
       await updatePartnerTelegramAccount(token, account.id, { [field]: value });
-      await queryClient.invalidateQueries({ queryKey: ["partner-telegram", "accounts", token] });
+      await refreshAccounts();
     } catch (saveError) {
       setError(formatAuthError(saveError));
     } finally {
@@ -834,16 +1026,67 @@ function AccountRow({
     }
   };
 
-  const assign = async (partnerId: number | null) => {
+  const savePartners = async (partnerIds: number[], activePartnerId?: number | null) => {
     setBusy(true);
     setError("");
     try {
-      await assignPartnerTelegramAccount(token, account.id, partnerId);
+      await setPartnerTelegramAccountPartners(token, account.id, partnerIds, activePartnerId);
       setSearch("");
       setResults([]);
-      await queryClient.invalidateQueries({ queryKey: ["partner-telegram", "accounts", token] });
+      await refreshAccounts();
     } catch (assignError) {
       setError(formatAuthError(assignError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const addPartner = async (partnerId: number) => {
+    if (linkedIds.includes(partnerId)) return;
+    await savePartners([...linkedIds, partnerId], account.regos_partner_id ?? partnerId);
+  };
+
+  const removePartner = async (partnerId: number) => {
+    const nextIds = linkedIds.filter((id) => id !== partnerId);
+    const nextActive =
+      account.regos_partner_id === partnerId
+        ? nextIds[0] ?? null
+        : account.regos_partner_id;
+    await savePartners(nextIds, nextActive);
+  };
+
+  const setActivePartner = async (partnerId: number) => {
+    await savePartners(linkedIds, partnerId);
+  };
+
+  const setActive = async (isActive: boolean) => {
+    setBusy(true);
+    setError("");
+    try {
+      await updatePartnerTelegramAccount(token, account.id, { is_active: isActive });
+      await refreshAccounts();
+    } catch (saveError) {
+      setError(formatAuthError(saveError));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeAccount = async () => {
+    const confirmed = window.confirm(
+      t(
+        "partnerTelegram.deleteAccountConfirm",
+        "Delete this Telegram account? This cannot be undone.",
+      ),
+    );
+    if (!confirmed) return;
+    setBusy(true);
+    setError("");
+    try {
+      await deletePartnerTelegramAccount(token, account.id);
+      await refreshAccounts();
+    } catch (deleteError) {
+      setError(formatAuthError(deleteError));
     } finally {
       setBusy(false);
     }
@@ -872,7 +1115,7 @@ function AccountRow({
     try {
       await updatePartnerTelegramAccount(token, account.id, { page_overrides: draftOverrides });
       setPagesOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["partner-telegram", "accounts", token] });
+      await refreshAccounts();
     } catch (saveError) {
       setError(formatAuthError(saveError));
     } finally {
@@ -896,9 +1139,69 @@ function AccountRow({
           ) : null}
           {column.id === "phone" ? account.phone || "—" : null}
           {column.id === "language" ? account.language_code || "—" : null}
-          {column.id === "partner"
-            ? account.partner_name || (account.regos_partner_id ? `#${account.regos_partner_id}` : "—")
-            : null}
+          {column.id === "status" ? (
+            <span className={`${styles.badge} ${account.is_active ? styles.active : styles.inactive}`}>
+              {account.is_active
+                ? t("common.active", "Active")
+                : t("common.inactive", "Inactive")}
+            </span>
+          ) : null}
+          {column.id === "partner" ? (
+            <div className={styles.partnerLinks}>
+              {linkedPartners.length === 0 ? <span className={styles.hint}>—</span> : null}
+              {linkedPartners.map((partner) => (
+                <div
+                  key={partner.id}
+                  className={`${styles.partnerChip} ${
+                    partner.id === account.regos_partner_id ? styles.partnerChipActive : ""
+                  }`}
+                >
+                  <button
+                    type="button"
+                    className={styles.partnerChipLabel}
+                    disabled={busy || partner.id === account.regos_partner_id}
+                    onClick={() => void setActivePartner(partner.id)}
+                    title={t("partnerTelegram.setActivePartner", "Set as active partner")}
+                  >
+                    {partner.name || `#${partner.id}`}
+                    {partner.id === account.regos_partner_id
+                      ? ` (${t("partnerTelegram.activePartner", "active")})`
+                      : ""}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.partnerChipRemove}
+                    disabled={busy}
+                    onClick={() => void removePartner(partner.id)}
+                    aria-label={t("partnerTelegram.removePartner", "Remove partner")}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              <input
+                className={styles.input}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={t("partnerTelegram.searchPartner", "Search partners")}
+              />
+              {results.length > 0 ? (
+                <div className={styles.results}>
+                  {results.map((partner) => (
+                    <button
+                      key={partner.id}
+                      type="button"
+                      className={styles.result}
+                      disabled={busy}
+                      onClick={() => void addPartner(partner.id)}
+                    >
+                      {partner.name}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
           {column.id === "warehouse" ? (
             <select
               className={styles.input}
@@ -935,27 +1238,17 @@ function AccountRow({
           ) : null}
           {column.id === "actions" ? (
             <div className={styles.actions}>
-              <input
-                className={styles.input}
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder={t("partnerTelegram.searchPartner", "Search partners")}
-              />
-              {results.length > 0 ? (
-                <div className={styles.results}>
-                  {results.map((partner) => (
-                    <button
-                      key={partner.id}
-                      type="button"
-                      className={styles.result}
-                      disabled={busy}
-                      onClick={() => void assign(partner.id)}
-                    >
-                      {partner.name}
-                    </button>
-                  ))}
-                </div>
-              ) : null}
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                disabled={busy}
+                onClick={() => void setActive(!account.is_active)}
+              >
+                {account.is_active
+                  ? t("partnerTelegram.deactivate", "Deactivate")
+                  : t("partnerTelegram.activate", "Activate")}
+              </Button>
               <Button
                 type="button"
                 variant="secondary"
@@ -1012,17 +1305,20 @@ function AccountRow({
                   </div>
                 </div>
               ) : null}
-              {account.link_state === "linked" ? (
+              {linkedPartners.length > 0 ? (
                 <Button
                   type="button"
                   variant="secondary"
                   size="sm"
                   disabled={busy}
-                  onClick={() => void assign(null)}
+                  onClick={() => void savePartners([])}
                 >
                   {t("partnerTelegram.clear", "Clear link")}
                 </Button>
               ) : null}
+              <Button type="button" variant="danger" size="sm" disabled={busy} onClick={() => void removeAccount()}>
+                {t("common.delete", "Delete")}
+              </Button>
               {error ? <div className={styles.error}>{error}</div> : null}
             </div>
           ) : null}

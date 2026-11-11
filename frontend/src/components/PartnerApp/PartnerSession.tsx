@@ -10,6 +10,7 @@ import {
   fetchPartnerMe,
   loginPartnerPortal,
   requestPartnerPasswordCode,
+  setPartnerWebAppActivePartner,
   type PartnerTelegramAccount,
 } from "@/lib/partner-telegram-api";
 import { formatAuthError } from "@/store/auth";
@@ -21,12 +22,22 @@ type TelegramWindow = Window & {
   Telegram?: { WebApp?: { initData: string; ready: () => void; expand: () => void } };
 };
 
+function normalizeAccount(account: PartnerTelegramAccount): PartnerTelegramAccount {
+  return {
+    ...account,
+    partners: account.partners ?? [],
+    is_active: account.is_active !== false,
+  };
+}
+
 type PartnerSessionValue = {
   publicKey: string;
   token: string;
   account: PartnerTelegramAccount;
   compact: boolean;
   logout: () => void;
+  setAccount: (account: PartnerTelegramAccount) => void;
+  switchPartner: (partnerId: number) => Promise<void>;
 };
 
 const PartnerSessionContext = createContext<PartnerSessionValue | null>(null);
@@ -61,21 +72,26 @@ export function PartnerPortal({ publicKey }: { publicKey: string }) {
   const [gateMessage, setGateMessage] = useState("");
 
   const applySession = (token: string, next: PartnerTelegramAccount, fromTelegram: boolean) => {
+    const normalized = normalizeAccount(next);
     setAccessToken(token);
-    setAccount(next);
+    setAccount(normalized);
     setCompact(fromTelegram);
     if (!fromTelegram) {
       writePartnerToken(publicKey, token);
     } else {
       clearPartnerToken(publicKey);
     }
-    if (next.language_code === "uz" || next.language_code === "ru" || next.language_code === "en") {
-      void changeLanguage(next.language_code);
+    if (
+      normalized.language_code === "uz" ||
+      normalized.language_code === "ru" ||
+      normalized.language_code === "en"
+    ) {
+      void changeLanguage(normalized.language_code);
     }
-    setGate(next.link_state === "linked" ? "ready" : "login");
-    if (next.link_state !== "linked") {
+    setGate(normalized.link_state === "linked" ? "ready" : "login");
+    if (normalized.link_state !== "linked") {
       setGate("login");
-      setAccount(next);
+      setAccount(normalized);
       setAccessToken(token);
     }
   };
@@ -111,6 +127,17 @@ export function PartnerPortal({ publicKey }: { publicKey: string }) {
             setCompact(true);
             return;
           }
+          if (error instanceof ApiError && error.code === "PARTNER_TELEGRAM_INACTIVE") {
+            setGateMessage(
+              t(
+                "partnerApp.inactive",
+                "This Telegram account is deactivated. Contact the company.",
+              ),
+            );
+            setGate("error");
+            setCompact(true);
+            return;
+          }
           setGateMessage(formatAuthError(error));
           setGate("error");
         }
@@ -126,9 +153,19 @@ export function PartnerPortal({ publicKey }: { publicKey: string }) {
         const me = await fetchPartnerMe(stored);
         if (cancelled) return;
         applySession(stored, me, false);
-      } catch {
+      } catch (error) {
         if (cancelled) return;
         clearPartnerToken(publicKey);
+        if (error instanceof ApiError && error.code === "PARTNER_TELEGRAM_INACTIVE") {
+          setGateMessage(
+            t(
+              "partnerApp.inactive",
+              "This Telegram account is deactivated. Contact the company.",
+            ),
+          );
+          setGate("error");
+          return;
+        }
         setGate("login");
       }
     })();
@@ -144,6 +181,16 @@ export function PartnerPortal({ publicKey }: { publicKey: string }) {
     setAccessToken(null);
     setAccount(null);
     setGate("login");
+  };
+
+  const setAccountValue = (next: PartnerTelegramAccount) => {
+    setAccount(normalizeAccount(next));
+  };
+
+  const switchPartner = async (partnerId: number) => {
+    if (!accessToken) return;
+    const next = await setPartnerWebAppActivePartner(accessToken, partnerId);
+    setAccountValue(next);
   };
 
   const acceptLogin = (token: string, next: PartnerTelegramAccount) => {
@@ -188,7 +235,17 @@ export function PartnerPortal({ publicKey }: { publicKey: string }) {
   }
 
   return (
-    <PartnerSessionContext.Provider value={{ publicKey, token: accessToken, account, compact, logout }}>
+    <PartnerSessionContext.Provider
+      value={{
+        publicKey,
+        token: accessToken,
+        account,
+        compact,
+        logout,
+        setAccount: setAccountValue,
+        switchPartner,
+      }}
+    >
       <PartnerShell>
         <Outlet />
       </PartnerShell>

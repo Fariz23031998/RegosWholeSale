@@ -9,11 +9,12 @@ minus, and the Excel file uses the partner's sign convention.
 from __future__ import annotations
 
 import asyncio
+import calendar
 import io
 import logging
 import re
 from collections import defaultdict
-from datetime import datetime, time, timedelta
+from datetime import date, datetime, time, timedelta
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -22,9 +23,16 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.models import PartnerTelegramAccount, PartnerTelegramBot, PartnerTelegramLinkState
-from app.services.partner_telegram import PARTNER_LANGUAGES, _partner_name, _subscription_allows
+from app.services.partner_telegram import (
+    PARTNER_LANGUAGES,
+    _linked_partner_ids,
+    _partner_name,
+    _subscription_allows,
+)
 from app.services.regos_partner_balance import get_partner_balance
 from app.services.telegram_i18n import t
 from app.services import telegram as telegram_service
@@ -79,6 +87,26 @@ def _day_set(days: list[int] | None) -> set[int]:
     return result
 
 
+def resolve_month_days(selected: set[int], current: date) -> set[int]:
+    """Map monthly schedule values onto calendar days for the given month.
+
+    Positive values are day-of-month. Negative values count from the end
+    of the month (-1 = last day, -2 = second-to-last).
+    """
+    last_day = calendar.monthrange(current.year, current.month)[1]
+    resolved: set[int] = set()
+    for day in selected:
+        if day > 0:
+            if day <= last_day:
+                resolved.add(day)
+            continue
+        if day < 0:
+            target = last_day + day + 1
+            if 1 <= target <= last_day:
+                resolved.add(target)
+    return resolved
+
+
 def due_balance_slot(
     *,
     enabled: bool,
@@ -98,8 +126,9 @@ def due_balance_slot(
     selected = _day_set(days)
     if option == "weekdays" and current.weekday() not in selected:
         return None
-    if option == "monthly" and current.day not in selected:
-        return None
+    if option == "monthly":
+        if current.day not in resolve_month_days(selected, current.date()):
+            return None
     if option not in {"daily", "weekdays", "monthly"}:
         return None
     clock = _parse_clock(time_hhmm)
@@ -112,6 +141,16 @@ def due_balance_slot(
     if last_slot == slot:
         return None
     return slot
+
+
+def _iter_balance_schedules(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    schedules: list[dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            schedules.append(item)
+    return schedules
 
 
 def end_of_local_day_unix(now: datetime) -> int:
@@ -457,20 +496,44 @@ async def notify_due_partner_balances(
     bots = list(result.scalars().all())
     sent = 0
     for bot in bots:
-        slot = due_balance_slot(
-            enabled=True,
-            option=bot.balance_notify_option,
-            days=bot.balance_notify_days,
-            time_hhmm=bot.balance_notify_time,
-            last_slot=bot.balance_notify_last_slot,
-            now=current,
-        )
-        if slot is None:
+        schedules = _iter_balance_schedules(bot.balance_notify_schedules)
+        due: list[tuple[dict[str, Any], str]] = []
+        for schedule in schedules:
+            option = schedule.get("option")
+            if not isinstance(option, str):
+                continue
+            time_hhmm = schedule.get("time")
+            if not isinstance(time_hhmm, str):
+                continue
+            days = schedule.get("days") if isinstance(schedule.get("days"), list) else []
+            last_slot = schedule.get("last_slot")
+            if not isinstance(last_slot, str):
+                last_slot = None
+            slot = due_balance_slot(
+                enabled=True,
+                option=option,
+                days=days,
+                time_hhmm=time_hhmm,
+                last_slot=last_slot,
+                now=current,
+            )
+            if slot is not None:
+                due.append((schedule, slot))
+        if not due:
             continue
         if not await _subscription_allows(session, bot.company_id):
             await session.commit()
             continue
-        bot.balance_notify_last_slot = slot
+        due_slots = {id(schedule): slot for schedule, slot in due}
+        updated_schedules = []
+        for schedule in schedules:
+            item = dict(schedule)
+            slot = due_slots.get(id(schedule))
+            if slot is not None:
+                item["last_slot"] = slot
+            updated_schedules.append(item)
+        bot.balance_notify_schedules = updated_schedules
+        flag_modified(bot, "balance_notify_schedules")
         await session.commit()
         sent += await _send_company_balances(session, bot, now=current)
     return sent
@@ -484,19 +547,19 @@ async def _send_company_balances(
 ) -> int:
     result = await session.execute(
         select(PartnerTelegramAccount)
+        .options(selectinload(PartnerTelegramAccount.partner_links))
         .where(
             PartnerTelegramAccount.bot_id == bot.id,
             PartnerTelegramAccount.link_state == PartnerTelegramLinkState.linked.value,
-            PartnerTelegramAccount.regos_partner_id.is_not(None),
+            PartnerTelegramAccount.is_active.is_(True),
         )
         .order_by(PartnerTelegramAccount.id)
     )
-    accounts = list(result.scalars().all())
+    accounts = list(result.scalars().unique().all())
     grouped: dict[int, list[PartnerTelegramAccount]] = {}
     for account in accounts:
-        if account.regos_partner_id is None:
-            continue
-        grouped.setdefault(int(account.regos_partner_id), []).append(account)
+        for partner_id in _linked_partner_ids(account):
+            grouped.setdefault(partner_id, []).append(account)
     if not grouped:
         logger.info("No linked partners for company %s balance notification", bot.company_id)
         return 0

@@ -22,6 +22,45 @@ class PartnerBalanceNotifyTemplates(BaseModel):
         return cleaned
 
 
+BalanceNotifyOption = Literal["daily", "weekdays", "monthly"]
+_MAX_BALANCE_SCHEDULES = 10
+
+
+class PartnerBalanceNotifySchedule(BaseModel):
+    id: str | None = None
+    time: str = "09:00"
+    option: BalanceNotifyOption = "daily"
+    days: list[int] = Field(default_factory=list)
+
+    @field_validator("time")
+    @classmethod
+    def schedule_time_must_be_hhmm(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not _BALANCE_TIME.fullmatch(cleaned):
+            raise ValueError("time must be HH:MM")
+        return cleaned
+
+    @field_validator("days")
+    @classmethod
+    def schedule_days_are_unique(cls, value: list[int]) -> list[int]:
+        return sorted(set(value))
+
+    @model_validator(mode="after")
+    def schedule_days_match_option(self) -> "PartnerBalanceNotifySchedule":
+        if self.option == "daily":
+            self.days = []
+            return self
+        if self.option == "weekdays":
+            if not self.days or any(day < 0 or day > 6 for day in self.days):
+                raise ValueError("choose at least one weekday from 0 to 6")
+            return self
+        if not self.days or any(
+            day == 0 or day < -31 or day > 31 for day in self.days
+        ):
+            raise ValueError("choose at least one day from 1 to 31 or -1 to -31")
+        return self
+
+
 PORTAL_PAGE_KEYS = (
     "catalog",
     "create_orders",
@@ -61,9 +100,7 @@ class PartnerTelegramBotResponse(BaseModel):
     catalog_product_group_ids: list[int] = Field(default_factory=list)
     enabled_pages: dict[str, bool] = Field(default_factory=default_enabled_pages)
     balance_notify_enabled: bool = False
-    balance_notify_time: str = "09:00"
-    balance_notify_option: str = "daily"
-    balance_notify_days: list[int] = Field(default_factory=list)
+    balance_notify_schedules: list[PartnerBalanceNotifySchedule] = Field(default_factory=list)
     balance_notify_templates: PartnerBalanceNotifyTemplates = Field(
         default_factory=PartnerBalanceNotifyTemplates
     )
@@ -88,9 +125,7 @@ class PartnerTelegramBotSettingsRequest(BaseModel):
     catalog_product_group_ids: list[int] = Field(default_factory=list)
     enabled_pages: dict[str, bool] = Field(default_factory=default_enabled_pages)
     balance_notify_enabled: bool = False
-    balance_notify_time: str = "09:00"
-    balance_notify_option: Literal["daily", "weekdays", "monthly"] = "daily"
-    balance_notify_days: list[int] = Field(default_factory=list)
+    balance_notify_schedules: list[PartnerBalanceNotifySchedule] = Field(default_factory=list)
     balance_notify_templates: PartnerBalanceNotifyTemplates = Field(
         default_factory=PartnerBalanceNotifyTemplates
     )
@@ -114,35 +149,30 @@ class PartnerTelegramBotSettingsRequest(BaseModel):
                     pages[key] = bool(enabled)
         return pages
 
-    @field_validator("balance_notify_time")
+    @field_validator("balance_notify_schedules")
     @classmethod
-    def balance_time_must_be_hhmm(cls, value: str) -> str:
-        cleaned = value.strip()
-        if not _BALANCE_TIME.fullmatch(cleaned):
-            raise ValueError("time must be HH:MM")
-        return cleaned
-
-    @field_validator("balance_notify_days")
-    @classmethod
-    def balance_days_are_unique(cls, value: list[int]) -> list[int]:
-        return sorted(set(value))
+    def balance_schedules_within_limit(
+        cls, value: list[PartnerBalanceNotifySchedule]
+    ) -> list[PartnerBalanceNotifySchedule]:
+        if len(value) > _MAX_BALANCE_SCHEDULES:
+            raise ValueError(f"at most {_MAX_BALANCE_SCHEDULES} schedules are allowed")
+        return value
 
     @model_validator(mode="after")
-    def balance_days_match_option(self) -> "PartnerTelegramBotSettingsRequest":
-        if self.balance_notify_option == "daily":
-            self.balance_notify_days = []
-            return self
-        if self.balance_notify_option == "weekdays":
-            if not self.balance_notify_days or any(day < 0 or day > 6 for day in self.balance_notify_days):
-                raise ValueError("choose at least one weekday from 0 to 6")
-        elif not self.balance_notify_days or any(day < 1 or day > 31 for day in self.balance_notify_days):
-            raise ValueError("choose at least one day from 1 to 31")
+    def balance_schedules_required_when_enabled(self) -> "PartnerTelegramBotSettingsRequest":
+        if self.balance_notify_enabled and not self.balance_notify_schedules:
+            raise ValueError("choose at least one balance notification schedule")
         return self
 
 
 class PartnerTelegramBotMessage(BaseModel):
     message: str
     bot: PartnerTelegramBotResponse | None = None
+
+
+class PartnerTelegramLinkedPartner(BaseModel):
+    id: int
+    name: str
 
 
 class PartnerTelegramAccountResponse(BaseModel):
@@ -156,7 +186,9 @@ class PartnerTelegramAccountResponse(BaseModel):
     language_code: str | None = None
     regos_partner_id: int | None = None
     partner_name: str | None = None
+    partners: list[PartnerTelegramLinkedPartner] = Field(default_factory=list)
     link_state: str
+    is_active: bool = True
     warehouse_id: int | None = None
     price_type_id: int | None = None
     page_overrides: dict[str, bool] = Field(default_factory=dict)
@@ -199,6 +231,8 @@ class PartnerTelegramImportFromFieldResponse(BaseModel):
 
 class PartnerTelegramAccountUpdateRequest(BaseModel):
     regos_partner_id: int | None = None
+    regos_partner_ids: list[int] | None = None
+    is_active: bool | None = None
     warehouse_id: int | None = None
     price_type_id: int | None = None
     page_overrides: dict[str, bool] | None = None
@@ -210,6 +244,22 @@ class PartnerTelegramAccountUpdateRequest(BaseModel):
             raise ValueError("id must be positive")
         return value
 
+    @field_validator("regos_partner_ids")
+    @classmethod
+    def partner_ids_must_be_positive(cls, value: list[int] | None) -> list[int] | None:
+        if value is None:
+            return None
+        cleaned: list[int] = []
+        seen: set[int] = set()
+        for item in value:
+            if item < 1:
+                raise ValueError("id must be positive")
+            if item in seen:
+                continue
+            seen.add(item)
+            cleaned.append(item)
+        return cleaned
+
     @field_validator("page_overrides")
     @classmethod
     def page_overrides_must_use_known_keys(
@@ -219,6 +269,10 @@ class PartnerTelegramAccountUpdateRequest(BaseModel):
             return None
         known = set(PORTAL_PAGE_KEYS)
         return {key: bool(enabled) for key, enabled in value.items() if key in known}
+
+
+class PartnerActivePartnerRequest(BaseModel):
+    regos_partner_id: int = Field(ge=1)
 
 
 class PartnerWebAppAuthRequest(BaseModel):

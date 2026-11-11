@@ -73,16 +73,9 @@ class PartnerTelegramBot(Base, TimestampMixin):
     balance_notify_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
-    balance_notify_time: Mapped[str] = mapped_column(
-        String(5), nullable=False, default="09:00", server_default="09:00"
-    )
-    balance_notify_option: Mapped[str] = mapped_column(
-        String(16), nullable=False, default="daily", server_default="daily"
-    )
-    balance_notify_days: Mapped[list[int]] = mapped_column(
+    balance_notify_schedules: Mapped[list] = mapped_column(
         JSON, nullable=False, default=list, server_default=text("'[]'")
     )
-    balance_notify_last_slot: Mapped[str | None] = mapped_column(String(32), nullable=True)
     balance_notify_templates: Mapped[dict] = mapped_column(
         JSON,
         nullable=False,
@@ -138,6 +131,9 @@ class PartnerTelegramAccount(Base, TimestampMixin):
         default=PartnerTelegramLinkState.awaiting_language.value,
         nullable=False,
     )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
     warehouse_id: Mapped[int | None] = mapped_column(nullable=True)
     price_type_id: Mapped[int | None] = mapped_column(nullable=True)
     page_overrides: Mapped[dict] = mapped_column(
@@ -147,6 +143,34 @@ class PartnerTelegramAccount(Base, TimestampMixin):
 
     company: Mapped["Company"] = relationship("Company", back_populates="partner_telegram_accounts")
     bot: Mapped["PartnerTelegramBot"] = relationship("PartnerTelegramBot", back_populates="accounts")
+    partner_links: Mapped[list["PartnerTelegramAccountPartner"]] = relationship(
+        "PartnerTelegramAccountPartner",
+        back_populates="account",
+        cascade="all, delete-orphan",
+    )
+
+
+class PartnerTelegramAccountPartner(Base):
+    __tablename__ = "partner_telegram_account_partners"
+    __table_args__ = (
+        UniqueConstraint(
+            "account_id",
+            "regos_partner_id",
+            name="uq_partner_telegram_account_partners_account_partner",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    account_id: Mapped[int] = mapped_column(
+        ForeignKey("partner_telegram_accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    regos_partner_id: Mapped[int] = mapped_column(nullable=False, index=True)
+
+    account: Mapped["PartnerTelegramAccount"] = relationship(
+        "PartnerTelegramAccount", back_populates="partner_links"
+    )
 
 
 class PartnerTelegramPasswordCode(Base):

@@ -7,10 +7,33 @@ from urllib.parse import urlencode
 import pytest
 from httpx import AsyncClient
 
-from app.models import Company, PartnerTelegramAccount, PartnerTelegramBot, PartnerTelegramLinkState
+from app.models import (
+    Company,
+    PartnerTelegramAccount,
+    PartnerTelegramAccountPartner,
+    PartnerTelegramBot,
+    PartnerTelegramLinkState,
+)
 from app.services.partner_telegram import matching_partners
 from app.services.partner_telegram_webapp import validate_init_data
 from tests.helpers import register_owner
+
+
+def _make_account(**kwargs) -> PartnerTelegramAccount:
+    partner_id = kwargs.get("regos_partner_id")
+    link_state = kwargs.get("link_state", PartnerTelegramLinkState.awaiting_language.value)
+    partner_links = kwargs.pop("partner_links", None)
+    if partner_links is None:
+        if (
+            isinstance(partner_id, int)
+            and partner_id > 0
+            and link_state == PartnerTelegramLinkState.linked.value
+        ):
+            partner_links = [PartnerTelegramAccountPartner(regos_partner_id=partner_id)]
+        else:
+            partner_links = []
+    kwargs.setdefault("is_active", True)
+    return PartnerTelegramAccount(**kwargs, partner_links=partner_links)
 
 
 @pytest.fixture(autouse=True)
@@ -316,42 +339,86 @@ async def test_partner_bot_saves_balance_schedule(client, monkeypatch):
     token = await _owner_token(client, "partner-balance-schedule@test.com")
     saved = await _save_bot(client, token)
     assert saved["balance_notify_enabled"] is False
-    assert saved["balance_notify_time"] == "09:00"
-    assert saved["balance_notify_option"] == "daily"
-    assert saved["balance_notify_days"] == []
+    assert saved["balance_notify_schedules"] == []
 
     updated = await client.patch(
         "/api/v1/partner-telegram/bot/settings",
         json=_settings_body(
             balance_notify_enabled=True,
-            balance_notify_time="10:30",
-            balance_notify_option="weekdays",
-            balance_notify_days=[2, 0, 0],
+            balance_notify_schedules=[
+                {
+                    "time": "10:30",
+                    "option": "weekdays",
+                    "days": [2, 0, 0],
+                }
+            ],
         ),
         headers={"Authorization": f"Bearer {token}"},
     )
     assert updated.status_code == 200, updated.text
     body = updated.json()
     assert body["balance_notify_enabled"] is True
-    assert body["balance_notify_time"] == "10:30"
-    assert body["balance_notify_option"] == "weekdays"
-    assert body["balance_notify_days"] == [0, 2]
+    assert len(body["balance_notify_schedules"]) == 1
+    schedule = body["balance_notify_schedules"][0]
+    assert schedule["time"] == "10:30"
+    assert schedule["option"] == "weekdays"
+    assert schedule["days"] == [0, 2]
+    assert isinstance(schedule["id"], str) and schedule["id"]
 
     fetched = await client.get(
         "/api/v1/partner-telegram/bot",
         headers={"Authorization": f"Bearer {token}"},
     )
     assert fetched.status_code == 200
-    assert fetched.json()["balance_notify_days"] == [0, 2]
+    assert fetched.json()["balance_notify_schedules"][0]["days"] == [0, 2]
     assert fetched.json()["balance_notify_templates"] == {"uz": "", "ru": "", "en": ""}
 
     templated = await client.patch(
         "/api/v1/partner-telegram/bot/settings",
         json=_settings_body(
             balance_notify_enabled=True,
-            balance_notify_time="10:30",
-            balance_notify_option="weekdays",
-            balance_notify_days=[0, 2],
+            balance_notify_schedules=[
+                {
+                    "id": schedule["id"],
+                    "time": "10:30",
+                    "option": "weekdays",
+                    "days": [0, 2],
+                },
+                {
+                    "time": "18:00",
+                    "option": "monthly",
+                    "days": [1, -1, -1, 0, 32],
+                },
+            ],
+            balance_notify_templates={
+                "uz": "  Salom {{partner_id}}  ",
+                "ru": "ID {{partner_id}}\n{{balances}}",
+                "en": "Partner {{partner_id}}",
+                "tj": "ignored",
+            },
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    # day 0 and 32 are invalid for monthly → 422
+    assert templated.status_code == 422
+
+    templated = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            balance_notify_enabled=True,
+            balance_notify_schedules=[
+                {
+                    "id": schedule["id"],
+                    "time": "10:30",
+                    "option": "weekdays",
+                    "days": [0, 2],
+                },
+                {
+                    "time": "18:00",
+                    "option": "monthly",
+                    "days": [1, -1, -1],
+                },
+            ],
             balance_notify_templates={
                 "uz": "  Salom {{partner_id}}  ",
                 "ru": "ID {{partner_id}}\n{{balances}}",
@@ -362,6 +429,11 @@ async def test_partner_bot_saves_balance_schedule(client, monkeypatch):
         headers={"Authorization": f"Bearer {token}"},
     )
     assert templated.status_code == 200, templated.text
+    schedules = templated.json()["balance_notify_schedules"]
+    assert len(schedules) == 2
+    assert schedules[0]["id"] == schedule["id"]
+    assert schedules[1]["option"] == "monthly"
+    assert schedules[1]["days"] == [-1, 1]
     assert templated.json()["balance_notify_templates"] == {
         "uz": "Salom {{partner_id}}",
         "ru": "ID {{partner_id}}\n{{balances}}",
@@ -379,17 +451,41 @@ async def test_partner_bot_saves_balance_schedule(client, monkeypatch):
 
     invalid_time = await client.patch(
         "/api/v1/partner-telegram/bot/settings",
-        json=_settings_body(balance_notify_time="25:00"),
+        json=_settings_body(
+            balance_notify_schedules=[{"time": "25:00", "option": "daily", "days": []}],
+        ),
         headers={"Authorization": f"Bearer {token}"},
     )
     assert invalid_time.status_code == 422
 
     empty_days = await client.patch(
         "/api/v1/partner-telegram/bot/settings",
-        json=_settings_body(balance_notify_option="monthly", balance_notify_days=[]),
+        json=_settings_body(
+            balance_notify_enabled=True,
+            balance_notify_schedules=[{"time": "09:00", "option": "monthly", "days": []}],
+        ),
         headers={"Authorization": f"Bearer {token}"},
     )
     assert empty_days.status_code == 422
+
+    too_many = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            balance_notify_enabled=True,
+            balance_notify_schedules=[
+                {"time": "09:00", "option": "daily", "days": []} for _ in range(11)
+            ],
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert too_many.status_code == 422
+
+    enabled_empty = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(balance_notify_enabled=True, balance_notify_schedules=[]),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert enabled_empty.status_code == 422
 
 
 @pytest.mark.asyncio
@@ -619,6 +715,137 @@ async def test_phone_link_and_staff_correction(client, monkeypatch, session_fact
     assert assigned.status_code == 200
     assert assigned.json()["regos_partner_id"] == 44
     assert assigned.json()["partner_name"] == "Assigned"
+    assert assigned.json()["partners"] == [{"id": 44, "name": "Assigned"}]
+
+
+@pytest.mark.asyncio
+async def test_account_search_deactivate_delete_and_multi_partner_links(
+    client, monkeypatch, session_factory
+):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-account-mgmt@test.com")
+    await _save_bot(client, token)
+    auth = {"Authorization": f"Bearer {token}"}
+
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        session.add_all(
+            [
+                _make_account(
+                    company_id=bot.company_id,
+                    bot_id=bot.id,
+                    telegram_user_id=7001,
+                    chat_id=7001,
+                    username="alpha_user",
+                    first_name="Alpha",
+                    phone="+998901111111",
+                    regos_partner_id=101,
+                    link_state=PartnerTelegramLinkState.linked.value,
+                ),
+                _make_account(
+                    company_id=bot.company_id,
+                    bot_id=bot.id,
+                    telegram_user_id=7002,
+                    chat_id=7002,
+                    username="beta_user",
+                    first_name="Beta",
+                    phone="+998902222222",
+                    regos_partner_id=202,
+                    link_state=PartnerTelegramLinkState.linked.value,
+                ),
+            ]
+        )
+        await session.commit()
+
+    async def partner_by_id(session, company_id, partner_id):
+        return {"id": partner_id, "name": f"Partner {partner_id}"}
+
+    async def partner_names_bulk(session, company_id, payload):
+        ids = payload.get("ids") or []
+        return {
+            "result": [{"id": partner_id, "name": f"Partner {partner_id}"} for partner_id in ids]
+        }
+
+    monkeypatch.setattr(
+        "app.services.partner_telegram.regos_partners.get_partner_by_id", partner_by_id
+    )
+
+    async def fake_regos(session, company_id, path, payload=None, **kwargs):
+        if path == "partner/get":
+            return await partner_names_bulk(session, company_id, payload or {})
+        raise AssertionError(path)
+
+    monkeypatch.setattr(
+        "app.core.regos_api.regos_async_api_request_for_company", fake_regos
+    )
+
+    searched = await client.get(
+        "/api/v1/partner-telegram/accounts",
+        params={"search": "alpha"},
+        headers=auth,
+    )
+    assert searched.status_code == 200
+    assert len(searched.json()) == 1
+    assert searched.json()[0]["telegram_user_id"] == 7001
+
+    account_id = searched.json()[0]["id"]
+    multi = await client.patch(
+        f"/api/v1/partner-telegram/accounts/{account_id}",
+        json={"regos_partner_ids": [101, 303]},
+        headers=auth,
+    )
+    assert multi.status_code == 200, multi.text
+    assert multi.json()["regos_partner_id"] == 101
+    assert {item["id"] for item in multi.json()["partners"]} == {101, 303}
+
+    deactivated = await client.patch(
+        f"/api/v1/partner-telegram/accounts/{account_id}",
+        json={"is_active": False},
+        headers=auth,
+    )
+    assert deactivated.status_code == 200
+    assert deactivated.json()["is_active"] is False
+
+    from app.core.security import create_partner_telegram_token
+
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        company = (await session.execute(select(Company))).scalar_one()
+        company_id = company.id
+    access = create_partner_telegram_token(account_id=account_id, company_id=company_id)
+    blocked = await client.get(
+        "/api/v1/partner-telegram/webapp/me",
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert blocked.status_code in {401, 403}
+    assert blocked.json()["code"] == "PARTNER_TELEGRAM_INACTIVE"
+
+    activated = await client.patch(
+        f"/api/v1/partner-telegram/accounts/{account_id}",
+        json={"is_active": True},
+        headers=auth,
+    )
+    assert activated.status_code == 200
+    assert activated.json()["is_active"] is True
+
+    switched = await client.post(
+        "/api/v1/partner-telegram/webapp/active-partner",
+        json={"regos_partner_id": 303},
+        headers={"Authorization": f"Bearer {access}"},
+    )
+    assert switched.status_code == 200, switched.text
+    assert switched.json()["regos_partner_id"] == 303
+
+    deleted = await client.delete(
+        f"/api/v1/partner-telegram/accounts/{account_id}",
+        headers=auth,
+    )
+    assert deleted.status_code == 200
+    remaining = await client.get("/api/v1/partner-telegram/accounts", headers=auth)
+    assert [row["telegram_user_id"] for row in remaining.json()] == [7002]
 
 
 @pytest.mark.asyncio
@@ -679,7 +906,7 @@ async def test_order_uses_linked_partner_and_catalog_price(client, monkeypatch, 
 
         company = (await session.execute(select(Company))).scalar_one()
         bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
-        account = PartnerTelegramAccount(
+        account = _make_account(
             company_id=company.id,
             bot_id=bot.id,
             telegram_user_id=70,
@@ -895,7 +1122,7 @@ async def test_order_create_respects_booked_and_wholesale_settings(
         bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
         bot.order_document_type = "doc_order_from_partner"
         bot.order_booked = False
-        account = PartnerTelegramAccount(
+        account = _make_account(
             company_id=company.id,
             bot_id=bot.id,
             telegram_user_id=71,
@@ -1005,7 +1232,7 @@ async def test_stock_notification_goes_only_to_linked_partner(client, monkeypatc
         company = (await session.execute(select(Company))).scalar_one()
         bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
         session.add_all([
-            PartnerTelegramAccount(
+            _make_account(
                 company_id=company.id,
                 bot_id=bot.id,
                 telegram_user_id=1,
@@ -1014,7 +1241,7 @@ async def test_stock_notification_goes_only_to_linked_partner(client, monkeypatc
                 regos_partner_id=15,
                 link_state=PartnerTelegramLinkState.linked.value,
             ),
-            PartnerTelegramAccount(
+            _make_account(
                 company_id=company.id,
                 bot_id=bot.id,
                 telegram_user_id=2,
@@ -1023,7 +1250,7 @@ async def test_stock_notification_goes_only_to_linked_partner(client, monkeypatc
                 regos_partner_id=99,
                 link_state=PartnerTelegramLinkState.linked.value,
             ),
-            PartnerTelegramAccount(
+            _make_account(
                 company_id=company.id,
                 bot_id=bot.id,
                 telegram_user_id=3,
@@ -1062,6 +1289,57 @@ async def test_stock_notification_goes_only_to_linked_partner(client, monkeypatc
     assert [chat_id for chat_id, _text in sent] == [101]
     assert "Purchase receipt" in sent[0][1]
     assert "Acme" not in sent[0][1]
+
+
+@pytest.mark.asyncio
+async def test_stock_notification_skips_inactive_accounts(client, monkeypatch, session_factory):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-notify-inactive@test.com")
+    await _save_bot(client, token)
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        company = (await session.execute(select(Company))).scalar_one()
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        session.add(
+            _make_account(
+                company_id=company.id,
+                bot_id=bot.id,
+                telegram_user_id=8,
+                chat_id=808,
+                language_code="en",
+                regos_partner_id=15,
+                link_state=PartnerTelegramLinkState.linked.value,
+                is_active=False,
+            )
+        )
+        await session.commit()
+        company_id = company.id
+
+    sent: list[int] = []
+
+    async def fake_send(bot_token, chat_id, text, parse_mode="Markdown", reply_markup=None):
+        sent.append(chat_id)
+        return True
+
+    monkeypatch.setattr("app.services.partner_telegram.telegram_service.send_message", fake_send)
+    from app.services.partner_telegram import notify_partner_document
+
+    async with session_factory() as session:
+        await notify_partner_document(
+            session,
+            company_id,
+            {"id": 4, "code": "WS-4", "date": 1_700_000_000, "partner": {"id": 15, "name": "Acme"}},
+            [{"item": {"name": "Rice"}, "quantity": 2, "price": 10}],
+            warehouse_name="Main",
+            is_cancelled=False,
+            is_return=False,
+            use_cost=False,
+            kind="wholesale",
+        )
+        await session.commit()
+
+    assert sent == []
 
 
 @pytest.mark.asyncio
@@ -1143,7 +1421,7 @@ async def test_payment_notification_goes_only_to_linked_partner(client, monkeypa
         company = (await session.execute(select(Company))).scalar_one()
         bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
         session.add_all([
-            PartnerTelegramAccount(
+            _make_account(
                 company_id=company.id,
                 bot_id=bot.id,
                 telegram_user_id=1,
@@ -1152,7 +1430,7 @@ async def test_payment_notification_goes_only_to_linked_partner(client, monkeypa
                 regos_partner_id=15,
                 link_state=PartnerTelegramLinkState.linked.value,
             ),
-            PartnerTelegramAccount(
+            _make_account(
                 company_id=company.id,
                 bot_id=bot.id,
                 telegram_user_id=2,
@@ -1235,7 +1513,7 @@ async def _linked_account(session_factory, *, warehouse_id=None, price_type_id=N
 
         company = (await session.execute(select(Company))).scalar_one()
         bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
-        account = PartnerTelegramAccount(
+        account = _make_account(
             company_id=company.id,
             bot_id=bot.id,
             telegram_user_id=80,
@@ -1853,7 +2131,9 @@ async def test_import_accounts_from_oked_and_custom_field(client, monkeypatch, s
 
 
 @pytest.mark.asyncio
-async def test_import_skips_duplicate_telegram_and_linked_partner(client, monkeypatch, session_factory):
+async def test_import_adds_partner_to_existing_telegram_and_allows_multi_telegram(
+    client, monkeypatch, session_factory
+):
     _mock_telegram_api(monkeypatch)
     token = await _owner_token(client, "partner-import-dup@test.com")
     await _save_bot(client, token)
@@ -1864,7 +2144,7 @@ async def test_import_skips_duplicate_telegram_and_linked_partner(client, monkey
 
         bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
         session.add(
-            PartnerTelegramAccount(
+            _make_account(
                 company_id=bot.company_id,
                 bot_id=bot.id,
                 telegram_user_id=9001,
@@ -1874,7 +2154,7 @@ async def test_import_skips_duplicate_telegram_and_linked_partner(client, monkey
             )
         )
         session.add(
-            PartnerTelegramAccount(
+            _make_account(
                 company_id=bot.company_id,
                 bot_id=bot.id,
                 telegram_user_id=9002,
@@ -1904,11 +2184,19 @@ async def test_import_skips_duplicate_telegram_and_linked_partner(client, monkey
     )
     assert response.status_code == 200, response.text
     assert response.json() == {
-        "created": 0,
+        "created": 2,
         "already_imported": 0,
         "skipped_empty": 0,
         "skipped_invalid": 0,
-        "skipped_duplicate": 1,
-        "skipped_partner_linked": 1,
+        "skipped_duplicate": 0,
+        "skipped_partner_linked": 0,
         "total_partners": 2,
     }
+
+    accounts = await client.get("/api/v1/partner-telegram/accounts", headers=auth)
+    assert accounts.status_code == 200
+    by_telegram = {row["telegram_user_id"]: row for row in accounts.json()}
+    assert {item["id"] for item in by_telegram[9001]["partners"]} == {10, 11}
+    assert by_telegram[9001]["regos_partner_id"] == 10
+    assert by_telegram[9003]["regos_partner_id"] == 20
+    assert by_telegram[9003]["link_state"] == "linked"

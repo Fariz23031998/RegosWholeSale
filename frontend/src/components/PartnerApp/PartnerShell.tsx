@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCatalog } from "@/store/catalog";
 import {
   ClipboardList,
@@ -164,7 +165,8 @@ function isNavActive(item: NavItem, pathname: string, publicKey: string): boolea
 
 export function PartnerShell({ children }: { children: ReactNode }) {
   const { t } = useLanguage();
-  const { publicKey, account, compact, logout } = usePartnerSession();
+  const { publicKey, account, compact, logout, switchPartner } = usePartnerSession();
+  const queryClient = useQueryClient();
   const location = useLocation();
   const navigate = useNavigate();
   const hydrateCatalogUi = useCatalog((s) => s.hydrateUiPreferences);
@@ -173,9 +175,22 @@ export function PartnerShell({ children }: { children: ReactNode }) {
   const [isCompactTopBar, setIsCompactTopBar] = useState(false);
   const [headerLinkCount, setHeaderLinkCount] = useState(0);
   const [mobileCartNav, setMobileCartNavState] = useState<PartnerMobileCartNav | null>(null);
+  const [switchingPartner, setSwitchingPartner] = useState(false);
   const topBarRef = useRef<HTMLDivElement | null>(null);
   const measureRef = useRef<HTMLDivElement | null>(null);
+  const partners = account.partners ?? [];
   const name = account.partner_name || account.first_name || account.phone || "";
+
+  const onSwitchPartner = async (partnerId: number) => {
+    if (!partnerId || partnerId === account.regos_partner_id) return;
+    setSwitchingPartner(true);
+    try {
+      await switchPartner(partnerId);
+      await queryClient.invalidateQueries();
+    } finally {
+      setSwitchingPartner(false);
+    }
+  };
   const enabledPages = useMemo(
     () => normalizeEnabledPages(account.enabled_pages),
     [account.enabled_pages],
@@ -330,7 +345,29 @@ export function PartnerShell({ children }: { children: ReactNode }) {
           <div className={styles.sidebarHeader}>
             <div className={styles.brand}>
               <BrandLogo size="md" />
-              <div className={styles.brandSub}>{name}</div>
+              <div className={styles.brandMeta}>
+                {partners.length > 1 ? (
+                  <label className={styles.partnerSwitch}>
+                    <span className={styles.partnerSwitchLabel}>
+                      {t("partnerApp.activePartner", "Partner")}
+                    </span>
+                    <select
+                      className={styles.partnerSwitchSelect}
+                      value={account.regos_partner_id ?? ""}
+                      disabled={switchingPartner}
+                      onChange={(event) => void onSwitchPartner(Number(event.target.value))}
+                    >
+                      {partners.map((partner) => (
+                        <option key={partner.id} value={partner.id}>
+                          {partner.name || `#${partner.id}`}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : (
+                  <div className={styles.brandSub}>{name}</div>
+                )}
+              </div>
             </div>
             <button
               type="button"

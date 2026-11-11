@@ -10,6 +10,7 @@ from app.models.user_setting import UserSetting
 from app.models.regos_token import RegosToken
 from app.models.partner_telegram import (
     PartnerTelegramAccount,
+    PartnerTelegramAccountPartner,
     PartnerTelegramBot,
     PartnerTelegramLinkState,
     PartnerTelegramPasswordCode,
@@ -38,6 +39,7 @@ __all__ = [
     "VerificationCode",
     "RegosToken",
     "PartnerTelegramAccount",
+    "PartnerTelegramAccountPartner",
     "PartnerTelegramBot",
     "PartnerTelegramLinkState",
     "PartnerTelegramPasswordCode",

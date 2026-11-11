@@ -7,6 +7,7 @@ import cartStyles from "@/components/Cart/Cart.module.css";
 import { QtyKeypad } from "@/components/Cart/QtyKeypad";
 import { CatalogViewToggle } from "@/components/POS/CatalogViewToggle";
 import { CategoryBar } from "@/components/POS/CategoryBar";
+import { CategoryPickerModal } from "@/components/POS/CategoryPickerModal";
 import posStyles from "@/components/POS/POS.module.css";
 import { Button } from "@/components/posui/Button";
 import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
@@ -24,6 +25,7 @@ import {
 } from "@/lib/partner-telegram-api";
 import { formatAuthError } from "@/store/auth";
 import { useCatalog } from "@/store/catalog";
+import { PartnerCatalogFilterModal } from "./PartnerCatalogFilterModal";
 import { usePartnerNav } from "./PartnerShell";
 import { usePartnerSession } from "./PartnerSession";
 import { formatAmount, partnerCartKey, partnerWarehouseKey } from "./partner-format";
@@ -124,6 +126,8 @@ export function PartnerCatalog() {
   const [placing, setPlacing] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [filterModalOpen, setFilterModalOpen] = useState(false);
+  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
   const productsRef = useRef<HTMLDivElement | null>(null);
   const loadingMoreRef = useRef(false);
   const lastRequestedOffsetRef = useRef<number | null>(null);
@@ -180,7 +184,11 @@ export function PartnerCatalog() {
     const mq = window.matchMedia("(max-width: 900px)");
     const update = () => {
       setIsMobile(mq.matches);
-      if (!mq.matches) setMobileCartOpen(false);
+      if (!mq.matches) {
+        setMobileCartOpen(false);
+        setFilterModalOpen(false);
+        setCategoryModalOpen(false);
+      }
     };
     update();
     mq.addEventListener("change", update);
@@ -474,72 +482,147 @@ export function PartnerCatalog() {
         ) : (
           <>
             <div className={styles.catalogControls}>
-              <div className={styles.catalogToolbarRow}>
-                <div className={styles.toolbar}>
-                  <div className={styles.searchWithViewToggle}>
+              {isMobile ? (
+                <>
+                  <div className={styles.toolbar}>
                     <input
                       className={`${styles.input} ${styles.searchInput}`}
                       value={search}
                       onChange={(event) => setSearch(event.target.value)}
                       placeholder={t("partnerApp.search", "Search products")}
                     />
-                    <CatalogViewToggle className={styles.catalogViewToggle} />
+                    {allowWarehouse ? (
+                      <label className={styles.field}>
+                        {t("partnerApp.warehouse", "Warehouse")}
+                        <select
+                          className={styles.input}
+                          value={warehouseId ?? ""}
+                          onChange={(event) => changeWarehouse(Number(event.target.value))}
+                        >
+                          {warehouses.map((warehouse) => (
+                            <option key={warehouse.id} value={warehouse.id}>
+                              {warehouse.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    ) : null}
                   </div>
-                  {allowWarehouse ? (
-                    <label className={styles.field}>
-                      {t("partnerApp.warehouse", "Warehouse")}
-                      <select
-                        className={styles.input}
-                        value={warehouseId ?? ""}
-                        onChange={(event) => changeWarehouse(Number(event.target.value))}
+                  <div className={styles.catalogMobileControls}>
+                    <CatalogViewToggle className={styles.catalogViewToggle} />
+                    <div className={styles.catalogMobileActions}>
+                      <button
+                        type="button"
+                        className={clsx(
+                          styles.catalogMobileAction,
+                          filter !== (showZeroQuantity ? "all" : "in-stock")
+                            ? styles.chipOn
+                            : styles.chip,
+                        )}
+                        onClick={() => setFilterModalOpen(true)}
                       >
-                        {warehouses.map((warehouse) => (
-                          <option key={warehouse.id} value={warehouse.id}>
-                            {warehouse.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  ) : null}
-                </div>
-                <div className={styles.filters}>
-                  {(
-                    (showZeroQuantity
-                      ? (["all", "in-stock", "low-stock", "cheap", "expensive"] as const)
-                      : (["in-stock", "low-stock", "cheap", "expensive"] as const)
-                    )
-                  ).map((item) => (
-                    <button
-                      key={item}
-                      type="button"
-                      className={filter === item ? styles.chipOn : styles.chip}
-                      onClick={() => setFilter(item)}
-                    >
-                      {t(
-                        `partnerApp.${
-                          item === "all"
-                            ? "allProducts"
-                            : item === "in-stock"
-                              ? "inStock"
-                              : item === "low-stock"
-                                ? "lowStock"
-                                : item
-                        }`,
-                        item === "all" ? "All" : item,
-                      )}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <CategoryBar
-                className={styles.catalogCategories}
-                groups={groups.map(toProductGroup)}
-                featuredOnly={false}
-                showFeatured={false}
-                selectedGroupId={groupId}
-                onSelectAll={() => setGroupId(null)}
-                onSelectGroup={setGroupId}
-              />
+                        {t("partnerApp.filters", "Filters")}
+                      </button>
+                      <button
+                        type="button"
+                        className={clsx(
+                          styles.catalogMobileAction,
+                          groupId != null ? styles.chipOn : styles.chip,
+                        )}
+                        onClick={() => setCategoryModalOpen(true)}
+                      >
+                        {t("partnerApp.category", "Category")}
+                      </button>
+                    </div>
+                  </div>
+                  <PartnerCatalogFilterModal
+                    open={filterModalOpen}
+                    onClose={() => setFilterModalOpen(false)}
+                    filter={filter}
+                    showZeroQuantity={showZeroQuantity}
+                    onSelect={setFilter}
+                  />
+                  <CategoryPickerModal
+                    open={categoryModalOpen}
+                    onClose={() => setCategoryModalOpen(false)}
+                    groups={groups.map(toProductGroup)}
+                    featuredOnly={false}
+                    showFeatured={false}
+                    selectedGroupId={groupId}
+                    onSelectAll={() => setGroupId(null)}
+                    onSelectGroup={setGroupId}
+                  />
+                </>
+              ) : (
+                <>
+                  <div className={styles.catalogToolbarRow}>
+                    <div className={styles.toolbar}>
+                      <div className={styles.searchWithViewToggle}>
+                        <input
+                          className={`${styles.input} ${styles.searchInput}`}
+                          value={search}
+                          onChange={(event) => setSearch(event.target.value)}
+                          placeholder={t("partnerApp.search", "Search products")}
+                        />
+                        <CatalogViewToggle className={styles.catalogViewToggle} />
+                      </div>
+                      {allowWarehouse ? (
+                        <label className={styles.field}>
+                          {t("partnerApp.warehouse", "Warehouse")}
+                          <select
+                            className={styles.input}
+                            value={warehouseId ?? ""}
+                            onChange={(event) => changeWarehouse(Number(event.target.value))}
+                          >
+                            {warehouses.map((warehouse) => (
+                              <option key={warehouse.id} value={warehouse.id}>
+                                {warehouse.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      ) : null}
+                    </div>
+                    <div className={styles.filters}>
+                      {(
+                        (showZeroQuantity
+                          ? (["all", "in-stock", "low-stock", "cheap", "expensive"] as const)
+                          : (["in-stock", "low-stock", "cheap", "expensive"] as const)
+                        )
+                      ).map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          className={filter === item ? styles.chipOn : styles.chip}
+                          onClick={() => setFilter(item)}
+                        >
+                          {t(
+                            `partnerApp.${
+                              item === "all"
+                                ? "allProducts"
+                                : item === "in-stock"
+                                  ? "inStock"
+                                  : item === "low-stock"
+                                    ? "lowStock"
+                                    : item
+                            }`,
+                            item === "all" ? "All" : item,
+                          )}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <CategoryBar
+                    className={styles.catalogCategories}
+                    groups={groups.map(toProductGroup)}
+                    featuredOnly={false}
+                    showFeatured={false}
+                    selectedGroupId={groupId}
+                    onSelectAll={() => setGroupId(null)}
+                    onSelectGroup={setGroupId}
+                  />
+                </>
+              )}
             </div>
             <div
               ref={productsRef}

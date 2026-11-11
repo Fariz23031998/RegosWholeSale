@@ -33,11 +33,15 @@ export async function clearProductCatalogCache(companyId: number): Promise<void>
   await clearObjectStore(SYNC_META_STORE);
 
   // Clear download status in localStorage for all scopes
-  const keys = Object.keys(localStorage);
-  for (const key of keys) {
-    if (key.startsWith("catalog_download_status:")) {
-      localStorage.removeItem(key);
+  try {
+    const keys = Object.keys(localStorage);
+    for (const key of keys) {
+      if (key.startsWith("catalog_download_status:")) {
+        localStorage.removeItem(key);
+      }
     }
+  } catch {
+    // Safari may block storage on insecure/private contexts.
   }
 }
 

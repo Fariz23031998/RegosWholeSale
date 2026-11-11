@@ -60,12 +60,20 @@ export function ensurePulsePosStores(db: IDBDatabase): void {
 
 export function openPulsePosDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(PULSE_POS_DB_NAME, PULSE_POS_DB_VERSION);
-    request.onerror = () => reject(request.error ?? new Error("Failed to open IndexedDB"));
-    request.onsuccess = () => resolve(request.result);
-    request.onupgradeneeded = () => {
-      ensurePulsePosStores(request.result);
-    };
+    try {
+      if (typeof indexedDB === "undefined") {
+        reject(new Error("IndexedDB unavailable"));
+        return;
+      }
+      const request = indexedDB.open(PULSE_POS_DB_NAME, PULSE_POS_DB_VERSION);
+      request.onerror = () => reject(request.error ?? new Error("Failed to open IndexedDB"));
+      request.onsuccess = () => resolve(request.result);
+      request.onupgradeneeded = () => {
+        ensurePulsePosStores(request.result);
+      };
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
   });
 }
 

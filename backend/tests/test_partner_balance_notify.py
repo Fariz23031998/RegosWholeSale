@@ -6,7 +6,13 @@ import pytest
 from openpyxl import load_workbook
 from sqlalchemy import select
 
-from app.models import Company, PartnerTelegramAccount, PartnerTelegramBot, PartnerTelegramLinkState
+from app.models import (
+    Company,
+    PartnerTelegramAccount,
+    PartnerTelegramAccountPartner,
+    PartnerTelegramBot,
+    PartnerTelegramLinkState,
+)
 from app.models.subscription import SubscriptionStatus
 from app.services.partner_balance_notify import (
     build_partner_balance_excel,
@@ -14,7 +20,25 @@ from app.services.partner_balance_notify import (
     format_balance_notification,
     notify_due_partner_balances,
     positive_company_balances,
+    resolve_month_days,
 )
+
+
+def _make_account(**kwargs) -> PartnerTelegramAccount:
+    partner_id = kwargs.get("regos_partner_id")
+    link_state = kwargs.get("link_state", PartnerTelegramLinkState.awaiting_language.value)
+    partner_links = kwargs.pop("partner_links", None)
+    if partner_links is None:
+        if (
+            isinstance(partner_id, int)
+            and partner_id > 0
+            and link_state == PartnerTelegramLinkState.linked.value
+        ):
+            partner_links = [PartnerTelegramAccountPartner(regos_partner_id=partner_id)]
+        else:
+            partner_links = []
+    kwargs.setdefault("is_active", True)
+    return PartnerTelegramAccount(**kwargs, partner_links=partner_links)
 
 TASHKENT = ZoneInfo("Asia/Tashkent")
 NOW = datetime(2026, 11, 9, 9, 10, tzinfo=TASHKENT)
@@ -51,6 +75,22 @@ def test_weekday_and_month_day_filters():
     assert _due(option="weekdays", days=[1], now=monday) is None
     assert _due(option="monthly", days=[9], now=monday) == "2026-11-09T09:00"
     assert _due(option="monthly", days=[8], now=monday) is None
+
+
+def test_resolve_month_days_supports_end_of_month_offsets():
+    assert resolve_month_days({-1, -2, 1}, datetime(2026, 2, 1).date()) == {1, 27, 28}
+    assert resolve_month_days({-1, 31}, datetime(2026, 1, 1).date()) == {31}
+    assert resolve_month_days({31}, datetime(2026, 2, 1).date()) == set()
+
+
+def test_negative_month_days_match_end_of_month():
+    last_feb = datetime(2026, 2, 28, 9, 5, tzinfo=TASHKENT)
+    assert _due(option="monthly", days=[-1], now=last_feb) == "2026-02-28T09:00"
+    assert _due(option="monthly", days=[-2], now=last_feb) is None
+    second_last = datetime(2026, 2, 27, 9, 5, tzinfo=TASHKENT)
+    assert _due(option="monthly", days=[-2], now=second_last) == "2026-02-27T09:00"
+    jan_last = datetime(2026, 1, 31, 9, 5, tzinfo=TASHKENT)
+    assert _due(option="monthly", days=[-1], now=jan_last) == "2026-01-31T09:00"
 
 
 def _row(**overrides):
@@ -144,15 +184,21 @@ async def test_due_schedule_sends_text_and_excel_once(session_factory, monkeypat
             webhook_secret="secret-balance",
             public_key="public-balance",
             balance_notify_enabled=True,
-            balance_notify_time="09:00",
-            balance_notify_option="daily",
-            balance_notify_days=[],
+            balance_notify_schedules=[
+                {
+                    "id": "sched-daily",
+                    "time": "09:00",
+                    "option": "daily",
+                    "days": [],
+                    "last_slot": None,
+                }
+            ],
         )
         session.add(bot)
         await session.flush()
         session.add_all(
             [
-                PartnerTelegramAccount(
+                _make_account(
                     company_id=company.id,
                     bot_id=bot.id,
                     telegram_user_id=10,
@@ -161,7 +207,7 @@ async def test_due_schedule_sends_text_and_excel_once(session_factory, monkeypat
                     regos_partner_id=7,
                     link_state=PartnerTelegramLinkState.linked.value,
                 ),
-                PartnerTelegramAccount(
+                _make_account(
                     company_id=company.id,
                     bot_id=bot.id,
                     telegram_user_id=11,
@@ -170,7 +216,7 @@ async def test_due_schedule_sends_text_and_excel_once(session_factory, monkeypat
                     regos_partner_id=7,
                     link_state=PartnerTelegramLinkState.linked.value,
                 ),
-                PartnerTelegramAccount(
+                _make_account(
                     company_id=company.id,
                     bot_id=bot.id,
                     telegram_user_id=12,
@@ -239,9 +285,15 @@ async def test_custom_templates_follow_account_language(session_factory, monkeyp
             webhook_secret="secret-template",
             public_key="public-template",
             balance_notify_enabled=True,
-            balance_notify_time="09:00",
-            balance_notify_option="daily",
-            balance_notify_days=[],
+            balance_notify_schedules=[
+                {
+                    "id": "sched-template",
+                    "time": "09:00",
+                    "option": "daily",
+                    "days": [],
+                    "last_slot": None,
+                }
+            ],
             balance_notify_templates={
                 "uz": "UZ {{partner_id}}\n{{balances}}",
                 "ru": "",
@@ -252,7 +304,7 @@ async def test_custom_templates_follow_account_language(session_factory, monkeyp
         await session.flush()
         session.add_all(
             [
-                PartnerTelegramAccount(
+                _make_account(
                     company_id=company.id,
                     bot_id=bot.id,
                     telegram_user_id=20,
@@ -261,7 +313,7 @@ async def test_custom_templates_follow_account_language(session_factory, monkeyp
                     regos_partner_id=7,
                     link_state=PartnerTelegramLinkState.linked.value,
                 ),
-                PartnerTelegramAccount(
+                _make_account(
                     company_id=company.id,
                     bot_id=bot.id,
                     telegram_user_id=21,
@@ -312,9 +364,15 @@ async def test_inactive_subscription_does_not_send_or_claim(session_factory, mon
                 webhook_secret="secret-expired",
                 public_key="public-expired",
                 balance_notify_enabled=True,
-                balance_notify_time="09:00",
-                balance_notify_option="daily",
-                balance_notify_days=[],
+                balance_notify_schedules=[
+                    {
+                        "id": "sched-expired",
+                        "time": "09:00",
+                        "option": "daily",
+                        "days": [],
+                        "last_slot": None,
+                    }
+                ],
             )
         )
         await session.commit()
@@ -327,5 +385,85 @@ async def test_inactive_subscription_does_not_send_or_claim(session_factory, mon
     async with session_factory() as session:
         sent = await notify_due_partner_balances(session, now=NOW)
         bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
-        assert bot.balance_notify_last_slot is None
+        assert bot.balance_notify_schedules[0]["last_slot"] is None
     assert sent == 0
+
+
+@pytest.mark.asyncio
+async def test_multiple_due_schedules_send_once_and_claim_each(session_factory, monkeypatch):
+    async with session_factory() as session:
+        company = _company("Multi Sched Co", "multi-sched-co", active=True)
+        session.add(company)
+        await session.flush()
+        bot = PartnerTelegramBot(
+            company_id=company.id,
+            bot_token="999:MULTI",
+            webhook_secret="secret-multi",
+            public_key="public-multi",
+            balance_notify_enabled=True,
+            balance_notify_schedules=[
+                {
+                    "id": "morning",
+                    "time": "09:00",
+                    "option": "daily",
+                    "days": [],
+                    "last_slot": None,
+                },
+                {
+                    "id": "also-morning",
+                    "time": "09:00",
+                    "option": "weekdays",
+                    "days": [0],
+                    "last_slot": None,
+                },
+                {
+                    "id": "evening",
+                    "time": "18:00",
+                    "option": "daily",
+                    "days": [],
+                    "last_slot": None,
+                },
+            ],
+        )
+        session.add(bot)
+        await session.flush()
+        session.add(
+            _make_account(
+                company_id=company.id,
+                bot_id=bot.id,
+                telegram_user_id=30,
+                chat_id=300,
+                language_code="en",
+                regos_partner_id=7,
+                link_state=PartnerTelegramLinkState.linked.value,
+            )
+        )
+        await session.commit()
+
+    messages: list[tuple[int, str]] = []
+
+    async def fake_balance(session, company_id, *, partner_id, start_date, end_date, **kwargs):
+        return {"rows": [_row(end_amount=60000, debit=60000)]}
+
+    async def fake_message(token, chat_id, text, parse_mode="Markdown", reply_markup=None):
+        messages.append((chat_id, text))
+        return True
+
+    async def fake_document(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr("app.services.partner_balance_notify.get_partner_balance", fake_balance)
+    monkeypatch.setattr("app.services.partner_balance_notify.telegram_service.send_message", fake_message)
+    monkeypatch.setattr("app.services.partner_balance_notify.telegram_service.send_document", fake_document)
+    monkeypatch.setattr("app.services.partner_balance_notify.asyncio.sleep", _instant_sleep)
+
+    async with session_factory() as session:
+        sent = await notify_due_partner_balances(session, now=NOW)
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        by_id = {item["id"]: item for item in bot.balance_notify_schedules}
+
+    assert sent == 1
+    assert len(messages) == 1
+    assert by_id["morning"]["last_slot"] == "2026-11-09T09:00"
+    assert by_id["also-morning"]["last_slot"] == "2026-11-09T09:00"
+    assert by_id["evening"]["last_slot"] is None

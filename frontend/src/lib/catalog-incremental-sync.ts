@@ -47,10 +47,14 @@ export function getCatalogDownloadStatus(
   warehouseId?: number | null,
   priceTypeId?: number | null,
 ): string | null {
-  if (!isCacheEnabled() || typeof localStorage === "undefined") return null;
-  return localStorage.getItem(
-    downloadStatusKey(companyId, warehouseId ?? undefined, priceTypeId ?? undefined),
-  );
+  if (!isCacheEnabled()) return null;
+  try {
+    return localStorage.getItem(
+      downloadStatusKey(companyId, warehouseId ?? undefined, priceTypeId ?? undefined),
+    );
+  } catch {
+    return null;
+  }
 }
 
 export function setCatalogDownloadStatus(
@@ -59,11 +63,15 @@ export function setCatalogDownloadStatus(
   priceTypeId: number | null,
   status: string,
 ): void {
-  if (!isCacheEnabled() || typeof localStorage === "undefined") return;
-  localStorage.setItem(
-    downloadStatusKey(companyId, warehouseId ?? undefined, priceTypeId ?? undefined),
-    status,
-  );
+  if (!isCacheEnabled()) return;
+  try {
+    localStorage.setItem(
+      downloadStatusKey(companyId, warehouseId ?? undefined, priceTypeId ?? undefined),
+      status,
+    );
+  } catch {
+    // Safari may block storage on insecure/private contexts.
+  }
 }
 
 export function removeCatalogDownloadStatus(
@@ -71,10 +79,13 @@ export function removeCatalogDownloadStatus(
   warehouseId?: number | null,
   priceTypeId?: number | null,
 ): void {
-  if (typeof localStorage === "undefined") return;
-  localStorage.removeItem(
-    downloadStatusKey(companyId, warehouseId ?? undefined, priceTypeId ?? undefined),
-  );
+  try {
+    localStorage.removeItem(
+      downloadStatusKey(companyId, warehouseId ?? undefined, priceTypeId ?? undefined),
+    );
+  } catch {
+    // Safari may block storage on insecure/private contexts.
+  }
 }
 
 function hasCompletedCatalogDownload(
@@ -83,8 +94,11 @@ function hasCompletedCatalogDownload(
   priceTypeId?: number,
 ): boolean {
   if (!isCacheEnabled()) return false;
-  if (typeof localStorage === "undefined") return false;
-  return localStorage.getItem(downloadStatusKey(companyId, warehouseId, priceTypeId)) === "completed";
+  try {
+    return localStorage.getItem(downloadStatusKey(companyId, warehouseId, priceTypeId)) === "completed";
+  } catch {
+    return false;
+  }
 }
 
 function isWatermarkFresh(since: string, scopeKey: string): boolean {

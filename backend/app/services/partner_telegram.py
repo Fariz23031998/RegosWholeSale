@@ -3,12 +3,19 @@ import re
 import uuid
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.config import get_settings
 from app.core.exceptions import bad_request, not_found, unauthorized
-from app.models import Company, PartnerTelegramAccount, PartnerTelegramBot, PartnerTelegramLinkState
+from app.models import (
+    Company,
+    PartnerTelegramAccount,
+    PartnerTelegramAccountPartner,
+    PartnerTelegramBot,
+    PartnerTelegramLinkState,
+)
 from app.schemas.partner_telegram import PORTAL_PAGE_KEYS, default_enabled_pages
 from app.services import document_telegram_format as fmt
 from app.services import regos_fields as regos_fields_service
@@ -235,7 +242,96 @@ def _balance_notify_days(value: Any) -> list[int]:
             days.append(item)
         elif isinstance(item, str) and item.lstrip("-").isdigit():
             days.append(int(item))
-    return days
+    return sorted(set(days))
+
+
+def _default_balance_notify_schedule() -> dict[str, Any]:
+    return {
+        "id": str(uuid.uuid4()),
+        "time": "09:00",
+        "option": "daily",
+        "days": [],
+        "last_slot": None,
+    }
+
+
+def _normalize_balance_notify_schedule(value: Any, *, existing_last_slot: str | None = None) -> dict[str, Any] | None:
+    if not isinstance(value, dict):
+        return None
+    option = value.get("option")
+    if option not in {"daily", "weekdays", "monthly"}:
+        option = "daily"
+    time_hhmm = value.get("time")
+    if not isinstance(time_hhmm, str) or not time_hhmm.strip():
+        time_hhmm = "09:00"
+    days = _balance_notify_days(value.get("days"))
+    if option == "daily":
+        days = []
+    schedule_id = value.get("id")
+    if not isinstance(schedule_id, str) or not schedule_id.strip():
+        schedule_id = str(uuid.uuid4())
+    last_slot = existing_last_slot
+    if last_slot is None:
+        raw_last = value.get("last_slot")
+        last_slot = raw_last if isinstance(raw_last, str) and raw_last.strip() else None
+    return {
+        "id": schedule_id.strip(),
+        "time": time_hhmm.strip(),
+        "option": option,
+        "days": days,
+        "last_slot": last_slot,
+    }
+
+
+def _balance_notify_schedules_public(value: Any) -> list[dict[str, Any]]:
+    schedules: list[dict[str, Any]] = []
+    if not isinstance(value, list):
+        return schedules
+    for item in value:
+        normalized = _normalize_balance_notify_schedule(item)
+        if normalized is None:
+            continue
+        schedules.append(
+            {
+                "id": normalized["id"],
+                "time": normalized["time"],
+                "option": normalized["option"],
+                "days": normalized["days"],
+            }
+        )
+    return schedules
+
+
+def _merge_balance_notify_schedules(incoming: Any, existing: Any) -> list[dict[str, Any]]:
+    existing_by_id: dict[str, str | None] = {}
+    if isinstance(existing, list):
+        for item in existing:
+            if not isinstance(item, dict):
+                continue
+            schedule_id = item.get("id")
+            if isinstance(schedule_id, str) and schedule_id.strip():
+                last_slot = item.get("last_slot")
+                existing_by_id[schedule_id.strip()] = (
+                    last_slot if isinstance(last_slot, str) and last_slot.strip() else None
+                )
+    merged: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    source = incoming if isinstance(incoming, list) else []
+    for item in source:
+        schedule_id = None
+        if isinstance(item, dict):
+            raw_id = item.get("id")
+            if isinstance(raw_id, str) and raw_id.strip():
+                schedule_id = raw_id.strip()
+        existing_last = existing_by_id.get(schedule_id) if schedule_id else None
+        normalized = _normalize_balance_notify_schedule(item, existing_last_slot=existing_last)
+        if normalized is None:
+            continue
+        while normalized["id"] in seen_ids:
+            normalized["id"] = str(uuid.uuid4())
+        seen_ids.add(normalized["id"])
+        merged.append(normalized)
+    return merged
 
 
 def _normalize_enabled_pages(value: Any) -> dict[str, bool]:
@@ -281,9 +377,7 @@ def bot_to_dict(row: PartnerTelegramBot) -> dict[str, Any]:
         "catalog_product_group_ids": _normalize_id_list(row.catalog_product_group_ids),
         "enabled_pages": _normalize_enabled_pages(row.enabled_pages),
         "balance_notify_enabled": bool(row.balance_notify_enabled),
-        "balance_notify_time": row.balance_notify_time or "09:00",
-        "balance_notify_option": row.balance_notify_option or "daily",
-        "balance_notify_days": _balance_notify_days(row.balance_notify_days),
+        "balance_notify_schedules": _balance_notify_schedules_public(row.balance_notify_schedules),
         "balance_notify_templates": _balance_notify_templates(row.balance_notify_templates),
         "order_document_type": _normalize_order_document_type(row.order_document_type),
         "order_booked": bool(row.order_booked),
@@ -316,9 +410,7 @@ def _empty_bot() -> dict[str, Any]:
         "catalog_product_group_ids": [],
         "enabled_pages": default_enabled_pages(),
         "balance_notify_enabled": False,
-        "balance_notify_time": "09:00",
-        "balance_notify_option": "daily",
-        "balance_notify_days": [],
+        "balance_notify_schedules": [],
         "balance_notify_templates": {"uz": "", "ru": "", "en": ""},
         "order_document_type": "doc_order_from_partner",
         "order_booked": True,
@@ -472,12 +564,109 @@ async def _get_account(
     session: AsyncSession, company_id: int, telegram_user_id: int
 ) -> PartnerTelegramAccount | None:
     result = await session.execute(
-        select(PartnerTelegramAccount).where(
+        select(PartnerTelegramAccount)
+        .options(selectinload(PartnerTelegramAccount.partner_links))
+        .where(
             PartnerTelegramAccount.company_id == company_id,
             PartnerTelegramAccount.telegram_user_id == telegram_user_id,
         )
     )
     return result.scalar_one_or_none()
+
+
+def _linked_partner_ids(account: PartnerTelegramAccount) -> list[int]:
+    return [
+        int(link.regos_partner_id)
+        for link in (account.partner_links or [])
+        if isinstance(link.regos_partner_id, int) and link.regos_partner_id > 0
+    ]
+
+
+async def _clear_partner_links(session: AsyncSession, account: PartnerTelegramAccount) -> None:
+    if account.id is None:
+        account.partner_links = []
+        return
+    await session.execute(
+        delete(PartnerTelegramAccountPartner).where(
+            PartnerTelegramAccountPartner.account_id == account.id
+        )
+    )
+    account.partner_links.clear()
+
+
+async def _set_partner_links(
+    session: AsyncSession,
+    account: PartnerTelegramAccount,
+    partner_ids: list[int],
+    *,
+    preferred_active_id: int | None = None,
+) -> None:
+    unique_ids = list(dict.fromkeys(partner_id for partner_id in partner_ids if partner_id > 0))
+    await _clear_partner_links(session, account)
+    for partner_id in unique_ids:
+        account.partner_links.append(
+            PartnerTelegramAccountPartner(regos_partner_id=partner_id)
+        )
+    if not unique_ids:
+        account.regos_partner_id = None
+        account.link_state = PartnerTelegramLinkState.unlinked.value
+        return
+    active = preferred_active_id if preferred_active_id in unique_ids else None
+    if active is None and account.regos_partner_id in unique_ids:
+        active = account.regos_partner_id
+    if active is None:
+        active = unique_ids[0]
+    account.regos_partner_id = active
+    account.link_state = PartnerTelegramLinkState.linked.value
+
+
+async def _add_partner_link(
+    session: AsyncSession,
+    account: PartnerTelegramAccount,
+    partner_id: int,
+    *,
+    set_active: bool = False,
+) -> bool:
+    if partner_id < 1:
+        return False
+    existing = _linked_partner_ids(account)
+    if partner_id in existing:
+        if set_active or account.regos_partner_id is None:
+            account.regos_partner_id = partner_id
+            account.link_state = PartnerTelegramLinkState.linked.value
+        return False
+    account.partner_links.append(PartnerTelegramAccountPartner(regos_partner_id=partner_id))
+    if set_active or account.regos_partner_id is None or not existing:
+        account.regos_partner_id = partner_id
+    account.link_state = PartnerTelegramLinkState.linked.value
+    return True
+
+
+async def list_accounts_for_partner(
+    session: AsyncSession,
+    company_id: int,
+    partner_id: int,
+    *,
+    active_only: bool = True,
+) -> list[PartnerTelegramAccount]:
+    stmt = (
+        select(PartnerTelegramAccount)
+        .join(
+            PartnerTelegramAccountPartner,
+            PartnerTelegramAccountPartner.account_id == PartnerTelegramAccount.id,
+        )
+        .where(
+            PartnerTelegramAccount.company_id == company_id,
+            PartnerTelegramAccount.link_state == PartnerTelegramLinkState.linked.value,
+            PartnerTelegramAccountPartner.regos_partner_id == partner_id,
+        )
+        .options(selectinload(PartnerTelegramAccount.partner_links))
+        .order_by(PartnerTelegramAccount.id)
+    )
+    if active_only:
+        stmt = stmt.where(PartnerTelegramAccount.is_active.is_(True))
+    result = await session.execute(stmt)
+    return list(result.scalars().unique().all())
 
 
 async def _send(
@@ -610,6 +799,8 @@ async def _handle_contact(
     if account.link_state != PartnerTelegramLinkState.linked.value:
         account.link_state = PartnerTelegramLinkState.awaiting_language.value
         account.regos_partner_id = None
+        if account.id is not None:
+            await _clear_partner_links(session, account)
     await session.flush()
 
     prompt_lang = account.language_code or lang
@@ -679,8 +870,7 @@ async def _handle_callback(
         status = await link_or_create_partner(session, bot, account)
     except Exception:
         logger.exception("Partner self-registration failed for company %s", bot.company_id)
-        account.regos_partner_id = None
-        account.link_state = PartnerTelegramLinkState.unlinked.value
+        await _set_partner_links(session, account, [])
         await session.flush()
         status = "unlinked"
 
@@ -776,9 +966,22 @@ def account_to_dict(
     *,
     bot: PartnerTelegramBot | None = None,
     bot_pages: Any = None,
+    partner_names: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     overrides = _normalize_page_overrides(row.page_overrides)
     pages_source = bot.enabled_pages if bot is not None else bot_pages
+    names = partner_names or {}
+    partners = []
+    for partner_id in _linked_partner_ids(row):
+        partners.append(
+            {
+                "id": partner_id,
+                "name": names.get(partner_id) or str(partner_id),
+            }
+        )
+    active_name = partner_name
+    if active_name is None and row.regos_partner_id:
+        active_name = names.get(row.regos_partner_id)
     return {
         "id": row.id,
         "telegram_user_id": row.telegram_user_id,
@@ -789,8 +992,10 @@ def account_to_dict(
         "phone": row.phone,
         "language_code": row.language_code,
         "regos_partner_id": row.regos_partner_id,
-        "partner_name": partner_name,
+        "partner_name": active_name,
+        "partners": partners,
         "link_state": row.link_state,
+        "is_active": bool(row.is_active),
         "warehouse_id": row.warehouse_id,
         "price_type_id": row.price_type_id,
         "page_overrides": overrides,
@@ -800,24 +1005,53 @@ def account_to_dict(
     }
 
 
-async def list_accounts(session: AsyncSession, company_id: int) -> list[dict[str, Any]]:
+def _account_search_haystack(row: PartnerTelegramAccount, names: dict[int, str]) -> str:
+    parts = [
+        row.username or "",
+        row.first_name or "",
+        row.last_name or "",
+        row.phone or "",
+        str(row.telegram_user_id),
+        str(row.chat_id),
+    ]
+    for partner_id in _linked_partner_ids(row):
+        parts.append(str(partner_id))
+        parts.append(names.get(partner_id) or "")
+    if row.regos_partner_id:
+        parts.append(str(row.regos_partner_id))
+        parts.append(names.get(row.regos_partner_id) or "")
+    return " ".join(parts).casefold()
+
+
+async def list_accounts(
+    session: AsyncSession,
+    company_id: int,
+    *,
+    search: str | None = None,
+) -> list[dict[str, Any]]:
     bot = await _get_bot_by_company(session, company_id)
     result = await session.execute(
         select(PartnerTelegramAccount)
+        .options(selectinload(PartnerTelegramAccount.partner_links))
         .where(PartnerTelegramAccount.company_id == company_id)
         .order_by(PartnerTelegramAccount.created_at.desc())
     )
-    rows = list(result.scalars().all())
-    names = await _partner_names(
-        session,
-        company_id,
-        [row.regos_partner_id for row in rows if isinstance(row.regos_partner_id, int)],
-    )
+    rows = list(result.scalars().unique().all())
+    partner_ids: list[int] = []
+    for row in rows:
+        partner_ids.extend(_linked_partner_ids(row))
+        if isinstance(row.regos_partner_id, int):
+            partner_ids.append(row.regos_partner_id)
+    names = await _partner_names(session, company_id, partner_ids)
+    query = (search or "").strip().casefold()
+    if query:
+        rows = [row for row in rows if query in _account_search_haystack(row, names)]
     return [
         account_to_dict(
             row,
             names.get(row.regos_partner_id) if row.regos_partner_id else None,
             bot=bot,
+            partner_names=names,
         )
         for row in rows
     ]
@@ -906,16 +1140,12 @@ async def import_accounts_from_field(
 
     partners = await _list_all_partners(session, company_id)
     existing = await session.execute(
-        select(PartnerTelegramAccount).where(PartnerTelegramAccount.company_id == company_id)
+        select(PartnerTelegramAccount)
+        .options(selectinload(PartnerTelegramAccount.partner_links))
+        .where(PartnerTelegramAccount.company_id == company_id)
     )
-    accounts = list(existing.scalars().all())
+    accounts = list(existing.scalars().unique().all())
     by_telegram = {row.telegram_user_id: row for row in accounts}
-    linked_partners = {
-        row.regos_partner_id: row
-        for row in accounts
-        if row.link_state == PartnerTelegramLinkState.linked.value
-        and isinstance(row.regos_partner_id, int)
-    }
 
     summary = {
         "created": 0,
@@ -942,18 +1172,11 @@ async def import_accounts_from_field(
 
         existing_account = by_telegram.get(telegram_user_id)
         if existing_account is not None:
-            if (
-                existing_account.regos_partner_id == partner_id
-                and existing_account.link_state == PartnerTelegramLinkState.linked.value
-            ):
+            if partner_id in _linked_partner_ids(existing_account):
                 summary["already_imported"] += 1
-            else:
-                summary["skipped_duplicate"] += 1
-            continue
-
-        linked_account = linked_partners.get(partner_id)
-        if linked_account is not None and linked_account.telegram_user_id != telegram_user_id:
-            summary["skipped_partner_linked"] += 1
+                continue
+            await _add_partner_link(session, existing_account, partner_id, set_active=False)
+            summary["created"] += 1
             continue
 
         phone = partner.get("phones")
@@ -966,11 +1189,12 @@ async def import_accounts_from_field(
             phone=phone_text,
             regos_partner_id=partner_id,
             link_state=PartnerTelegramLinkState.linked.value,
+            is_active=True,
+            partner_links=[PartnerTelegramAccountPartner(regos_partner_id=partner_id)],
         )
         session.add(account)
         await session.flush()
         by_telegram[telegram_user_id] = account
-        linked_partners[partner_id] = account
         summary["created"] += 1
 
     await session.flush()
@@ -1014,13 +1238,11 @@ async def link_or_create_partner(
     matches = await _partners_matching_phone(session, bot.company_id, account.phone or "")
     if len(matches) == 1:
         partner = matches[0]
-        account.regos_partner_id = int(partner["id"])
-        account.link_state = PartnerTelegramLinkState.linked.value
+        await _set_partner_links(session, account, [int(partner["id"])])
         await session.flush()
         return "linked"
     if len(matches) > 1 or not bot.allow_self_registration:
-        account.regos_partner_id = None
-        account.link_state = PartnerTelegramLinkState.unlinked.value
+        await _set_partner_links(session, account, [])
         await session.flush()
         return "unlinked"
 
@@ -1031,8 +1253,7 @@ async def link_or_create_partner(
         if listed and isinstance(listed[0].get("id"), int):
             group_id = int(listed[0]["id"])
     if group_id is None:
-        account.regos_partner_id = None
-        account.link_state = PartnerTelegramLinkState.unlinked.value
+        await _set_partner_links(session, account, [])
         await session.flush()
         return "unlinked"
 
@@ -1053,8 +1274,7 @@ async def link_or_create_partner(
             "phones": account.phone,
         },
     )
-    account.regos_partner_id = created["id"]
-    account.link_state = PartnerTelegramLinkState.linked.value
+    await _set_partner_links(session, account, [int(created["id"])])
     await session.flush()
     return "created"
 
@@ -1143,12 +1363,11 @@ async def update_bot_settings(
         row.enabled_pages = _normalize_enabled_pages(settings.get("enabled_pages"))
     if "balance_notify_enabled" in settings:
         row.balance_notify_enabled = bool(settings.get("balance_notify_enabled"))
-    if "balance_notify_time" in settings and isinstance(settings.get("balance_notify_time"), str):
-        row.balance_notify_time = settings["balance_notify_time"]
-    if "balance_notify_option" in settings and isinstance(settings.get("balance_notify_option"), str):
-        row.balance_notify_option = settings["balance_notify_option"]
-    if "balance_notify_days" in settings:
-        row.balance_notify_days = _balance_notify_days(settings.get("balance_notify_days"))
+    if "balance_notify_schedules" in settings:
+        row.balance_notify_schedules = _merge_balance_notify_schedules(
+            settings.get("balance_notify_schedules"),
+            row.balance_notify_schedules,
+        )
     if "balance_notify_templates" in settings:
         row.balance_notify_templates = _balance_notify_templates(settings.get("balance_notify_templates"))
     if "order_document_type" in settings:
@@ -1159,27 +1378,71 @@ async def update_bot_settings(
     return bot_to_dict(row)
 
 
+async def _load_account_for_company(
+    session: AsyncSession, company_id: int, account_id: int
+) -> PartnerTelegramAccount | None:
+    result = await session.execute(
+        select(PartnerTelegramAccount)
+        .options(selectinload(PartnerTelegramAccount.partner_links))
+        .where(
+            PartnerTelegramAccount.id == account_id,
+            PartnerTelegramAccount.company_id == company_id,
+        )
+    )
+    return result.scalar_one_or_none()
+
+
 async def update_account(
     session: AsyncSession,
     company_id: int,
     account_id: int,
     changes: dict[str, Any],
 ) -> dict[str, Any] | None:
-    account = await session.get(PartnerTelegramAccount, account_id)
-    if account is None or account.company_id != company_id:
+    account = await _load_account_for_company(session, company_id, account_id)
+    if account is None:
         return None
     partner_name: str | None = None
-    if "regos_partner_id" in changes:
+    known_names: dict[int, str] = {}
+    if "regos_partner_ids" in changes:
+        raw_ids = changes.get("regos_partner_ids")
+        partner_ids = [
+            int(item)
+            for item in (raw_ids or [])
+            if isinstance(item, int) and item > 0
+        ]
+        for partner_id in partner_ids:
+            partner = await regos_partners.get_partner_by_id(session, company_id, partner_id)
+            name = partner.get("name")
+            label = name.strip() if isinstance(name, str) and name.strip() else str(partner_id)
+            known_names[partner_id] = label
+            if partner_name is None:
+                partner_name = label
+        preferred = changes.get("regos_partner_id")
+        preferred_id = int(preferred) if isinstance(preferred, int) else account.regos_partner_id
+        await _set_partner_links(
+            session,
+            account,
+            partner_ids,
+            preferred_active_id=preferred_id if isinstance(preferred_id, int) else None,
+        )
+        if isinstance(preferred_id, int) and preferred_id in known_names:
+            partner_name = known_names[preferred_id]
+    elif "regos_partner_id" in changes:
         regos_partner_id = changes.get("regos_partner_id")
         if regos_partner_id is None:
-            account.regos_partner_id = None
-            account.link_state = PartnerTelegramLinkState.unlinked.value
+            await _set_partner_links(session, account, [])
         else:
-            partner = await regos_partners.get_partner_by_id(session, company_id, int(regos_partner_id))
-            account.regos_partner_id = int(regos_partner_id)
-            account.link_state = PartnerTelegramLinkState.linked.value
+            partner = await regos_partners.get_partner_by_id(
+                session, company_id, int(regos_partner_id)
+            )
+            await _set_partner_links(session, account, [int(regos_partner_id)])
             name = partner.get("name")
-            partner_name = name.strip() if isinstance(name, str) and name.strip() else str(regos_partner_id)
+            partner_name = (
+                name.strip() if isinstance(name, str) and name.strip() else str(regos_partner_id)
+            )
+            known_names[int(regos_partner_id)] = partner_name
+    if "is_active" in changes and changes.get("is_active") is not None:
+        account.is_active = bool(changes.get("is_active"))
     if "warehouse_id" in changes:
         warehouse_id = changes.get("warehouse_id")
         if isinstance(warehouse_id, int):
@@ -1197,10 +1460,16 @@ async def update_account(
     if "page_overrides" in changes:
         account.page_overrides = _normalize_page_overrides(changes.get("page_overrides"))
     await session.flush()
+    names = dict(known_names)
+    missing = [partner_id for partner_id in _linked_partner_ids(account) if partner_id not in names]
+    if missing:
+        names.update(await _partner_names(session, company_id, missing))
     if partner_name is None and account.regos_partner_id:
-        partner_name = await _partner_name(session, company_id, account.regos_partner_id)
+        partner_name = names.get(account.regos_partner_id) or await _partner_name(
+            session, company_id, account.regos_partner_id
+        )
     bot = await _get_bot_by_company(session, company_id)
-    return account_to_dict(account, partner_name, bot=bot)
+    return account_to_dict(account, partner_name, bot=bot, partner_names=names)
 
 
 async def assign_partner(
@@ -1215,6 +1484,54 @@ async def assign_partner(
         account_id,
         {"regos_partner_id": regos_partner_id},
     )
+
+
+async def set_active_partner(
+    session: AsyncSession,
+    account_id: int,
+    regos_partner_id: int,
+) -> dict[str, Any]:
+    result = await session.execute(
+        select(PartnerTelegramAccount)
+        .options(selectinload(PartnerTelegramAccount.partner_links))
+        .where(PartnerTelegramAccount.id == account_id)
+    )
+    account = result.scalar_one_or_none()
+    if account is None:
+        raise unauthorized("Invalid token", "INVALID_TOKEN")
+    if not account.is_active:
+        raise unauthorized(
+            "This Telegram account is deactivated.",
+            "PARTNER_TELEGRAM_INACTIVE",
+        )
+    linked = _linked_partner_ids(account)
+    if regos_partner_id not in linked:
+        raise bad_request(
+            "That partner is not linked to this Telegram account.",
+            "PARTNER_TELEGRAM_PARTNER_NOT_LINKED",
+        )
+    account.regos_partner_id = regos_partner_id
+    account.link_state = PartnerTelegramLinkState.linked.value
+    await session.flush()
+    names = await _partner_names(session, account.company_id, linked)
+    bot = await _get_bot_by_company(session, account.company_id)
+    return account_to_dict(
+        account,
+        names.get(regos_partner_id),
+        bot=bot,
+        partner_names=names,
+    )
+
+
+async def delete_account(
+    session: AsyncSession, company_id: int, account_id: int
+) -> bool:
+    account = await _load_account_for_company(session, company_id, account_id)
+    if account is None:
+        return False
+    await session.delete(account)
+    await session.flush()
+    return True
 
 
 def document_partner_id(document: dict[str, Any]) -> int | None:
@@ -1249,14 +1566,7 @@ async def notify_partner_document(
     bot = await _get_bot_by_company(session, company_id)
     if bot is None:
         return
-    result = await session.execute(
-        select(PartnerTelegramAccount).where(
-            PartnerTelegramAccount.company_id == company_id,
-            PartnerTelegramAccount.regos_partner_id == partner_id,
-            PartnerTelegramAccount.link_state == PartnerTelegramLinkState.linked.value,
-        )
-    )
-    accounts = list(result.scalars().all())
+    accounts = await list_accounts_for_partner(session, company_id, partner_id, active_only=True)
     for account in accounts:
         lang = account.language_code if account.language_code in PARTNER_LANGUAGES else "ru"
         text = fmt.format_partner_receipt(
@@ -1287,14 +1597,9 @@ async def notify_partner_payment(
     bot = await _get_bot_by_company(session, company_id)
     if bot is None:
         return
-    result = await session.execute(
-        select(PartnerTelegramAccount).where(
-            PartnerTelegramAccount.company_id == company_id,
-            PartnerTelegramAccount.regos_partner_id == partner_id,
-            PartnerTelegramAccount.link_state == PartnerTelegramLinkState.linked.value,
-        )
-    )
-    for account in result.scalars().all():
+    for account in await list_accounts_for_partner(
+        session, company_id, partner_id, active_only=True
+    ):
         lang = account.language_code if account.language_code in PARTNER_LANGUAGES else "ru"
         text = fmt.format_payment_notification(
             document,

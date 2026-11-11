@@ -5,10 +5,15 @@ type CacheEnabledListener = () => void;
 const listeners = new Set<CacheEnabledListener>();
 
 function readStoredValue(): boolean {
-  if (typeof localStorage === "undefined") return false;
-  const raw = localStorage.getItem(CACHE_ENABLED_KEY);
-  if (raw === null) return false;
-  return raw === "true";
+  // Safari can throw SecurityError on *accessing* localStorage (even typeof),
+  // so the entire probe must stay inside try/catch.
+  try {
+    const raw = localStorage.getItem(CACHE_ENABLED_KEY);
+    if (raw === null) return false;
+    return raw === "true";
+  } catch {
+    return false;
+  }
 }
 
 let cachedValue = readStoredValue();
@@ -18,12 +23,15 @@ export function isCacheEnabled(): boolean {
 }
 
 export function setCacheEnabled(enabled: boolean): void {
-  if (typeof localStorage === "undefined") return;
-
   const next = Boolean(enabled);
   if (cachedValue === next) return;
 
-  localStorage.setItem(CACHE_ENABLED_KEY, next ? "true" : "false");
+  try {
+    localStorage.setItem(CACHE_ENABLED_KEY, next ? "true" : "false");
+  } catch {
+    // Keep in-memory toggle so the session can continue without persistence.
+  }
+
   cachedValue = next;
 
   for (const listener of listeners) {

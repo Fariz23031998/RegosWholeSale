@@ -1,10 +1,42 @@
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist, type StateStorage } from "zustand/middleware";
 import * as authApi from "@/lib/auth-api";
 import { ApiError } from "@/lib/api";
 import { languageService } from "@/services/language";
 import { sessionFromUser, type SessionDisplay } from "@/lib/user-display";
 import type { AuthUser } from "@/types/auth";
+
+function createMemoryStorage(): StateStorage {
+  const map = new Map<string, string>();
+  return {
+    getItem: (name) => map.get(name) ?? null,
+    setItem: (name, value) => {
+      map.set(name, value);
+    },
+    removeItem: (name) => {
+      map.delete(name);
+    },
+  };
+}
+
+/**
+ * Zustand persist skips attaching `api.persist` when storage is unavailable.
+ * Safari private mode / blocked storage can throw on localStorage access.
+ */
+function createAuthStorage(): StateStorage {
+  if (typeof window === "undefined") {
+    return createMemoryStorage();
+  }
+  try {
+    const storage = window.localStorage;
+    const probeKey = "__regos_auth_probe__";
+    storage.setItem(probeKey, "1");
+    storage.removeItem(probeKey);
+    return storage;
+  } catch {
+    return createMemoryStorage();
+  }
+}
 
 type AuthState = {
   accessToken: string | null;
@@ -75,6 +107,7 @@ export const useAuth = create<AuthState>()(
     }),
     {
       name: "regos-auth",
+      storage: createJSONStorage(() => createAuthStorage()),
       partialize: (s) => ({ accessToken: s.accessToken, user: s.user }),
       onRehydrateStorage: () => (state) => {
         if (state?.user && state.accessToken) {
@@ -98,8 +131,15 @@ export function waitForAuthHydration(): Promise<void> {
     return Promise.resolve();
   }
 
+  const persistApi = useAuth.persist;
+
+  if (!persistApi || typeof persistApi.onFinishHydration !== "function") {
+    useAuth.getState().setHydrated();
+    return Promise.resolve();
+  }
+
   return new Promise<void>((resolve) => {
-    const unsub = useAuth.persist.onFinishHydration(() => {
+    const unsub = persistApi.onFinishHydration(() => {
       unsub();
       resolve();
     });

@@ -349,6 +349,32 @@ def _map_operation(operation: dict[str, Any], *, use_cost: bool) -> dict[str, An
     }
 
 
+def _require_active_account(account: PartnerTelegramAccount) -> None:
+    if not account.is_active:
+        raise unauthorized(
+            "This Telegram account is deactivated.",
+            "PARTNER_TELEGRAM_INACTIVE",
+        )
+
+
+async def _account_dict(
+    session: AsyncSession,
+    account: PartnerTelegramAccount,
+    *,
+    bot: PartnerTelegramBot | None = None,
+) -> dict[str, Any]:
+    linked_ids = partner_telegram_service._linked_partner_ids(account)
+    names = await partner_telegram_service._partner_names(
+        session, account.company_id, linked_ids
+    )
+    partner_name = None
+    if account.regos_partner_id:
+        partner_name = names.get(account.regos_partner_id)
+    return partner_telegram_service.account_to_dict(
+        account, partner_name, bot=bot, partner_names=names
+    )
+
+
 async def authenticate(
     session: AsyncSession, *, public_key: str, init_data: str
 ) -> dict[str, Any]:
@@ -366,30 +392,31 @@ async def authenticate(
             "Open the bot and share your phone number first.",
             "PARTNER_TELEGRAM_NOT_REGISTERED",
         )
+    _require_active_account(account)
 
-    partner_name = None
-    if account.link_state == PartnerTelegramLinkState.linked.value and account.regos_partner_id:
-        partner_name = await partner_telegram_service._partner_name(
-            session, bot.company_id, account.regos_partner_id
-        )
     token = create_partner_telegram_token(account_id=account.id, company_id=account.company_id)
     return {
         "access_token": token,
-        "account": partner_telegram_service.account_to_dict(account, partner_name, bot=bot),
+        "account": await _account_dict(session, account, bot=bot),
     }
 
 
 async def account_profile(session: AsyncSession, account_id: int) -> dict[str, Any]:
-    row = await session.get(PartnerTelegramAccount, account_id)
+    result = await session.execute(
+        select(PartnerTelegramAccount)
+        .where(PartnerTelegramAccount.id == account_id)
+    )
+    row = result.scalar_one_or_none()
     if row is None:
         raise unauthorized("Invalid token", "INVALID_TOKEN")
-    partner_name = None
-    if row.link_state == PartnerTelegramLinkState.linked.value and row.regos_partner_id:
-        partner_name = await partner_telegram_service._partner_name(
-            session, row.company_id, row.regos_partner_id
-        )
-    bot = await partner_telegram_service._get_bot_by_company(session, row.company_id)
-    return partner_telegram_service.account_to_dict(row, partner_name, bot=bot)
+    _require_active_account(row)
+    account = await partner_telegram_service._get_account(
+        session, row.company_id, row.telegram_user_id
+    )
+    if account is None:
+        raise unauthorized("Invalid token", "INVALID_TOKEN")
+    bot = await partner_telegram_service._get_bot_by_company(session, account.company_id)
+    return await _account_dict(session, account, bot=bot)
 
 
 async def require_partner_page(session: AsyncSession, account_id: int, page_key: str) -> None:
@@ -885,25 +912,17 @@ async def _bot_for_login(session: AsyncSession, public_key: str) -> PartnerTeleg
     return bot
 
 
-def _session_payload(
+async def _session_payload(
+    session: AsyncSession,
     account: PartnerTelegramAccount,
-    partner_name: str | None,
     *,
     bot: PartnerTelegramBot | None = None,
 ) -> dict[str, Any]:
     token = create_partner_telegram_token(account_id=account.id, company_id=account.company_id)
     return {
         "access_token": token,
-        "account": partner_telegram_service.account_to_dict(account, partner_name, bot=bot),
+        "account": await _account_dict(session, account, bot=bot),
     }
-
-
-async def _account_partner_name(session: AsyncSession, account: PartnerTelegramAccount) -> str | None:
-    if account.link_state == PartnerTelegramLinkState.linked.value and account.regos_partner_id:
-        return await partner_telegram_service._partner_name(
-            session, account.company_id, account.regos_partner_id
-        )
-    return None
 
 
 async def login_with_password(
@@ -916,14 +935,22 @@ async def login_with_password(
         if exc.code == "PARTNER_PHONE_AMBIGUOUS":
             raise
         raise unauthorized("Phone or password is incorrect.", "PARTNER_LOGIN_INVALID") from exc
+    _require_active_account(account)
     if not account.password_hash or not verify_password(password, account.password_hash):
         raise unauthorized("Phone or password is incorrect.", "PARTNER_LOGIN_INVALID")
-    return _session_payload(account, await _account_partner_name(session, account), bot=bot)
+    account = (
+        await partner_telegram_service._get_account(
+            session, account.company_id, account.telegram_user_id
+        )
+        or account
+    )
+    return await _session_payload(session, account, bot=bot)
 
 
 async def request_password_code(session: AsyncSession, *, public_key: str, phone: str) -> dict[str, str]:
     bot = await _bot_for_login(session, public_key)
     account = await partner_telegram_service.find_bot_account_by_phone(session, bot, phone)
+    _require_active_account(account)
     code = f"{secrets.randbelow(900000) + 100000}"
     await session.execute(
         delete(PartnerTelegramPasswordCode).where(PartnerTelegramPasswordCode.account_id == account.id)
@@ -975,14 +1002,21 @@ async def confirm_password(
         or _aware(row.expires_at) < datetime.now(UTC)
     ):
         raise unauthorized("That code is invalid or expired.", "PARTNER_PASSWORD_CODE_INVALID")
+    _require_active_account(account)
     account.password_hash = hash_password(password)
     await session.execute(
         delete(PartnerTelegramPasswordCode).where(PartnerTelegramPasswordCode.account_id == account.id)
     )
+    account = (
+        await partner_telegram_service._get_account(
+            session, account.company_id, account.telegram_user_id
+        )
+        or account
+    )
     if account.link_state != PartnerTelegramLinkState.linked.value or not account.regos_partner_id:
         await partner_telegram_service.link_or_create_partner(session, bot, account)
     await session.flush()
-    return _session_payload(account, await _account_partner_name(session, account), bot=bot)
+    return await _session_payload(session, account, bot=bot)
 
 
 async def list_payments(

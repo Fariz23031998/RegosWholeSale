@@ -134,6 +134,11 @@ async def get_partner_telegram_account(
     account = await session.get(PartnerTelegramAccount, account_id)
     if account is None or account.company_id != company_id:
         raise unauthorized("Invalid token", "INVALID_TOKEN")
+    if not account.is_active:
+        raise unauthorized(
+            "This Telegram account is deactivated.",
+            "PARTNER_TELEGRAM_INACTIVE",
+        )
 
     company = await session.get(Company, company_id)
     if company is None or not is_subscription_active(company):
