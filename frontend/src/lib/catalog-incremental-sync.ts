@@ -154,94 +154,91 @@ export async function performIncrementalSync(
   },
   options?: { force?: boolean },
 ): Promise<IncrementalSyncResult> {
-  let promise = inflightSyncs.get(scopeKey);
-  if (!promise || options?.force) {
-    const runKey = options?.force ? `force:${scopeKey}` : scopeKey;
-    // If forcing, don't reuse a possibly "fresh" no-op inflight for the same scope.
-    const existingForce = options?.force ? inflightSyncs.get(runKey) : undefined;
-    if (options?.force && existingForce) {
-      return existingForce;
-    }
-    promise = (async () => {
-      try {
-        const since = await resolveSyncSince(scopeKey, scope);
+  // One inflight per scope: force joins an in-progress sync instead of starting another.
+  const existing = inflightSyncs.get(scopeKey);
+  if (existing) {
+    return existing;
+  }
 
-        if (!since) {
-          return {
-            synced: false,
-            fullSyncRequired: false,
-            updatedCount: 0,
-            removedCount: 0,
-            groupsInvalidated: false,
-          };
-        }
+  const promise = (async () => {
+    try {
+      const since = await resolveSyncSince(scopeKey, scope);
 
-        if (!options?.force && isWatermarkFresh(since, scopeKey)) {
-          return {
-            synced: true,
-            fullSyncRequired: false,
-            updatedCount: 0,
-            removedCount: 0,
-            groupsInvalidated: false,
-          };
-        }
+      if (!since) {
+        return {
+          synced: false,
+          fullSyncRequired: false,
+          updatedCount: 0,
+          removedCount: 0,
+          groupsInvalidated: false,
+        };
+      }
 
-        const response = await fetchProductSync(token, since, {
-          warehouseId: scope.warehouseId,
-          priceTypeId: scope.priceTypeId,
-        });
-
-        if (response.full_sync_required) {
-          return {
-            synced: false,
-            fullSyncRequired: true,
-            updatedCount: 0,
-            removedCount: 0,
-            groupsInvalidated: false,
-          };
-        }
-
-        const hasChanges =
-          response.updated_products.length > 0 ||
-          response.removed_product_ids.length > 0 ||
-          response.groups_invalidated;
-
-        if (response.updated_products.length > 0) {
-          await upsertProducts(scopeKey, response.updated_products).catch(() => undefined);
-        }
-
-        if (response.removed_product_ids.length > 0) {
-          const productIds = response.removed_product_ids.map((id) => String(id));
-          await removeProducts(scopeKey, productIds).catch(() => undefined);
-        }
-
-        if (response.groups_invalidated) {
-          await invalidateGroups(scope.companyId).catch(() => undefined);
-        }
-
-        if (hasChanges) {
-          await clearCachedPagesForScope(scopeKey).catch(() => undefined);
-        }
-
-        // Mark sync time only after a successful fetch so the next call won't re-pull.
-        await setLastSyncTime(scopeKey, response.synced_at);
-        lastFetchedAtByScope.set(scopeKey, Date.now());
-
+      if (!options?.force && isWatermarkFresh(since, scopeKey)) {
         return {
           synced: true,
           fullSyncRequired: false,
-          updatedCount: response.updated_products.length,
-          removedCount: response.removed_product_ids.length,
-          groupsInvalidated: response.groups_invalidated,
-          updatedProducts: response.updated_products,
-          removedProductIds: response.removed_product_ids.map((id) => String(id)),
+          updatedCount: 0,
+          removedCount: 0,
+          groupsInvalidated: false,
         };
-      } finally {
-        inflightSyncs.delete(runKey);
       }
-    })();
-    inflightSyncs.set(runKey, promise);
-  }
+
+      const response = await fetchProductSync(token, since, {
+        warehouseId: scope.warehouseId,
+        priceTypeId: scope.priceTypeId,
+      });
+
+      if (response.full_sync_required) {
+        return {
+          synced: false,
+          fullSyncRequired: true,
+          updatedCount: 0,
+          removedCount: 0,
+          groupsInvalidated: false,
+        };
+      }
+
+      const hasChanges =
+        response.updated_products.length > 0 ||
+        response.removed_product_ids.length > 0 ||
+        response.groups_invalidated;
+
+      if (response.updated_products.length > 0) {
+        await upsertProducts(scopeKey, response.updated_products).catch(() => undefined);
+      }
+
+      if (response.removed_product_ids.length > 0) {
+        const productIds = response.removed_product_ids.map((id) => String(id));
+        await removeProducts(scopeKey, productIds).catch(() => undefined);
+      }
+
+      if (response.groups_invalidated) {
+        await invalidateGroups(scope.companyId).catch(() => undefined);
+      }
+
+      if (hasChanges) {
+        await clearCachedPagesForScope(scopeKey).catch(() => undefined);
+      }
+
+      // Mark sync time only after a successful fetch so the next call won't re-pull.
+      await setLastSyncTime(scopeKey, response.synced_at);
+      lastFetchedAtByScope.set(scopeKey, Date.now());
+
+      return {
+        synced: true,
+        fullSyncRequired: false,
+        updatedCount: response.updated_products.length,
+        removedCount: response.removed_product_ids.length,
+        groupsInvalidated: response.groups_invalidated,
+        updatedProducts: response.updated_products,
+        removedProductIds: response.removed_product_ids.map((id) => String(id)),
+      };
+    } finally {
+      inflightSyncs.delete(scopeKey);
+    }
+  })();
+  inflightSyncs.set(scopeKey, promise);
   return promise;
 }
 

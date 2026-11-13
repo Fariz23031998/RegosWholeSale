@@ -485,7 +485,7 @@
 }
 
 .labelEditorForm {
-  overflow: hidden;
+  overflow: auto;
 }
 
 .sizeRow {
@@ -496,16 +496,78 @@
 
 .labelCodeField {
   display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: min(52vh, 520px);
+  gap: 6px;
+}
+
+.labelCodeArea {
+  /* height:0 lets flex-grow size textareas reliably */
+  flex: 1 1 auto;
+  height: 0;
+  min-height: min(48vh, 480px);
+  resize: vertical;
+}
+
+.labelGrapesField {
+  display: flex;
   flex: 1;
   flex-direction: column;
   min-height: 0;
   gap: 6px;
 }
 
-.labelCodeArea {
+.labelGrapesHost {
+  display: flex;
   flex: 1;
-  min-height: 0;
-  resize: none;
+  flex-direction: column;
+  min-height: 320px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+  background: #1e1e1e;
+}
+
+.labelGrapesZoomBar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.labelGrapesZoomValue {
+  min-width: 3.5rem;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+  font-variant-numeric: tabular-nums;
+}
+
+.labelGrapesEditor {
+  flex: 1;
+  min-height: 280px;
+  height: auto;
+}
+
+.labelGrapesEditor :global(.gjs-one-bg) {
+  background-color: #252526;
+}
+
+.labelGrapesEditor :global(.gjs-two-color) {
+  color: #d4d4d4;
+}
+
+.sampleSection {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
 }
 
 .labelPreviewStage {

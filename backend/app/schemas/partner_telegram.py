@@ -5,10 +5,48 @@ from typing import Literal
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 _BALANCE_TIME = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-_BALANCE_TEMPLATE_LIMIT = 3500
+_TEMPLATE_LIMIT = 3500
+
+NOTIFICATION_TEMPLATE_TYPES = (
+    "purchase",
+    "return_purchase",
+    "wholesale",
+    "wholesale_return",
+    "payment",
+    "balance",
+)
+
+NotificationTemplateType = Literal[
+    "purchase",
+    "return_purchase",
+    "wholesale",
+    "wholesale_return",
+    "payment",
+    "balance",
+]
+
+BALANCE_NOTIFY_AFTER_TYPES = (
+    "purchase",
+    "return_purchase",
+    "wholesale",
+    "wholesale_return",
+    "payment",
+)
+
+BalanceNotifyAfterType = Literal[
+    "purchase",
+    "return_purchase",
+    "wholesale",
+    "wholesale_return",
+    "payment",
+]
 
 
-class PartnerBalanceNotifyTemplates(BaseModel):
+def default_balance_notify_after_types() -> dict[str, bool]:
+    return {key: False for key in BALANCE_NOTIFY_AFTER_TYPES}
+
+
+class PartnerLangTemplates(BaseModel):
     uz: str = ""
     ru: str = ""
     en: str = ""
@@ -17,10 +55,22 @@ class PartnerBalanceNotifyTemplates(BaseModel):
     @classmethod
     def template_is_limited(cls, value: str) -> str:
         cleaned = value.strip()
-        if len(cleaned) > _BALANCE_TEMPLATE_LIMIT:
+        if len(cleaned) > _TEMPLATE_LIMIT:
             raise ValueError("template must be at most 3500 characters")
         return cleaned
 
+
+class PartnerNotificationTemplates(BaseModel):
+    purchase: PartnerLangTemplates = Field(default_factory=PartnerLangTemplates)
+    return_purchase: PartnerLangTemplates = Field(default_factory=PartnerLangTemplates)
+    wholesale: PartnerLangTemplates = Field(default_factory=PartnerLangTemplates)
+    wholesale_return: PartnerLangTemplates = Field(default_factory=PartnerLangTemplates)
+    payment: PartnerLangTemplates = Field(default_factory=PartnerLangTemplates)
+    balance: PartnerLangTemplates = Field(default_factory=PartnerLangTemplates)
+
+
+# Backward-compatible alias used by older imports/tests.
+PartnerBalanceNotifyTemplates = PartnerLangTemplates
 
 BalanceNotifyOption = Literal["daily", "weekdays", "monthly"]
 _MAX_BALANCE_SCHEDULES = 10
@@ -75,10 +125,17 @@ PORTAL_PAGE_KEYS = (
 )
 
 OrderDocumentType = Literal["doc_wholesale", "doc_order_from_partner"]
+BalanceNotifyFilter = Literal["negative", "both"]
 
 
 def default_enabled_pages() -> dict[str, bool]:
     return {key: True for key in PORTAL_PAGE_KEYS}
+
+
+def normalize_balance_notify_filter(value: object) -> BalanceNotifyFilter:
+    if value == "both":
+        return "both"
+    return "negative"
 
 
 class PartnerTelegramBotResponse(BaseModel):
@@ -100,9 +157,13 @@ class PartnerTelegramBotResponse(BaseModel):
     catalog_product_group_ids: list[int] = Field(default_factory=list)
     enabled_pages: dict[str, bool] = Field(default_factory=default_enabled_pages)
     balance_notify_enabled: bool = False
+    balance_notify_filter: BalanceNotifyFilter = "negative"
     balance_notify_schedules: list[PartnerBalanceNotifySchedule] = Field(default_factory=list)
-    balance_notify_templates: PartnerBalanceNotifyTemplates = Field(
-        default_factory=PartnerBalanceNotifyTemplates
+    notification_templates: PartnerNotificationTemplates = Field(
+        default_factory=PartnerNotificationTemplates
+    )
+    balance_notify_after_types: dict[str, bool] = Field(
+        default_factory=default_balance_notify_after_types
     )
     order_document_type: OrderDocumentType = "doc_order_from_partner"
     order_booked: bool = True
@@ -125,9 +186,13 @@ class PartnerTelegramBotSettingsRequest(BaseModel):
     catalog_product_group_ids: list[int] = Field(default_factory=list)
     enabled_pages: dict[str, bool] = Field(default_factory=default_enabled_pages)
     balance_notify_enabled: bool = False
+    balance_notify_filter: str = "negative"
     balance_notify_schedules: list[PartnerBalanceNotifySchedule] = Field(default_factory=list)
-    balance_notify_templates: PartnerBalanceNotifyTemplates = Field(
-        default_factory=PartnerBalanceNotifyTemplates
+    notification_templates: PartnerNotificationTemplates = Field(
+        default_factory=PartnerNotificationTemplates
+    )
+    balance_notify_after_types: dict[str, bool] = Field(
+        default_factory=default_balance_notify_after_types
     )
     order_document_type: OrderDocumentType = "doc_order_from_partner"
     order_booked: bool = True
@@ -148,6 +213,21 @@ class PartnerTelegramBotSettingsRequest(BaseModel):
                 if key in pages:
                     pages[key] = bool(enabled)
         return pages
+
+    @field_validator("balance_notify_after_types")
+    @classmethod
+    def balance_notify_after_types_known_keys(cls, value: dict[str, bool]) -> dict[str, bool]:
+        result = default_balance_notify_after_types()
+        if isinstance(value, dict):
+            for key, enabled in value.items():
+                if key in result:
+                    result[key] = bool(enabled)
+        return result
+
+    @field_validator("balance_notify_filter")
+    @classmethod
+    def balance_notify_filter_known(cls, value: str) -> BalanceNotifyFilter:
+        return normalize_balance_notify_filter(value)
 
     @field_validator("balance_notify_schedules")
     @classmethod

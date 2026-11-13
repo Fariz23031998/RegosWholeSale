@@ -14,6 +14,7 @@ from app.services.label_render import (
 from app.services.label_templates import (
     _normalize_html,
     _normalize_logos,
+    _normalize_paper,
     _normalize_print_settings,
     protocol_templates,
 )
@@ -109,6 +110,21 @@ def test_label_image_src_sanitization() -> None:
     assert fields["image_src"] == ""
 
 
+def test_label_print_date_field() -> None:
+    from datetime import date, time
+
+    from app.services.label_render import format_label_date, format_label_time, sample_label_fields
+
+    assert format_label_date(date(2023, 4, 13)) == "4/13/2023"
+    assert format_label_time(time(14, 30)) == "14:30"
+    assert format_label_time(time(9, 5)) == "9:05"
+    fields = label_fields_from_product({"name": "X", "barcode": "1"}, "UZS")
+    assert fields["date"] == format_label_date()
+    assert fields["time"] == format_label_time()
+    assert sample_label_fields()["date"] == "4/13/2023"
+    assert sample_label_fields()["time"] == "14:30"
+
+
 def test_label_logos_normalize() -> None:
     logos = _normalize_logos(
         [
@@ -166,6 +182,52 @@ def test_protocol_templates_include_css() -> None:
     assert "<style>" in html
     assert ".name { color: red; }" in html
     assert "</head>" in html
+
+
+def test_normalize_paper_defaults_orientation_to_portrait() -> None:
+    paper = _normalize_paper({"width_mm": 58, "height_mm": 40})
+    assert paper == {"width_mm": 58.0, "height_mm": 40.0, "orientation": "portrait"}
+
+
+def test_normalize_paper_accepts_landscape() -> None:
+    paper = _normalize_paper({"widthMm": 100, "heightMm": 50, "orientation": "Landscape"})
+    assert paper["orientation"] == "landscape"
+    assert paper["width_mm"] == 100.0
+    assert paper["height_mm"] == 50.0
+
+
+def test_normalize_paper_invalid_orientation_becomes_portrait() -> None:
+    paper = _normalize_paper({"width_mm": 40, "height_mm": 30, "orientation": "diagonal"})
+    assert paper["orientation"] == "portrait"
+
+
+def test_protocol_templates_include_paper_orientation() -> None:
+    templates = protocol_templates(
+        {
+            "templates": [
+                {
+                    "id": "1",
+                    "version": 1,
+                    "paper": {"width_mm": 58, "height_mm": 40, "orientation": "landscape"},
+                    "html": "<div></div>",
+                    "css": "",
+                },
+                {
+                    "id": "2",
+                    "version": 1,
+                    "paper": {"width_mm": 40, "height_mm": 30},
+                    "html": "<div></div>",
+                    "css": "",
+                },
+            ]
+        }
+    )
+    assert templates[0]["paper"] == {
+        "widthMm": 58.0,
+        "heightMm": 40.0,
+        "orientation": "landscape",
+    }
+    assert templates[1]["paper"]["orientation"] == "portrait"
 
 
 def test_select_recent_prices_skips_duplicate_current_value() -> None:

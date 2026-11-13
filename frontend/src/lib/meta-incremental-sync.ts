@@ -18,7 +18,8 @@ const FALLBACK_SYNC_LOOKBACK_MS = 29 * 24 * 60 * 60 * 1000;
 export const META_RECENT_SYNC_SKIP_MS = 60_000;
 
 const lastFetchedAtByCompany = new Map<number, number>();
-const inflightSyncs = new Map<string, Promise<MetaIncrementalSyncResult>>();
+/** Shared across incremental + full refresh so Update Cache cannot overlap app-shell meta sync. */
+const inflightMetaByCompany = new Map<number, Promise<MetaIncrementalSyncResult>>();
 
 const ALL_REFERENCE_KINDS: ReferenceOptionKind[] = ["warehouse", "price_type", "partner"];
 
@@ -112,8 +113,18 @@ async function applySettingsChange(
   }
 }
 
-/** Force-refresh partners, payment types, and settings caches from the server. */
-export async function forceFullMetaRefresh(
+function fullMetaRefreshResult(): MetaIncrementalSyncResult {
+  return {
+    synced: true,
+    fullSyncRequired: true,
+    referenceKinds: [...ALL_REFERENCE_KINDS],
+    paymentTypesInvalidated: true,
+    settingsCount: FULL_SYNC_NAMESPACES.length,
+  };
+}
+
+/** Internal full refresh without taking the company inflight slot (caller already holds it). */
+async function runForceFullMetaRefresh(
   token: string,
   cacheScope: SettingsCacheScope,
   canChangePosContext: boolean,
@@ -141,88 +152,115 @@ export async function forceFullMetaRefresh(
   });
 }
 
+/** Force-refresh partners, payment types, and settings caches from the server. */
+export async function forceFullMetaRefresh(
+  token: string,
+  cacheScope: SettingsCacheScope,
+  canChangePosContext: boolean,
+): Promise<void> {
+  const companyId = cacheScope.companyId;
+  if (companyId == null) {
+    await runForceFullMetaRefresh(token, cacheScope, canChangePosContext);
+    return;
+  }
+
+  const existing = inflightMetaByCompany.get(companyId);
+  if (existing) {
+    await existing;
+    return;
+  }
+
+  const promise = (async () => {
+    try {
+      await runForceFullMetaRefresh(token, cacheScope, canChangePosContext);
+      lastFetchedAtByCompany.set(companyId, Date.now());
+      return fullMetaRefreshResult();
+    } finally {
+      inflightMetaByCompany.delete(companyId);
+    }
+  })();
+  inflightMetaByCompany.set(companyId, promise);
+  await promise;
+}
+
 export async function performMetaIncrementalSync(
   token: string,
   companyId: number,
   userId: number,
   options?: { canChangePosContext?: boolean; force?: boolean },
 ): Promise<MetaIncrementalSyncResult> {
-  // Force resumes must not share a non-force inflight that may no-op as "fresh".
-  const inflightKey = `${options?.force ? "force" : "normal"}:${companyId}`;
-  let promise = inflightSyncs.get(inflightKey);
-  if (!promise) {
-    promise = (async () => {
-      try {
-        const since = await resolveMetaSyncSince(companyId);
-        if (!options?.force && isWatermarkFresh(since, companyId)) {
-          return {
-            synced: true,
-            fullSyncRequired: false,
-            referenceKinds: [],
-            paymentTypesInvalidated: false,
-            settingsCount: 0,
-          };
-        }
+  // Force joins an in-progress meta sync for the company instead of starting another.
+  const existing = inflightMetaByCompany.get(companyId);
+  if (existing) {
+    return existing;
+  }
 
-        const response = await fetchMetaSync(token, since);
-        const canChangePosContext = options?.canChangePosContext ?? false;
-        const cacheScope: SettingsCacheScope = { companyId, userId };
-
-        if (response.full_sync_required) {
-          await forceFullMetaRefresh(token, cacheScope, canChangePosContext);
-          await setLastSyncTime(metaSyncScopeKey(companyId), response.synced_at);
-          lastFetchedAtByCompany.set(companyId, Date.now());
-          return {
-            synced: true,
-            fullSyncRequired: true,
-            referenceKinds: [...ALL_REFERENCE_KINDS],
-            paymentTypesInvalidated: true,
-            settingsCount: FULL_SYNC_NAMESPACES.length,
-          };
-        }
-
-        const referenceKinds = asReferenceKinds(response.reference_kinds);
-        if (referenceKinds.length > 0) {
-          await useSellContext
-            .getState()
-            .refreshReferenceOptions(token, referenceKinds)
-            .catch(() => undefined);
-          if (referenceKinds.includes("partner")) {
-            await clearPartnersCache().catch(() => undefined);
-          }
-        }
-
-        if (response.payment_types_invalidated) {
-          await loadPaymentTypes(token, companyId, { force: true }).catch(() => undefined);
-        }
-
-        for (const change of response.settings) {
-          // Only apply employee settings for the current user (or company-wide).
-          if (
-            change.scope === "employee" &&
-            change.user_id != null &&
-            change.user_id !== userId
-          ) {
-            continue;
-          }
-          await applySettingsChange(token, change, cacheScope, canChangePosContext);
-        }
-
-        await setLastSyncTime(metaSyncScopeKey(companyId), response.synced_at);
-        lastFetchedAtByCompany.set(companyId, Date.now());
-
+  const promise = (async () => {
+    try {
+      const since = await resolveMetaSyncSince(companyId);
+      if (!options?.force && isWatermarkFresh(since, companyId)) {
         return {
           synced: true,
           fullSyncRequired: false,
-          referenceKinds,
-          paymentTypesInvalidated: response.payment_types_invalidated,
-          settingsCount: response.settings.length,
+          referenceKinds: [],
+          paymentTypesInvalidated: false,
+          settingsCount: 0,
         };
-      } finally {
-        inflightSyncs.delete(inflightKey);
       }
-    })();
-    inflightSyncs.set(inflightKey, promise);
-  }
+
+      const response = await fetchMetaSync(token, since);
+      const canChangePosContext = options?.canChangePosContext ?? false;
+      const cacheScope: SettingsCacheScope = { companyId, userId };
+
+      if (response.full_sync_required) {
+        // Already hold the company slot — call the unlocked implementation.
+        await runForceFullMetaRefresh(token, cacheScope, canChangePosContext);
+        await setLastSyncTime(metaSyncScopeKey(companyId), response.synced_at);
+        lastFetchedAtByCompany.set(companyId, Date.now());
+        return fullMetaRefreshResult();
+      }
+
+      const referenceKinds = asReferenceKinds(response.reference_kinds);
+      if (referenceKinds.length > 0) {
+        await useSellContext
+          .getState()
+          .refreshReferenceOptions(token, referenceKinds)
+          .catch(() => undefined);
+        if (referenceKinds.includes("partner")) {
+          await clearPartnersCache().catch(() => undefined);
+        }
+      }
+
+      if (response.payment_types_invalidated) {
+        await loadPaymentTypes(token, companyId, { force: true }).catch(() => undefined);
+      }
+
+      for (const change of response.settings) {
+        // Only apply employee settings for the current user (or company-wide).
+        if (
+          change.scope === "employee" &&
+          change.user_id != null &&
+          change.user_id !== userId
+        ) {
+          continue;
+        }
+        await applySettingsChange(token, change, cacheScope, canChangePosContext);
+      }
+
+      await setLastSyncTime(metaSyncScopeKey(companyId), response.synced_at);
+      lastFetchedAtByCompany.set(companyId, Date.now());
+
+      return {
+        synced: true,
+        fullSyncRequired: false,
+        referenceKinds,
+        paymentTypesInvalidated: response.payment_types_invalidated,
+        settingsCount: response.settings.length,
+      };
+    } finally {
+      inflightMetaByCompany.delete(companyId);
+    }
+  })();
+  inflightMetaByCompany.set(companyId, promise);
   return promise;
 }

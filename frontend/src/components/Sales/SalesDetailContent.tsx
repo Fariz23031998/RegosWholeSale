@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { DataTable } from "@/components/DataTable/DataTable";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -9,6 +9,8 @@ import type {
   WholesalePaymentLine,
 } from "@/lib/sales-api";
 import styles from "./Sales.module.css";
+
+type DetailTab = "products" | "payments";
 
 type Props = {
   document: WholesaleDocument;
@@ -24,6 +26,7 @@ export function SalesDetailContent({
   loading = false,
 }: Props) {
   const { t } = useLanguage();
+  const [activeTab, setActiveTab] = useState<DetailTab>("products");
   const right = { align: "right" as const, cellClassName: styles.right, headerClassName: styles.right };
   const lineColumns = useMemo<ColumnDef<WholesaleOperationLine, any>[]>(
     () => [
@@ -129,43 +132,72 @@ export function SalesDetailContent({
         </div>
       </div>
 
-      <div className={styles.detailSection}>
-        <div className={styles.detailSectionTitle}>{t("sales.detail.products")}</div>
-        {loading ? (
-          <div className={styles.detailEmpty}>{t("common.loading")}</div>
-        ) : operations.length === 0 ? (
-          <div className={styles.detailEmpty}>{t("sales.detail.noProducts")}</div>
-        ) : (
-          <div className={styles.detailTableWrap}>
-            <DataTable
-              tableKey="sales.detail.lines"
-              data={operations}
-              columns={lineColumns}
-              className={styles.detailTable}
-              getRowId={(op) => String(op.id)}
-            />
-          </div>
-        )}
+      <div
+        className={styles.detailTabs}
+        role="tablist"
+        aria-label={t("sales.detail.tabsLabel", "Sale details")}
+      >
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "products"}
+          className={`${styles.detailTab} ${activeTab === "products" ? styles.detailTabActive : ""}`}
+          onClick={() => setActiveTab("products")}
+        >
+          {t("sales.detail.products")}
+          {!loading ? ` (${operations.length})` : ""}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeTab === "payments"}
+          className={`${styles.detailTab} ${activeTab === "payments" ? styles.detailTabActive : ""}`}
+          onClick={() => setActiveTab("payments")}
+        >
+          {t("sales.detail.payments")}
+          {!loading ? ` (${payments.length})` : ""}
+        </button>
       </div>
 
-      <div className={styles.detailSection}>
-        <div className={styles.detailSectionTitle}>{t("sales.detail.payments")}</div>
-        {loading ? (
-          <div className={styles.detailEmpty}>{t("common.loading")}</div>
-        ) : payments.length === 0 ? (
-          <div className={styles.detailEmpty}>{t("sales.detail.noPayments")}</div>
-        ) : (
-          <div className={styles.detailTableWrap}>
-            <DataTable
-              tableKey="sales.detail.payments"
-              data={payments}
-              columns={paymentColumns}
-              className={styles.detailTable}
-              getRowId={(payment) => String(payment.id)}
-            />
-          </div>
-        )}
-      </div>
+      {activeTab === "products" ? (
+        <div className={styles.detailSection} role="tabpanel">
+          {loading ? (
+            <div className={styles.detailEmpty}>{t("common.loading")}</div>
+          ) : operations.length === 0 ? (
+            <div className={styles.detailEmpty}>{t("sales.detail.noProducts")}</div>
+          ) : (
+            <div className={styles.detailTableWrap}>
+              <DataTable
+                tableKey="sales.detail.lines"
+                data={operations}
+                columns={lineColumns}
+                className={styles.detailTable}
+                getRowId={(op) => String(op.id)}
+                enableColumnSettings={false}
+              />
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className={styles.detailSection} role="tabpanel">
+          {loading ? (
+            <div className={styles.detailEmpty}>{t("common.loading")}</div>
+          ) : payments.length === 0 ? (
+            <div className={styles.detailEmpty}>{t("sales.detail.noPayments")}</div>
+          ) : (
+            <div className={styles.detailTableWrap}>
+              <DataTable
+                tableKey="sales.detail.payments"
+                data={payments}
+                columns={paymentColumns}
+                className={styles.detailTable}
+                getRowId={(payment) => String(payment.id)}
+                enableColumnSettings={false}
+              />
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

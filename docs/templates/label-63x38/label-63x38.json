@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "template": {
+    "name": "63×38 mm with QR",
+    "is_default": false,
+    "paper": {
+      "width_mm": 63,
+      "height_mm": 38
+    },
+    "html": "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\" />\n</head>\n<body>\n  <div class=\"label\">\n    <div class=\"name\">{{ name }}</div>\n    <div class=\"price\">{{formatNumber price}} <span class=\"currency\">{{ currency }}</span></div>\n    <div class=\"codes\">\n      <div class=\"barcode-wrap\">\n        <img class=\"barcode\" src=\"{{ barcode_src }}\" alt=\"\" />\n        <div class=\"code\">{{ barcode }}</div>\n      </div>\n      <img class=\"qr\" src=\"{{ qr_src }}\" alt=\"\" />\n    </div>\n  </div>\n</body>\n</html>",
+    "css": "html, body {\n  margin: 0;\n  padding: 0;\n  font-family: Arial, Helvetica, sans-serif;\n  color: #000;\n}\n.label {\n  box-sizing: border-box;\n  width: 63mm;\n  height: 38mm;\n  padding: 2.2mm 2.4mm 1.8mm;\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n}\n.name {\n  font-size: 12px;\n  font-weight: 700;\n  line-height: 1.15;\n  max-height: 2.3em;\n  overflow: hidden;\n}\n.price {\n  font-size: 18px;\n  font-weight: 800;\n  margin-top: 1mm;\n  line-height: 1;\n  letter-spacing: -0.02em;\n}\n.currency {\n  font-size: 10px;\n  font-weight: 700;\n  margin-left: 0.8mm;\n}\n.codes {\n  display: flex;\n  align-items: flex-end;\n  justify-content: space-between;\n  gap: 2.5mm;\n  margin-top: auto;\n}\n.barcode-wrap {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 0.4mm;\n  min-width: 0;\n  flex: 1 1 auto;\n}\nimg.barcode {\n  height: 13mm;\n  width: 100%;\n  max-width: 100%;\n  object-fit: contain;\n  object-position: center bottom;\n}\n.code {\n  font-size: 8.5px;\n  font-weight: 600;\n  letter-spacing: 0.05em;\n  text-align: center;\n  white-space: nowrap;\n}\nimg.qr {\n  height: 12mm;\n  width: 12mm;\n  flex: 0 0 auto;\n}",
+    "logos": [],
+    "version": 1
+  }
+}

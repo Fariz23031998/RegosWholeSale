@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "template": {
+    "name": "58×40 mm label",
+    "is_default": false,
+    "paper": {
+      "width_mm": 58,
+      "height_mm": 40
+    },
+    "html": "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\" />\n</head>\n<body>\n  <div class=\"label\">\n    <div class=\"name\">{{ name }}</div>\n    <div class=\"price\">{{formatNumber price}} <span class=\"currency\">{{ currency }}</span></div>\n    <div class=\"barcode-wrap\">\n      <img class=\"barcode\" src=\"{{ barcode_src }}\" alt=\"\" />\n      <div class=\"code\">{{ barcode }}</div>\n    </div>\n  </div>\n</body>\n</html>",
+    "css": "html, body {\n  margin: 0;\n  padding: 0;\n  font-family: Arial, Helvetica, sans-serif;\n  color: #000;\n}\n.label {\n  box-sizing: border-box;\n  width: 58mm;\n  height: 40mm;\n  padding: 2.4mm 2.6mm 2mm;\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n}\n.name {\n  font-size: 12px;\n  font-weight: 700;\n  line-height: 1.2;\n  max-height: 2.4em;\n  overflow: hidden;\n}\n.price {\n  font-size: 20px;\n  font-weight: 800;\n  margin-top: 1.2mm;\n  line-height: 1;\n  letter-spacing: -0.02em;\n}\n.currency {\n  font-size: 11px;\n  font-weight: 700;\n  margin-left: 1mm;\n}\n.barcode-wrap {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 0.5mm;\n  margin-top: auto;\n  width: 100%;\n}\n.code {\n  font-size: 9.5px;\n  font-weight: 600;\n  letter-spacing: 0.06em;\n  text-align: center;\n  white-space: nowrap;\n}\nimg.barcode {\n  height: 15mm;\n  width: 100%;\n  max-width: 100%;\n  object-fit: contain;\n  object-position: center bottom;\n}",
+    "logos": [],
+    "version": 1
+  }
+}

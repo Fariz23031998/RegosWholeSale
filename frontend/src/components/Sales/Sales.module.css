@@ -147,6 +147,16 @@
   height: min(90vh, 900px);
 }
 
+@media (max-width: 900px) {
+  .detailModal {
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    max-height: none;
+    border-radius: 0;
+  }
+}
+
 .detailModalBody {
   display: flex;
   flex-direction: column;
@@ -184,8 +194,9 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
   gap: 12px 20px;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   font-size: 14px;
+  flex-shrink: 0;
 }
 
 .detailLabel {
@@ -198,8 +209,44 @@
   margin-bottom: 4px;
 }
 
+.detailTabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+
+.detailTab {
+  padding: 8px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  font-size: 13px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.detailTab:not(.detailTabActive):hover {
+  color: var(--color-text);
+}
+
+.detailTabActive {
+  background: var(--color-filter-active-bg);
+  border-color: var(--color-filter-active-border);
+  color: var(--color-filter-active-text);
+}
+
+.detailTabActive:hover {
+  color: var(--color-filter-active-text);
+}
+
 .detailSection {
-  margin-top: 20px;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  margin-top: 0;
 }
 
 .detailSectionTitle {

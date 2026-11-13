@@ -1,6 +1,9 @@
+export type LabelPaperOrientation = "portrait" | "landscape";
+
 export type LabelPaper = {
   width_mm: number;
   height_mm: number;
+  orientation?: LabelPaperOrientation;
 };
 
 export type LabelTemplateLogo = {
@@ -118,6 +121,8 @@ export type LabelFieldRow = {
   sku: string;
   category: string;
   unit_name: string;
+  date: string;
+  time: string;
   barcode_src: string;
   qr_src: string;
   image_src: string;
@@ -155,6 +160,8 @@ export const LABEL_PLACEHOLDERS = [
   "sku",
   "category",
   "unit_name",
+  "date",
+  "time",
   "barcode_src",
   "qr_src",
   "image_src",

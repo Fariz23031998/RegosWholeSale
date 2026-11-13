@@ -48,13 +48,14 @@ DANGEROUS_MARKUP_PATTERNS = (
     (re.compile(r"expression\s*\(", re.IGNORECASE), "Template markup cannot contain CSS expression()."),
 )
 
-DEFAULT_LABEL_CSS = """html, body { margin: 0; padding: 0; width: 58mm; height: 40mm; font-family: Arial, sans-serif; }
-.label { box-sizing: border-box; width: 58mm; height: 40mm; padding: 2mm; display: flex; flex-direction: column; }
-.name { font-size: 11px; font-weight: 700; line-height: 1.2; max-height: 2.4em; overflow: hidden; }
-.price { font-size: 16px; font-weight: 700; margin-top: 1mm; }
-.row { display: flex; align-items: center; gap: 2mm; margin-top: auto; }
-.code { font-size: 9px; }
-img.barcode { height: 12mm; width: auto; }"""
+DEFAULT_LABEL_CSS = """html, body { margin: 0; padding: 0; width: 58mm; height: 40mm; font-family: Arial, Helvetica, sans-serif; color: #000; }
+.label { box-sizing: border-box; width: 58mm; height: 40mm; padding: 2.4mm 2.6mm 2mm; display: flex; flex-direction: column; overflow: hidden; }
+.name { font-size: 12px; font-weight: 700; line-height: 1.2; max-height: 2.4em; overflow: hidden; }
+.price { font-size: 20px; font-weight: 800; margin-top: 1.2mm; line-height: 1; letter-spacing: -0.02em; }
+.currency { font-size: 11px; font-weight: 700; margin-left: 1mm; }
+.barcode-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.5mm; margin-top: auto; width: 100%; }
+.code { font-size: 8px; font-weight: 600; letter-spacing: 0.06em; text-align: center; white-space: nowrap; }
+img.barcode { height: 15mm; width: 100%; max-width: 100%; object-fit: contain; object-position: center bottom; }"""
 
 DEFAULT_LABEL_HTML = """<!DOCTYPE html>
 <html>
@@ -64,8 +65,8 @@ DEFAULT_LABEL_HTML = """<!DOCTYPE html>
 <body>
   <div class="label">
     <div class="name">{{ name }}</div>
-    <div class="price">{{ price }} {{ currency }}</div>
-    <div class="row">
+    <div class="price">{{ price }} <span class="currency">{{ currency }}</span></div>
+    <div class="barcode-wrap">
       <img class="barcode" src="{{ barcode_src }}" alt="" />
       <div class="code">{{ barcode }}</div>
     </div>
@@ -182,6 +183,12 @@ def protocol_templates(settings: dict[str, Any]) -> list[dict[str, Any]]:
                 "paper": {
                     "widthMm": float(paper.get("width_mm") or 58),
                     "heightMm": float(paper.get("height_mm") or 40),
+                    "orientation": (
+                        "landscape"
+                        if str(paper.get("orientation") or "portrait").strip().lower()
+                        == "landscape"
+                        else "portrait"
+                    ),
                 },
                 "html": compose_label_html(item.get("html") or "", item.get("css") or ""),
             }
@@ -230,7 +237,7 @@ def _seed_templates() -> dict[str, Any]:
                 "id": template_id,
                 "name": "58×40 mm label",
                 "is_default": True,
-                "paper": {"width_mm": 58, "height_mm": 40},
+                "paper": {"width_mm": 58, "height_mm": 40, "orientation": "portrait"},
                 "html": DEFAULT_LABEL_HTML.strip(),
                 "css": DEFAULT_LABEL_CSS.strip(),
                 "logos": [],
@@ -393,7 +400,7 @@ def _normalize_logos(raw: Any) -> list[dict[str, Any]]:
     return normalized
 
 
-def _normalize_paper(raw: Any) -> dict[str, float]:
+def _normalize_paper(raw: Any) -> dict[str, float | str]:
     data = raw if isinstance(raw, dict) else {}
     width = data.get("width_mm", data.get("widthMm"))
     height = data.get("height_mm", data.get("heightMm"))
@@ -404,7 +411,13 @@ def _normalize_paper(raw: Any) -> dict[str, float]:
         raise bad_request("Label paper size is required.", "INVALID_LABEL_PAPER")
     if width_mm <= 0 or height_mm <= 0 or width_mm > 500 or height_mm > 500:
         raise bad_request("Label paper size is out of range.", "INVALID_LABEL_PAPER")
-    return {"width_mm": width_mm, "height_mm": height_mm}
+    orientation_raw = data.get("orientation")
+    orientation = (
+        "landscape"
+        if str(orientation_raw or "").strip().lower() == "landscape"
+        else "portrait"
+    )
+    return {"width_mm": width_mm, "height_mm": height_mm, "orientation": orientation}
 
 
 def _normalize_html(raw: Any) -> str:

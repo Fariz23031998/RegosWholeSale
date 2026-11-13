@@ -14,6 +14,7 @@ import {
   Camera,
   CheckCheck,
   CircleDollarSign,
+  Copy,
   ImageOff,
   ListChecks,
   PackageX,
@@ -32,7 +33,9 @@ import { PrintAreaPortal } from "@/components/Receipt/PrintAreaPortal";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePermissions } from "@/hooks/use-permissions";
 import { findProductByBarcode } from "@/lib/barcode";
-import { fetchCatalogProducts, fetchProductGroups } from "@/lib/catalog-api";
+import { isCacheEnabled } from "@/lib/cache-policy";
+import { loadCatalogProducts, loadProductGroups } from "@/lib/catalog-service";
+import { ensureCatalogReady } from "@/lib/ensure-catalog-ready";
 import { truncateToastName } from "@/lib/format";
 import {
   fetchLabelStations,
@@ -90,6 +93,12 @@ function productMatchesSearch(product: Product, search: string): boolean {
   return fields.some((field) => String(field ?? "").toLowerCase().includes(q));
 }
 
+/** Digits-only queries longer than 6 chars search only on Enter, not while typing. */
+function isDeferredDigitSearch(value: string): boolean {
+  const trimmed = value.trim();
+  return /^\d+$/.test(trimmed) && trimmed.length > 6;
+}
+
 export function ProductsPage() {
   const { t } = useLanguage();
   const {
@@ -137,23 +146,27 @@ export function ProductsPage() {
   const [pricesOpen, setPricesOpen] = useState(false);
   const [printConfirmOpen, setPrintConfirmOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsIntent, setSettingsIntent] = useState<"edit" | "print">("edit");
   const [printing, setPrinting] = useState(false);
   const [printHtml, setPrintHtml] = useState("");
   const [printPrefs, setPrintPrefs] = useState<UserLabelPrintSettings | null>(null);
   const [includeZeroQuantity, setIncludeZeroQuantity] = useState(false);
   const [includeZeroPrice, setIncludeZeroPrice] = useState(false);
   const [catalogFiltersReady, setCatalogFiltersReady] = useState(false);
+  const [catalogReady, setCatalogReady] = useState(() => !isCacheEnabled());
   const [savingCatalogFilter, setSavingCatalogFilter] = useState(false);
   const [sortOpen, setSortOpen] = useState(false);
   const [scannerOpen, setScannerOpen] = useState(false);
   const [keypadProductId, setKeypadProductId] = useState<string | null>(null);
   const sortButtonRef = useRef<HTMLButtonElement | null>(null);
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
-  const pendingPrintAfterSettings = useRef(false);
+  const pendingSelectSingleRef = useRef(false);
+  const selectProductRef = useRef<(product: Product) => void>(() => {});
+  const startupSyncDoneForScope = useRef<string | null>(null);
 
   const canOverrideContext = canChangeWarehousePerm || canChangePriceTypePerm;
   const openPrintSettings = useCallback(() => {
-    pendingPrintAfterSettings.current = false;
+    setSettingsIntent("edit");
     setSettingsOpen(true);
   }, []);
   useRegisterProductsSettings(canPrintLabels() && canEditPrintSettings ? openPrintSettings : null);
@@ -164,6 +177,15 @@ export function ProductsPage() {
     return overrides;
   }, [canChangePriceTypePerm, canChangeWarehousePerm, priceTypeId, warehouseId]);
 
+  const catalogScope = useMemo(
+    () => ({
+      companyId: user?.company_id,
+      warehouseId: catalogOverrides.warehouseId,
+      priceTypeId: catalogOverrides.priceTypeId,
+    }),
+    [catalogOverrides.priceTypeId, catalogOverrides.warehouseId, user?.company_id],
+  );
+
   useEffect(() => {
     if (!token) return;
     void hydrateSellContext(token, canOverrideContext, {
@@ -171,6 +193,56 @@ export function ProductsPage() {
       companyId: user?.company_id,
     });
   }, [canOverrideContext, hydrateSellContext, token, user?.company_id, user?.id]);
+
+  useEffect(() => {
+    if (!isCacheEnabled()) {
+      setCatalogReady(true);
+      return;
+    }
+    if (
+      !token ||
+      !user?.company_id ||
+      !hydrated ||
+      warehouseId === null ||
+      priceTypeId === null
+    ) {
+      setCatalogReady(false);
+      return;
+    }
+
+    let cancelled = false;
+    setCatalogReady(false);
+
+    void ensureCatalogReady(
+      token,
+      {
+        companyId: user.company_id,
+        warehouseId: catalogOverrides.warehouseId,
+        priceTypeId: catalogOverrides.priceTypeId,
+      },
+      {
+        skipIfDone: true,
+        doneForScopeRef: startupSyncDoneForScope,
+        isCancelled: () => cancelled,
+        t,
+      },
+    ).finally(() => {
+      if (!cancelled) setCatalogReady(true);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    catalogOverrides.priceTypeId,
+    catalogOverrides.warehouseId,
+    hydrated,
+    priceTypeId,
+    t,
+    token,
+    user?.company_id,
+    warehouseId,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -221,6 +293,7 @@ export function ProductsPage() {
   }, [copiesById, selectedById, selectedIds, selectionHydrated, showSelectedOnly]);
 
   useEffect(() => {
+    if (isDeferredDigitSearch(searchInput)) return;
     const handle = window.setTimeout(() => setSearch(searchInput.trim()), 300);
     return () => window.clearTimeout(handle);
   }, [searchInput]);
@@ -261,11 +334,19 @@ export function ProductsPage() {
   }, [token, user?.company_id, user?.id]);
 
   useEffect(() => {
-    if (!token) return;
-    void fetchProductGroups(token)
-      .then((response) => setGroups(response.groups))
-      .catch(() => setGroups([]));
-  }, [token]);
+    if (!token || !catalogReady) return;
+    let cancelled = false;
+    void loadProductGroups(token, user?.company_id)
+      .then((loaded) => {
+        if (!cancelled) setGroups(loaded);
+      })
+      .catch(() => {
+        if (!cancelled) setGroups([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogReady, token, user?.company_id]);
 
   useEffect(() => {
     if (!token || !canPrintLabels()) return;
@@ -299,31 +380,51 @@ export function ProductsPage() {
   }, [printHtml]);
 
   useEffect(() => {
-    if (!token || !hydrated || !canPrintLabels() || !catalogFiltersReady || showSelectedOnly) return;
+    if (
+      !token ||
+      !hydrated ||
+      !canPrintLabels() ||
+      !catalogFiltersReady ||
+      !catalogReady ||
+      showSelectedOnly
+    ) {
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError("");
-    void fetchCatalogProducts(token, {
-      offset: 0,
-      limit: PAGE_SIZE,
-      search,
-      groupId: selectedGroupId,
-      warehouseId: catalogOverrides.warehouseId,
-      priceTypeId: catalogOverrides.priceTypeId,
-      includeZeroQuantity,
-      includeZeroPrice,
-      sort: catalogSort,
-    })
+    void loadCatalogProducts(
+      token,
+      {
+        offset: 0,
+        limit: PAGE_SIZE,
+        search,
+        groupId: selectedGroupId,
+        warehouseId: catalogOverrides.warehouseId,
+        priceTypeId: catalogOverrides.priceTypeId,
+        includeZeroQuantity,
+        includeZeroPrice,
+        sort: catalogSort,
+      },
+      catalogScope,
+    )
       .then((response) => {
         if (cancelled) return;
         setProducts(response.products);
         setNextOffset(response.next_offset);
         setTotal(response.total);
+        if (pendingSelectSingleRef.current) {
+          if (response.products.length === 1) {
+            selectProductRef.current(response.products[0]);
+          }
+          pendingSelectSingleRef.current = false;
+        }
       })
       .catch((err: unknown) => {
         if (cancelled) return;
         setProducts([]);
         setError(formatAuthError(err, t("products.errors.load", "Failed to load products")));
+        pendingSelectSingleRef.current = false;
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -334,7 +435,10 @@ export function ProductsPage() {
   }, [
     canPrintLabels,
     catalogFiltersReady,
-    catalogOverrides,
+    catalogOverrides.priceTypeId,
+    catalogOverrides.warehouseId,
+    catalogReady,
+    catalogScope,
     catalogSort,
     hydrated,
     includeZeroPrice,
@@ -442,6 +546,39 @@ export function ProductsPage() {
       return next;
     });
   }, []);
+  selectProductRef.current = selectProduct;
+
+  const submitSearch = useCallback(() => {
+    const term = searchInput.trim();
+    pendingSelectSingleRef.current = true;
+    setSearch(term);
+
+    if (showSelectedOnly) {
+      let list = [...selectedById.values()];
+      if (selectedGroupId != null) {
+        list = list.filter((product) => product.group_id === selectedGroupId);
+      }
+      list = list.filter((product) => productMatchesSearch(product, term));
+      if (list.length === 1) selectProduct(list[0]);
+      pendingSelectSingleRef.current = false;
+      return;
+    }
+
+    // Same query already loaded — effect will not re-run; select now if unique.
+    if (search === term && !loading) {
+      if (products.length === 1) selectProduct(products[0]);
+      pendingSelectSingleRef.current = false;
+    }
+  }, [
+    loading,
+    products,
+    search,
+    searchInput,
+    selectProduct,
+    selectedById,
+    selectedGroupId,
+    showSelectedOnly,
+  ]);
 
   const toggleProduct = (product: Product) => {
     setSelectedIds((current) => {
@@ -465,6 +602,9 @@ export function ProductsPage() {
   };
 
   const toggleAllLoaded = () => {
+    if (allLoadedSelected) {
+      setShowSelectedOnly(false);
+    }
     setSelectedIds((current) => {
       const next = new Set(current);
       if (allLoadedSelected) {
@@ -500,6 +640,16 @@ export function ProductsPage() {
     setCopiesById((current) => {
       const next = new Map(current);
       next.set(product.id, clampCopies(copies));
+      return next;
+    });
+  };
+
+  const copyStockToPrintQty = () => {
+    setCopiesById((current) => {
+      const next = new Map(current);
+      for (const product of selectedById.values()) {
+        next.set(product.id, clampCopies(product.stock));
+      }
       return next;
     });
   };
@@ -572,23 +722,28 @@ export function ProductsPage() {
       showSelectedOnly ||
       !token ||
       !catalogFiltersReady ||
+      !catalogReady ||
       loadingMore ||
       products.length >= total
     ) {
       return;
     }
     setLoadingMore(true);
-    void fetchCatalogProducts(token, {
-      offset: nextOffset,
-      limit: PAGE_SIZE,
-      search,
-      groupId: selectedGroupId,
-      warehouseId: catalogOverrides.warehouseId,
-      priceTypeId: catalogOverrides.priceTypeId,
-      includeZeroQuantity,
-      includeZeroPrice,
-      sort: catalogSort,
-    })
+    void loadCatalogProducts(
+      token,
+      {
+        offset: nextOffset,
+        limit: PAGE_SIZE,
+        search,
+        groupId: selectedGroupId,
+        warehouseId: catalogOverrides.warehouseId,
+        priceTypeId: catalogOverrides.priceTypeId,
+        includeZeroQuantity,
+        includeZeroPrice,
+        sort: catalogSort,
+      },
+      catalogScope,
+    )
       .then((response) => {
         setProducts((current) => {
           const seen = new Set(current.map((item) => item.id));
@@ -611,17 +766,21 @@ export function ProductsPage() {
       setSearchInput(term);
       setSearch(term);
       try {
-        const response = await fetchCatalogProducts(token, {
-          offset: 0,
-          limit: PAGE_SIZE,
-          search: term,
-          groupId: null,
-          warehouseId: catalogOverrides.warehouseId,
-          priceTypeId: catalogOverrides.priceTypeId,
-          includeZeroQuantity: true,
-          includeZeroPrice: true,
-          sort: catalogSort,
-        });
+        const response = await loadCatalogProducts(
+          token,
+          {
+            offset: 0,
+            limit: PAGE_SIZE,
+            search: term,
+            groupId: null,
+            warehouseId: catalogOverrides.warehouseId,
+            priceTypeId: catalogOverrides.priceTypeId,
+            includeZeroQuantity: true,
+            includeZeroPrice: true,
+            sort: catalogSort,
+          },
+          catalogScope,
+        );
         const product =
           findProductByBarcode(response.products, term) ?? response.products[0] ?? null;
         if (!product) {
@@ -638,7 +797,7 @@ export function ProductsPage() {
         toast.error(formatAuthError(err, t("products.errors.load", "Failed to load products")));
       }
     },
-    [catalogOverrides, catalogSort, selectProduct, t, token],
+    [catalogOverrides.priceTypeId, catalogOverrides.warehouseId, catalogScope, catalogSort, selectProduct, t, token],
   );
 
   const printWithPrefs = useCallback(
@@ -742,7 +901,7 @@ export function ProductsPage() {
       }
 
       if (prefs.prompt_before_print) {
-        pendingPrintAfterSettings.current = true;
+        setSettingsIntent("print");
         setSettingsOpen(true);
         return;
       }
@@ -758,15 +917,16 @@ export function ProductsPage() {
   const handlePrintSettingsSaved = useCallback(
     (settings: UserLabelPrintSettings) => {
       setPrintPrefs(settings);
-      if (!pendingPrintAfterSettings.current) return;
-      pendingPrintAfterSettings.current = false;
+      const shouldPrint = settingsIntent === "print";
+      setSettingsIntent("edit");
+      if (!shouldPrint) return;
       void printWithPrefs(settings);
     },
-    [printWithPrefs],
+    [printWithPrefs, settingsIntent],
   );
 
   const handlePrintSettingsClose = useCallback(() => {
-    pendingPrintAfterSettings.current = false;
+    setSettingsIntent("edit");
     setSettingsOpen(false);
   }, []);
 
@@ -788,7 +948,7 @@ export function ProductsPage() {
             className={posStyles.searchRow}
             onSubmit={(event) => {
               event.preventDefault();
-              setSearch(searchInput.trim());
+              submitSearch();
             }}
           >
             <div className={clsx(posStyles.search, posStyles.searchWithScan)}>
@@ -1010,6 +1170,23 @@ export function ProductsPage() {
               <BadgeDollarSign size={22} />
             </button>
           ) : null}
+          {showSelectedOnly ? (
+            <button
+              type="button"
+              className={styles.actionBtn}
+              aria-label={t(
+                "products.copyStockToPrintQty",
+                "Copy quantity to print quantity",
+              )}
+              title={t(
+                "products.copyStockToPrintQty",
+                "Copy quantity to print quantity",
+              )}
+              onClick={copyStockToPrintQty}
+            >
+              <Copy size={22} />
+            </button>
+          ) : null}
         </div>
       ) : null}
       <ChangePricesDialog
@@ -1060,6 +1237,7 @@ export function ProductsPage() {
       />
       <LabelPrintSettingsDialog
         open={settingsOpen}
+        intent={settingsIntent}
         onClose={handlePrintSettingsClose}
         onSaved={handlePrintSettingsSaved}
       />

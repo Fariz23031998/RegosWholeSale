@@ -9,6 +9,14 @@ import {
   type StockOperationLine,
 } from "@/lib/stock-docs-api";
 import { getStockDocDefinition } from "@/lib/stock-doc-definitions";
+import {
+  applyMarkupToCost,
+  parseMarkupPercent,
+} from "@/lib/purchase-line-markup";
+import {
+  loadPurchaseLineMarkup,
+  savePurchaseLineMarkup,
+} from "@/lib/purchase-line-markup-db";
 import { formatAuthError, useAuth } from "@/store/auth";
 import styles from "./StockDocs.module.css";
 
@@ -20,7 +28,7 @@ type Props = {
   onSaved: () => void;
 };
 
-type LineField = "qty" | "cost" | "price";
+type LineField = "qty" | "cost" | "markup" | "price";
 
 function isEnterKey(e: KeyboardEvent<HTMLInputElement>) {
   return e.key === "Enter" || e.code === "Enter" || e.keyCode === 13;
@@ -34,17 +42,20 @@ export function StockDocUpdateLineModal({
   onSaved,
 }: Props) {
   const def = getStockDocDefinition(kind);
+  const showMarkup = def.editableCost && def.showPrice;
   const { t } = useLanguage();
   const isMobile = useIsMobile();
   const token = useAuth((s) => s.accessToken);
   const formRef = useRef<HTMLFormElement>(null);
   const qtyRef = useRef<HTMLInputElement>(null);
   const costRef = useRef<HTMLInputElement>(null);
+  const markupRef = useRef<HTMLInputElement>(null);
   const priceRef = useRef<HTMLInputElement>(null);
   const focusedGenRef = useRef(0);
 
   const [qty, setQty] = useState("1");
   const [cost, setCost] = useState("");
+  const [markup, setMarkup] = useState("");
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -54,6 +65,7 @@ export function StockDocUpdateLineModal({
     "qty",
     ...(def.editableCost ? (["cost"] as const) : []),
     ...(def.showPrice ? (["price"] as const) : []),
+    ...(showMarkup ? (["markup"] as const) : []),
   ];
   const lastField = fieldOrder[fieldOrder.length - 1] ?? "qty";
 
@@ -61,13 +73,32 @@ export function StockDocUpdateLineModal({
   // qty has committed so select() is not cleared by the value update.
   useEffect(() => {
     if (!open || !line) return;
+    const nextCost = line.cost != null ? String(line.cost) : "";
+    const nextPrice = line.price != null ? String(line.price) : "";
     setQty(String(line.quantity));
-    setCost(line.cost != null ? String(line.cost) : "");
-    setPrice(line.price != null ? String(line.price) : "");
+    setCost(nextCost);
+    setMarkup("");
+    setPrice(nextPrice);
     setError("");
     setBusy(false);
     setFocusGen((g) => g + 1);
-  }, [open, line]);
+
+    if (!showMarkup) return;
+    let cancelled = false;
+    void loadPurchaseLineMarkup()
+      .then((saved) => {
+        if (cancelled) return;
+        if (saved == null) return;
+        setMarkup(String(saved));
+        const costNum = Number(nextCost);
+        const calculated = applyMarkupToCost(costNum, saved);
+        if (calculated != null) setPrice(String(calculated));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open, line, showMarkup]);
 
   useEffect(() => {
     if (!open || !line || focusGen === 0) return;
@@ -145,6 +176,7 @@ export function StockDocUpdateLineModal({
   const fieldRef = (field: LineField) => {
     if (field === "qty") return qtyRef.current;
     if (field === "cost") return costRef.current;
+    if (field === "markup") return markupRef.current;
     return priceRef.current;
   };
 
@@ -166,6 +198,23 @@ export function StockDocUpdateLineModal({
     e.preventDefault();
     e.stopPropagation();
     advanceOrSave(field);
+  };
+
+  const onCostChange = (value: string) => {
+    setCost(value);
+    const markupPct = parseMarkupPercent(markup);
+    if (markupPct == null) return;
+    const calculated = applyMarkupToCost(Number(value), markupPct);
+    if (calculated != null) setPrice(String(calculated));
+  };
+
+  const onMarkupChange = (value: string) => {
+    setMarkup(value);
+    const markupPct = parseMarkupPercent(value);
+    void savePurchaseLineMarkup(markupPct).catch(() => undefined);
+    if (markupPct == null) return;
+    const calculated = applyMarkupToCost(Number(cost), markupPct);
+    if (calculated != null) setPrice(String(calculated));
   };
 
   return (
@@ -207,7 +256,7 @@ export function StockDocUpdateLineModal({
                   ref={costRef}
                   name="cost"
                   value={cost}
-                  onChange={(e) => setCost(e.target.value)}
+                  onChange={(e) => onCostChange(e.target.value)}
                   onFocus={(e) => e.currentTarget.select()}
                   onKeyDown={onFieldKeyDown("cost")}
                   inputMode="decimal"
@@ -226,6 +275,22 @@ export function StockDocUpdateLineModal({
                   onChange={(e) => setPrice(e.target.value)}
                   onFocus={(e) => e.currentTarget.select()}
                   onKeyDown={onFieldKeyDown("price")}
+                  inputMode="decimal"
+                  enterKeyHint={lastField === "price" ? "done" : "next"}
+                  autoComplete="off"
+                />
+              </div>
+            )}
+            {showMarkup && (
+              <div className={styles.formField}>
+                <label>{t("stock.editLine.markup", "Markup %")}</label>
+                <input
+                  ref={markupRef}
+                  name="markup"
+                  value={markup}
+                  onChange={(e) => onMarkupChange(e.target.value)}
+                  onFocus={(e) => e.currentTarget.select()}
+                  onKeyDown={onFieldKeyDown("markup")}
                   inputMode="decimal"
                   enterKeyHint="done"
                   autoComplete="off"

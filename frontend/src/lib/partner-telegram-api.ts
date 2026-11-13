@@ -4,12 +4,105 @@ import type { PartnerBalanceRow } from "@/types/partners";
 
 export type PartnerOrderDocumentType = "doc_wholesale" | "doc_order_from_partner";
 
+export type PartnerBalanceNotifyFilter = "negative" | "both";
+
 export type PartnerBalanceNotifySchedule = {
   id?: string | null;
   time: string;
   option: "daily" | "weekdays" | "monthly" | string;
   days: number[];
 };
+
+export type PartnerNotificationTemplateType =
+  | "purchase"
+  | "return_purchase"
+  | "wholesale"
+  | "wholesale_return"
+  | "payment"
+  | "balance";
+
+export type PartnerLangTemplates = {
+  uz: string;
+  ru: string;
+  en: string;
+};
+
+export type PartnerNotificationTemplates = Record<
+  PartnerNotificationTemplateType,
+  PartnerLangTemplates
+>;
+
+export const PARTNER_NOTIFICATION_TEMPLATE_TYPES: PartnerNotificationTemplateType[] = [
+  "purchase",
+  "return_purchase",
+  "wholesale",
+  "wholesale_return",
+  "payment",
+  "balance",
+];
+
+export type PartnerBalanceNotifyAfterType = Exclude<PartnerNotificationTemplateType, "balance">;
+
+export type PartnerBalanceNotifyAfterTypes = Record<PartnerBalanceNotifyAfterType, boolean>;
+
+export const PARTNER_BALANCE_NOTIFY_AFTER_TYPES: PartnerBalanceNotifyAfterType[] = [
+  "purchase",
+  "return_purchase",
+  "wholesale",
+  "wholesale_return",
+  "payment",
+];
+
+export function emptyPartnerNotificationTemplates(): PartnerNotificationTemplates {
+  const empty = { uz: "", ru: "", en: "" };
+  return {
+    purchase: { ...empty },
+    return_purchase: { ...empty },
+    wholesale: { ...empty },
+    wholesale_return: { ...empty },
+    payment: { ...empty },
+    balance: { ...empty },
+  };
+}
+
+export function emptyPartnerBalanceNotifyAfterTypes(): PartnerBalanceNotifyAfterTypes {
+  return {
+    purchase: false,
+    return_purchase: false,
+    wholesale: false,
+    wholesale_return: false,
+    payment: false,
+  };
+}
+
+export function normalizePartnerNotificationTemplates(
+  value: Partial<PartnerNotificationTemplates> | null | undefined,
+): PartnerNotificationTemplates {
+  const base = emptyPartnerNotificationTemplates();
+  if (!value || typeof value !== "object") return base;
+  for (const key of PARTNER_NOTIFICATION_TEMPLATE_TYPES) {
+    const raw = value[key];
+    base[key] = {
+      uz: typeof raw?.uz === "string" ? raw.uz : "",
+      ru: typeof raw?.ru === "string" ? raw.ru : "",
+      en: typeof raw?.en === "string" ? raw.en : "",
+    };
+  }
+  return base;
+}
+
+export function normalizePartnerBalanceNotifyAfterTypes(
+  value: Partial<PartnerBalanceNotifyAfterTypes> | null | undefined,
+): PartnerBalanceNotifyAfterTypes {
+  const base = emptyPartnerBalanceNotifyAfterTypes();
+  if (!value || typeof value !== "object") return base;
+  for (const key of PARTNER_BALANCE_NOTIFY_AFTER_TYPES) {
+    if (key in value) {
+      base[key] = Boolean(value[key]);
+    }
+  }
+  return base;
+}
 
 export type PartnerTelegramBotConfig = {
   configured: boolean;
@@ -30,12 +123,10 @@ export type PartnerTelegramBotConfig = {
   catalog_product_group_ids: number[];
   enabled_pages: PartnerEnabledPages;
   balance_notify_enabled: boolean;
+  balance_notify_filter: PartnerBalanceNotifyFilter | string;
   balance_notify_schedules: PartnerBalanceNotifySchedule[];
-  balance_notify_templates: {
-    uz: string;
-    ru: string;
-    en: string;
-  };
+  notification_templates: PartnerNotificationTemplates;
+  balance_notify_after_types: PartnerBalanceNotifyAfterTypes;
   order_document_type: PartnerOrderDocumentType | string;
   order_booked: boolean;
 };
@@ -186,12 +277,10 @@ export async function savePartnerTelegramBotSettings(
     catalog_product_group_ids: number[];
     enabled_pages: PartnerEnabledPages;
     balance_notify_enabled: boolean;
+    balance_notify_filter: PartnerBalanceNotifyFilter;
     balance_notify_schedules: PartnerBalanceNotifySchedule[];
-    balance_notify_templates: {
-      uz: string;
-      ru: string;
-      en: string;
-    };
+    notification_templates: PartnerNotificationTemplates;
+    balance_notify_after_types: PartnerBalanceNotifyAfterTypes;
     order_document_type: PartnerOrderDocumentType;
     order_booked: boolean;
   },

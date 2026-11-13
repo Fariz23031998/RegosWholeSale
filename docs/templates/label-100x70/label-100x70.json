@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "template": {
+    "name": "100×70 mm large shelf",
+    "is_default": false,
+    "paper": {
+      "width_mm": 100,
+      "height_mm": 70
+    },
+    "html": "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\" />\n</head>\n<body>\n  <div class=\"label\">\n    <div class=\"media\">\n      <img class=\"product\" src=\"{{ image_src }}\" alt=\"\" />\n      <div class=\"info\">\n        <div class=\"name\">{{ name }}</div>\n        <div class=\"category\">{{ category }}</div>\n        <div class=\"price\">{{formatNumber price}} <span class=\"currency\">{{ currency }}</span></div>\n        <div class=\"meta\">{{ articul }} · {{ unit_name }} · {{ code }}</div>\n      </div>\n      <img class=\"qr\" src=\"{{ qr_src }}\" alt=\"\" />\n    </div>\n    <div class=\"barcode-wrap\">\n      <img class=\"barcode\" src=\"{{ barcode_src }}\" alt=\"\" />\n      <div class=\"code\">{{ barcode }}</div>\n    </div>\n  </div>\n</body>\n</html>",
+    "css": "html, body {\n  margin: 0;\n  padding: 0;\n  font-family: Arial, Helvetica, sans-serif;\n  color: #000;\n}\n.label {\n  box-sizing: border-box;\n  width: 100mm;\n  height: 70mm;\n  padding: 3.5mm 3.8mm 2.8mm;\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n}\n.media {\n  display: flex;\n  gap: 3.2mm;\n  align-items: flex-start;\n  min-height: 0;\n}\nimg.product {\n  width: 24mm;\n  height: 24mm;\n  object-fit: cover;\n  border: 0.25mm solid #111;\n  flex: 0 0 auto;\n}\nimg.product[src=\"\"] {\n  display: none;\n}\n.info {\n  flex: 1 1 auto;\n  min-width: 0;\n}\n.name {\n  font-size: 17px;\n  font-weight: 700;\n  line-height: 1.2;\n  max-height: 2.4em;\n  overflow: hidden;\n}\n.category {\n  font-size: 11px;\n  margin-top: 1mm;\n  color: #444;\n}\n.price {\n  font-size: 32px;\n  font-weight: 800;\n  margin-top: 2.2mm;\n  line-height: 1;\n  letter-spacing: -0.02em;\n}\n.currency {\n  font-size: 14px;\n  font-weight: 700;\n  margin-left: 1.2mm;\n}\n.meta {\n  font-size: 11px;\n  margin-top: 1.5mm;\n  color: #444;\n}\nimg.qr {\n  width: 16mm;\n  height: 16mm;\n  flex: 0 0 auto;\n}\n.barcode-wrap {\n  display: flex;\n  flex-direction: column;\n  align-items: center;\n  gap: 0.6mm;\n  margin-top: auto;\n  width: 100%;\n}\nimg.barcode {\n  height: 18mm;\n  width: 100%;\n  max-width: 100%;\n  object-fit: contain;\n  object-position: center bottom;\n}\n.code {\n  font-size: 12.5px;\n  font-weight: 600;\n  letter-spacing: 0.06em;\n  text-align: center;\n  white-space: nowrap;\n}",
+    "logos": [],
+    "version": 1
+  }
+}

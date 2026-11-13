@@ -27,6 +27,8 @@ class LabelFieldRow(BaseModel):
     sku: str = ""
     category: str = ""
     unit_name: str = ""
+    date: str = ""
+    time: str = ""
     barcode_src: str = ""
     qr_src: str = ""
     image_src: str = ""

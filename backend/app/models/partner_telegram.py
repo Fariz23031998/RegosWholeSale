@@ -22,6 +22,31 @@ _DEFAULT_ENABLED_PAGES = {
 # Space after ":" avoids SQLAlchemy text() bind-param parsing of ":true".
 _DEFAULT_ENABLED_PAGES_SQL = "'" + json.dumps(_DEFAULT_ENABLED_PAGES) + "'"
 
+_EMPTY_TEMPLATE_LANG = {"uz": "", "ru": "", "en": ""}
+_DEFAULT_NOTIFICATION_TEMPLATES = {
+    "purchase": dict(_EMPTY_TEMPLATE_LANG),
+    "return_purchase": dict(_EMPTY_TEMPLATE_LANG),
+    "wholesale": dict(_EMPTY_TEMPLATE_LANG),
+    "wholesale_return": dict(_EMPTY_TEMPLATE_LANG),
+    "payment": dict(_EMPTY_TEMPLATE_LANG),
+    "balance": dict(_EMPTY_TEMPLATE_LANG),
+}
+_DEFAULT_NOTIFICATION_TEMPLATES_SQL = (
+    "'" + json.dumps(_DEFAULT_NOTIFICATION_TEMPLATES, separators=(",", ":")) + "'"
+)
+
+_DEFAULT_BALANCE_NOTIFY_AFTER_TYPES = {
+    "purchase": False,
+    "return_purchase": False,
+    "wholesale": False,
+    "wholesale_return": False,
+    "payment": False,
+}
+# Space after ":" avoids SQLAlchemy text() bind-param parsing of ":false".
+_DEFAULT_BALANCE_NOTIFY_AFTER_TYPES_SQL = (
+    "'" + json.dumps(_DEFAULT_BALANCE_NOTIFY_AFTER_TYPES) + "'"
+)
+
 
 class PartnerTelegramLinkState(str, enum.Enum):
     awaiting_language = "awaiting_language"
@@ -73,14 +98,28 @@ class PartnerTelegramBot(Base, TimestampMixin):
     balance_notify_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
     )
+    balance_notify_filter: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+        default="negative",
+        server_default="negative",
+    )
     balance_notify_schedules: Mapped[list] = mapped_column(
         JSON, nullable=False, default=list, server_default=text("'[]'")
     )
-    balance_notify_templates: Mapped[dict] = mapped_column(
+    notification_templates: Mapped[dict] = mapped_column(
         JSON,
         nullable=False,
-        default=lambda: {"uz": "", "ru": "", "en": ""},
-        server_default=text("""'{"uz":"","ru":"","en":""}'"""),
+        default=lambda: {
+            key: dict(value) for key, value in _DEFAULT_NOTIFICATION_TEMPLATES.items()
+        },
+        server_default=text(_DEFAULT_NOTIFICATION_TEMPLATES_SQL),
+    )
+    balance_notify_after_types: Mapped[dict] = mapped_column(
+        JSON,
+        nullable=False,
+        default=lambda: dict(_DEFAULT_BALANCE_NOTIFY_AFTER_TYPES),
+        server_default=text(_DEFAULT_BALANCE_NOTIFY_AFTER_TYPES_SQL),
     )
     order_document_type: Mapped[str] = mapped_column(
         String(32),

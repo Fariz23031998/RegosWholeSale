@@ -13,7 +13,8 @@ def barcode_png_data_uri(value: str) -> str:
         return ""
 
     buffer = io.BytesIO()
-    options = {"write_text": False, "module_height": 8.0, "quiet_zone": 1.0, "module_width": 0.25}
+    # Wide aspect so CSS height + object-fit:contain can fill sticker width.
+    options = {"write_text": False, "module_height": 4.5, "quiet_zone": 1.0, "module_width": 0.28}
     digits = text
     if len(digits) == 13 and digits.isdigit():
         try:

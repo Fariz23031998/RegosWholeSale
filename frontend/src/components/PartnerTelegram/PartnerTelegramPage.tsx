@@ -18,15 +18,25 @@ import {
 import {
   deletePartnerTelegramAccount,
   deletePartnerTelegramBot,
+  emptyPartnerBalanceNotifyAfterTypes,
+  emptyPartnerNotificationTemplates,
   fetchPartnerTelegramAccounts,
   fetchPartnerTelegramBot,
   fetchPartnerTelegramImportFields,
   importPartnerTelegramAccountsFromField,
+  normalizePartnerBalanceNotifyAfterTypes,
+  normalizePartnerNotificationTemplates,
+  PARTNER_NOTIFICATION_TEMPLATE_TYPES,
   savePartnerTelegramBot,
   savePartnerTelegramBotSettings,
   setPartnerTelegramAccountPartners,
   updatePartnerTelegramAccount,
+  type PartnerBalanceNotifyAfterType,
+  type PartnerBalanceNotifyAfterTypes,
+  type PartnerBalanceNotifyFilter,
   type PartnerBalanceNotifySchedule,
+  type PartnerNotificationTemplateType,
+  type PartnerNotificationTemplates,
   type PartnerOrderDocumentType,
   type PartnerTelegramAccount,
   type PartnerTelegramImportFromFieldResponse,
@@ -35,11 +45,74 @@ import { fetchPartnerGroups, fetchPartners } from "@/lib/partners-api";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
 import { formatAuthError, useAuth } from "@/store/auth";
 import type { Partner } from "@/types/partners";
+import { PartnerNotificationTemplateVariablesModal } from "./PartnerNotificationTemplateVariablesModal";
 import styles from "./PartnerTelegram.module.css";
 
 type PageOverrideChoice = "default" | "on" | "off";
 type PartnerTelegramTab = "bot" | "accounts";
 type BalanceScheduleOption = "daily" | "weekdays" | "monthly";
+type BotSettingsSection =
+  | "connection"
+  | "defaults"
+  | "catalog"
+  | "portalPages"
+  | "balanceSchedule"
+  | "notificationTemplates";
+
+const BOT_SETTINGS_NAV: {
+  id: BotSettingsSection;
+  titleKey: string;
+  titleFallback: string;
+}[] = [
+  { id: "connection", titleKey: "partnerTelegram.section.connection", titleFallback: "Connection" },
+  { id: "defaults", titleKey: "partnerTelegram.section.defaults", titleFallback: "Defaults" },
+  { id: "catalog", titleKey: "partnerTelegram.section.catalog", titleFallback: "Catalog" },
+  {
+    id: "portalPages",
+    titleKey: "partnerTelegram.section.portalPages",
+    titleFallback: "Portal pages",
+  },
+  {
+    id: "balanceSchedule",
+    titleKey: "partnerTelegram.section.balanceSchedule",
+    titleFallback: "Balance schedule",
+  },
+  {
+    id: "notificationTemplates",
+    titleKey: "partnerTelegram.section.notificationTemplates",
+    titleFallback: "Notification templates",
+  },
+];
+
+const NOTIFICATION_TYPE_META: Record<
+  PartnerNotificationTemplateType,
+  { titleKey: string; titleFallback: string }
+> = {
+  purchase: {
+    titleKey: "partnerTelegram.notifyType.purchase",
+    titleFallback: "Purchase",
+  },
+  return_purchase: {
+    titleKey: "partnerTelegram.notifyType.returnPurchase",
+    titleFallback: "Purchase return",
+  },
+  wholesale: {
+    titleKey: "partnerTelegram.notifyType.wholesale",
+    titleFallback: "Shipment",
+  },
+  wholesale_return: {
+    titleKey: "partnerTelegram.notifyType.wholesaleReturn",
+    titleFallback: "Shipment return",
+  },
+  payment: {
+    titleKey: "partnerTelegram.notifyType.payment",
+    titleFallback: "Payment",
+  },
+  balance: {
+    titleKey: "partnerTelegram.notifyType.balance",
+    titleFallback: "Balance",
+  },
+};
 
 type BalanceScheduleDraft = {
   key: string;
@@ -150,14 +223,24 @@ export function PartnerTelegramPage() {
   const [enabledPages, setEnabledPages] = useState<PartnerEnabledPages>(defaultEnabledPages);
   const [catalogGroupIds, setCatalogGroupIds] = useState<number[]>([]);
   const [balanceEnabled, setBalanceEnabled] = useState(false);
+  const [balanceNotifyFilter, setBalanceNotifyFilter] =
+    useState<PartnerBalanceNotifyFilter>("negative");
   const [balanceSchedules, setBalanceSchedules] = useState<BalanceScheduleDraft[]>(() => [
     createBalanceScheduleDraft(),
   ]);
-  const [balanceTemplates, setBalanceTemplates] = useState({ uz: "", ru: "", en: "" });
+  const [notificationTemplates, setNotificationTemplates] = useState<PartnerNotificationTemplates>(
+    () => emptyPartnerNotificationTemplates(),
+  );
+  const [balanceNotifyAfterTypes, setBalanceNotifyAfterTypes] =
+    useState<PartnerBalanceNotifyAfterTypes>(() => emptyPartnerBalanceNotifyAfterTypes());
+  const [activeTemplateType, setActiveTemplateType] =
+    useState<PartnerNotificationTemplateType>("purchase");
+  const [templateVarsOpen, setTemplateVarsOpen] = useState(false);
   const [orderDocumentType, setOrderDocumentType] =
     useState<PartnerOrderDocumentType>("doc_order_from_partner");
   const [orderBooked, setOrderBooked] = useState(true);
   const [activeTab, setActiveTab] = useState<PartnerTelegramTab>("bot");
+  const [botSettingsSection, setBotSettingsSection] = useState<BotSettingsSection>("connection");
   const [importFieldId, setImportFieldId] = useState("");
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState("");
@@ -220,14 +303,13 @@ export function PartnerTelegramPage() {
     setEnabledPages(normalizeEnabledPages(bot.enabled_pages));
     setCatalogGroupIds(bot.catalog_product_group_ids ?? []);
     setBalanceEnabled(Boolean(bot.balance_notify_enabled));
+    setBalanceNotifyFilter(bot.balance_notify_filter === "both" ? "both" : "negative");
     const loadedSchedules = (bot.balance_notify_schedules ?? []).map(scheduleDraftFromApi);
     setBalanceSchedules(loadedSchedules.length > 0 ? loadedSchedules : [createBalanceScheduleDraft()]);
-    const templates = bot.balance_notify_templates;
-    setBalanceTemplates({
-      uz: templates?.uz ?? "",
-      ru: templates?.ru ?? "",
-      en: templates?.en ?? "",
-    });
+    setNotificationTemplates(normalizePartnerNotificationTemplates(bot.notification_templates));
+    setBalanceNotifyAfterTypes(
+      normalizePartnerBalanceNotifyAfterTypes(bot.balance_notify_after_types),
+    );
     setOrderDocumentType(
       bot.order_document_type === "doc_wholesale" ? "doc_wholesale" : "doc_order_from_partner",
     );
@@ -270,8 +352,10 @@ export function PartnerTelegramPage() {
         catalog_product_group_ids: catalogGroupIds,
         enabled_pages: enabledPages,
         balance_notify_enabled: balanceEnabled,
+        balance_notify_filter: balanceNotifyFilter,
         balance_notify_schedules: schedulesToSave(balanceSchedules),
-        balance_notify_templates: balanceTemplates,
+        notification_templates: notificationTemplates,
+        balance_notify_after_types: balanceNotifyAfterTypes,
         order_document_type: orderDocumentType,
         order_booked: orderBooked,
       });
@@ -308,25 +392,27 @@ export function PartnerTelegramPage() {
         id: "name",
         accessorFn: (account) => accountName(account),
         header: t("common.name", "Name"),
-        size: 200,
+        size: 170,
       },
       {
         id: "phone",
         accessorFn: (account) => account.phone ?? "",
         header: t("partnerTelegram.phone", "Phone"),
         cell: ({ getValue }) => getValue<string>() || "—",
+        size: 130,
       },
       {
         id: "language",
         accessorFn: (account) => account.language_code ?? "",
         header: t("partnerTelegram.language", "Language"),
         cell: ({ getValue }) => getValue<string>() || "—",
+        size: 80,
       },
       {
         id: "status",
         accessorFn: (account) => (account.is_active ? "active" : "inactive"),
         header: t("common.status", "Status"),
-        size: 110,
+        size: 100,
       },
       {
         id: "partner",
@@ -335,26 +421,26 @@ export function PartnerTelegramPage() {
             .map((partner) => partner.name)
             .join(", ") || account.partner_name || "",
         header: t("partnerTelegram.partner", "Partner"),
-        size: 260,
+        size: 220,
       },
       {
         id: "warehouse",
         accessorFn: (account) => account.warehouse_id ?? 0,
         header: t("partnerTelegram.accountWarehouse", "Warehouse"),
-        size: 180,
+        size: 150,
       },
       {
         id: "priceType",
         accessorFn: (account) => account.price_type_id ?? 0,
         header: t("partnerTelegram.accountPriceType", "Price type"),
-        size: 180,
+        size: 150,
       },
       {
         id: "actions",
         header: t("common.actions", "Actions"),
         enableSorting: false,
         enableHiding: false,
-        size: 280,
+        size: 220,
       },
     ],
     [t],
@@ -431,387 +517,591 @@ export function PartnerTelegramPage() {
               <p className={styles.meta}>{t("partnerTelegram.notConfigured", "No partner bot configured.")}</p>
             ) : null}
             {bot?.configured ? (
-              <div className={styles.meta}>
-                <div>@{bot.bot_username}</div>
-                <div>
-                  {t("partnerTelegram.miniAppUrl", "Mini App URL")}: {bot.mini_app_url}
-                </div>
-                <div className={styles.settings}>
-                  <label className={styles.label}>
-                    {t("partnerTelegram.defaultWarehouse", "Default warehouse")}
-                    <select className={styles.input} value={warehouseId} onChange={(event) => setWarehouseId(event.target.value)}>
-                      <option value="">{t("partnerTelegram.useCompanyDefault", "Company default")}</option>
-                      {(referencesQuery.data?.warehouses ?? []).map((item) => (
-                        <option key={item.id} value={item.id}>{item.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className={styles.label}>
-                    {t("partnerTelegram.defaultPriceType", "Default price type")}
-                    <select className={styles.input} value={priceTypeId} onChange={(event) => setPriceTypeId(event.target.value)}>
-                      <option value="">{t("partnerTelegram.useCompanyDefault", "Company default")}</option>
-                      {(referencesQuery.data?.price_types ?? []).map((item) => (
-                        <option key={item.id} value={item.id}>{item.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className={styles.label}>
-                    {t("partnerTelegram.defaultGroup", "Group for new partners")}
-                    <select className={styles.input} value={groupId} onChange={(event) => setGroupId(event.target.value)}>
-                      <option value="">{t("partnerTelegram.firstGroup", "First group")}</option>
-                      {(groupsQuery.data?.groups ?? []).map((item) => (
-                        <option key={item.id} value={item.id}>{item.name}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className={styles.fieldBlock}>
-                    <div className={styles.fieldTitle}>
-                      {t("partnerTelegram.orderDocumentType", "Portal order document")}
-                    </div>
-                    <div className={styles.fieldDesc}>
-                      {t(
-                        "partnerTelegram.orderDocumentTypeDesc",
-                        "Choose which Regos document type is created when a partner places an order.",
-                      )}
-                    </div>
-                    <select
-                      className={styles.input}
-                      value={orderDocumentType}
-                      disabled={savingBot}
-                      onChange={(event) =>
-                        setOrderDocumentType(event.target.value as PartnerOrderDocumentType)
-                      }
+              <div className={styles.settingsLayout}>
+                <nav
+                  className={styles.settingsNav}
+                  aria-label={t("partnerTelegram.settingsNav", "Partner bot settings")}
+                >
+                  {BOT_SETTINGS_NAV.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className={`${styles.settingsNavItem} ${
+                        botSettingsSection === item.id ? styles.settingsNavItemActive : ""
+                      }`}
+                      aria-current={botSettingsSection === item.id ? "page" : undefined}
+                      onClick={() => setBotSettingsSection(item.id)}
                     >
-                      <option value="doc_wholesale">
-                        {t("partnerTelegram.orderDocWholesale", "Wholesale sale (DocWholeSale)")}
-                      </option>
-                      <option value="doc_order_from_partner">
-                        {t(
-                          "partnerTelegram.orderDocOrderFromPartner",
-                          "Partner order (DocOrderFromPartner)",
-                        )}
-                      </option>
-                    </select>
-                  </div>
-                  {orderDocumentType === "doc_order_from_partner" ? (
-                    <label className={styles.check}>
-                      <input
-                        type="checkbox"
-                        checked={orderBooked}
-                        disabled={savingBot}
-                        onChange={(event) => setOrderBooked(event.target.checked)}
-                      />
-                      <span>
-                        <span className={styles.fieldTitle}>
-                          {t("partnerTelegram.orderBooked", "Booked")}
-                        </span>
-                        <span className={styles.fieldDesc} style={{ display: "block" }}>
-                          {t(
-                            "partnerTelegram.orderBookedDesc",
-                            "Mark partner portal orders as booked in Regos.",
-                          )}
-                        </span>
-                      </span>
-                    </label>
+                      {t(item.titleKey, item.titleFallback)}
+                    </button>
+                  ))}
+                </nav>
+                <div className={styles.settingsContent}>
+                  {botSettingsSection === "connection" ? (
+                    <div className={styles.settings}>
+                      <div className={styles.meta}>
+                        <div>@{bot.bot_username}</div>
+                        <div>
+                          {t("partnerTelegram.miniAppUrl", "Mini App URL")}: {bot.mini_app_url}
+                        </div>
+                      </div>
+                    </div>
                   ) : null}
-                  <label className={styles.check}>
-                    <input type="checkbox" checked={allowWarehouse} onChange={(event) => setAllowWarehouse(event.target.checked)} />
-                    {t("partnerTelegram.allowWarehouse", "Let partners choose a warehouse in the catalog")}
-                  </label>
-                  <label className={styles.check}>
-                    <input type="checkbox" checked={allowRegistration} onChange={(event) => setAllowRegistration(event.target.checked)} />
-                    {t("partnerTelegram.allowSelfRegistration", "Create a partner card when the phone number is new")}
-                  </label>
-                  <label className={styles.check}>
-                    <input type="checkbox" checked={showQuantities} onChange={(event) => setShowQuantities(event.target.checked)} />
-                    {t("partnerTelegram.showProductQuantities", "Show product quantities in the catalog")}
-                  </label>
-                  <label className={styles.check}>
-                    <input
-                      type="checkbox"
-                      checked={showZeroQuantity}
-                      onChange={(event) => setShowZeroQuantity(event.target.checked)}
-                    />
-                    <span>
-                      <span className={styles.fieldTitle}>
-                        {t("partnerTelegram.showZeroQuantity", "Show products with zero quantity")}
-                      </span>
-                      <span className={styles.fieldDesc} style={{ display: "block" }}>
-                        {t(
-                          "partnerTelegram.showZeroQuantityDesc",
-                          "Include out-of-stock products in the partner catalog (except when the partner selects In stock or Low stock).",
-                        )}
-                      </span>
-                    </span>
-                  </label>
-                  <label className={styles.check}>
-                    <input
-                      type="checkbox"
-                      checked={showZeroPrice}
-                      onChange={(event) => setShowZeroPrice(event.target.checked)}
-                    />
-                    <span>
-                      <span className={styles.fieldTitle}>
-                        {t("partnerTelegram.showZeroPrice", "Show products with zero price")}
-                      </span>
-                      <span className={styles.fieldDesc} style={{ display: "block" }}>
-                        {t(
-                          "partnerTelegram.showZeroPriceDesc",
-                          "Include products with a zero price in the partner catalog.",
-                        )}
-                      </span>
-                    </span>
-                  </label>
-                  <label className={styles.check}>
-                    <input
-                      type="checkbox"
-                      checked={autoOpenQtyKeypad}
-                      onChange={(event) => setAutoOpenQtyKeypad(event.target.checked)}
-                    />
-                    <span>
-                      <span className={styles.fieldTitle}>
-                        {t("partnerTelegram.autoOpenQtyKeypad", "Auto-open quantity keypad")}
-                      </span>
-                      <span className={styles.fieldDesc} style={{ display: "block" }}>
-                        {t(
-                          "partnerTelegram.autoOpenQtyKeypadDesc",
-                          "Open the quantity keypad (without price) when a partner taps a product.",
-                        )}
-                      </span>
-                    </span>
-                  </label>
-                  <div>
-                    <div className={styles.label}>{t("partnerTelegram.portalPages", "Portal pages")}</div>
-                    <p className={styles.hint}>
-                      {t(
-                        "partnerTelegram.portalPagesHint",
-                        "These defaults apply to every partner. Individual accounts can override them.",
-                      )}
-                    </p>
-                    <div className={styles.pageList}>
-                      {PARTNER_PORTAL_PAGE_KEYS.map((key) => (
-                        <label key={key} className={styles.check}>
+
+                  {botSettingsSection === "defaults" ? (
+                    <div className={styles.settings}>
+                      <label className={styles.label}>
+                        {t("partnerTelegram.defaultWarehouse", "Default warehouse")}
+                        <select
+                          className={styles.input}
+                          value={warehouseId}
+                          onChange={(event) => setWarehouseId(event.target.value)}
+                        >
+                          <option value="">
+                            {t("partnerTelegram.useCompanyDefault", "Company default")}
+                          </option>
+                          {(referencesQuery.data?.warehouses ?? []).map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className={styles.label}>
+                        {t("partnerTelegram.defaultPriceType", "Default price type")}
+                        <select
+                          className={styles.input}
+                          value={priceTypeId}
+                          onChange={(event) => setPriceTypeId(event.target.value)}
+                        >
+                          <option value="">
+                            {t("partnerTelegram.useCompanyDefault", "Company default")}
+                          </option>
+                          {(referencesQuery.data?.price_types ?? []).map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className={styles.label}>
+                        {t("partnerTelegram.defaultGroup", "Group for new partners")}
+                        <select
+                          className={styles.input}
+                          value={groupId}
+                          onChange={(event) => setGroupId(event.target.value)}
+                        >
+                          <option value="">{t("partnerTelegram.firstGroup", "First group")}</option>
+                          {(groupsQuery.data?.groups ?? []).map((item) => (
+                            <option key={item.id} value={item.id}>
+                              {item.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <div className={styles.fieldBlock}>
+                        <div className={styles.fieldTitle}>
+                          {t("partnerTelegram.orderDocumentType", "Portal order document")}
+                        </div>
+                        <div className={styles.fieldDesc}>
+                          {t(
+                            "partnerTelegram.orderDocumentTypeDesc",
+                            "Choose which Regos document type is created when a partner places an order.",
+                          )}
+                        </div>
+                        <select
+                          className={styles.input}
+                          value={orderDocumentType}
+                          disabled={savingBot}
+                          onChange={(event) =>
+                            setOrderDocumentType(event.target.value as PartnerOrderDocumentType)
+                          }
+                        >
+                          <option value="doc_wholesale">
+                            {t("partnerTelegram.orderDocWholesale", "Wholesale sale (DocWholeSale)")}
+                          </option>
+                          <option value="doc_order_from_partner">
+                            {t(
+                              "partnerTelegram.orderDocOrderFromPartner",
+                              "Partner order (DocOrderFromPartner)",
+                            )}
+                          </option>
+                        </select>
+                      </div>
+                      {orderDocumentType === "doc_order_from_partner" ? (
+                        <label className={styles.check}>
                           <input
                             type="checkbox"
-                            checked={enabledPages[key]}
-                            onChange={(event) =>
-                              setEnabledPages((current) => ({ ...current, [key]: event.target.checked }))
-                            }
+                            checked={orderBooked}
+                            disabled={savingBot}
+                            onChange={(event) => setOrderBooked(event.target.checked)}
                           />
-                          {t(PARTNER_PORTAL_PAGE_META[key].labelKey, PARTNER_PORTAL_PAGE_META[key].fallback)}
+                          <span>
+                            <span className={styles.fieldTitle}>
+                              {t("partnerTelegram.orderBooked", "Booked")}
+                            </span>
+                            <span className={styles.fieldDesc} style={{ display: "block" }}>
+                              {t(
+                                "partnerTelegram.orderBookedDesc",
+                                "Mark partner portal orders as booked in Regos.",
+                              )}
+                            </span>
+                          </span>
+                        </label>
+                      ) : null}
+                      <label className={styles.check}>
+                        <input
+                          type="checkbox"
+                          checked={allowRegistration}
+                          onChange={(event) => setAllowRegistration(event.target.checked)}
+                        />
+                        {t(
+                          "partnerTelegram.allowSelfRegistration",
+                          "Create a partner card when the phone number is new",
+                        )}
+                      </label>
+                    </div>
+                  ) : null}
+
+                  {botSettingsSection === "catalog" ? (
+                    <div className={styles.settings}>
+                      <label className={styles.check}>
+                        <input
+                          type="checkbox"
+                          checked={allowWarehouse}
+                          onChange={(event) => setAllowWarehouse(event.target.checked)}
+                        />
+                        {t(
+                          "partnerTelegram.allowWarehouse",
+                          "Let partners choose a warehouse in the catalog",
+                        )}
+                      </label>
+                      <label className={styles.check}>
+                        <input
+                          type="checkbox"
+                          checked={showQuantities}
+                          onChange={(event) => setShowQuantities(event.target.checked)}
+                        />
+                        {t(
+                          "partnerTelegram.showProductQuantities",
+                          "Show product quantities in the catalog",
+                        )}
+                      </label>
+                      <label className={styles.check}>
+                        <input
+                          type="checkbox"
+                          checked={showZeroQuantity}
+                          onChange={(event) => setShowZeroQuantity(event.target.checked)}
+                        />
+                        <span>
+                          <span className={styles.fieldTitle}>
+                            {t("partnerTelegram.showZeroQuantity", "Show products with zero quantity")}
+                          </span>
+                          <span className={styles.fieldDesc} style={{ display: "block" }}>
+                            {t(
+                              "partnerTelegram.showZeroQuantityDesc",
+                              "Include out-of-stock products in the partner catalog (except when the partner selects In stock or Low stock).",
+                            )}
+                          </span>
+                        </span>
+                      </label>
+                      <label className={styles.check}>
+                        <input
+                          type="checkbox"
+                          checked={showZeroPrice}
+                          onChange={(event) => setShowZeroPrice(event.target.checked)}
+                        />
+                        <span>
+                          <span className={styles.fieldTitle}>
+                            {t("partnerTelegram.showZeroPrice", "Show products with zero price")}
+                          </span>
+                          <span className={styles.fieldDesc} style={{ display: "block" }}>
+                            {t(
+                              "partnerTelegram.showZeroPriceDesc",
+                              "Include products with a zero price in the partner catalog.",
+                            )}
+                          </span>
+                        </span>
+                      </label>
+                      <label className={styles.check}>
+                        <input
+                          type="checkbox"
+                          checked={autoOpenQtyKeypad}
+                          onChange={(event) => setAutoOpenQtyKeypad(event.target.checked)}
+                        />
+                        <span>
+                          <span className={styles.fieldTitle}>
+                            {t("partnerTelegram.autoOpenQtyKeypad", "Auto-open quantity keypad")}
+                          </span>
+                          <span className={styles.fieldDesc} style={{ display: "block" }}>
+                            {t(
+                              "partnerTelegram.autoOpenQtyKeypadDesc",
+                              "Open the quantity keypad (without price) when a partner taps a product.",
+                            )}
+                          </span>
+                        </span>
+                      </label>
+                      <CategoryAllowlistField
+                        label={t("partnerTelegram.catalogCategories", "Product categories")}
+                        hint={t(
+                          "partnerTelegram.catalogCategoriesHint",
+                          "Leave All checked to show every category. Selecting a parent includes its subcategories.",
+                        )}
+                        allLabel={t("partnerTelegram.catalogCategoriesAll", "All")}
+                        items={productGroupsQuery.data?.groups ?? []}
+                        selectedIds={catalogGroupIds}
+                        disabled={savingBot}
+                        indentByPath
+                        onChange={setCatalogGroupIds}
+                      />
+                    </div>
+                  ) : null}
+
+                  {botSettingsSection === "portalPages" ? (
+                    <div className={styles.settings}>
+                      <div className={styles.label}>
+                        {t("partnerTelegram.portalPages", "Portal pages")}
+                      </div>
+                      <p className={styles.hint}>
+                        {t(
+                          "partnerTelegram.portalPagesHint",
+                          "These defaults apply to every partner. Individual accounts can override them.",
+                        )}
+                      </p>
+                      <div className={styles.pageList}>
+                        {PARTNER_PORTAL_PAGE_KEYS.map((key) => (
+                          <label key={key} className={styles.check}>
+                            <input
+                              type="checkbox"
+                              checked={enabledPages[key]}
+                              onChange={(event) =>
+                                setEnabledPages((current) => ({
+                                  ...current,
+                                  [key]: event.target.checked,
+                                }))
+                              }
+                            />
+                            {t(
+                              PARTNER_PORTAL_PAGE_META[key].labelKey,
+                              PARTNER_PORTAL_PAGE_META[key].fallback,
+                            )}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {botSettingsSection === "balanceSchedule" ? (
+                    <div className={styles.settings}>
+                      <label className={styles.check}>
+                        <input
+                          type="checkbox"
+                          checked={balanceEnabled}
+                          onChange={(event) => setBalanceEnabled(event.target.checked)}
+                        />
+                        {t("partnerTelegram.balanceSchedule", "Send balance notifications")}
+                      </label>
+                      <p className={styles.hint}>
+                        {t(
+                          "partnerTelegram.balanceScheduleHint",
+                          "At each scheduled time, linked partners who owe the company receive a balance message and an Excel file. Message text is configured under Notification templates.",
+                        )}
+                      </p>
+                      <label className={styles.label}>
+                        {t("partnerTelegram.balanceNotifyFilter", "Balances to send")}
+                        <select
+                          className={styles.input}
+                          value={balanceNotifyFilter}
+                          onChange={(event) =>
+                            setBalanceNotifyFilter(
+                              event.target.value === "both" ? "both" : "negative",
+                            )
+                          }
+                        >
+                          <option value="negative">
+                            {t(
+                              "partnerTelegram.balanceNotifyFilter.negative",
+                              "Debt only (negative balance)",
+                            )}
+                          </option>
+                          <option value="both">
+                            {t(
+                              "partnerTelegram.balanceNotifyFilter.both",
+                              "Debt and credit",
+                            )}
+                          </option>
+                        </select>
+                      </label>
+                      <p className={styles.hint}>
+                        {t(
+                          "partnerTelegram.balanceNotifyFilterHint",
+                          "Also applies when “Also send balance notification” is enabled for a document or payment type.",
+                        )}
+                      </p>
+                      <div className={styles.label}>
+                        {t("partnerTelegram.balanceSchedules", "Schedules")}
+                      </div>
+                      <div className={styles.scheduleList}>
+                        {balanceSchedules.map((schedule, index) => (
+                          <div key={schedule.key} className={styles.scheduleCard}>
+                            <div className={styles.scheduleCardHeader}>
+                              <div className={styles.scheduleCardTitle}>
+                                {t("partnerTelegram.balanceScheduleItem", "Schedule {{n}}").replace(
+                                  "{{n}}",
+                                  String(index + 1),
+                                )}
+                              </div>
+                              {balanceSchedules.length > 1 ? (
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="secondary"
+                                  disabled={savingBot}
+                                  onClick={() =>
+                                    setBalanceSchedules((current) =>
+                                      current.filter((item) => item.key !== schedule.key),
+                                    )
+                                  }
+                                >
+                                  {t("partnerTelegram.balanceRemoveSchedule", "Remove")}
+                                </Button>
+                              ) : null}
+                            </div>
+                            <label className={styles.label}>
+                              {t("partnerTelegram.balanceTime", "Time")}
+                              <input
+                                className={styles.input}
+                                type="time"
+                                value={schedule.time}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  setBalanceSchedules((current) =>
+                                    current.map((item) =>
+                                      item.key === schedule.key ? { ...item, time: value } : item,
+                                    ),
+                                  );
+                                }}
+                              />
+                            </label>
+                            <label className={styles.label}>
+                              {t("partnerTelegram.balanceOption", "Schedule")}
+                              <select
+                                className={styles.input}
+                                value={schedule.option}
+                                onChange={(event) => {
+                                  const next = event.target.value as BalanceScheduleOption;
+                                  setBalanceSchedules((current) =>
+                                    current.map((item) => {
+                                      if (item.key !== schedule.key) return item;
+                                      return {
+                                        ...item,
+                                        option: next,
+                                        weekdays:
+                                          next === "weekdays" && item.weekdays.length === 0
+                                            ? [0]
+                                            : item.weekdays,
+                                        monthDays:
+                                          next === "monthly" && !item.monthDays.trim()
+                                            ? "1"
+                                            : item.monthDays,
+                                      };
+                                    }),
+                                  );
+                                }}
+                              >
+                                <option value="daily">
+                                  {t("partnerTelegram.balanceOption.daily", "Every day")}
+                                </option>
+                                <option value="weekdays">
+                                  {t(
+                                    "partnerTelegram.balanceOption.weekdays",
+                                    "Selected weekdays",
+                                  )}
+                                </option>
+                                <option value="monthly">
+                                  {t(
+                                    "partnerTelegram.balanceOption.monthly",
+                                    "Selected days of the month",
+                                  )}
+                                </option>
+                              </select>
+                            </label>
+                            {schedule.option === "weekdays" ? (
+                              <div>
+                                <div className={styles.label}>
+                                  {t("partnerTelegram.balanceWeekdays", "Weekdays")}
+                                </div>
+                                <div className={styles.dayList}>
+                                  {WEEKDAYS.map(([key, day, label]) => (
+                                    <label key={key}>
+                                      <input
+                                        type="checkbox"
+                                        checked={schedule.weekdays.includes(day)}
+                                        onChange={() =>
+                                          setBalanceSchedules((current) =>
+                                            current.map((item) =>
+                                              item.key === schedule.key
+                                                ? {
+                                                    ...item,
+                                                    weekdays: toggleDay(item.weekdays, day),
+                                                  }
+                                                : item,
+                                            ),
+                                          )
+                                        }
+                                      />
+                                      {t(`partnerTelegram.weekday.${key}`, label)}
+                                    </label>
+                                  ))}
+                                </div>
+                              </div>
+                            ) : null}
+                            {schedule.option === "monthly" ? (
+                              <label className={styles.label}>
+                                {t("partnerTelegram.balanceMonthDays", "Days of the month")}
+                                <input
+                                  className={styles.input}
+                                  value={schedule.monthDays}
+                                  onChange={(event) => {
+                                    const value = event.target.value;
+                                    setBalanceSchedules((current) =>
+                                      current.map((item) =>
+                                        item.key === schedule.key
+                                          ? { ...item, monthDays: value }
+                                          : item,
+                                      ),
+                                    );
+                                  }}
+                                  placeholder="1, 15, -1"
+                                />
+                                <span className={styles.hint}>
+                                  {t(
+                                    "partnerTelegram.balanceMonthDaysHint",
+                                    "Comma-separated days from 1 to 31. Use negative values to count from the end of the month (−1 = last day, −2 = second-to-last).",
+                                  )}
+                                </span>
+                              </label>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
+                      <div className={styles.scheduleActions}>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          disabled={savingBot || balanceSchedules.length >= MAX_BALANCE_SCHEDULES}
+                          onClick={() =>
+                            setBalanceSchedules((current) => [
+                              ...current,
+                              createBalanceScheduleDraft(),
+                            ])
+                          }
+                        >
+                          {t("partnerTelegram.balanceAddSchedule", "Add schedule")}
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {botSettingsSection === "notificationTemplates" ? (
+                    <div className={styles.settings}>
+                      <div className={styles.templateHeaderRow}>
+                        <label className={styles.label}>
+                          {t("partnerTelegram.notifyType", "Notification type")}
+                          <select
+                            className={styles.input}
+                            value={activeTemplateType}
+                            onChange={(event) =>
+                              setActiveTemplateType(
+                                event.target.value as PartnerNotificationTemplateType,
+                              )
+                            }
+                          >
+                            {PARTNER_NOTIFICATION_TEMPLATE_TYPES.map((type) => (
+                              <option key={type} value={type}>
+                                {t(
+                                  NOTIFICATION_TYPE_META[type].titleKey,
+                                  NOTIFICATION_TYPE_META[type].titleFallback,
+                                )}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setTemplateVarsOpen(true)}
+                        >
+                          {t("partnerTelegram.templateVariables", "Available variables")}
+                        </Button>
+                      </div>
+                      <p className={styles.hint}>
+                        {t(
+                          "partnerTelegram.notificationTemplatesHint",
+                          "Leave a language blank to use the built-in message. Messages use Telegram HTML (<b>, <i>, <code>, …). Open Available variables for the full placeholder list for this notification type.",
+                        )}
+                      </p>
+                      <PartnerNotificationTemplateVariablesModal
+                        open={templateVarsOpen}
+                        onClose={() => setTemplateVarsOpen(false)}
+                        templateType={activeTemplateType}
+                      />
+                      {activeTemplateType !== "balance" ? (
+                        <label className={styles.check}>
+                          <input
+                            type="checkbox"
+                            checked={
+                              balanceNotifyAfterTypes[
+                                activeTemplateType as PartnerBalanceNotifyAfterType
+                              ]
+                            }
+                            onChange={(event) => {
+                              const enabled = event.target.checked;
+                              const key = activeTemplateType as PartnerBalanceNotifyAfterType;
+                              setBalanceNotifyAfterTypes((current) => ({
+                                ...current,
+                                [key]: enabled,
+                              }));
+                            }}
+                          />
+                          {t(
+                            "partnerTelegram.notifyAfterBalance",
+                            "Also send balance notification",
+                          )}
+                        </label>
+                      ) : null}
+                      {(["uz", "ru", "en"] as const).map((lang) => (
+                        <label key={lang} className={styles.label}>
+                          {t(
+                            `partnerTelegram.balanceTemplate.${lang}`,
+                            lang === "uz" ? "Uzbek" : lang === "ru" ? "Russian" : "English",
+                          )}
+                          <textarea
+                            className={styles.textarea}
+                            value={notificationTemplates[activeTemplateType][lang]}
+                            onChange={(event) => {
+                              const value = event.target.value;
+                              setNotificationTemplates((current) => ({
+                                ...current,
+                                [activeTemplateType]: {
+                                  ...current[activeTemplateType],
+                                  [lang]: value,
+                                },
+                              }));
+                            }}
+                          />
                         </label>
                       ))}
                     </div>
-                  </div>
-                  <label className={styles.check}>
-                    <input
-                      type="checkbox"
-                      checked={balanceEnabled}
-                      onChange={(event) => setBalanceEnabled(event.target.checked)}
-                    />
-                    {t("partnerTelegram.balanceSchedule", "Send balance notifications")}
-                  </label>
-                  <p className={styles.hint}>
-                    {t(
-                      "partnerTelegram.balanceScheduleHint",
-                      "At each scheduled time, linked partners who owe the company receive a balance message and an Excel file. All schedules share the same message templates.",
-                    )}
-                  </p>
-                  <div className={styles.label}>{t("partnerTelegram.balanceSchedules", "Schedules")}</div>
-                  <div className={styles.scheduleList}>
-                    {balanceSchedules.map((schedule, index) => (
-                      <div key={schedule.key} className={styles.scheduleCard}>
-                        <div className={styles.scheduleCardHeader}>
-                          <div className={styles.scheduleCardTitle}>
-                            {t("partnerTelegram.balanceScheduleItem", "Schedule {{n}}").replace(
-                              "{{n}}",
-                              String(index + 1),
-                            )}
-                          </div>
-                          {balanceSchedules.length > 1 ? (
-                            <Button
-                              type="button"
-                              size="sm"
-                              variant="secondary"
-                              disabled={savingBot}
-                              onClick={() =>
-                                setBalanceSchedules((current) =>
-                                  current.filter((item) => item.key !== schedule.key),
-                                )
-                              }
-                            >
-                              {t("partnerTelegram.balanceRemoveSchedule", "Remove")}
-                            </Button>
-                          ) : null}
-                        </div>
-                        <label className={styles.label}>
-                          {t("partnerTelegram.balanceTime", "Time")}
-                          <input
-                            className={styles.input}
-                            type="time"
-                            value={schedule.time}
-                            onChange={(event) => {
-                              const value = event.target.value;
-                              setBalanceSchedules((current) =>
-                                current.map((item) =>
-                                  item.key === schedule.key ? { ...item, time: value } : item,
-                                ),
-                              );
-                            }}
-                          />
-                        </label>
-                        <label className={styles.label}>
-                          {t("partnerTelegram.balanceOption", "Schedule")}
-                          <select
-                            className={styles.input}
-                            value={schedule.option}
-                            onChange={(event) => {
-                              const next = event.target.value as BalanceScheduleOption;
-                              setBalanceSchedules((current) =>
-                                current.map((item) => {
-                                  if (item.key !== schedule.key) return item;
-                                  return {
-                                    ...item,
-                                    option: next,
-                                    weekdays:
-                                      next === "weekdays" && item.weekdays.length === 0
-                                        ? [0]
-                                        : item.weekdays,
-                                    monthDays:
-                                      next === "monthly" && !item.monthDays.trim()
-                                        ? "1"
-                                        : item.monthDays,
-                                  };
-                                }),
-                              );
-                            }}
-                          >
-                            <option value="daily">
-                              {t("partnerTelegram.balanceOption.daily", "Every day")}
-                            </option>
-                            <option value="weekdays">
-                              {t("partnerTelegram.balanceOption.weekdays", "Selected weekdays")}
-                            </option>
-                            <option value="monthly">
-                              {t(
-                                "partnerTelegram.balanceOption.monthly",
-                                "Selected days of the month",
-                              )}
-                            </option>
-                          </select>
-                        </label>
-                        {schedule.option === "weekdays" ? (
-                          <div>
-                            <div className={styles.label}>
-                              {t("partnerTelegram.balanceWeekdays", "Weekdays")}
-                            </div>
-                            <div className={styles.dayList}>
-                              {WEEKDAYS.map(([key, day, label]) => (
-                                <label key={key}>
-                                  <input
-                                    type="checkbox"
-                                    checked={schedule.weekdays.includes(day)}
-                                    onChange={() =>
-                                      setBalanceSchedules((current) =>
-                                        current.map((item) =>
-                                          item.key === schedule.key
-                                            ? {
-                                                ...item,
-                                                weekdays: toggleDay(item.weekdays, day),
-                                              }
-                                            : item,
-                                        ),
-                                      )
-                                    }
-                                  />
-                                  {t(`partnerTelegram.weekday.${key}`, label)}
-                                </label>
-                              ))}
-                            </div>
-                          </div>
-                        ) : null}
-                        {schedule.option === "monthly" ? (
-                          <label className={styles.label}>
-                            {t("partnerTelegram.balanceMonthDays", "Days of the month")}
-                            <input
-                              className={styles.input}
-                              value={schedule.monthDays}
-                              onChange={(event) => {
-                                const value = event.target.value;
-                                setBalanceSchedules((current) =>
-                                  current.map((item) =>
-                                    item.key === schedule.key
-                                      ? { ...item, monthDays: value }
-                                      : item,
-                                  ),
-                                );
-                              }}
-                              placeholder="1, 15, -1"
-                            />
-                            <span className={styles.hint}>
-                              {t(
-                                "partnerTelegram.balanceMonthDaysHint",
-                                "Comma-separated days from 1 to 31. Use negative values to count from the end of the month (−1 = last day, −2 = second-to-last).",
-                              )}
-                            </span>
-                          </label>
-                        ) : null}
-                      </div>
-                    ))}
-                  </div>
-                  <div className={styles.scheduleActions}>
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      disabled={savingBot || balanceSchedules.length >= MAX_BALANCE_SCHEDULES}
-                      onClick={() =>
-                        setBalanceSchedules((current) => [
-                          ...current,
-                          createBalanceScheduleDraft(),
-                        ])
-                      }
-                    >
-                      {t("partnerTelegram.balanceAddSchedule", "Add schedule")}
+                  ) : null}
+
+                  <div className={styles.settingsFooter}>
+                    <Button type="button" onClick={() => void saveSettings()} disabled={savingBot}>
+                      {t("partnerTelegram.saveSettings", "Save defaults")}
                     </Button>
                   </div>
-                  <div>
-                    <div className={styles.label}>{t("partnerTelegram.balanceTemplates", "Message templates")}</div>
-                    <p className={styles.hint}>
-                      {t(
-                        "partnerTelegram.balanceTemplatesHint",
-                        "Leave a language blank to use the built-in message. Placeholders: {{partner_id}}, {{partner_name}}, {{balances}}, and {{balances_positive}}.",
-                      )}
-                    </p>
-                    {(["uz", "ru", "en"] as const).map((lang) => (
-                      <label key={lang} className={styles.label}>
-                        {t(`partnerTelegram.balanceTemplate.${lang}`, lang === "uz" ? "Uzbek" : lang === "ru" ? "Russian" : "English")}
-                        <textarea
-                          className={styles.textarea}
-                          value={balanceTemplates[lang]}
-                          onChange={(event) =>
-                            setBalanceTemplates((current) => ({ ...current, [lang]: event.target.value }))
-                          }
-                        />
-                      </label>
-                    ))}
-                  </div>
-                  <CategoryAllowlistField
-                    label={t("partnerTelegram.catalogCategories", "Product categories")}
-                    hint={t(
-                      "partnerTelegram.catalogCategoriesHint",
-                      "Leave All checked to show every category. Selecting a parent includes its subcategories.",
-                    )}
-                    allLabel={t("partnerTelegram.catalogCategoriesAll", "All")}
-                    items={productGroupsQuery.data?.groups ?? []}
-                    selectedIds={catalogGroupIds}
-                    disabled={savingBot}
-                    indentByPath
-                    onChange={setCatalogGroupIds}
-                  />
-                  <Button type="button" onClick={() => void saveSettings()} disabled={savingBot}>
-                    {t("partnerTelegram.saveSettings", "Save defaults")}
-                  </Button>
                 </div>
               </div>
             ) : null}
@@ -1126,10 +1416,24 @@ function AccountRow({
   const stateKey = `partnerTelegram.state.${account.link_state}`;
   const stateLabel = t(stateKey, account.link_state);
 
+  const cellClassName = (columnId: string) => {
+    if (columnId === "name") return styles.nameCell;
+    if (columnId === "partner" || columnId === "warehouse" || columnId === "priceType") {
+      return styles.stackCell;
+    }
+    if (columnId === "actions") return styles.actionsCell;
+    return undefined;
+  };
+
   return (
     <tr>
       {columns.map((column) => (
-        <td key={column.id} data-label={columnHeaderLabel(column)} style={{ width: column.getSize() }}>
+        <td
+          key={column.id}
+          className={cellClassName(column.id)}
+          data-label={columnHeaderLabel(column)}
+          style={{ width: column.getSize() }}
+        >
           {column.id === "name" ? (
             <>
               <div>{accountName(account)}</div>
@@ -1180,7 +1484,7 @@ function AccountRow({
                 </div>
               ))}
               <input
-                className={styles.input}
+                className={`${styles.input} ${styles.cellControl}`}
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder={t("partnerTelegram.searchPartner", "Search partners")}
@@ -1204,7 +1508,7 @@ function AccountRow({
           ) : null}
           {column.id === "warehouse" ? (
             <select
-              className={styles.input}
+              className={`${styles.input} ${styles.cellControl}`}
               value={account.warehouse_id ?? ""}
               disabled={busy}
               onChange={(event) =>
@@ -1221,7 +1525,7 @@ function AccountRow({
           ) : null}
           {column.id === "priceType" ? (
             <select
-              className={styles.input}
+              className={`${styles.input} ${styles.cellControl}`}
               value={account.price_type_id ?? ""}
               disabled={busy}
               onChange={(event) =>

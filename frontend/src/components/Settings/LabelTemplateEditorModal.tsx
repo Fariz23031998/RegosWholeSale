@@ -4,9 +4,23 @@ import { Modal } from "@/components/posui/Modal";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { fetchLabelSampleRow } from "@/lib/labels-api";
 import { renderLabelPreviewDocument } from "@/lib/label-template-engine";
+import {
+  parseBarcodeHeightMm,
+  parseBarcodeWidthPercent,
+  parseQrSizeMm,
+  setBarcodeHeightMm,
+  setBarcodeWidthPercent,
+  setQrSizeMm,
+} from "@/lib/label-template-symbol-css";
 import { splitLabelDocument } from "@/lib/label-templates-api";
 import { useAuth } from "@/store/auth";
-import { LABEL_PLACEHOLDERS, type LabelFieldRow, type LabelTemplate } from "@/types/label-templates";
+import {
+  LABEL_PLACEHOLDERS,
+  type LabelFieldRow,
+  type LabelPaperOrientation,
+  type LabelTemplate,
+} from "@/types/label-templates";
+import { LabelGrapesEditor } from "./LabelGrapesEditor";
 import { ReceiptTemplateLogosEditor } from "./ReceiptTemplateLogosEditor";
 import styles from "./ReceiptTemplates.module.css";
 
@@ -18,7 +32,7 @@ type Props = {
   onSave: (template: LabelTemplate) => void;
 };
 
-type EditorTab = "html" | "css";
+type EditorTab = "html" | "css" | "visual";
 
 const MM_TO_PX = 96 / 25.4;
 
@@ -27,7 +41,10 @@ function draftFromTemplate(template: LabelTemplate): LabelTemplate {
     ...template,
     css: template.css ?? "",
     logos: Array.isArray(template.logos) ? template.logos : [],
-    paper: { ...template.paper },
+    paper: {
+      ...template.paper,
+      orientation: template.paper.orientation === "landscape" ? "landscape" : "portrait",
+    },
   };
   if (!draft.css.trim()) {
     const split = splitLabelDocument(draft.html);
@@ -43,21 +60,31 @@ export function LabelTemplateEditorModal({ open, template, isNew, onClose, onSav
   const token = useAuth((state) => state.accessToken);
   const [draft, setDraft] = useState<LabelTemplate | null>(null);
   const [editorTab, setEditorTab] = useState<EditorTab>("html");
+  const [visualEpoch, setVisualEpoch] = useState(0);
   const [previewHtml, setPreviewHtml] = useState("");
   const [previewError, setPreviewError] = useState("");
   const [editorError, setEditorError] = useState("");
+  /** Local text while typing so "5"→"59" is not clamped mid-keystroke. */
+  const [barcodeWidthText, setBarcodeWidthText] = useState<string | null>(null);
   const [sampleRow, setSampleRow] = useState<LabelFieldRow | null>(null);
   const [scale, setScale] = useState(1);
   const [contentBox, setContentBox] = useState({ width: 0, height: 0 });
   const [stageNode, setStageNode] = useState<HTMLDivElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
+  const openVisualTab = () => {
+    setVisualEpoch((epoch) => epoch + 1);
+    setEditorTab("visual");
+  };
+
   useEffect(() => {
     if (!open || !template) {
       setDraft(null);
       setPreviewHtml("");
+      setBarcodeWidthText(null);
       return;
     }
+    setBarcodeWidthText(null);
     setEditorTab("html");
     setEditorError("");
     setDraft(draftFromTemplate(template));
@@ -111,6 +138,8 @@ export function LabelTemplateEditorModal({ open, template, isNew, onClose, onSav
 
   const width = Number(draft?.paper.width_mm) || 58;
   const height = Number(draft?.paper.height_mm) || 40;
+  const orientation: LabelPaperOrientation =
+    draft?.paper.orientation === "landscape" ? "landscape" : "portrait";
 
   useEffect(() => {
     if (!open || !stageNode) return;
@@ -232,6 +261,7 @@ export function LabelTemplateEditorModal({ open, template, isNew, onClose, onSav
               paper: {
                 width_mm: width,
                 height_mm: height,
+                orientation,
               },
             });
           }}
@@ -288,6 +318,107 @@ export function LabelTemplateEditorModal({ open, template, isNew, onClose, onSav
                 }
               />
             </label>
+            <label className={styles.field}>
+              <span className={styles.label}>
+                {t("settings.labelTemplates.editor.orientation", "Orientation")}
+              </span>
+              <select
+                className={styles.input}
+                value={orientation}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    paper: {
+                      ...draft.paper,
+                      orientation: event.target.value === "landscape" ? "landscape" : "portrait",
+                    },
+                  })
+                }
+              >
+                <option value="portrait">
+                  {t("settings.labelTemplates.editor.portrait", "Portrait")}
+                </option>
+                <option value="landscape">
+                  {t("settings.labelTemplates.editor.landscape", "Landscape")}
+                </option>
+              </select>
+            </label>
+          </div>
+          <div className={styles.sizeRow}>
+            <label className={styles.field}>
+              <span className={styles.label}>
+                {t("settings.labelTemplates.editor.barcodeHeight", "Barcode height (mm)")}
+              </span>
+              <input
+                className={styles.input}
+                type="number"
+                min={1}
+                max={500}
+                step={0.5}
+                value={parseBarcodeHeightMm(draft.css)}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    css: setBarcodeHeightMm(draft.css, Number(event.target.value)),
+                  })
+                }
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.label}>
+                {t("settings.labelTemplates.editor.barcodeWidth", "Barcode width (%)")}
+              </span>
+              <input
+                className={styles.input}
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                value={barcodeWidthText ?? String(parseBarcodeWidthPercent(draft.css))}
+                onChange={(event) => {
+                  const raw = event.target.value;
+                  setBarcodeWidthText(raw);
+                  if (raw.trim() === "") return;
+                  const next = Number(raw);
+                  if (!Number.isFinite(next)) return;
+                  // Apply live when in range; allow "5" while typing "59".
+                  if (next >= 1 && next <= 100) {
+                    setDraft({
+                      ...draft,
+                      css: setBarcodeWidthPercent(draft.css, next),
+                    });
+                  }
+                }}
+                onBlur={() => {
+                  const raw = barcodeWidthText;
+                  setBarcodeWidthText(null);
+                  if (raw == null) return;
+                  setDraft({
+                    ...draft,
+                    css: setBarcodeWidthPercent(draft.css, Number(raw)),
+                  });
+                }}
+              />
+            </label>
+            <label className={styles.field}>
+              <span className={styles.label}>
+                {t("settings.labelTemplates.editor.qrSize", "QR size (mm)")}
+              </span>
+              <input
+                className={styles.input}
+                type="number"
+                min={1}
+                max={500}
+                step={0.5}
+                value={parseQrSizeMm(draft.css)}
+                onChange={(event) =>
+                  setDraft({
+                    ...draft,
+                    css: setQrSizeMm(draft.css, Number(event.target.value)),
+                  })
+                }
+              />
+            </label>
           </div>
           <div className={styles.editorTabs}>
             <button
@@ -304,25 +435,58 @@ export function LabelTemplateEditorModal({ open, template, isNew, onClose, onSav
             >
               {t("settings.labelTemplates.editor.tabCss", "CSS")}
             </button>
+            <button
+              type="button"
+              className={`${styles.editorTab} ${editorTab === "visual" ? styles.editorTabActive : ""}`}
+              onClick={openVisualTab}
+            >
+              {t("settings.labelTemplates.editor.tabVisual", "Visual")}
+            </button>
           </div>
-          <label className={styles.labelCodeField}>
-            <span className={styles.label}>
-              {editorTab === "html"
-                ? t("settings.labelTemplates.editor.html", "HTML")
-                : t("settings.labelTemplates.editor.css", "CSS")}
-            </span>
-            <textarea
-              className={`${styles.textarea} ${styles.codeArea} ${styles.labelCodeArea}`}
-              value={editorTab === "html" ? draft.html : draft.css}
-              onChange={(event) =>
-                setDraft(
-                  editorTab === "html"
-                    ? { ...draft, html: event.target.value }
-                    : { ...draft, css: event.target.value },
-                )
-              }
-            />
-          </label>
+          {editorTab === "visual" ? (
+            <div className={styles.labelGrapesField}>
+              <span className={styles.label}>
+                {t("settings.labelTemplates.editor.visual", "Visual")}
+              </span>
+              <p className={styles.templateMeta}>
+                {t(
+                  "settings.labelTemplates.editor.visualHint",
+                  "Visual and HTML/CSS edit the same template. Switch tabs to refine markup or styles.",
+                )}
+              </p>
+              <LabelGrapesEditor
+                key={visualEpoch}
+                html={draft.html}
+                css={draft.css}
+                widthMm={width}
+                heightMm={height}
+                onChange={({ html: nextHtml, css: nextCss }) =>
+                  setDraft((current) =>
+                    current ? { ...current, html: nextHtml, css: nextCss } : current,
+                  )
+                }
+              />
+            </div>
+          ) : (
+            <label className={styles.labelCodeField}>
+              <span className={styles.label}>
+                {editorTab === "html"
+                  ? t("settings.labelTemplates.editor.html", "HTML")
+                  : t("settings.labelTemplates.editor.css", "CSS")}
+              </span>
+              <textarea
+                className={`${styles.textarea} ${styles.codeArea} ${styles.labelCodeArea}`}
+                value={editorTab === "html" ? draft.html : draft.css}
+                onChange={(event) =>
+                  setDraft(
+                    editorTab === "html"
+                      ? { ...draft, html: event.target.value }
+                      : { ...draft, css: event.target.value },
+                  )
+                }
+              />
+            </label>
+          )}
           <ReceiptTemplateLogosEditor
             logos={draft.logos ?? []}
             onChange={(logos) => {

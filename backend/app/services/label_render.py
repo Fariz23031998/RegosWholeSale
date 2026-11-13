@@ -1,8 +1,26 @@
 import re
+from datetime import date, datetime, time
 from html import escape
 from typing import Any
 
 from app.services.label_images import barcode_png_data_uri, qr_png_data_uri
+
+
+def format_label_date(value: date | None = None) -> str:
+    """Print date as M/D/YYYY (matches common retail label templates)."""
+    day = value or date.today()
+    return f"{day.month}/{day.day}/{day.year}"
+
+
+def format_label_time(value: time | datetime | None = None) -> str:
+    """Print time as H:MM (24-hour, no leading zero on hour)."""
+    if isinstance(value, datetime):
+        clock = value.time()
+    elif isinstance(value, time):
+        clock = value
+    else:
+        clock = datetime.now().time()
+    return f"{clock.hour}:{clock.minute:02d}"
 
 _TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.]+)\s*\}\}")
 _STYLE_RE = re.compile(r"<style[^>]*>(.*?)</style>", re.IGNORECASE | re.DOTALL)
@@ -27,6 +45,8 @@ SAMPLE_LABEL_FIELDS = {
     "sku": "ART-1",
     "category": "Grocery",
     "unit_name": "pcs",
+    "date": "4/13/2023",
+    "time": "14:30",
     "image_src": _SAMPLE_PRODUCT_IMAGE_SRC,
 }
 
@@ -65,6 +85,8 @@ _TEXT_FIELDS = (
     "sku",
     "category",
     "unit_name",
+    "date",
+    "time",
 )
 
 
@@ -98,6 +120,8 @@ def label_fields_from_product(
         "sku": _text(product.get("sku")),
         "category": _text(product.get("category")),
         "unit_name": _text(product.get("unit_name")),
+        "date": format_label_date(),
+        "time": format_label_time(),
         "barcode_src": barcode_png_data_uri(barcode),
         "qr_src": qr_png_data_uri(barcode),
         "image_src": sanitize_label_image_src(product.get("image")),

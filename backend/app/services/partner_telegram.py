@@ -16,7 +16,15 @@ from app.models import (
     PartnerTelegramBot,
     PartnerTelegramLinkState,
 )
-from app.schemas.partner_telegram import PORTAL_PAGE_KEYS, default_enabled_pages
+from app.schemas.partner_telegram import (
+    PORTAL_PAGE_KEYS,
+    default_balance_notify_after_types,
+    default_enabled_pages,
+    normalize_balance_notify_filter,
+)
+from app.services.partner_notification_templates import (
+    normalize_balance_notify_after_types,
+)
 from app.services import document_telegram_format as fmt
 from app.services import regos_fields as regos_fields_service
 from app.services import regos_groups
@@ -222,13 +230,35 @@ async def _get_bot_by_public_key(
     return result.scalar_one_or_none()
 
 
-def _balance_notify_templates(value: Any) -> dict[str, str]:
+NOTIFICATION_TEMPLATE_TYPES = (
+    "purchase",
+    "return_purchase",
+    "wholesale",
+    "wholesale_return",
+    "payment",
+    "balance",
+)
+
+
+def _lang_templates(value: Any) -> dict[str, str]:
     source = value if isinstance(value, dict) else {}
     templates: dict[str, str] = {}
     for lang in ("uz", "ru", "en"):
         raw = source.get(lang, "")
         templates[lang] = raw.strip() if isinstance(raw, str) else ""
     return templates
+
+
+def _notification_templates(value: Any) -> dict[str, dict[str, str]]:
+    source = value if isinstance(value, dict) else {}
+    return {
+        key: _lang_templates(source.get(key))
+        for key in NOTIFICATION_TEMPLATE_TYPES
+    }
+
+
+def _balance_notify_after_types(value: Any) -> dict[str, bool]:
+    return normalize_balance_notify_after_types(value)
 
 
 def _balance_notify_days(value: Any) -> list[int]:
@@ -377,8 +407,10 @@ def bot_to_dict(row: PartnerTelegramBot) -> dict[str, Any]:
         "catalog_product_group_ids": _normalize_id_list(row.catalog_product_group_ids),
         "enabled_pages": _normalize_enabled_pages(row.enabled_pages),
         "balance_notify_enabled": bool(row.balance_notify_enabled),
+        "balance_notify_filter": normalize_balance_notify_filter(row.balance_notify_filter),
         "balance_notify_schedules": _balance_notify_schedules_public(row.balance_notify_schedules),
-        "balance_notify_templates": _balance_notify_templates(row.balance_notify_templates),
+        "notification_templates": _notification_templates(row.notification_templates),
+        "balance_notify_after_types": _balance_notify_after_types(row.balance_notify_after_types),
         "order_document_type": _normalize_order_document_type(row.order_document_type),
         "order_booked": bool(row.order_booked),
     }
@@ -410,8 +442,10 @@ def _empty_bot() -> dict[str, Any]:
         "catalog_product_group_ids": [],
         "enabled_pages": default_enabled_pages(),
         "balance_notify_enabled": False,
+        "balance_notify_filter": "negative",
         "balance_notify_schedules": [],
-        "balance_notify_templates": {"uz": "", "ru": "", "en": ""},
+        "notification_templates": _notification_templates(None),
+        "balance_notify_after_types": default_balance_notify_after_types(),
         "order_document_type": "doc_order_from_partner",
         "order_booked": True,
     }
@@ -1363,13 +1397,21 @@ async def update_bot_settings(
         row.enabled_pages = _normalize_enabled_pages(settings.get("enabled_pages"))
     if "balance_notify_enabled" in settings:
         row.balance_notify_enabled = bool(settings.get("balance_notify_enabled"))
+    if "balance_notify_filter" in settings:
+        row.balance_notify_filter = normalize_balance_notify_filter(
+            settings.get("balance_notify_filter")
+        )
     if "balance_notify_schedules" in settings:
         row.balance_notify_schedules = _merge_balance_notify_schedules(
             settings.get("balance_notify_schedules"),
             row.balance_notify_schedules,
         )
-    if "balance_notify_templates" in settings:
-        row.balance_notify_templates = _balance_notify_templates(settings.get("balance_notify_templates"))
+    if "notification_templates" in settings:
+        row.notification_templates = _notification_templates(settings.get("notification_templates"))
+    if "balance_notify_after_types" in settings:
+        row.balance_notify_after_types = _balance_notify_after_types(
+            settings.get("balance_notify_after_types")
+        )
     if "order_document_type" in settings:
         row.order_document_type = _normalize_order_document_type(settings.get("order_document_type"))
     if "order_booked" in settings:
@@ -1544,6 +1586,86 @@ def document_partner_id(document: dict[str, Any]) -> int | None:
     return None
 
 
+# Partner-facing DocWholeSale / DocWholeSaleReturn (company wholesale kinds).
+_PARTNER_PURCHASE_KINDS = frozenset({"wholesale", "wholesale_return"})
+
+
+def _debt_amount_for_document(
+    lines: list[dict[str, Any]],
+    *,
+    firm_id: int,
+    currency_id: int,
+) -> float:
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        line_firm = line.get("firm_id")
+        line_currency = line.get("currency_id")
+        if firm_id and line_firm != firm_id:
+            continue
+        if currency_id and line_currency != currency_id:
+            continue
+        amount = line.get("amount")
+        try:
+            return float(amount or 0)
+        except (TypeError, ValueError):
+            return 0.0
+    return 0.0
+
+
+async def _partner_balance_context(
+    session: AsyncSession,
+    company_id: int,
+    partner_id: int,
+    document: dict[str, Any],
+    *,
+    needs_balance: bool,
+) -> tuple[str, str, float]:
+    """Resolve firm/currency/balance via the fast partnerbalance/get debt call.
+
+    Uses ``get_partner_debt`` (grouped Currency rows over a one-day window) so
+    notifications do not download the full statement history.
+    """
+    from app.services.partner_notification_templates import document_firm_currency
+    from app.services.regos_partner_balance import get_partner_debt
+
+    firm_id, firm_name, currency_id, currency_name = document_firm_currency(document)
+    if not needs_balance:
+        return firm_name, currency_name, 0.0
+    try:
+        payload = await get_partner_debt(session, company_id, partner_id=partner_id)
+    except Exception:
+        logger.error(
+            "Failed to load debt for partner %s company %s notification",
+            partner_id,
+            company_id,
+            exc_info=True,
+        )
+        return firm_name, currency_name, 0.0
+    lines = payload.get("lines") if isinstance(payload, dict) else None
+    debt_lines = lines if isinstance(lines, list) else []
+    matched_firm = firm_name
+    matched_currency = currency_name
+    for line in debt_lines:
+        if not isinstance(line, dict):
+            continue
+        if firm_id and line.get("firm_id") != firm_id:
+            continue
+        if currency_id and line.get("currency_id") != currency_id:
+            continue
+        raw_firm = line.get("firm_name")
+        raw_currency = line.get("currency_name")
+        if isinstance(raw_firm, str) and raw_firm.strip():
+            matched_firm = raw_firm.strip()
+        if isinstance(raw_currency, str) and raw_currency.strip():
+            matched_currency = raw_currency.strip()
+        break
+    amount = _debt_amount_for_document(
+        debt_lines, firm_id=firm_id, currency_id=currency_id
+    )
+    return matched_firm, matched_currency, amount
+
+
 async def notify_partner_document(
     session: AsyncSession,
     company_id: int,
@@ -1556,6 +1678,12 @@ async def notify_partner_document(
     use_cost: bool,
     kind: str,
 ) -> None:
+    from app.services.partner_notification_templates import (
+        format_document_notification,
+        template_for,
+        template_needs_balance,
+    )
+
     if kind not in PARTNER_DOCUMENT_KINDS:
         return
     partner_id = document_partner_id(document)
@@ -1567,9 +1695,32 @@ async def notify_partner_document(
     if bot is None:
         return
     accounts = await list_accounts_for_partner(session, company_id, partner_id, active_only=True)
+    if not accounts:
+        return
+    partner_display = await _partner_name(session, company_id, partner_id)
+    templates_by_lang: dict[str, str] = {}
+    needs_balance = False
     for account in accounts:
         lang = account.language_code if account.language_code in PARTNER_LANGUAGES else "ru"
-        text = fmt.format_partner_receipt(
+        if lang not in templates_by_lang:
+            templates_by_lang[lang] = template_for(bot.notification_templates, kind, lang)
+        template = templates_by_lang[lang]
+        if template.strip():
+            if template_needs_balance(template):
+                needs_balance = True
+        elif kind in _PARTNER_PURCHASE_KINDS:
+            # Default purchase / purchase-return receipts show positive debt.
+            needs_balance = True
+    firm_name, currency_name, balance = await _partner_balance_context(
+        session,
+        company_id,
+        partner_id,
+        document,
+        needs_balance=needs_balance,
+    )
+    for account in accounts:
+        lang = account.language_code if account.language_code in PARTNER_LANGUAGES else "ru"
+        text = format_document_notification(
             document,
             operations,
             warehouse_name,
@@ -1577,9 +1728,17 @@ async def notify_partner_document(
             is_return=is_return,
             use_cost=use_cost,
             lang=lang,
-            for_partner=True,
+            template=templates_by_lang.get(lang, ""),
+            partner_id=partner_id,
+            partner_name=partner_display,
+            firm_name=firm_name,
+            currency_name=currency_name,
+            balance=balance,
         )
-        await telegram_service.send_message(bot.bot_token, account.chat_id, text)
+        parse_mode = "HTML" if templates_by_lang.get(lang, "").strip() else None
+        kwargs = {"parse_mode": parse_mode} if parse_mode is not None else {}
+        await telegram_service.send_message(bot.bot_token, account.chat_id, text, **kwargs)
+    await _maybe_send_balance_after(session, bot, partner_id, accounts, kind)
 
 
 async def notify_partner_payment(
@@ -1589,6 +1748,12 @@ async def notify_partner_payment(
     *,
     is_cancelled: bool,
 ) -> None:
+    from app.services.partner_notification_templates import (
+        format_payment_notification_template,
+        template_for,
+        template_needs_balance,
+    )
+
     partner_id = document_partner_id(document)
     if partner_id is None:
         return
@@ -1597,14 +1762,63 @@ async def notify_partner_payment(
     bot = await _get_bot_by_company(session, company_id)
     if bot is None:
         return
-    for account in await list_accounts_for_partner(
+    accounts = await list_accounts_for_partner(
         session, company_id, partner_id, active_only=True
-    ):
+    )
+    if not accounts:
+        return
+    partner_display = await _partner_name(session, company_id, partner_id)
+    templates_by_lang: dict[str, str] = {}
+    needs_balance = False
+    for account in accounts:
         lang = account.language_code if account.language_code in PARTNER_LANGUAGES else "ru"
-        text = fmt.format_payment_notification(
+        if lang not in templates_by_lang:
+            templates_by_lang[lang] = template_for(bot.notification_templates, "payment", lang)
+        if template_needs_balance(templates_by_lang[lang]):
+            needs_balance = True
+    firm_name, currency_name, balance = await _partner_balance_context(
+        session,
+        company_id,
+        partner_id,
+        document,
+        needs_balance=needs_balance,
+    )
+    for account in accounts:
+        lang = account.language_code if account.language_code in PARTNER_LANGUAGES else "ru"
+        text = format_payment_notification_template(
             document,
             is_cancelled=is_cancelled,
             lang=lang,
-            for_partner=True,
+            template=templates_by_lang.get(lang, ""),
+            partner_id=partner_id,
+            partner_name=partner_display,
+            firm_name=firm_name,
+            currency_name=currency_name,
+            balance=balance,
         )
-        await telegram_service.send_message(bot.bot_token, account.chat_id, text)
+        parse_mode = "HTML" if templates_by_lang.get(lang, "").strip() else None
+        kwargs = {"parse_mode": parse_mode} if parse_mode is not None else {}
+        await telegram_service.send_message(bot.bot_token, account.chat_id, text, **kwargs)
+    await _maybe_send_balance_after(session, bot, partner_id, accounts, "payment")
+
+
+async def _maybe_send_balance_after(
+    session: AsyncSession,
+    bot: PartnerTelegramBot,
+    partner_id: int,
+    accounts: list[PartnerTelegramAccount],
+    kind: str,
+) -> None:
+    after_types = _balance_notify_after_types(bot.balance_notify_after_types)
+    if not after_types.get(kind):
+        return
+    from app.services.partner_balance_notify import notify_partner_balance_messages
+
+    await notify_partner_balance_messages(
+        session,
+        bot,
+        partner_id,
+        accounts,
+        include_excel=False,
+        pace=False,
+    )

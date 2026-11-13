@@ -45,6 +45,7 @@ import { getLastSyncTime, setLastSyncTime } from "@/lib/sync-meta-db";
 import { useSellContext } from "@/store/sell-context";
 import {
   META_RECENT_SYNC_SKIP_MS,
+  forceFullMetaRefresh,
   performMetaIncrementalSync,
 } from "./meta-incremental-sync";
 
@@ -125,5 +126,73 @@ describe("performMetaIncrementalSync", () => {
     const forced = await performMetaIncrementalSync("token", 1, 9, { force: true });
     expect(fetchMetaSync).toHaveBeenCalledTimes(1);
     expect(forced.referenceKinds).toEqual(["partner"]);
+  });
+
+  it("coalesces concurrent meta syncs for the same company into one fetch", async () => {
+    // Use a company id unused by earlier tests so in-memory freshness cannot skip the fetch.
+    const companyId = 42;
+    let resolveFetch: ((value: unknown) => void) | undefined;
+    vi.mocked(fetchMetaSync).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }) as ReturnType<typeof fetchMetaSync>,
+    );
+
+    const first = performMetaIncrementalSync("token", companyId, 9);
+    const second = performMetaIncrementalSync("token", companyId, 9, { force: true });
+
+    await vi.waitFor(() => {
+      expect(resolveFetch).toBeTypeOf("function");
+    });
+    expect(fetchMetaSync).toHaveBeenCalledTimes(1);
+
+    resolveFetch?.({
+      synced_at: "2026-07-12T17:10:00Z",
+      full_sync_required: false,
+      reference_kinds: [],
+      payment_types_invalidated: false,
+      settings: [],
+    });
+
+    const [a, b] = await Promise.all([first, second]);
+    expect(a.synced).toBe(true);
+    expect(b.synced).toBe(true);
+    expect(fetchMetaSync).toHaveBeenCalledTimes(1);
+  });
+
+  it("joins forceFullMetaRefresh to an in-flight incremental sync", async () => {
+    let resolveFetch: ((value: unknown) => void) | undefined;
+    vi.mocked(fetchMetaSync).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }) as ReturnType<typeof fetchMetaSync>,
+    );
+
+    const incremental = performMetaIncrementalSync("token", 2, 9);
+    const full = forceFullMetaRefresh(
+      "token",
+      { companyId: 2, userId: 9 },
+      false,
+    );
+
+    await vi.waitFor(() => {
+      expect(resolveFetch).toBeTypeOf("function");
+    });
+    expect(fetchMetaSync).toHaveBeenCalledTimes(1);
+
+    resolveFetch?.({
+      synced_at: "2026-07-12T17:15:00Z",
+      full_sync_required: false,
+      reference_kinds: [],
+      payment_types_invalidated: false,
+      settings: [],
+    });
+
+    await Promise.all([incremental, full]);
+    // Full refresh should have joined the incremental run, not started its own path.
+    expect(refreshSettingsNamespace).not.toHaveBeenCalled();
+    expect(fetchMetaSync).toHaveBeenCalledTimes(1);
   });
 });

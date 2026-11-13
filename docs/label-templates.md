@@ -33,6 +33,7 @@ Each template stores:
 |-------|---------|
 | `name` | Display name in Settings |
 | `paper.width_mm` / `paper.height_mm` | Physical label size in millimeters |
+| `paper.orientation` | Printer page orientation: `portrait` (default) or `landscape` |
 | `html` | Full HTML document (or body markup) with `{{ placeholders }}` |
 | `css` | Separate stylesheet injected into `<head>` at render time |
 | `logos` | Uploaded company logos (`data:image/...`) for `{{logoImg}}` |
@@ -49,9 +50,9 @@ Rendering fills one label per product row. Placeholders use Handlebars-style dou
 
 1. Open **Settings → Label templates**
 2. Click **New template**, **Edit**, or **Import**
-3. In the editor set **Name**, **Width (mm)**, **Height (mm)**
+3. In the editor set **Name**, **Width (mm)**, **Height (mm)**, and **Orientation** (portrait or landscape)
 4. Optionally upload **Logos** (company images) and reference them with `{{logoImg "Name"}}`
-5. Switch between **HTML** and **CSS** tabs
+5. Switch between **HTML**, **CSS**, and **Visual** tabs. Visual uses GrapesJS and edits the same `html` / `css` as the code tabs.
 6. Use **Preview** on the right (sample product data, including a sample product photo)
 7. Click **Save template**
 
@@ -73,7 +74,11 @@ type LabelTemplate = {
   id: string;
   name: string;
   is_default: boolean;
-  paper: { width_mm: number; height_mm: number };
+  paper: {
+    width_mm: number;
+    height_mm: number;
+    orientation?: "portrait" | "landscape"; // default portrait
+  };
   html: string;
   css: string;
   logos: LabelTemplateLogo[];
@@ -133,8 +138,8 @@ Recommended shape (matches the built-in default):
 <body>
   <div class="label">
     <div class="name">{{ name }}</div>
-    <div class="price">{{ price }} {{ currency }}</div>
-    <div class="row">
+    <div class="price">{{formatNumber price}} <span class="currency">{{ currency }}</span></div>
+    <div class="barcode-wrap">
       <img class="barcode" src="{{ barcode_src }}" alt="" />
       <div class="code">{{ barcode }}</div>
     </div>
@@ -165,27 +170,72 @@ Guidelines:
 - Size with **`mm`**, not `px`, for the outer label box.
 - Match paper: if `paper` is `63×30`, set `.label { width: 63mm; height: 30mm; }`.
 - Use `overflow: hidden` on the root so long names do not spill onto the next sticker.
-- Prefer simple flex/column layouts; avoid absolute positioning unless necessary.
+- Prefer **absolute positioning** inside `.label { position: relative; }` with `top` / `left` / `right` / `bottom` (sample presets use this). Avoid `position: fixed` (viewport-based; breaks multi-label print sheets).
 - Do not close a `</style>` tag inside the CSS string (validation error).
 - CSS also has a **50 KB** limit.
 
 Default CSS pattern:
 
 ```css
-html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+html, body { margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; color: #000; }
 .label {
+  position: relative;
   box-sizing: border-box;
   width: 58mm;
   height: 40mm;
-  padding: 2mm;
-  display: flex;
-  flex-direction: column;
+  overflow: hidden;
 }
-.name { font-size: 11px; font-weight: 700; line-height: 1.2; max-height: 2.4em; overflow: hidden; }
-.price { font-size: 16px; font-weight: 700; margin-top: 1mm; }
-.row { display: flex; align-items: center; gap: 2mm; margin-top: auto; }
-.code { font-size: 9px; }
-img.barcode { height: 12mm; width: auto; }
+.name {
+  position: absolute;
+  top: 2.4mm;
+  left: 2.6mm;
+  right: 2.6mm;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.2;
+  max-height: 2.4em;
+  overflow: hidden;
+}
+.price {
+  position: absolute;
+  top: 11mm;
+  left: 2.6mm;
+  right: 2.6mm;
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.currency { font-size: 11px; font-weight: 700; margin-left: 1mm; }
+.barcode-wrap {
+  position: absolute;
+  left: 2.6mm;
+  right: 2.6mm;
+  bottom: 2mm;
+  height: 18mm;
+}
+.code {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  font-size: 8px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-align: center;
+  white-space: nowrap;
+}
+img.barcode {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 15mm;
+  width: 100%;
+  max-width: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+}
 ```
 
 ---
@@ -201,12 +251,14 @@ Syntax: `{{ name }}` or `{{name}}` (spaces optional). Only these fields are fill
 | `{{ current_price }}` | Current price from price log when available | Same format as `price` |
 | `{{ old_price }}` | Previous / strikethrough price when available | Same format as `price` |
 | `{{ currency }}` | Currency code/name (e.g. `UZS`) | |
-| `{{ barcode }}` | First non-empty of barcode, code, sku, articul | Text under/near barcode |
+| `{{ barcode }}` | First non-empty of barcode, code, sku, articul | Human-readable digits under the barcode image |
 | `{{ code }}` | Product code | |
 | `{{ articul }}` | Article | |
 | `{{ sku }}` | SKU | |
 | `{{ category }}` | Category name | |
 | `{{ unit_name }}` | Unit (e.g. `pcs`) | |
+| `{{ date }}` | Print date when labels are generated | `M/D/YYYY` (e.g. `4/13/2023`) |
+| `{{ time }}` | Print time when labels are generated | `H:MM` 24-hour (e.g. `14:30`) |
 | `{{ barcode_src }}` | PNG data URI of barcode image | Use in `<img src="...">` |
 | `{{ qr_src }}` | PNG data URI of QR image | Use in `<img src="...">` |
 | `{{ image_src }}` | Product photo URL from catalog | `http(s)://` or `data:image/` only; empty if missing/unsafe |
@@ -226,6 +278,8 @@ Sample preview row used by the editor:
 | articul / sku | `ART-1` |
 | category | `Grocery` |
 | unit_name | `pcs` |
+| date | `4/13/2023` |
+| time | `14:30` |
 | image_src | small sample `data:image/svg+xml,...` |
 
 ---
@@ -284,12 +338,16 @@ Use this to split large prices across styled spans (e.g. large leading digits, s
 - `image_src` is the catalog product photo (`product.image` from Regos), sanitized to `http://`, `https://`, or `data:image/` only.
 
 ```html
-<img class="barcode" src="{{ barcode_src }}" alt="" />
+<div class="barcode-wrap">
+  <img class="barcode" src="{{ barcode_src }}" alt="" />
+  <div class="code">{{ barcode }}</div>
+</div>
 <img class="qr" src="{{ qr_src }}" alt="" />
 <img class="product" src="{{ image_src }}" alt="" />
 ```
 
-- Constrain heights in CSS (`height: 10mm–14mm; width: auto`) so symbols and photos fit the sticker.
+- Place human-readable `{{ barcode }}` **under** the barcode image (column flex), not beside it.
+- Drive 1D barcode size with explicit `height` (mm) and `width` (%) plus `object-fit: fill`. Barcode data is horizontal, so vertical stretch is safe and lets height change independently of PNG aspect ratio. Prefer `object-fit: contain` only for QR/`img.qr` (must stay square).
 - Prefer `img.product[src=""] { display: none; }` if you want to hide missing product photos.
 - Do not invent external barcode URLs; use the provided data URIs.
 - Product photos stay as remote URLs when Regos provides `https://…` (Print Service loads them with network idle). Logos should be uploaded (inline), not remote.
@@ -370,8 +428,8 @@ Product text is escaped. Do not rely on raw HTML injection from placeholders.
     "name": "58x40 mm label",
     "is_default": false,
     "paper": { "width_mm": 58, "height_mm": 40 },
-    "html": "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\" />\n</head>\n<body>\n  <div class=\"label\">\n    <div class=\"name\">{{ name }}</div>\n    <div class=\"price\">{{formatNumber price}} {{ currency }}</div>\n    <div class=\"row\">\n      <img class=\"barcode\" src=\"{{ barcode_src }}\" alt=\"\" />\n      <div class=\"code\">{{ barcode }}</div>\n    </div>\n  </div>\n</body>\n</html>",
-    "css": "html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; }\n.label { box-sizing: border-box; width: 58mm; height: 40mm; padding: 2mm; display: flex; flex-direction: column; }\n.name { font-size: 11px; font-weight: 700; line-height: 1.2; max-height: 2.4em; overflow: hidden; }\n.price { font-size: 16px; font-weight: 700; margin-top: 1mm; }\n.row { display: flex; align-items: center; gap: 2mm; margin-top: auto; }\n.code { font-size: 9px; }\nimg.barcode { height: 12mm; width: auto; }",
+    "html": "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\" />\n</head>\n<body>\n  <div class=\"label\">\n    <div class=\"name\">{{ name }}</div>\n    <div class=\"price\">{{formatNumber price}} <span class=\"currency\">{{ currency }}</span></div>\n    <div class=\"barcode-wrap\">\n      <img class=\"barcode\" src=\"{{ barcode_src }}\" alt=\"\" />\n      <div class=\"code\">{{ barcode }}</div>\n    </div>\n  </div>\n</body>\n</html>",
+    "css": "html, body { margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; color: #000; }\n.label { box-sizing: border-box; width: 58mm; height: 40mm; padding: 2.4mm 2.6mm 2mm; display: flex; flex-direction: column; overflow: hidden; }\n.name { font-size: 12px; font-weight: 700; line-height: 1.2; max-height: 2.4em; overflow: hidden; }\n.price { font-size: 20px; font-weight: 800; margin-top: 1.2mm; line-height: 1; letter-spacing: -0.02em; }\n.currency { font-size: 11px; font-weight: 700; margin-left: 1mm; }\n.barcode-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.5mm; margin-top: auto; width: 100%; }\n.code { font-size: 8px; font-weight: 600; letter-spacing: 0.06em; text-align: center; white-space: nowrap; }\nimg.barcode { height: 15mm; width: 100%; max-width: 100%; object-fit: contain; object-position: center bottom; }",
     "logos": [],
     "version": 1
   }
@@ -396,7 +454,7 @@ Product text is escaped. Do not rely on raw HTML injection from placeholders.
       <span class="currency">{{ currency }}</span>
     </div>
     <div class="meta">{{ articul }} · {{ unit_name }}</div>
-    <div class="row">
+    <div class="barcode-wrap">
       <img class="barcode" src="{{ barcode_src }}" alt="" />
       <div class="code">{{ barcode }}</div>
     </div>
@@ -408,24 +466,25 @@ Product text is escaped. Do not rely on raw HTML injection from placeholders.
 **CSS:**
 
 ```css
-html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
+html, body { margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; color: #000; }
 .label {
   box-sizing: border-box;
   width: 58mm;
   height: 30mm;
-  padding: 1.5mm;
+  padding: 1.6mm 1.8mm 1.2mm;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 .name { font-size: 10px; font-weight: 700; line-height: 1.15; max-height: 2.3em; overflow: hidden; }
-.price { margin-top: 0.5mm; font-weight: 700; line-height: 1; }
+.price { margin-top: 0.6mm; font-weight: 800; line-height: 1; letter-spacing: -0.02em; }
 .price-main { font-size: 18px; }
 .price-tail { font-size: 12px; }
-.currency { font-size: 10px; margin-left: 1mm; font-weight: 600; }
-.meta { font-size: 8px; margin-top: 0.5mm; }
-.row { display: flex; align-items: center; gap: 1.5mm; margin-top: auto; }
-.code { font-size: 8px; }
-img.barcode { height: 9mm; width: auto; }
+.currency { font-size: 10px; margin-left: 1mm; font-weight: 700; }
+.meta { font-size: 8px; margin-top: 0.5mm; color: #444; }
+.barcode-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.35mm; margin-top: auto; width: 100%; }
+.code { font-size: 7px; font-weight: 600; letter-spacing: 0.05em; text-align: center; white-space: nowrap; }
+img.barcode { height: 8mm; width: 100%; max-width: 100%; object-fit: contain; object-position: center bottom; }
 ```
 
 Set `paper` to `{ "width_mm": 58, "height_mm": 30 }` when packaging the import JSON.
@@ -446,27 +505,30 @@ Set `paper` to `{ "width_mm": 58, "height_mm": 30 }` when packaging the import J
     </div>
   </div>
   <div class="codes">
-    <img class="barcode" src="{{ barcode_src }}" alt="" />
+    <div class="barcode-wrap">
+      <img class="barcode" src="{{ barcode_src }}" alt="" />
+      <div class="code">{{ barcode }}</div>
+    </div>
     <img class="qr" src="{{ qr_src }}" alt="" />
   </div>
-  <div class="code">{{ barcode }}</div>
 </div>
 ```
 
 ```css
-html, body { margin: 0; padding: 0; font-family: Arial, sans-serif; }
-.label { box-sizing: border-box; width: 58mm; height: 40mm; padding: 2mm; }
+html, body { margin: 0; padding: 0; font-family: Arial, Helvetica, sans-serif; color: #000; }
+.label { box-sizing: border-box; width: 58mm; height: 40mm; padding: 2.2mm; overflow: hidden; }
 .brand img { max-height: 6mm; width: auto; }
 .media { display: flex; gap: 2mm; margin-top: 1mm; }
 img.product { height: 12mm; width: 12mm; object-fit: cover; }
 img.product[src=""] { display: none; }
 .name { font-size: 10px; font-weight: 700; max-height: 2.4em; overflow: hidden; }
-.old { text-decoration: line-through; font-size: 9px; margin-right: 1mm; }
-.now { font-size: 14px; font-weight: 700; }
-.codes { display: flex; align-items: center; gap: 2mm; margin-top: 2mm; }
-img.barcode { height: 9mm; width: auto; }
-img.qr { height: 9mm; width: 9mm; }
-.code { font-size: 8px; margin-top: 1mm; }
+.old { text-decoration: line-through; font-size: 9px; margin-right: 1mm; color: #555; }
+.now { font-size: 14px; font-weight: 800; }
+.codes { display: flex; align-items: flex-end; justify-content: space-between; gap: 2mm; margin-top: 2mm; }
+.barcode-wrap { display: flex; flex-direction: column; align-items: center; gap: 0.4mm; min-width: 0; flex: 1 1 auto; }
+img.barcode { height: 9mm; width: 100%; max-width: 100%; object-fit: contain; object-position: center bottom; }
+img.qr { height: 9mm; width: 9mm; flex: 0 0 auto; }
+.code { font-size: 7px; font-weight: 600; letter-spacing: 0.05em; text-align: center; white-space: nowrap; }
 ```
 
 Upload a logo named `Primary` in the editor (or put it under `template.logos` in the import JSON).

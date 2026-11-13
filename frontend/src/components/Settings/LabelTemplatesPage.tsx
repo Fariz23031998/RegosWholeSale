@@ -14,8 +14,10 @@ import {
 import { subscribeSettingsEvents } from "@/lib/settings-events";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { normalizeReceiptTemplateLogos } from "@/lib/receipt-template-logos";
+import { LABEL_PRESETS, presetToNewTemplate, type LabelPreset } from "@/templates/labels";
 import type { LabelPrintService, LabelStation, LabelTemplate } from "@/types/label-templates";
 import { Modal } from "@/components/posui/Modal";
+import { LabelPresetPreviewModal } from "./LabelPresetPreviewModal";
 import { LabelTemplateEditorModal } from "./LabelTemplateEditorModal";
 import styles from "./ReceiptTemplates.module.css";
 import pageStyles from "@/routes/settings.module.css";
@@ -25,7 +27,7 @@ type EditorState = {
   isNew: boolean;
 } | null;
 
-type PageTab = "printer" | "templates";
+type PageTab = "printer" | "templates" | "samples";
 
 function matchedServiceNames(station: LabelStation, services: LabelPrintService[]): string[] {
   return services
@@ -97,6 +99,7 @@ export function LabelTemplatesPage() {
   const [error, setError] = useState("");
   const [copied, setCopied] = useState("");
   const [editor, setEditor] = useState<EditorState>(null);
+  const [previewPreset, setPreviewPreset] = useState<LabelPreset | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
   const loadRef = useRef<() => Promise<void>>(async () => undefined);
 
@@ -271,6 +274,8 @@ export function LabelTemplatesPage() {
           paper: {
             width_mm: Number(imported.paper?.width_mm) || 58,
             height_mm: Number(imported.paper?.height_mm) || 40,
+            orientation:
+              imported.paper?.orientation === "landscape" ? "landscape" : "portrait",
           },
         },
         isNew: true,
@@ -324,6 +329,15 @@ export function LabelTemplatesPage() {
           onClick={() => setPageTab("templates")}
         >
           {t("settings.labelTemplates.tabTemplates", "Templates")}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={pageTab === "samples"}
+          className={`${styles.editorTab} ${pageTab === "samples" ? styles.editorTabActive : ""}`}
+          onClick={() => setPageTab("samples")}
+        >
+          {t("settings.labelTemplates.tabSamples", "Sample templates")}
         </button>
       </div>
 
@@ -513,7 +527,7 @@ export function LabelTemplatesPage() {
           </div>
         )}
       </section>
-      ) : (
+      ) : pageTab === "templates" ? (
       <section className={pageStyles.section}>
         {canManageSettings ? (
           <div className={styles.toolbar}>
@@ -608,6 +622,48 @@ export function LabelTemplatesPage() {
           ))}
         </div>
       </section>
+      ) : (
+      <section className={pageStyles.section}>
+        <p className={styles.templateMeta}>
+          {t(
+            "settings.labelTemplates.sampleHint",
+            "Browse common paper sizes. Preview with sample product data, or use a preset as a new template.",
+          )}
+        </p>
+        <div className={styles.templateList}>
+          {LABEL_PRESETS.map((preset) => (
+            <div key={preset.id} className={styles.templateRow}>
+              <div className={styles.templateMain}>
+                <div className={styles.templateName}>{preset.name}</div>
+                <div className={styles.templateMeta}>
+                  {preset.paper.width_mm}×{preset.paper.height_mm} mm
+                </div>
+              </div>
+              <div className={styles.templateActions}>
+                <button
+                  type="button"
+                  className={styles.actionBtn}
+                  onClick={() => setPreviewPreset(preset)}
+                >
+                  {t("settings.labelTemplates.view", "View")}
+                </button>
+                {canManageSettings ? (
+                  <button
+                    type="button"
+                    className={styles.actionBtn}
+                    disabled={loading || saving}
+                    onClick={() =>
+                      setEditor({ template: presetToNewTemplate(preset), isNew: true })
+                    }
+                  >
+                    {t("settings.labelTemplates.use", "Use")}
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
       )}
 
       <Modal
@@ -674,6 +730,12 @@ export function LabelTemplatesPage() {
             : templates.map((item) => (item.id === saved.id ? saved : item));
           void persistTemplates(next, defaultTemplateId).then(() => setEditor(null));
         }}
+      />
+
+      <LabelPresetPreviewModal
+        open={previewPreset != null}
+        preset={previewPreset}
+        onClose={() => setPreviewPreset(null)}
       />
     </div>
   );

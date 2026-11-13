@@ -47,6 +47,7 @@ export type CatalogScope = {
 
 const inflightPages = new Map<string, Promise<CatalogProductsResponse>>();
 const inflightGroups = new Map<string, Promise<ProductGroup[]>>();
+const inflightDownloads = new Map<string, Promise<void>>();
 
 function scopeKeyFor(scope: CatalogScope): string {
   return buildCatalogScopeKey(scope.companyId, scope.warehouseId, scope.priceTypeId);
@@ -211,55 +212,67 @@ export async function downloadCompleteCatalog(
   scope: CatalogScope,
 ): Promise<void> {
   const scopeKey = scopeKeyFor(scope);
-  let offset = 0;
-  const limit = 500;
+  const existing = inflightDownloads.get(scopeKey);
+  if (existing) {
+    return existing;
+  }
 
-  // Pre-download groups
-  if (scope.companyId) {
+  const promise = (async () => {
+    let offset = 0;
+    const limit = 500;
+
+    // Pre-download groups
+    if (scope.companyId) {
+      try {
+        const groupsResponse = await fetchProductGroups(token);
+        await saveCachedGroups(scope.companyId, groupsResponse.groups);
+      } catch {
+        // ignore groups pre-download failure
+      }
+    }
+
+    // Pre-download products page by page (include zeros so client filters can toggle later)
+    while (true) {
+      const query = {
+        offset,
+        limit,
+        warehouseId: scope.warehouseId ?? undefined,
+        priceTypeId: scope.priceTypeId ?? undefined,
+        includeZeroQuantity: true,
+        includeZeroPrice: true,
+      };
+      const response = await fetchCatalogProducts(token, query);
+      const pageKey = buildCatalogPageKey(query);
+
+      await saveCachedPage(scopeKey, pageKey, response).catch(() => undefined);
+      await upsertProducts(scopeKey, response.products).catch(() => undefined);
+
+      if (
+        !response.products.length ||
+        offset + response.products.length >= response.total ||
+        response.next_offset === offset
+      ) {
+        break;
+      }
+      offset = response.next_offset || (offset + limit);
+    }
+
+    // Seed watermark from server clock (epoch since → full_sync_required, but synced_at is still returned)
     try {
-      const groupsResponse = await fetchProductGroups(token);
-      await saveCachedGroups(scope.companyId, groupsResponse.groups);
+      const syncResponse = await fetchProductSync(token, "1970-01-01T00:00:00Z", {
+        warehouseId: scope.warehouseId ?? undefined,
+        priceTypeId: scope.priceTypeId ?? undefined,
+      });
+      await setLastSyncTime(scopeKey, syncResponse.synced_at);
     } catch {
-      // ignore groups pre-download failure
+      // Fallback if sync endpoint is unreachable — prefer missing watermark over a skewed client clock
     }
-  }
+  })().finally(() => {
+    inflightDownloads.delete(scopeKey);
+  });
 
-  // Pre-download products page by page (include zeros so client filters can toggle later)
-  while (true) {
-    const query = {
-      offset,
-      limit,
-      warehouseId: scope.warehouseId ?? undefined,
-      priceTypeId: scope.priceTypeId ?? undefined,
-      includeZeroQuantity: true,
-      includeZeroPrice: true,
-    };
-    const response = await fetchCatalogProducts(token, query);
-    const pageKey = buildCatalogPageKey(query);
-
-    await saveCachedPage(scopeKey, pageKey, response).catch(() => undefined);
-    await upsertProducts(scopeKey, response.products).catch(() => undefined);
-
-    if (
-      !response.products.length ||
-      offset + response.products.length >= response.total ||
-      response.next_offset === offset
-    ) {
-      break;
-    }
-    offset = response.next_offset || (offset + limit);
-  }
-
-  // Seed watermark from server clock (epoch since → full_sync_required, but synced_at is still returned)
-  try {
-    const syncResponse = await fetchProductSync(token, "1970-01-01T00:00:00Z", {
-      warehouseId: scope.warehouseId ?? undefined,
-      priceTypeId: scope.priceTypeId ?? undefined,
-    });
-    await setLastSyncTime(scopeKey, syncResponse.synced_at);
-  } catch {
-    // Fallback if sync endpoint is unreachable — prefer missing watermark over a skewed client clock
-  }
+  inflightDownloads.set(scopeKey, promise);
+  return promise;
 }
 
 export { fetchProductsByIds };

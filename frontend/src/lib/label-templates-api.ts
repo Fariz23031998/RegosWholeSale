@@ -104,7 +104,7 @@ export function createLabelTemplate(): LabelTemplate {
     id: crypto.randomUUID(),
     name: "Label",
     is_default: false,
-    paper: { width_mm: 58, height_mm: 40 },
+    paper: { width_mm: 58, height_mm: 40, orientation: "portrait" },
     html: `<!DOCTYPE html>
 <html>
 <head>
@@ -123,7 +123,7 @@ export function createLabelTemplate(): LabelTemplate {
 .label { box-sizing: border-box; width: 58mm; height: 40mm; padding: 2mm; }
 .name { font-size: 12px; font-weight: 700; }
 .price { font-size: 16px; font-weight: 700; margin-top: 1mm; }
-img.barcode { height: 12mm; width: auto; }`,
+img.barcode { height: 12mm; width: 100%; max-width: 100%; object-fit: fill; object-position: center; }`,
     logos: [],
     version: 1,
   };

@@ -72,6 +72,8 @@ export type DataTableProps<T> = {
   /** Totals row that does not take part in sorting. */
   footer?: ReactNode;
   enableSorting?: boolean;
+  /** Column settings (visibility) button. Defaults to true. */
+  enableColumnSettings?: boolean;
 };
 
 function columnHeaderLabel(column: { id: string; columnDef: { header?: unknown; meta?: unknown } }): string {
@@ -190,6 +192,7 @@ export function DataTable<T>({
   renderBody,
   footer,
   enableSorting = true,
+  enableColumnSettings = true,
 }: DataTableProps<T>) {
   const { t } = useLanguage();
   const compact = useCompactTable();
@@ -447,20 +450,22 @@ export function DataTable<T>({
       : null;
 
   return (
-    <div className={styles.root}>
-      <div className={styles.menuAnchor} ref={anchorRef} data-no-dnd>
-        <button
-          type="button"
-          className={styles.menuButton}
-          onClick={() => setColumnsMenuOpen((open) => !open)}
-          aria-expanded={columnsMenuOpen}
-          aria-haspopup="true"
-          aria-label={t("table.columns", "Column settings")}
-        >
-          <SlidersHorizontal size={14} aria-hidden="true" />
-        </button>
-      </div>
-      {menu}
+    <div className={clsx(styles.root, !enableColumnSettings && styles.noColumnSettings)}>
+      {enableColumnSettings ? (
+        <div className={styles.menuAnchor} ref={anchorRef} data-no-dnd>
+          <button
+            type="button"
+            className={styles.menuButton}
+            onClick={() => setColumnsMenuOpen((open) => !open)}
+            aria-expanded={columnsMenuOpen}
+            aria-haspopup="true"
+            aria-label={t("table.columns", "Column settings")}
+          >
+            <SlidersHorizontal size={14} aria-hidden="true" />
+          </button>
+        </div>
+      ) : null}
+      {enableColumnSettings ? menu : null}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCenter}

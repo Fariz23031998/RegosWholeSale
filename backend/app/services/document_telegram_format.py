@@ -139,6 +139,9 @@ def format_partner_receipt(
     use_cost: bool = False,
     lang: str = "ru",
     for_partner: bool = False,
+    firm_name: str | None = None,
+    currency_name: str | None = None,
+    balance: float | None = None,
 ) -> str:
     doc_code = document.get("code", "N/A")
     formatted_date = _format_date(document.get("date", ""))
@@ -236,6 +239,35 @@ def format_partner_receipt(
             f"💵 *{t('telegram.receipt.totalToPay', lang, amount=format_number(total_to_pay))}*",
         ]
     )
+    if (
+        for_partner
+        and isinstance(balance, (int, float))
+        and not isinstance(balance, bool)
+        and float(balance) > 0
+    ):
+        debt_firm = firm_name.strip() if isinstance(firm_name, str) and firm_name.strip() else ""
+        debt_currency = (
+            currency_name.strip()
+            if isinstance(currency_name, str) and currency_name.strip()
+            else ""
+        )
+        if not debt_currency and isinstance(currency, dict):
+            raw_currency = currency.get("name")
+            if isinstance(raw_currency, str) and raw_currency.strip():
+                debt_currency = raw_currency.strip()
+        message_parts.extend(
+            [
+                "",
+                f"💳 *{t('telegram.partnerReceipt.debt', lang)}*",
+                t(
+                    "telegram.partnerReceipt.debtLine",
+                    lang,
+                    firm=debt_firm or "—",
+                    currency=debt_currency or "—",
+                    amount=format_number(float(balance)),
+                ),
+            ]
+        )
     return "\n".join(message_parts)
 
 

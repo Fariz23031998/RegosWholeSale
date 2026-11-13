@@ -371,7 +371,16 @@ async def test_partner_bot_saves_balance_schedule(client, monkeypatch):
     )
     assert fetched.status_code == 200
     assert fetched.json()["balance_notify_schedules"][0]["days"] == [0, 2]
-    assert fetched.json()["balance_notify_templates"] == {"uz": "", "ru": "", "en": ""}
+    assert fetched.json()["notification_templates"]["balance"] == {"uz": "", "ru": "", "en": ""}
+    assert fetched.json()["notification_templates"]["purchase"] == {"uz": "", "ru": "", "en": ""}
+    assert fetched.json()["balance_notify_after_types"] == {
+        "purchase": False,
+        "return_purchase": False,
+        "wholesale": False,
+        "wholesale_return": False,
+        "payment": False,
+    }
+    assert fetched.json()["balance_notify_filter"] == "negative"
 
     templated = await client.patch(
         "/api/v1/partner-telegram/bot/settings",
@@ -390,11 +399,18 @@ async def test_partner_bot_saves_balance_schedule(client, monkeypatch):
                     "days": [1, -1, -1, 0, 32],
                 },
             ],
-            balance_notify_templates={
-                "uz": "  Salom {{partner_id}}  ",
-                "ru": "ID {{partner_id}}\n{{balances}}",
-                "en": "Partner {{partner_id}}",
-                "tj": "ignored",
+            notification_templates={
+                "balance": {
+                    "uz": "  Salom {{partner_id}}  ",
+                    "ru": "ID {{partner_id}}\n{{firm_name}} {{currency_name}} {{balance}}",
+                    "en": "Partner {{partner_id}}",
+                    "tj": "ignored",
+                },
+                "purchase": {
+                    "uz": "",
+                    "ru": "Purchase {{document_code}} {{balance}}",
+                    "en": "",
+                },
             },
         ),
         headers={"Authorization": f"Bearer {token}"},
@@ -419,11 +435,18 @@ async def test_partner_bot_saves_balance_schedule(client, monkeypatch):
                     "days": [1, -1, -1],
                 },
             ],
-            balance_notify_templates={
-                "uz": "  Salom {{partner_id}}  ",
-                "ru": "ID {{partner_id}}\n{{balances}}",
-                "en": "Partner {{partner_id}}",
-                "tj": "ignored",
+            notification_templates={
+                "balance": {
+                    "uz": "  Salom {{partner_id}}  ",
+                    "ru": "ID {{partner_id}}\n{{firm_name}} {{currency_name}} {{balance}}",
+                    "en": "Partner {{partner_id}}",
+                    "tj": "ignored",
+                },
+                "purchase": {
+                    "uz": "",
+                    "ru": "Purchase {{document_code}} {{balance}}",
+                    "en": "",
+                },
             },
         ),
         headers={"Authorization": f"Bearer {token}"},
@@ -434,16 +457,54 @@ async def test_partner_bot_saves_balance_schedule(client, monkeypatch):
     assert schedules[0]["id"] == schedule["id"]
     assert schedules[1]["option"] == "monthly"
     assert schedules[1]["days"] == [-1, 1]
-    assert templated.json()["balance_notify_templates"] == {
+    templates = templated.json()["notification_templates"]
+    assert templates["balance"] == {
         "uz": "Salom {{partner_id}}",
-        "ru": "ID {{partner_id}}\n{{balances}}",
+        "ru": "ID {{partner_id}}\n{{firm_name}} {{currency_name}} {{balance}}",
         "en": "Partner {{partner_id}}",
     }
+    assert templates["purchase"] == {
+        "uz": "",
+        "ru": "Purchase {{document_code}} {{balance}}",
+        "en": "",
+    }
+
+    after_types = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            balance_notify_after_types={
+                "wholesale": True,
+                "payment": True,
+                "unknown": True,
+            },
+            balance_notify_filter="both",
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert after_types.status_code == 200, after_types.text
+    assert after_types.json()["balance_notify_after_types"] == {
+        "purchase": False,
+        "return_purchase": False,
+        "wholesale": True,
+        "wholesale_return": False,
+        "payment": True,
+    }
+    assert after_types.json()["balance_notify_filter"] == "both"
+
+    filter_reset = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(balance_notify_filter="invalid"),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert filter_reset.status_code == 200, filter_reset.text
+    assert filter_reset.json()["balance_notify_filter"] == "negative"
 
     too_long = await client.patch(
         "/api/v1/partner-telegram/bot/settings",
         json=_settings_body(
-            balance_notify_templates={"uz": "", "ru": "", "en": "x" * 3501},
+            notification_templates={
+                "balance": {"uz": "", "ru": "", "en": "x" * 3501},
+            },
         ),
         headers={"Authorization": f"Bearer {token}"},
     )
@@ -1340,6 +1401,368 @@ async def test_stock_notification_skips_inactive_accounts(client, monkeypatch, s
         await session.commit()
 
     assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_document_notification_uses_company_template_and_balance(
+    client, monkeypatch, session_factory
+):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-notify-template@test.com")
+    await _save_bot(client, token)
+    patched = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            notification_templates={
+                "wholesale": {
+                    "en": "{{document_code}} {{balance}}",
+                    "ru": "",
+                    "uz": "",
+                }
+            }
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert patched.status_code == 200, patched.text
+
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        company = (await session.execute(select(Company))).scalar_one()
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        session.add(
+            _make_account(
+                company_id=company.id,
+                bot_id=bot.id,
+                telegram_user_id=9,
+                chat_id=909,
+                language_code="en",
+                regos_partner_id=15,
+                link_state=PartnerTelegramLinkState.linked.value,
+            )
+        )
+        await session.commit()
+        company_id = company.id
+
+    sent: list[tuple[int, str, str | None]] = []
+    debt_calls: list[int] = []
+
+    async def fake_send(bot_token, chat_id, text, parse_mode="Markdown", reply_markup=None):
+        sent.append((chat_id, text, parse_mode))
+        return True
+
+    async def fake_debt(session, company_id, *, partner_id):
+        debt_calls.append(partner_id)
+        return {
+            "lines": [
+                {
+                    "firm_id": 4,
+                    "firm_name": "Main",
+                    "currency_id": 1,
+                    "currency_name": "UZS",
+                    "amount": 1500,
+                }
+            ]
+        }
+
+    monkeypatch.setattr("app.services.partner_telegram.telegram_service.send_message", fake_send)
+    monkeypatch.setattr("app.services.regos_partner_balance.get_partner_debt", fake_debt)
+    from app.services.partner_telegram import notify_partner_document
+
+    async with session_factory() as session:
+        await notify_partner_document(
+            session,
+            company_id,
+            {
+                "id": 4,
+                "code": "WS-4",
+                "date": 1_700_000_000,
+                "partner": {"id": 15, "name": "Acme"},
+                "firm": {"id": 4, "name": "Main"},
+                "currency": {"id": 1, "name": "UZS"},
+            },
+            [{"item": {"name": "Rice"}, "quantity": 2, "price": 10}],
+            warehouse_name="Main",
+            is_cancelled=False,
+            is_return=False,
+            use_cost=False,
+            kind="wholesale",
+        )
+        await session.commit()
+
+    assert debt_calls == [15]
+    assert sent == [(909, "WS-4 1 500", "HTML")]
+
+
+@pytest.mark.asyncio
+async def test_default_purchase_notification_appends_positive_debt(
+    client, monkeypatch, session_factory
+):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-notify-default-debt@test.com")
+    await _save_bot(client, token)
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        company = (await session.execute(select(Company))).scalar_one()
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        session.add(
+            _make_account(
+                company_id=company.id,
+                bot_id=bot.id,
+                telegram_user_id=11,
+                chat_id=1111,
+                language_code="en",
+                regos_partner_id=15,
+                link_state=PartnerTelegramLinkState.linked.value,
+            )
+        )
+        await session.commit()
+        company_id = company.id
+
+    sent: list[str] = []
+    debt_calls: list[int] = []
+
+    async def fake_send(bot_token, chat_id, text, parse_mode="Markdown", reply_markup=None):
+        sent.append(text)
+        return True
+
+    async def fake_debt(session, company_id, *, partner_id):
+        debt_calls.append(partner_id)
+        return {
+            "lines": [
+                {
+                    "firm_id": 4,
+                    "firm_name": "Main Firm",
+                    "currency_id": 1,
+                    "currency_name": "UZS",
+                    "amount": 2500,
+                }
+            ]
+        }
+
+    monkeypatch.setattr("app.services.partner_telegram.telegram_service.send_message", fake_send)
+    monkeypatch.setattr("app.services.regos_partner_balance.get_partner_debt", fake_debt)
+    from app.services.partner_telegram import notify_partner_document
+
+    async with session_factory() as session:
+        await notify_partner_document(
+            session,
+            company_id,
+            {
+                "id": 4,
+                "code": "WS-5",
+                "date": 1_700_000_000,
+                "partner": {"id": 15, "name": "Acme"},
+                "firm": {"id": 4, "name": "Main Firm"},
+                "currency": {"id": 1, "name": "UZS"},
+            },
+            [{"item": {"name": "Rice"}, "quantity": 2, "price": 10}],
+            warehouse_name="Main",
+            is_cancelled=False,
+            is_return=False,
+            use_cost=False,
+            kind="wholesale",
+        )
+        await session.commit()
+
+    assert debt_calls == [15]
+    assert len(sent) == 1
+    assert "*Purchase receipt*" in sent[0]
+    assert "*Outstanding debt*" in sent[0]
+    assert "Main Firm (UZS): 2 500" in sent[0]
+
+
+@pytest.mark.asyncio
+async def test_custom_template_without_balance_skips_debt_fetch(
+    client, monkeypatch, session_factory
+):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-notify-skip-debt@test.com")
+    await _save_bot(client, token)
+    patched = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            notification_templates={
+                "wholesale": {
+                    "en": "Only {{document_code}}",
+                    "ru": "",
+                    "uz": "",
+                }
+            }
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert patched.status_code == 200, patched.text
+
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        company = (await session.execute(select(Company))).scalar_one()
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        session.add(
+            _make_account(
+                company_id=company.id,
+                bot_id=bot.id,
+                telegram_user_id=12,
+                chat_id=1212,
+                language_code="en",
+                regos_partner_id=15,
+                link_state=PartnerTelegramLinkState.linked.value,
+            )
+        )
+        await session.commit()
+        company_id = company.id
+
+    sent: list[tuple[str, str | None]] = []
+    debt_calls: list[int] = []
+
+    async def fake_send(bot_token, chat_id, text, parse_mode="Markdown", reply_markup=None):
+        sent.append((text, parse_mode))
+        return True
+
+    async def fake_debt(session, company_id, *, partner_id):
+        debt_calls.append(partner_id)
+        return {"lines": []}
+
+    monkeypatch.setattr("app.services.partner_telegram.telegram_service.send_message", fake_send)
+    monkeypatch.setattr("app.services.regos_partner_balance.get_partner_debt", fake_debt)
+    from app.services.partner_telegram import notify_partner_document
+
+    async with session_factory() as session:
+        await notify_partner_document(
+            session,
+            company_id,
+            {
+                "id": 4,
+                "code": "WS-6",
+                "date": 1_700_000_000,
+                "partner": {"id": 15, "name": "Acme"},
+                "firm": {"id": 4, "name": "Main"},
+                "currency": {"id": 1, "name": "UZS"},
+            },
+            [{"item": {"name": "Rice"}, "quantity": 1, "price": 5}],
+            warehouse_name="Main",
+            is_cancelled=False,
+            is_return=False,
+            use_cost=False,
+            kind="wholesale",
+        )
+        await session.commit()
+
+    assert debt_calls == []
+    assert sent == [("Only WS-6", "HTML")]
+
+
+@pytest.mark.asyncio
+async def test_document_notification_sends_balance_followup_when_enabled(
+    client, monkeypatch, session_factory
+):
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-notify-balance-after@test.com")
+    await _save_bot(client, token)
+    patched = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            notification_templates={
+                "wholesale": {
+                    "en": "Doc {{document_code}}",
+                    "ru": "",
+                    "uz": "",
+                },
+                "balance": {
+                    "en": "Bal {{firm_name}} {{currency_name}} {{balance}}",
+                    "ru": "",
+                    "uz": "",
+                },
+            },
+            balance_notify_after_types={"wholesale": True},
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert patched.status_code == 200, patched.text
+
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        company = (await session.execute(select(Company))).scalar_one()
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        session.add(
+            _make_account(
+                company_id=company.id,
+                bot_id=bot.id,
+                telegram_user_id=13,
+                chat_id=1313,
+                language_code="en",
+                regos_partner_id=15,
+                link_state=PartnerTelegramLinkState.linked.value,
+            )
+        )
+        await session.commit()
+        company_id = company.id
+
+    sent: list[tuple[str, str | None]] = []
+    documents: list[int] = []
+
+    async def fake_send(bot_token, chat_id, text, parse_mode="Markdown", reply_markup=None):
+        sent.append((text, parse_mode))
+        return True
+
+    async def fake_document(*args, **kwargs):
+        documents.append(1)
+        return True
+
+    async def fake_balance(session, company_id, *, partner_id, start_date, end_date, **kwargs):
+        return {
+            "rows": [
+                {
+                    "id": 1,
+                    "date": 1_700_000_000,
+                    "firm": {"id": 4, "name": "Main"},
+                    "currency": {"id": 1, "name": "UZS"},
+                    "end_amount": 60000,
+                }
+            ]
+        }
+
+    monkeypatch.setattr("app.services.partner_telegram.telegram_service.send_message", fake_send)
+    monkeypatch.setattr(
+        "app.services.partner_balance_notify.telegram_service.send_message", fake_send
+    )
+    monkeypatch.setattr(
+        "app.services.partner_balance_notify.telegram_service.send_document", fake_document
+    )
+    monkeypatch.setattr(
+        "app.services.partner_balance_notify.get_partner_balance", fake_balance
+    )
+    from app.services.partner_telegram import notify_partner_document
+
+    async with session_factory() as session:
+        await notify_partner_document(
+            session,
+            company_id,
+            {
+                "id": 4,
+                "code": "WS-7",
+                "date": 1_700_000_000,
+                "partner": {"id": 15, "name": "Acme"},
+                "firm": {"id": 4, "name": "Main"},
+                "currency": {"id": 1, "name": "UZS"},
+            },
+            [{"item": {"name": "Rice"}, "quantity": 1, "price": 5}],
+            warehouse_name="Main",
+            is_cancelled=False,
+            is_return=False,
+            use_cost=False,
+            kind="wholesale",
+        )
+        await session.commit()
+
+    assert sent == [
+        ("Doc WS-7", "HTML"),
+        ("Bal Main UZS 60 000", "HTML"),
+    ]
+    assert documents == []
 
 
 @pytest.mark.asyncio

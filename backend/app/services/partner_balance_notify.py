@@ -182,8 +182,20 @@ def _row_sort_key(row: dict[str, Any]) -> tuple[int, int]:
     )
 
 
-def positive_company_balances(rows: list[dict[str, Any]]) -> list[tuple[str, str, float]]:
-    """Latest company-side closing balance per firm and currency, when it is above zero."""
+def company_balances_for_notify(
+    rows: list[dict[str, Any]],
+    *,
+    notify_filter: str = "negative",
+) -> list[tuple[str, str, float]]:
+    """Latest company-side closing balance per firm/currency for notifications.
+
+    ``negative`` (default): company amount > 0, returned as positive magnitude
+    (built-in formatter adds a leading minus for partner debt).
+
+    ``both``: company amount != 0, returned as partner-facing signed amount
+    (``-company``: debt negative, credit positive).
+    """
+    mode = "both" if notify_filter == "both" else "negative"
     latest: dict[tuple[int, int], dict[str, Any]] = {}
     for row in rows:
         if not isinstance(row, dict):
@@ -193,19 +205,30 @@ def positive_company_balances(rows: list[dict[str, Any]]) -> list[tuple[str, str
         if current is None or _row_sort_key(row) >= _row_sort_key(current):
             latest[key] = row
 
-    debts: list[tuple[str, str, float]] = []
+    balances: list[tuple[str, str, float]] = []
     for (firm_id, currency_id), row in latest.items():
-        amount = _amount(row.get("end_amount"))
-        if amount <= 0:
-            continue
+        company_amount = _amount(row.get("end_amount"))
+        if mode == "negative":
+            if company_amount <= 0:
+                continue
+            display_amount = company_amount
+        else:
+            if company_amount == 0:
+                continue
+            display_amount = -company_amount
         firm_name = _reference_name(row.get("firm"), f"Firm {firm_id}" if firm_id else "Unknown")
         currency_name = _reference_name(
             row.get("currency"),
             f"Currency {currency_id}" if currency_id else "Unknown",
         )
-        debts.append((firm_name, currency_name, amount))
-    debts.sort(key=lambda item: (item[0].lower(), item[1].lower()))
-    return debts
+        balances.append((firm_name, currency_name, display_amount))
+    balances.sort(key=lambda item: (item[0].lower(), item[1].lower()))
+    return balances
+
+
+def positive_company_balances(rows: list[dict[str, Any]]) -> list[tuple[str, str, float]]:
+    """Latest company-side closing balance per firm and currency, when it is above zero."""
+    return company_balances_for_notify(rows, notify_filter="negative")
 
 
 def format_balance_lines(
@@ -213,11 +236,9 @@ def format_balance_lines(
     *,
     signed: bool = True,
 ) -> str:
-    prefix = "-" if signed else ""
-    return "\n".join(
-        f"🏢 {firm_name} ({currency_name}): {prefix}{format_number(amount)}"
-        for firm_name, currency_name, amount in balances
-    )
+    from app.services.partner_notification_templates import format_balance_lines as _format
+
+    return _format(balances, signed=signed)
 
 
 def format_balance_notification(
@@ -227,29 +248,26 @@ def format_balance_notification(
     template: str | None = None,
     *,
     partner_name: str | None = None,
+    notify_filter: str = "negative",
 ) -> str:
-    balance_text = format_balance_lines(balances)
-    name = partner_name if isinstance(partner_name, str) and partner_name.strip() else str(partner_id)
-    custom = template.strip() if isinstance(template, str) else ""
-    if custom:
-        return (
-            custom.replace("{{partner_id}}", str(partner_id))
-            .replace("{{partner_name}}", name)
-            .replace("{{balances}}", balance_text)
-            .replace("{{balances_positive}}", format_balance_lines(balances, signed=False))
-        )
-    lines = [
-        t("partnerTelegram.balance.notifyTitle", lang),
-        "",
-        f"{t('partnerTelegram.balance.partnerId', lang)}: {partner_id}",
-        "",
-        t("partnerTelegram.balance.negative", lang),
-        "",
-        balance_text,
-        "",
-        t("partnerTelegram.balance.attached", lang),
-    ]
-    return "\n".join(lines)
+    """Built-in multi-line balance message, or first custom line if a template is set.
+
+    Prefer ``format_balance_notification_with_templates`` when sending so each
+    firm/currency debt line gets its own custom message.
+    """
+    from app.services.partner_notification_templates import (
+        format_balance_notification_with_templates,
+    )
+
+    messages = format_balance_notification_with_templates(
+        partner_id,
+        balances,
+        lang,
+        template,
+        partner_name=partner_name,
+        notify_filter=notify_filter,
+    )
+    return messages[0] if messages else ""
 
 
 def _amount(value: Any) -> float:
@@ -539,6 +557,110 @@ async def notify_due_partner_balances(
     return sent
 
 
+async def notify_partner_balance_messages(
+    session: AsyncSession,
+    bot: PartnerTelegramBot,
+    partner_id: int,
+    accounts: list[PartnerTelegramAccount],
+    *,
+    include_excel: bool = True,
+    now: datetime | None = None,
+    pace: bool = False,
+    delivered: bool = False,
+) -> tuple[int, bool]:
+    """Send Balance-template messages for a partner's positive debts.
+
+    Returns (accounts_sent, delivered) where delivered tracks whether any
+    account was attempted (for pacing across partners in the scheduled job).
+    """
+    if not accounts:
+        return 0, delivered
+    current = _as_tashkent(now or datetime.now(tz=TASHKENT_TZ))
+    end_date = end_of_local_day_unix(current)
+    try:
+        payload = await get_partner_balance(
+            session,
+            bot.company_id,
+            partner_id=partner_id,
+            start_date=BALANCE_START_DATE,
+            end_date=end_date,
+        )
+    except Exception:
+        logger.error(
+            "Failed to load balance for partner %s in company %s",
+            partner_id,
+            bot.company_id,
+            exc_info=True,
+        )
+        return 0, delivered
+    rows = payload.get("rows") if isinstance(payload, dict) else None
+    balance_rows = rows if isinstance(rows, list) else []
+    from app.schemas.partner_telegram import normalize_balance_notify_filter
+
+    notify_filter = normalize_balance_notify_filter(getattr(bot, "balance_notify_filter", None))
+    debts = company_balances_for_notify(balance_rows, notify_filter=notify_filter)
+    if not debts:
+        logger.info("Partner %s has no matching balance, skipping notification", partner_id)
+        return 0, delivered
+
+    partner_display_name = await _partner_name(session, bot.company_id, partner_id)
+    from app.services.partner_notification_templates import (
+        format_balance_notification_with_templates,
+        template_for,
+    )
+
+    messages: dict[str, list[str]] = {}
+    parse_modes: dict[str, str] = {}
+    files: dict[str, bytes] = {}
+    sent = 0
+    for account in accounts:
+        if pace and delivered:
+            await session.commit()
+            await asyncio.sleep(1)
+        delivered = True
+        lang = _partner_language(account.language_code)
+        if lang not in messages:
+            template = template_for(bot.notification_templates, "balance", lang)
+            messages[lang] = format_balance_notification_with_templates(
+                partner_id,
+                debts,
+                lang,
+                template,
+                partner_name=partner_display_name,
+                notify_filter=notify_filter,
+            )
+            parse_modes[lang] = "HTML" if template.strip() else ""
+            if include_excel:
+                files[lang] = build_partner_balance_excel(balance_rows, lang)
+        text_ok = False
+        for text in messages[lang]:
+            if await telegram_service.send_message(
+                bot.bot_token,
+                account.chat_id,
+                text,
+                parse_mode=parse_modes[lang],
+            ):
+                text_ok = True
+        file_ok = False
+        if include_excel:
+            file_ok = await telegram_service.send_document(
+                bot.bot_token,
+                account.chat_id,
+                files[lang],
+                balance_excel_filename(partner_id, current),
+                caption=f"{t('partnerTelegram.balance.caption', lang)} (ID: {partner_id})",
+            )
+        if text_ok or file_ok:
+            sent += 1
+        else:
+            logger.warning(
+                "Failed to send balance to partner %s chat %s",
+                partner_id,
+                account.chat_id,
+            )
+    return sent, delivered
+
+
 async def _send_company_balances(
     session: AsyncSession,
     bot: PartnerTelegramBot,
@@ -564,73 +686,18 @@ async def _send_company_balances(
         logger.info("No linked partners for company %s balance notification", bot.company_id)
         return 0
 
-    end_date = end_of_local_day_unix(now)
     sent = 0
     delivered = False
     for partner_id, partner_accounts in grouped.items():
-        try:
-            payload = await get_partner_balance(
-                session,
-                bot.company_id,
-                partner_id=partner_id,
-                start_date=BALANCE_START_DATE,
-                end_date=end_date,
-            )
-        except Exception:
-            logger.error(
-                "Failed to load balance for partner %s in company %s",
-                partner_id,
-                bot.company_id,
-                exc_info=True,
-            )
-            continue
-        rows = payload.get("rows") if isinstance(payload, dict) else None
-        balance_rows = rows if isinstance(rows, list) else []
-        debts = positive_company_balances(balance_rows)
-        if not debts:
-            logger.info("Partner %s has no negative balance, skipping notification", partner_id)
-            continue
-
-        partner_display_name = await _partner_name(session, bot.company_id, partner_id)
-        messages: dict[str, str] = {}
-        files: dict[str, bytes] = {}
-        for account in partner_accounts:
-            if delivered:
-                await session.commit()
-                await asyncio.sleep(1)
-            delivered = True
-            lang = _partner_language(account.language_code)
-            if lang not in messages:
-                templates = bot.balance_notify_templates if isinstance(bot.balance_notify_templates, dict) else {}
-                raw_template = templates.get(lang, "")
-                template = raw_template if isinstance(raw_template, str) else ""
-                messages[lang] = format_balance_notification(
-                    partner_id,
-                    debts,
-                    lang,
-                    template,
-                    partner_name=partner_display_name,
-                )
-                files[lang] = build_partner_balance_excel(balance_rows, lang)
-            text_ok = await telegram_service.send_message(
-                bot.bot_token,
-                account.chat_id,
-                messages[lang],
-                parse_mode="",
-            )
-            file_ok = await telegram_service.send_document(
-                bot.bot_token,
-                account.chat_id,
-                files[lang],
-                balance_excel_filename(partner_id, now),
-                caption=f"{t('partnerTelegram.balance.caption', lang)} (ID: {partner_id})",
-            )
-            if text_ok or file_ok:
-                sent += 1
-            else:
-                logger.warning(
-                    "Failed to send balance to partner %s chat %s",
-                    partner_id,
-                    account.chat_id,
-                )
+        count, delivered = await notify_partner_balance_messages(
+            session,
+            bot,
+            partner_id,
+            partner_accounts,
+            include_excel=True,
+            now=now,
+            pace=True,
+            delivered=delivered,
+        )
+        sent += count
     return sent

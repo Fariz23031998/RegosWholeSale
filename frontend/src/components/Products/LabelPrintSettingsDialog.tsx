@@ -20,6 +20,8 @@ import styles from "./Products.module.css";
 
 type Props = {
   open: boolean;
+  /** "print" when opened from a print action; "edit" when opened from settings. */
+  intent?: "edit" | "print";
   onClose: () => void;
   onSaved: (settings: UserLabelPrintSettings) => void;
 };
@@ -31,7 +33,7 @@ function serviceLabel(service: LabelPrintService): string {
   return `${service.name} (${service.printer_name})`;
 }
 
-export function LabelPrintSettingsDialog({ open, onClose, onSaved }: Props) {
+export function LabelPrintSettingsDialog({ open, intent = "edit", onClose, onSaved }: Props) {
   const { t } = useLanguage();
   const token = useAuth((state) => state.accessToken);
   const [templates, setTemplates] = useState<LabelTemplate[]>([]);
@@ -244,7 +246,11 @@ export function LabelPrintSettingsDialog({ open, onClose, onSaved }: Props) {
             {t("common.cancel", "Cancel")}
           </Button>
           <Button type="button" disabled={loading || saving} onClick={() => void save()}>
-            {saving ? t("common.saving", "Saving…") : t("common.save", "Save")}
+            {saving
+              ? t("common.saving", "Saving…")
+              : intent === "print"
+                ? t("common.print", "Print")
+                : t("common.save", "Save")}
           </Button>
         </div>
       </div>

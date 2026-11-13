@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 class LabelPaper(BaseModel):
     width_mm: float = Field(gt=0, le=500)
     height_mm: float = Field(gt=0, le=500)
+    orientation: Literal["portrait", "landscape"] = "portrait"
 
 
 class LabelTemplateLogo(BaseModel):

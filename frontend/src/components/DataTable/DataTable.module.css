@@ -142,6 +142,10 @@
   padding-left: 42px;
 }
 
+.noColumnSettings .table thead tr:first-child > th:first-child {
+  padding-left: inherit;
+}
+
 .headerCell {
   display: flex;
   align-items: center;

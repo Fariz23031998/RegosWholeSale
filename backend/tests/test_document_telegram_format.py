@@ -160,6 +160,65 @@ def test_format_partner_receipt_title_for_purchase_return():
     assert "*Wholesale return receipt*" not in message
 
 
+def test_format_partner_receipt_for_partner_includes_positive_debt():
+    message = format_partner_receipt(
+        {
+            "code": "WS-001",
+            "date": 1700000000,
+            "currency": {"name": "UZS"},
+            "partner": {"name": "Acme"},
+        },
+        SAMPLE_PARTNER_OPS,
+        "Main",
+        lang="en",
+        use_cost=False,
+        for_partner=True,
+        firm_name="Main Firm",
+        currency_name="UZS",
+        balance=1500,
+    )
+    assert "*Purchase receipt*" in message
+    assert "*Outstanding debt*" in message
+    assert "Main Firm (UZS): 1 500" in message
+
+
+def test_format_partner_receipt_for_partner_omits_non_positive_debt():
+    message = format_partner_receipt(
+        {
+            "code": "WS-001",
+            "date": 1700000000,
+            "currency": {"name": "UZS"},
+            "partner": {"name": "Acme"},
+        },
+        SAMPLE_PARTNER_OPS,
+        "Main",
+        lang="en",
+        use_cost=False,
+        for_partner=True,
+        firm_name="Main Firm",
+        currency_name="UZS",
+        balance=0,
+    )
+    assert "Outstanding debt" not in message
+    message_negative = format_partner_receipt(
+        {
+            "code": "WS-001",
+            "date": 1700000000,
+            "currency": {"name": "UZS"},
+            "partner": {"name": "Acme"},
+        },
+        SAMPLE_PARTNER_OPS,
+        "Main",
+        lang="en",
+        use_cost=False,
+        for_partner=True,
+        firm_name="Main Firm",
+        currency_name="UZS",
+        balance=-20,
+    )
+    assert "Outstanding debt" not in message_negative
+
+
 ATTACHED_USER_DOC = {"attached_user": {"id": 7, "full_name": "Cashier One"}}
 
 

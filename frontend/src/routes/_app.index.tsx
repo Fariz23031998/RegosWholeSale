@@ -13,12 +13,8 @@ import { useSellContext } from "@/store/sell-context";
 import { useCheckoutTabs } from "@/store/checkout-tabs";
 import { useCatalog } from "@/store/catalog";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { toast } from "sonner";
-import { downloadCompleteCatalog } from "@/lib/catalog-service";
-import { performIncrementalSync, getCatalogDownloadStatus, setCatalogDownloadStatus, removeCatalogDownloadStatus, applyIncrementalSyncToCatalog } from "@/lib/catalog-incremental-sync";
-import { isCacheEnabled } from "@/lib/cache-policy";
+import { ensureCatalogReady } from "@/lib/ensure-catalog-ready";
 import { subscribeAppResume } from "@/lib/app-resume";
-import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
 import styles from "@/components/POS/POS.module.css";
 
 export const Route = createFileRoute("/_app/")({
@@ -56,7 +52,6 @@ function PosPage() {
   const canChangePriceTypePerm = canChangePriceType();
   const catalogEventsRef = useRef<ReturnType<typeof connectCatalogEvents> | null>(null);
   const startupSyncDoneForScope = useRef<string | null>(null);
-  const catalogDownloadingRef = useRef(false);
 
   useEffect(() => {
     void hydrateCatalogUi();
@@ -112,115 +107,43 @@ function PosPage() {
       canChangeWarehousePerm && warehouseId ? warehouseId : undefined;
     const catalogPriceTypeId =
       canChangePriceTypePerm && priceTypeId ? priceTypeId : undefined;
-    const scopeKey = buildCatalogScopeKey(
-      user.company_id,
-      catalogWarehouseId,
-      catalogPriceTypeId,
-    );
     let cancelled = false;
 
-    const applySyncResult = (
-      syncResult: Awaited<ReturnType<typeof performIncrementalSync>>,
-    ) =>
-      applyIncrementalSyncToCatalog(syncResult, {
-        patchProducts,
-        removeProducts,
-        requestGroupsRefresh,
-      });
-
-    const ensureCatalogReady = async (options?: { force?: boolean }) => {
-      // Browser caching disabled: no local catalog to sync or pre-download,
-      // the catalog reads straight from the API instead.
-      if (!isCacheEnabled()) return;
-
-      // One successful startup sync per scope; forced resumes always re-check events_log.
-      if (!options?.force && startupSyncDoneForScope.current === scopeKey) {
-        return;
-      }
-
-      let fullSyncRequired = false;
-
-      try {
-        const syncResult = await performIncrementalSync(
-          token,
-          scopeKey,
-          {
-            companyId: user.company_id,
-            warehouseId: catalogWarehouseId,
-            priceTypeId: catalogPriceTypeId,
-          },
-          { force: options?.force },
-        );
-
-        if (cancelled) return;
-        fullSyncRequired = applySyncResult(syncResult);
-        if (fullSyncRequired) {
-          removeCatalogDownloadStatus(
-            user.company_id,
-            catalogWarehouseId,
-            catalogPriceTypeId,
-          );
-        }
-      } catch {
-        // Incremental sync failed (e.g. network error) — continue to full download check
-      }
-
-      if (cancelled) return;
-
-      const status = getCatalogDownloadStatus(
-        user.company_id,
-        catalogWarehouseId,
-        catalogPriceTypeId,
-      );
-      if (status === "completed" && !fullSyncRequired) {
-        // Mark done only after a completed catch-up so cancelled remounts can retry.
-        startupSyncDoneForScope.current = scopeKey;
-        return;
-      }
-
-      if (catalogDownloadingRef.current) return;
-      catalogDownloadingRef.current = true;
-
-      const toastId = toast.loading(
-        t("pos.catalog.downloading", "Downloading complete product catalog..."),
-      );
-      try {
-        await downloadCompleteCatalog(token, {
+    const runEnsure = async (options?: { force?: boolean }) => {
+      await ensureCatalogReady(
+        token,
+        {
           companyId: user.company_id,
           warehouseId: catalogWarehouseId,
           priceTypeId: catalogPriceTypeId,
-        });
-        if (cancelled) return;
-        setCatalogDownloadStatus(
-          user.company_id,
-          catalogWarehouseId ?? null,
-          catalogPriceTypeId ?? null,
-          "completed",
-        );
-        toast.success(t("pos.catalog.downloadSuccess", "Catalog downloaded successfully!"), {
-          id: toastId,
-        });
-        requestRefresh();
-        requestGroupsRefresh();
-        startupSyncDoneForScope.current = scopeKey;
-      } catch {
-        if (cancelled) return;
-        toast.error(t("pos.catalog.downloadFailure", "Failed to download catalog."), {
-          id: toastId,
-        });
-      } finally {
-        catalogDownloadingRef.current = false;
-      }
+        },
+        {
+          force: options?.force,
+          skipIfDone: true,
+          doneForScopeRef: startupSyncDoneForScope,
+          isCancelled: () => cancelled,
+          uiHandlers: {
+            patchProducts,
+            removeProducts,
+            requestGroupsRefresh,
+          },
+          onDownloaded: () => {
+            requestRefresh();
+            requestGroupsRefresh();
+          },
+          t,
+        },
+      );
     };
 
-    void ensureCatalogReady();
+    void runEnsure();
 
     const unsubscribeResume = subscribeAppResume(() => {
-      void ensureCatalogReady({ force: shouldForceCatalogGapFill() });
+      void runEnsure({ force: shouldForceCatalogGapFill() });
     });
 
     const unsubscribeReconnect = subscribeCatalogEventsReconnect(() => {
-      void ensureCatalogReady({ force: true });
+      void runEnsure({ force: true });
     });
 
     return () => {

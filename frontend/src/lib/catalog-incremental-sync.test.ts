@@ -37,6 +37,10 @@ vi.mock("@/lib/sync-meta-db", () => ({
   setLastSyncTime: vi.fn(() => Promise.resolve()),
 }));
 
+vi.mock("@/lib/cache-policy", () => ({
+  isCacheEnabled: vi.fn(() => true),
+}));
+
 import { fetchProductSync } from "@/lib/catalog-api";
 import { upsertProducts } from "@/lib/catalog-products-db";
 import { loadCachedProductIdsByScope } from "@/lib/catalog-products-db/loadCachedProductIdsByScope/loadCachedProductIdsByScope";
@@ -176,5 +180,39 @@ describe("catalog-incremental-sync", () => {
       },
     );
     expect(requestGroupsRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("coalesces concurrent normal and force syncs for the same scope into one fetch", async () => {
+    const oldSince = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    vi.mocked(getLastSyncTime).mockResolvedValue(oldSince);
+
+    let resolveFetch: ((value: unknown) => void) | undefined;
+    vi.mocked(fetchProductSync).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveFetch = resolve;
+        }) as ReturnType<typeof fetchProductSync>,
+    );
+
+    const normal = performIncrementalSync(token, "coalesce-scope", scope);
+    const force = performIncrementalSync(token, "coalesce-scope", scope, { force: true });
+
+    await vi.waitFor(() => {
+      expect(resolveFetch).toBeTypeOf("function");
+    });
+    expect(fetchProductSync).toHaveBeenCalledTimes(1);
+
+    resolveFetch?.({
+      updated_products: [],
+      removed_product_ids: [],
+      groups_invalidated: false,
+      synced_at: "2026-07-12T15:00:00Z",
+      full_sync_required: false,
+    });
+
+    const [normalResult, forceResult] = await Promise.all([normal, force]);
+    expect(normalResult.synced).toBe(true);
+    expect(forceResult.synced).toBe(true);
+    expect(fetchProductSync).toHaveBeenCalledTimes(1);
   });
 });

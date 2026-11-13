@@ -66,4 +66,32 @@ describe("downloadCompleteCatalog", () => {
       );
     }
   });
+
+  it("coalesces parallel downloads for the same scope into one pagination sequence", async () => {
+    let resolveProducts: ((value: unknown) => void) | undefined;
+    vi.mocked(fetchCatalogProducts).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveProducts = resolve;
+        }) as ReturnType<typeof fetchCatalogProducts>,
+    );
+
+    const scope = { companyId: 1, warehouseId: 11, priceTypeId: 22 };
+    const first = downloadCompleteCatalog("token", scope);
+    const second = downloadCompleteCatalog("token", scope);
+
+    await vi.waitFor(() => {
+      expect(resolveProducts).toBeTypeOf("function");
+    });
+    expect(fetchCatalogProducts).toHaveBeenCalledTimes(1);
+
+    resolveProducts?.({
+      products: [],
+      next_offset: 0,
+      total: 0,
+    });
+
+    await Promise.all([first, second]);
+    expect(fetchCatalogProducts).toHaveBeenCalledTimes(1);
+  });
 });

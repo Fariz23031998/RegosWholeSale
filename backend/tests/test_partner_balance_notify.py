@@ -16,6 +16,7 @@ from app.models import (
 from app.models.subscription import SubscriptionStatus
 from app.services.partner_balance_notify import (
     build_partner_balance_excel,
+    company_balances_for_notify,
     due_balance_slot,
     format_balance_notification,
     notify_due_partner_balances,
@@ -131,15 +132,53 @@ def test_only_a_positive_latest_balance_is_notified():
         7,
         [("Main", "UZS", 60000), ("Shop", "USD", 10)],
         "en",
-        "Hello {{partner_name}} ({{partner_id}})\n{{balances}}\n---\n{{balances_positive}}",
+        "Hello {{partner_name}} ({{partner_id}})\n{{firm_name}} / {{currency_name}}: {{balance}}",
         partner_name="Acme LLC",
     )
-    assert custom == (
-        "Hello Acme LLC (7)\n"
-        "🏢 Main (UZS): -60 000\n🏢 Shop (USD): -10\n"
-        "---\n"
-        "🏢 Main (UZS): 60 000\n🏢 Shop (USD): 10"
+    # Custom templates apply per debt line; format_balance_notification returns the first line.
+    assert custom == "Hello Acme LLC (7)\nMain / UZS: 60 000"
+
+    from app.services.partner_notification_templates import (
+        format_balance_notification_with_templates,
     )
+
+    lines = format_balance_notification_with_templates(
+        7,
+        [("Main", "UZS", 60000), ("Shop", "USD", 10)],
+        "en",
+        "Hello {{partner_name}} ({{partner_id}})\n{{firm_name}} / {{currency_name}}: {{balance}}",
+        partner_name="Acme LLC",
+    )
+    assert lines == [
+        "Hello Acme LLC (7)\nMain / UZS: 60 000",
+        "Hello Acme LLC (7)\nShop / USD: 10",
+    ]
+
+
+def test_company_balances_for_notify_negative_vs_both():
+    debt = _row(id=1, end_amount=60000, debit=60000)
+    credit = _row(
+        id=2,
+        firm={"id": 5, "name": "Shop"},
+        currency={"id": 2, "name": "USD"},
+        end_amount=-1500,
+        debit=0,
+        credit=1500,
+    )
+    zero = _row(id=3, firm={"id": 6, "name": "Zero"}, end_amount=0)
+    assert company_balances_for_notify([debt, credit, zero], notify_filter="negative") == [
+        ("Main", "UZS", 60000)
+    ]
+    both = company_balances_for_notify([debt, credit, zero], notify_filter="both")
+    assert both == [
+        ("Main", "UZS", -60000),
+        ("Shop", "USD", 1500),
+    ]
+    text = format_balance_notification(7, both, "en", notify_filter="both")
+    assert "Balances:" in text
+    assert "🏢 Main (UZS): -60 000" in text
+    assert "🏢 Shop (USD): 1 500" in text
+    assert "Negative balance:" not in text
 
 
 def test_excel_uses_the_partner_sign_convention():
@@ -294,10 +333,17 @@ async def test_custom_templates_follow_account_language(session_factory, monkeyp
                     "last_slot": None,
                 }
             ],
-            balance_notify_templates={
-                "uz": "UZ {{partner_id}}\n{{balances}}",
-                "ru": "",
-                "en": "EN {{partner_id}}\n{{balances}}",
+            notification_templates={
+                "purchase": {"uz": "", "ru": "", "en": ""},
+                "return_purchase": {"uz": "", "ru": "", "en": ""},
+                "wholesale": {"uz": "", "ru": "", "en": ""},
+                "wholesale_return": {"uz": "", "ru": "", "en": ""},
+                "payment": {"uz": "", "ru": "", "en": ""},
+                "balance": {
+                    "uz": "UZ {{partner_id}}\n{{firm_name}} {{currency_name}} {{balance}}",
+                    "ru": "",
+                    "en": "EN {{partner_id}}\n{{firm_name}} {{currency_name}} {{balance}}",
+                },
             },
         )
         session.add(bot)
@@ -326,13 +372,13 @@ async def test_custom_templates_follow_account_language(session_factory, monkeyp
         )
         await session.commit()
 
-    messages: list[tuple[int, str]] = []
+    messages: list[tuple[int, str, str | None]] = []
 
     async def fake_balance(session, company_id, *, partner_id, start_date, end_date, **kwargs):
         return {"rows": [_row(end_amount=60000, debit=60000)]}
 
     async def fake_message(token, chat_id, text, parse_mode="Markdown", reply_markup=None):
-        messages.append((chat_id, text))
+        messages.append((chat_id, text, parse_mode))
         return True
 
     async def fake_document(*args, **kwargs):
@@ -347,8 +393,97 @@ async def test_custom_templates_follow_account_language(session_factory, monkeyp
         sent = await notify_due_partner_balances(session, now=NOW)
 
     assert sent == 2
-    assert messages[0] == (200, "EN 7\n🏢 Main (UZS): -60 000")
-    assert messages[1] == (201, "UZ 7\n🏢 Main (UZS): -60 000")
+    assert messages[0] == (200, "EN 7\nMain UZS 60 000", "HTML")
+    assert messages[1] == (201, "UZ 7\nMain UZS 60 000", "HTML")
+
+
+@pytest.mark.asyncio
+async def test_both_filter_includes_credit_balances(session_factory, monkeypatch):
+    async with session_factory() as session:
+        company = _company("Both Filter Co", "both-filter-co", active=True)
+        session.add(company)
+        await session.flush()
+        bot = PartnerTelegramBot(
+            company_id=company.id,
+            bot_token="999:BOTH",
+            webhook_secret="secret-both",
+            public_key="public-both",
+            balance_notify_enabled=True,
+            balance_notify_filter="both",
+            balance_notify_schedules=[
+                {
+                    "id": "sched-both",
+                    "time": "09:00",
+                    "option": "daily",
+                    "days": [],
+                    "last_slot": None,
+                }
+            ],
+            notification_templates={
+                "purchase": {"uz": "", "ru": "", "en": ""},
+                "return_purchase": {"uz": "", "ru": "", "en": ""},
+                "wholesale": {"uz": "", "ru": "", "en": ""},
+                "wholesale_return": {"uz": "", "ru": "", "en": ""},
+                "payment": {"uz": "", "ru": "", "en": ""},
+                "balance": {
+                    "uz": "",
+                    "ru": "",
+                    "en": "{{firm_name}} {{currency_name}} {{balance}}",
+                },
+            },
+        )
+        session.add(bot)
+        await session.flush()
+        session.add(
+            _make_account(
+                company_id=company.id,
+                bot_id=bot.id,
+                telegram_user_id=30,
+                chat_id=300,
+                language_code="en",
+                regos_partner_id=7,
+                link_state=PartnerTelegramLinkState.linked.value,
+            )
+        )
+        await session.commit()
+
+    messages: list[str] = []
+
+    async def fake_balance(session, company_id, *, partner_id, start_date, end_date, **kwargs):
+        return {
+            "rows": [
+                _row(end_amount=60000, debit=60000),
+                _row(
+                    id=2,
+                    firm={"id": 5, "name": "Shop"},
+                    currency={"id": 2, "name": "USD"},
+                    end_amount=-1500,
+                    debit=0,
+                    credit=1500,
+                ),
+            ]
+        }
+
+    async def fake_message(token, chat_id, text, parse_mode="Markdown", reply_markup=None):
+        messages.append(text)
+        return True
+
+    async def fake_document(*args, **kwargs):
+        return True
+
+    monkeypatch.setattr("app.services.partner_balance_notify.get_partner_balance", fake_balance)
+    monkeypatch.setattr("app.services.partner_balance_notify.telegram_service.send_message", fake_message)
+    monkeypatch.setattr("app.services.partner_balance_notify.telegram_service.send_document", fake_document)
+    monkeypatch.setattr("app.services.partner_balance_notify.asyncio.sleep", _instant_sleep)
+
+    async with session_factory() as session:
+        sent = await notify_due_partner_balances(session, now=NOW)
+
+    assert sent == 1
+    assert messages == [
+        "Main UZS -60 000",
+        "Shop USD 1 500",
+    ]
 
 
 @pytest.mark.asyncio
