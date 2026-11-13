@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as DocsRouteImport } from './routes/docs'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
@@ -39,6 +40,7 @@ import { Route as AppMovementsIdRouteImport } from './routes/_app.movements_.$id
 import { Route as AppPartnerReturnsIdRouteImport } from './routes/_app.partner-returns_.$id'
 import { Route as AppPriceDocumentsIdRouteImport } from './routes/_app.price-documents_.$id'
 import { Route as AppPurchasesIdRouteImport } from './routes/_app.purchases_.$id'
+import { Route as IntegrationCallbackTokenRouteImport } from './routes/integration.callback.$token'
 import { Route as PartnerPublicKeyIndexRouteImport } from './routes/partner.$publicKey.index'
 import { Route as PartnerPublicKeyDashboardRouteImport } from './routes/partner.$publicKey.dashboard'
 import { Route as PartnerPublicKeyOrdersRouteImport } from './routes/partner.$publicKey.orders'
@@ -52,6 +54,11 @@ import { Route as PublicTemplatesTokenRouteImport } from './routes/public.templa
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DocsRoute = DocsRouteImport.update({
+  id: '/docs',
+  path: '/docs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -199,6 +206,12 @@ const AppPurchasesIdRoute = AppPurchasesIdRouteImport.update({
   path: '/purchases/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const IntegrationCallbackTokenRoute =
+  IntegrationCallbackTokenRouteImport.update({
+    id: '/integration/callback/$token',
+    path: '/integration/callback/$token',
+    getParentRoute: () => rootRouteImport,
+  } as any)
 const PartnerPublicKeyIndexRoute = PartnerPublicKeyIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -259,6 +272,7 @@ const PublicTemplatesTokenRoute = PublicTemplatesTokenRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -287,6 +301,7 @@ export interface FileRoutesByFullPath {
   '/partner-returns/$id': typeof AppPartnerReturnsIdRoute
   '/price-documents/$id': typeof AppPriceDocumentsIdRoute
   '/purchases/$id': typeof AppPurchasesIdRoute
+  '/integration/callback/$token': typeof IntegrationCallbackTokenRoute
   '/partner/$publicKey/dashboard': typeof PartnerPublicKeyDashboardRoute
   '/partner/$publicKey/orders': typeof PartnerPublicKeyOrdersRoute
   '/partner/$publicKey/payments': typeof PartnerPublicKeyPaymentsRoute
@@ -299,6 +314,7 @@ export interface FileRoutesByFullPath {
   '/partner/$publicKey/': typeof PartnerPublicKeyIndexRoute
 }
 export interface FileRoutesByTo {
+  '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -327,6 +343,7 @@ export interface FileRoutesByTo {
   '/partner-returns/$id': typeof AppPartnerReturnsIdRoute
   '/price-documents/$id': typeof AppPriceDocumentsIdRoute
   '/purchases/$id': typeof AppPurchasesIdRoute
+  '/integration/callback/$token': typeof IntegrationCallbackTokenRoute
   '/partner/$publicKey/dashboard': typeof PartnerPublicKeyDashboardRoute
   '/partner/$publicKey/orders': typeof PartnerPublicKeyOrdersRoute
   '/partner/$publicKey/payments': typeof PartnerPublicKeyPaymentsRoute
@@ -341,6 +358,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
   '/reset-password': typeof ResetPasswordRoute
@@ -370,6 +388,7 @@ export interface FileRoutesById {
   '/_app/partner-returns_/$id': typeof AppPartnerReturnsIdRoute
   '/_app/price-documents_/$id': typeof AppPriceDocumentsIdRoute
   '/_app/purchases_/$id': typeof AppPurchasesIdRoute
+  '/integration/callback/$token': typeof IntegrationCallbackTokenRoute
   '/partner/$publicKey/dashboard': typeof PartnerPublicKeyDashboardRoute
   '/partner/$publicKey/orders': typeof PartnerPublicKeyOrdersRoute
   '/partner/$publicKey/payments': typeof PartnerPublicKeyPaymentsRoute
@@ -385,6 +404,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/docs'
     | '/login'
     | '/register'
     | '/reset-password'
@@ -413,6 +433,7 @@ export interface FileRouteTypes {
     | '/partner-returns/$id'
     | '/price-documents/$id'
     | '/purchases/$id'
+    | '/integration/callback/$token'
     | '/partner/$publicKey/dashboard'
     | '/partner/$publicKey/orders'
     | '/partner/$publicKey/payments'
@@ -425,6 +446,7 @@ export interface FileRouteTypes {
     | '/partner/$publicKey/'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/docs'
     | '/login'
     | '/register'
     | '/reset-password'
@@ -453,6 +475,7 @@ export interface FileRouteTypes {
     | '/partner-returns/$id'
     | '/price-documents/$id'
     | '/purchases/$id'
+    | '/integration/callback/$token'
     | '/partner/$publicKey/dashboard'
     | '/partner/$publicKey/orders'
     | '/partner/$publicKey/payments'
@@ -466,6 +489,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_app'
+    | '/docs'
     | '/login'
     | '/register'
     | '/reset-password'
@@ -495,6 +519,7 @@ export interface FileRouteTypes {
     | '/_app/partner-returns_/$id'
     | '/_app/price-documents_/$id'
     | '/_app/purchases_/$id'
+    | '/integration/callback/$token'
     | '/partner/$publicKey/dashboard'
     | '/partner/$publicKey/orders'
     | '/partner/$publicKey/payments'
@@ -509,11 +534,13 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  DocsRoute: typeof DocsRoute
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
   TableCheckRoute: typeof TableCheckRoute
   PartnerPublicKeyRoute: typeof PartnerPublicKeyRouteWithChildren
+  IntegrationCallbackTokenRoute: typeof IntegrationCallbackTokenRoute
   PublicTemplatesTokenRoute: typeof PublicTemplatesTokenRoute
 }
 
@@ -524,6 +551,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/docs': {
+      id: '/docs'
+      path: '/docs'
+      fullPath: '/docs'
+      preLoaderRoute: typeof DocsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -729,6 +763,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppPurchasesIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/integration/callback/$token': {
+      id: '/integration/callback/$token'
+      path: '/integration/callback/$token'
+      fullPath: '/integration/callback/$token'
+      preLoaderRoute: typeof IntegrationCallbackTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/partner/$publicKey/': {
       id: '/partner/$publicKey/'
       path: '/'
@@ -887,11 +928,13 @@ const PartnerPublicKeyRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  DocsRoute: DocsRoute,
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
   ResetPasswordRoute: ResetPasswordRoute,
   TableCheckRoute: TableCheckRoute,
   PartnerPublicKeyRoute: PartnerPublicKeyRouteWithChildren,
+  IntegrationCallbackTokenRoute: IntegrationCallbackTokenRoute,
   PublicTemplatesTokenRoute: PublicTemplatesTokenRoute,
 }
 export const routeTree = rootRouteImport

@@ -23,6 +23,7 @@ export type AuthResponse = {
   access_token: string;
   token_type: string;
   user: AuthUser;
+  requires_password_setup?: boolean;
 };
 
 export type ApiValidationError = {

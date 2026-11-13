@@ -1,11 +1,18 @@
+import re
+import secrets
+import string
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from app.core.exceptions import bad_request, unauthorized
+from app.core.exceptions import bad_request, conflict, forbidden, unauthorized
+from app.core.regos_api import regos_async_api_request
+from app.core.regos_oauth import regos_oauth_service
 from app.core.security import create_access_token, hash_password, verify_password
-from app.models import Company, User, UserPermission, UserRole
+from app.models import Company, RegosToken, User, UserPermission, UserRole
 from app.services.permissions import effective_permission_codes, seed_permissions
+from app.services.regos_tokens import upsert_token
 from app.services.schedules import is_within_login_schedule
 from app.services.subscriptions import is_subscription_active, start_trial
 from app.services.users import ensure_login_available, slugify, unique_company_slug
@@ -62,49 +69,79 @@ async def login_with_login(
     return await _authenticate(session, user, password)
 
 
-async def _load_user_for_login(
+async def login_with_regos_integration(
     session: AsyncSession,
     *,
-    email: str | None = None,
-    login: str | None = None,
-) -> User:
-    query = select(User).options(
-        selectinload(User.company),
-        selectinload(User.extra_permissions).selectinload(UserPermission.permission),
-        selectinload(User.login_schedules),
+    integration_token: str,
+) -> tuple[User, Company, str, bool]:
+    """Authenticate via Regos Integration Catalog token. Returns requires_password_setup."""
+    await seed_permissions(session)
+
+    bearer_token = await regos_oauth_service.acquire_access_token()
+    regos_result = await regos_async_api_request(
+        endpoint="User/Get",
+        request_data={"ids": [1]},
+        token=integration_token,
+        bearer_token=bearer_token,
     )
-    if email is not None:
-        query = query.where(User.email == email)
-    else:
-        query = query.where(User.login == login)
 
-    result = await session.execute(query)
-    user = result.scalar_one_or_none()
-    if not user:
-        raise unauthorized("Invalid credentials")
+    rows = regos_result.get("result")
+    if not isinstance(rows, list) or not rows:
+        raise bad_request("Regos User/Get returned no users", "REGOS_USER_NOT_FOUND")
+
+    regos_user = rows[0] if isinstance(rows[0], dict) else None
+    if not regos_user:
+        raise bad_request("Regos User/Get returned no users", "REGOS_USER_NOT_FOUND")
+
+    email = str(regos_user.get("email") or "").strip().lower()
+    full_name = str(regos_user.get("full_name") or "").strip() or "Regos User"
+    phone = str(regos_user.get("main_phone") or "").strip()
+    if phone and not phone.startswith("+"):
+        phone = f"+{phone}"
+
+    if not email and not phone:
+        raise bad_request(
+            "Regos user has no email or phone number",
+            "REGOS_USER_CONTACT_REQUIRED",
+        )
+
+    user, created = await _resolve_regos_user(
+        session,
+        integration_token=integration_token,
+        email=email or None,
+        phone=phone or None,
+        full_name=full_name,
+    )
+    await _ensure_user_can_session(user)
+
+    await upsert_token(
+        session,
+        user.company_id,
+        integration_token,
+        is_replicable=True,
+    )
+    await session.refresh(user, attribute_names=["company", "extra_permissions"])
+
+    access_token = _issue_token(user)
+    return user, user.company, access_token, created
+
+
+async def set_initial_password(
+    session: AsyncSession,
+    user: User,
+    *,
+    new_password: str,
+) -> User:
+    if not user.must_set_password:
+        raise bad_request(
+            "Initial password has already been set",
+            "PASSWORD_ALREADY_SET",
+        )
+    _validate_password_strength(new_password)
+    user.password_hash = hash_password(new_password)
+    user.must_set_password = False
+    await session.flush()
     return user
-
-
-async def _authenticate(session: AsyncSession, user: User, password: str) -> tuple[User, str]:
-    if not verify_password(password, user.password_hash):
-        raise unauthorized("Invalid credentials")
-    if not user.is_active:
-        from app.core.exceptions import forbidden
-
-        raise forbidden("Account is deactivated", "ACCOUNT_INACTIVE")
-
-    if not is_subscription_active(user.company):
-        from app.core.exceptions import forbidden
-
-        raise forbidden("Subscription has expired", "SUBSCRIPTION_EXPIRED")
-
-    if not is_within_login_schedule(user.login_schedules, user.company.timezone):
-        from app.core.exceptions import forbidden
-
-        raise forbidden("Login not allowed at this time", "OUTSIDE_LOGIN_SCHEDULE")
-
-    token = _issue_token(user)
-    return user, token
 
 
 async def reset_password(
@@ -122,6 +159,7 @@ async def reset_password(
     if not user:
         raise unauthorized("Invalid credentials")
     user.password_hash = hash_password(new_password)
+    user.must_set_password = False
     await session.flush()
 
 
@@ -154,6 +192,7 @@ async def update_profile(
         if not verify_password(current_password, user.password_hash):
             raise unauthorized("Current password is incorrect", "INVALID_CURRENT_PASSWORD")
         user.password_hash = hash_password(new_password)
+        user.must_set_password = False
         changed = True
 
     if not changed:
@@ -161,6 +200,183 @@ async def update_profile(
 
     await session.flush()
     return user
+
+
+async def _resolve_regos_user(
+    session: AsyncSession,
+    *,
+    integration_token: str,
+    email: str | None,
+    phone: str | None,
+    full_name: str,
+) -> tuple[User, bool]:
+    token_row = await session.execute(
+        select(RegosToken).where(RegosToken.integration_token == integration_token)
+    )
+    existing_token = token_row.scalar_one_or_none()
+    if existing_token is not None:
+        owner = await _load_company_owner(session, existing_token.company_id)
+        return owner, False
+
+    if email:
+        by_email = await session.execute(
+            select(User)
+            .where(User.email == email)
+            .options(
+                selectinload(User.company),
+                selectinload(User.extra_permissions).selectinload(UserPermission.permission),
+                selectinload(User.login_schedules),
+            )
+        )
+        user = by_email.scalar_one_or_none()
+        if user is not None:
+            return user, False
+
+    return await _create_regos_owner(
+        session,
+        email=email,
+        phone=phone,
+        full_name=full_name,
+    ), True
+
+
+async def _create_regos_owner(
+    session: AsyncSession,
+    *,
+    email: str | None,
+    phone: str | None,
+    full_name: str,
+) -> User:
+    company_name = full_name if full_name and full_name != "Regos User" else "Regos"
+    slug = await unique_company_slug(session, slugify(company_name))
+    company = Company(name=company_name, slug=slug, timezone="UTC", settings={})
+    start_trial(company)
+    session.add(company)
+    await session.flush()
+
+    login: str | None = None
+    if not email:
+        login = await _unique_login_from_phone(session, phone or "")
+
+    user = User(
+        company_id=company.id,
+        email=email,
+        login=login,
+        password_hash=hash_password(_generate_password()),
+        display_name=full_name,
+        role=UserRole.owner,
+        is_active=True,
+        must_set_password=True,
+    )
+    session.add(user)
+    await session.flush()
+    await session.refresh(
+        user,
+        attribute_names=["company", "extra_permissions", "login_schedules"],
+    )
+    return user
+
+
+async def _unique_login_from_phone(session: AsyncSession, phone: str) -> str:
+    digits = re.sub(r"\D+", "", phone)
+    base = digits[-64:] if digits else "regos"
+    if len(base) < 2:
+        base = f"regos{base}"
+    candidate = base[:64]
+    counter = 1
+    while True:
+        result = await session.execute(select(User).where(User.login == candidate))
+        if result.scalar_one_or_none() is None:
+            return candidate
+        suffix = str(counter)
+        candidate = f"{base[: max(1, 64 - len(suffix))]}{suffix}"
+        counter += 1
+
+
+async def _load_company_owner(session: AsyncSession, company_id: int) -> User:
+    result = await session.execute(
+        select(User)
+        .where(User.company_id == company_id, User.role == UserRole.owner)
+        .options(
+            selectinload(User.company),
+            selectinload(User.extra_permissions).selectinload(UserPermission.permission),
+            selectinload(User.login_schedules),
+        )
+        .order_by(User.id)
+        .limit(1)
+    )
+    owner = result.scalar_one_or_none()
+    if owner is None:
+        raise bad_request(
+            "No owner found for the company linked to this Regos token",
+            "REGOS_COMPANY_OWNER_MISSING",
+        )
+    return owner
+
+
+async def _load_user_for_login(
+    session: AsyncSession,
+    *,
+    email: str | None = None,
+    login: str | None = None,
+) -> User:
+    query = select(User).options(
+        selectinload(User.company),
+        selectinload(User.extra_permissions).selectinload(UserPermission.permission),
+        selectinload(User.login_schedules),
+    )
+    if email is not None:
+        query = query.where(User.email == email)
+    else:
+        query = query.where(User.login == login)
+
+    result = await session.execute(query)
+    user = result.scalar_one_or_none()
+    if not user:
+        raise unauthorized("Invalid credentials")
+    return user
+
+
+async def _authenticate(session: AsyncSession, user: User, password: str) -> tuple[User, str]:
+    if not verify_password(password, user.password_hash):
+        raise unauthorized("Invalid credentials")
+    await _ensure_user_can_session(user, check_schedule=True)
+    token = _issue_token(user)
+    return user, token
+
+
+async def _ensure_user_can_session(user: User, *, check_schedule: bool = False) -> None:
+    if not user.is_active:
+        raise forbidden("Account is deactivated", "ACCOUNT_INACTIVE")
+
+    if not is_subscription_active(user.company):
+        raise forbidden("Subscription has expired", "SUBSCRIPTION_EXPIRED")
+
+    if check_schedule and not is_within_login_schedule(
+        user.login_schedules, user.company.timezone
+    ):
+        raise forbidden("Login not allowed at this time", "OUTSIDE_LOGIN_SCHEDULE")
+
+
+def _generate_password(length: int = 14) -> str:
+    alphabet = string.ascii_letters + string.digits
+    while True:
+        password = "".join(secrets.choice(alphabet) for _ in range(length))
+        if re.search(r"[A-Za-z]", password) and re.search(r"\d", password):
+            return password
+
+
+def _validate_password_strength(password: str) -> None:
+    if len(password) < 8:
+        raise bad_request(
+            "Password must be at least 8 characters",
+            "PASSWORD_TOO_SHORT",
+        )
+    if not re.search(r"[A-Za-z]", password) or not re.search(r"\d", password):
+        raise bad_request(
+            "Password must contain letters and digits",
+            "PASSWORD_WEAK",
+        )
 
 
 def _issue_token(user: User) -> str:

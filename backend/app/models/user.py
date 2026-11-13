@@ -23,6 +23,7 @@ class User(Base, TimestampMixin):
     display_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[UserRole] = mapped_column(Enum(UserRole), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    must_set_password: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     company: Mapped["Company"] = relationship("Company", back_populates="users")
     extra_permissions: Mapped[list["UserPermission"]] = relationship(

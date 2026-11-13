@@ -92,9 +92,28 @@ export function LoginScreen() {
         </button>
       </form>
 
+      {import.meta.env.VITE_REGOS_CATALOG_URL ? (
+        <div style={{ marginTop: 16 }}>
+          <button
+            type="button"
+            className={`${styles.btn} ${styles.btnSecondary}`}
+            disabled={loading}
+            onClick={() => {
+              window.location.href = String(import.meta.env.VITE_REGOS_CATALOG_URL);
+            }}
+          >
+            {t("auth.loginWithRegos", "Login with Regos")}
+          </button>
+        </div>
+      ) : null}
+
       <p className={styles.footer} style={{ marginTop: 16 }}>
         <Link to="/reset-password" className={styles.link}>
           {t("auth.forgotPassword", "Forgot password?")}
+        </Link>
+        {" · "}
+        <Link to="/docs" className={styles.link}>
+          {t("nav.docs", "Documentation")}
         </Link>
       </p>
     </AuthLayout>

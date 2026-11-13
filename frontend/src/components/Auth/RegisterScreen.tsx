@@ -120,6 +120,10 @@ export function RegisterScreen() {
           <Link to="/login" className={styles.link}>
             {t("auth.signIn", "Sign in")}
           </Link>
+          {" · "}
+          <Link to="/docs" className={styles.link}>
+            {t("nav.docs", "Documentation")}
+          </Link>
         </p>
       }
     >

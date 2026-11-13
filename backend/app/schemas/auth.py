@@ -101,6 +101,23 @@ class AuthResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     user: UserResponse
+    requires_password_setup: bool = False
+
+
+class RegosIntegrationLoginRequest(BaseModel):
+    token: str = Field(min_length=32, max_length=32)
+
+    @field_validator("token")
+    @classmethod
+    def validate_token(cls, value: str) -> str:
+        trimmed = value.strip().lower()
+        if len(trimmed) != 32 or any(c not in "0123456789abcdef" for c in trimmed):
+            raise ValueError("Token must be a 32-character hex string")
+        return trimmed
+
+
+class SetInitialPasswordRequest(BaseModel):
+    new_password: str = Field(min_length=8, max_length=128)
 
 
 class UpdateProfileRequest(BaseModel):

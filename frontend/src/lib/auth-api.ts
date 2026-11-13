@@ -31,6 +31,24 @@ export async function login(identifier: string, password: string): Promise<AuthR
   });
 }
 
+export async function loginWithRegosIntegration(token: string): Promise<AuthResponse> {
+  return apiRequest("/api/v1/auth/regos-integration", {
+    method: "POST",
+    body: { token },
+  });
+}
+
+export async function setInitialPassword(
+  accessToken: string,
+  newPassword: string,
+): Promise<{ message: string }> {
+  return apiRequest("/api/v1/auth/set-initial-password", {
+    method: "POST",
+    token: accessToken,
+    body: { new_password: newPassword },
+  });
+}
+
 export async function resetPassword(payload: {
   email: string;
   verification_code: string;

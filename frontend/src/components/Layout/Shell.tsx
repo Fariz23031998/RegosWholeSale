@@ -4,6 +4,7 @@ import {
   ArrowDownUp,
   ArrowLeftRight,
   BadgeDollarSign,
+  BookOpen,
   ChevronDown,
   ClipboardList,
   LayoutDashboard,
@@ -45,7 +46,8 @@ type NavLinkItem = {
   to: string;
   labelKey: string;
   icon: LucideIcon;
-  permission: string;
+  /** When omitted, the link is shown to every signed-in user. */
+  permission?: string;
 };
 
 type NavGroupItem = {
@@ -131,6 +133,12 @@ const NAV: NavItem[] = [
     labelKey: "nav.settings",
     icon: Settings,
     permission: "settings.manage",
+  },
+  {
+    kind: "link",
+    to: "/docs",
+    labelKey: "nav.docs",
+    icon: BookOpen,
   },
 ];
 
@@ -241,7 +249,7 @@ export function Shell() {
         <nav className={styles.sidebarNav} aria-label={t("nav.main", "Main")}>
           {NAV.map((item) => {
             if (item.kind === "link") {
-              if (!can(item.permission)) return null;
+              if (item.permission && !can(item.permission)) return null;
               const active = isPathActive(location.pathname, item.to);
               const Icon = item.icon;
               return (
