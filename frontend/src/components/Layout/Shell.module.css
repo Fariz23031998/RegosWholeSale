@@ -401,4 +401,7 @@
   .main {
     min-height: 0;
   }
+  .billingChipTop {
+    display: none;
+  }
 }
