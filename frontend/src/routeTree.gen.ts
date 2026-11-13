@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
+import { Route as BillingRouteImport } from './routes/billing'
 import { Route as DocsRouteImport } from './routes/docs'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as RegisterRouteImport } from './routes/register'
@@ -54,6 +55,11 @@ import { Route as PublicTemplatesTokenRouteImport } from './routes/public.templa
 
 const AppRoute = AppRouteImport.update({
   id: '/_app',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BillingRoute = BillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DocsRoute = DocsRouteImport.update({
@@ -272,6 +278,7 @@ const PublicTemplatesTokenRoute = PublicTemplatesTokenRouteImport.update({
 
 export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
+  '/billing': typeof BillingRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
@@ -314,6 +321,7 @@ export interface FileRoutesByFullPath {
   '/partner/$publicKey/': typeof PartnerPublicKeyIndexRoute
 }
 export interface FileRoutesByTo {
+  '/billing': typeof BillingRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
@@ -358,6 +366,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_app': typeof AppRouteWithChildren
+  '/billing': typeof BillingRoute
   '/docs': typeof DocsRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
@@ -404,6 +413,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/billing'
     | '/docs'
     | '/login'
     | '/register'
@@ -446,6 +456,7 @@ export interface FileRouteTypes {
     | '/partner/$publicKey/'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/billing'
     | '/docs'
     | '/login'
     | '/register'
@@ -489,6 +500,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_app'
+    | '/billing'
     | '/docs'
     | '/login'
     | '/register'
@@ -534,6 +546,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
+  BillingRoute: typeof BillingRoute
   DocsRoute: typeof DocsRoute
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
@@ -551,6 +564,13 @@ declare module '@tanstack/react-router' {
       path: ''
       fullPath: '/'
       preLoaderRoute: typeof AppRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/billing': {
+      id: '/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof BillingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/docs': {
@@ -928,6 +948,7 @@ const PartnerPublicKeyRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
+  BillingRoute: BillingRoute,
   DocsRoute: DocsRoute,
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,

@@ -1,3 +1,4 @@
+import logging
 from typing import Any
 
 from sqlalchemy import select
@@ -7,6 +8,9 @@ from app.config import get_settings
 from app.core.exceptions import AppError, bad_request, not_found
 from app.core.regos_api import regos_async_api_request_for_company
 from app.models import RegosToken
+from app.services.regos_defaults_seed import seed_company_regos_defaults_after_token
+
+logger = logging.getLogger("regos.backend")
 
 REGOS_INTEGRATION_NAME = "Regos Optom"
 
@@ -126,6 +130,14 @@ async def upsert_token(
         )
         session.add(row)
     await session.flush()
+    if row.integration_token.strip():
+        try:
+            await seed_company_regos_defaults_after_token(session, company_id)
+        except Exception:
+            logger.exception(
+                "Failed to seed Regos defaults after token upsert for company_id=%s",
+                company_id,
+            )
     return row
 
 

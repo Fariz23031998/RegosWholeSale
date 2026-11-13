@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { AuthLayout } from "@/components/Auth/AuthLayout";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { userNeedsBilling } from "@/lib/subscription";
 import { formatAuthError, useAuth } from "@/store/auth";
 import styles from "./Auth.module.css";
 
@@ -24,7 +25,12 @@ export function LoginScreen() {
     setLoading(true);
     try {
       await login(identifier.trim(), password);
-      navigate({ to: "/" });
+      const user = useAuth.getState().user;
+      if (userNeedsBilling(user)) {
+        navigate({ to: "/billing" });
+      } else {
+        navigate({ to: "/" });
+      }
     } catch (err) {
       setError(formatAuthError(err));
     } finally {
@@ -81,7 +87,7 @@ export function LoginScreen() {
           <p className={styles.error}>
             {t(
               "auth.subscriptionExpired",
-              "Your trial has ended. Contact support to continue using the service.",
+              "Your trial has ended. Sign in to renew on the billing page.",
             )}
           </p>
         )}

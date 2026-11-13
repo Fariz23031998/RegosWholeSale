@@ -57,9 +57,11 @@ class CurrentPlatformAdmin:
     display_name: str
 
 
-async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    session: AsyncSession = Depends(get_db),
+async def _load_current_user(
+    credentials: HTTPAuthorizationCredentials | None,
+    session: AsyncSession,
+    *,
+    require_active_subscription: bool,
 ) -> CurrentUser:
     if not credentials or credentials.scheme.lower() != "bearer":
         raise unauthorized("Not authenticated", "NOT_AUTHENTICATED")
@@ -76,7 +78,7 @@ async def get_current_user(
     if not user or not user.is_active:
         raise unauthorized("Invalid token", "INVALID_TOKEN")
 
-    if not is_subscription_active(user.company):
+    if require_active_subscription and not is_subscription_active(user.company):
         raise forbidden("Subscription has expired", "SUBSCRIPTION_EXPIRED")
 
     perms = sorted(effective_permission_codes(user))
@@ -85,6 +87,25 @@ async def get_current_user(
         company_id=user.company_id,
         role=user.role.value,
         permissions=perms,
+    )
+
+
+async def get_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    session: AsyncSession = Depends(get_db),
+) -> CurrentUser:
+    return await _load_current_user(
+        credentials, session, require_active_subscription=True
+    )
+
+
+async def get_current_user_allow_expired(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+    session: AsyncSession = Depends(get_db),
+) -> CurrentUser:
+    """Auth for billing/renewal routes when the company subscription is expired."""
+    return await _load_current_user(
+        credentials, session, require_active_subscription=False
     )
 
 

@@ -28,7 +28,7 @@ async def test_registration_starts_seven_day_trial(
 
 
 @pytest.mark.asyncio
-async def test_expired_trial_blocks_login(
+async def test_expired_trial_allows_login_for_billing(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     reg = await register_owner(client, email="expired@test.com", company_name="Expired Co")
@@ -46,12 +46,12 @@ async def test_expired_trial_blocks_login(
         "/api/v1/auth/login",
         json={"email": "expired@test.com", "password": "password123"},
     )
-    assert login.status_code == 403
-    assert login.json()["code"] == "SUBSCRIPTION_EXPIRED"
+    assert login.status_code == 200
+    assert login.json()["user"]["company"]["subscription_status"] == "expired"
 
 
 @pytest.mark.asyncio
-async def test_expired_trial_blocks_me(
+async def test_expired_trial_allows_me_for_billing(
     client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
 ) -> None:
     reg = await register_owner(client, email="me-expired@test.com", company_name="Me Expired")
@@ -66,8 +66,28 @@ async def test_expired_trial_blocks_me(
         await session.commit()
 
     me = await client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
-    assert me.status_code == 403
-    assert me.json()["code"] == "SUBSCRIPTION_EXPIRED"
+    assert me.status_code == 200
+    assert me.json()["company"]["subscription_status"] == "expired"
+
+
+@pytest.mark.asyncio
+async def test_expired_trial_still_blocks_business_apis(
+    client: AsyncClient, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    reg = await register_owner(client, email="api-expired@test.com", company_name="Api Expired")
+    token = reg.json()["access_token"]
+    company_id = reg.json()["user"]["company_id"]
+
+    async with session_factory() as session:
+        company = await session.get(Company, company_id)
+        assert company is not None
+        company.subscription_expires_at = datetime.now(UTC) - timedelta(days=1)
+        company.subscription_status = SubscriptionStatus.expired
+        await session.commit()
+
+    users = await client.get("/api/v1/users", headers={"Authorization": f"Bearer {token}"})
+    assert users.status_code == 403
+    assert users.json()["code"] == "SUBSCRIPTION_EXPIRED"
 
 
 @pytest.mark.asyncio
@@ -84,11 +104,12 @@ async def test_platform_admin_extends_subscription(
         company.subscription_status = SubscriptionStatus.expired
         await session.commit()
 
-    login_blocked = await client.post(
+    login_expired = await client.post(
         "/api/v1/auth/login",
         json={"email": "extend@test.com", "password": "password123"},
     )
-    assert login_blocked.status_code == 403
+    assert login_expired.status_code == 200
+    assert login_expired.json()["user"]["company"]["subscription_status"] == "expired"
 
     admin_login = await client.post(
         "/api/v1/platform/auth/login",

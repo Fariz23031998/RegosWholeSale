@@ -14,7 +14,7 @@ from app.models import Company, RegosToken, User, UserPermission, UserRole
 from app.services.permissions import effective_permission_codes, seed_permissions
 from app.services.regos_tokens import upsert_token
 from app.services.schedules import is_within_login_schedule
-from app.services.subscriptions import is_subscription_active, start_trial
+from app.services.subscriptions import mark_expired_if_needed, start_trial
 from app.services.users import ensure_login_available, slugify, unique_company_slug
 
 
@@ -349,8 +349,8 @@ async def _ensure_user_can_session(user: User, *, check_schedule: bool = False) 
     if not user.is_active:
         raise forbidden("Account is deactivated", "ACCOUNT_INACTIVE")
 
-    if not is_subscription_active(user.company):
-        raise forbidden("Subscription has expired", "SUBSCRIPTION_EXPIRED")
+    # Expired subscriptions may still log in to renew via /billing (Click checkout).
+    mark_expired_if_needed(user.company)
 
     if check_schedule and not is_within_login_schedule(
         user.login_schedules, user.company.timezone

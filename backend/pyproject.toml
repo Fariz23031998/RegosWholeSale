@@ -38,3 +38,6 @@ include = ["app*"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "enable_regos_defaults_seed: allow token upsert to run Regos defaults seeding",
+]

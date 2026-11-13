@@ -5,6 +5,10 @@ from app.models.platform_admin import PlatformAdmin
 from app.models.schedule import LoginSchedule
 from app.models.subscription import SubscriptionStatus
 from app.models.subscription_payment import SubscriptionPayment
+from app.models.subscription_checkout_order import (
+    CheckoutOrderStatus,
+    SubscriptionCheckoutOrder,
+)
 from app.models.user import User, UserRole
 from app.models.user_setting import UserSetting
 from app.models.regos_token import RegosToken
@@ -27,6 +31,8 @@ __all__ = [
     "EventsLog",
     "SubscriptionStatus",
     "SubscriptionPayment",
+    "CheckoutOrderStatus",
+    "SubscriptionCheckoutOrder",
     "PlatformAdmin",
     "User",
     "UserRole",

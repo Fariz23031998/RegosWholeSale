@@ -13,6 +13,7 @@ import {
   startPendingSaleSync,
   stopPendingSaleSync,
 } from "@/lib/pending-sales-sync";
+import { userNeedsBilling } from "@/lib/subscription";
 import { useAuth, waitForAuthHydration } from "@/store/auth";
 import { usePendingSales } from "@/store/pending-sales";
 import { usePosConfig } from "@/store/pos-config";
@@ -33,6 +34,10 @@ export const Route = createFileRoute("/_app")({
     const ok = await refreshMe();
     if (!ok && !useAuth.getState().accessToken) {
       throw redirect({ to: "/login" });
+    }
+
+    if (userNeedsBilling(useAuth.getState().user)) {
+      throw redirect({ to: "/billing" });
     }
   },
   component: AppLayout,

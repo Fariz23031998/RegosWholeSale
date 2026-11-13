@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     receipt_share_hourly_upload_limit: int = 50
     registration_trial_days: int = 7
     subscription_days_per_month: int = 30
+    # SaaS self-serve Click checkout (UZS per month). 0 = checkout disabled.
+    subscription_monthly_price_uzs: int = 0
+    click_merchant_id: str = ""
+    click_service_id: str = ""
+    click_merchant_user_id: str = ""
+    click_secret_key: str = ""
+    click_return_url: str = "https://regosoptom.uz/billing"
+    click_payment_base_url: str = "https://my.click.uz/services/pay"
     platform_admin_email: str = ""
     platform_admin_password: str = ""
     # Daily CBU exchange-rate fetch time in Asia/Tashkent (HH:MM, 24-hour)

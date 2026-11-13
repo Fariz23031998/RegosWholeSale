@@ -32,6 +32,21 @@ def mock_verification(monkeypatch):
     monkeypatch.setattr("app.services.verification.send_verification_email", noop_send)
 
 
+@pytest.fixture(autouse=True)
+def noop_regos_defaults_seed_on_token_upsert(monkeypatch, request):
+    """Avoid live Regos calls from token upsert unless a test opts in."""
+    if request.node.get_closest_marker("enable_regos_defaults_seed"):
+        return
+
+    async def _noop(*_args, **_kwargs):
+        return False
+
+    monkeypatch.setattr(
+        "app.services.regos_tokens.seed_company_regos_defaults_after_token",
+        _noop,
+    )
+
+
 @pytest_asyncio.fixture
 async def engine():
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)

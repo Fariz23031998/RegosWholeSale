@@ -96,10 +96,11 @@ export const useAuth = create<AuthState>()(
           return true;
         } catch (e) {
           if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
-            get().clearSession();
             if (e.code === "SUBSCRIPTION_EXPIRED" && typeof window !== "undefined") {
-              window.location.href = "/login?subscription=expired";
+              window.location.href = "/billing";
+              return false;
             }
+            get().clearSession();
           }
           return false;
         }
@@ -168,7 +169,7 @@ export function formatAuthError(
     if (err.code === "SUBSCRIPTION_EXPIRED") {
       return languageService.t(
         "auth.subscriptionExpired",
-        "Your trial has ended. Contact support to continue using the service.",
+        "Your trial has ended. Renew on the billing page to continue.",
       );
     }
     return err.message;

@@ -1,8 +1,9 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { z } from "zod";
 import { LoginScreen } from "@/components/Auth/LoginScreen";
+import { userNeedsBilling } from "@/lib/subscription";
 import { languageService } from "@/services/language";
-import { isAuthenticated, waitForAuthHydration } from "@/store/auth";
+import { isAuthenticated, useAuth, waitForAuthHydration } from "@/store/auth";
 
 const loginSearchSchema = z.object({
   reset: z.string().optional(),
@@ -17,6 +18,9 @@ export const Route = createFileRoute("/login")({
 
     await waitForAuthHydration();
     if (isAuthenticated()) {
+      if (userNeedsBilling(useAuth.getState().user)) {
+        throw redirect({ to: "/billing" });
+      }
       throw redirect({ to: "/" });
     }
   },
