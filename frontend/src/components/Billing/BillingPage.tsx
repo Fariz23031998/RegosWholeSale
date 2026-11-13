@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { AuthLayout } from "@/components/Auth/AuthLayout";
 import { LanguageSelector } from "@/components/LanguageSelector";
@@ -10,9 +10,14 @@ import {
   type BillingSubscription,
 } from "@/lib/billing-api";
 import { ApiError } from "@/lib/api";
-import { isCompanySubscriptionActive } from "@/lib/subscription";
+import {
+  getBillingAction,
+  isCompanySubscriptionActive,
+  type BillingAction,
+} from "@/lib/subscription";
 import { useAuth } from "@/store/auth";
 import styles from "@/components/Auth/Auth.module.css";
+import billingStyles from "@/components/Billing/Billing.module.css";
 
 function formatMoney(amount: number, currency: string): string {
   try {
@@ -24,6 +29,19 @@ function formatMoney(amount: number, currency: string): string {
   } catch {
     return `${amount.toLocaleString()} ${currency}`;
   }
+}
+
+function ctaLabel(
+  action: BillingAction,
+  t: (key: string, fallback?: string) => string,
+): string {
+  if (action === "extend") {
+    return t("billing.extendWithClick", "Extend with Click");
+  }
+  if (action === "renew") {
+    return t("billing.renewWithClick", "Renew with Click");
+  }
+  return t("billing.payWithClick", "Pay with Click");
 }
 
 export function BillingPage() {
@@ -45,19 +63,23 @@ export function BillingPage() {
 
   const orderId = typeof search.order_id === "string" ? search.order_id : undefined;
 
+  const loadBilling = useCallback(async () => {
+    if (!accessToken) return;
+    const data = await fetchBillingSubscription(accessToken);
+    setBilling(data);
+    if (data.allowed_periods.length > 0) {
+      setPeriodMonths((prev) =>
+        data.allowed_periods.includes(prev) ? prev : data.allowed_periods[0],
+      );
+    }
+  }, [accessToken]);
+
   useEffect(() => {
     if (!accessToken) return;
     let cancelled = false;
     setLoading(true);
     setError("");
-    void fetchBillingSubscription(accessToken)
-      .then((data) => {
-        if (cancelled) return;
-        setBilling(data);
-        if (data.allowed_periods.length > 0) {
-          setPeriodMonths(data.allowed_periods[0]);
-        }
-      })
+    void loadBilling()
       .catch((err) => {
         if (cancelled) return;
         setError(err instanceof ApiError ? err.message : String(err));
@@ -68,7 +90,7 @@ export function BillingPage() {
     return () => {
       cancelled = true;
     };
-  }, [accessToken]);
+  }, [accessToken, loadBilling]);
 
   useEffect(() => {
     if (!accessToken || !orderId) return;
@@ -88,6 +110,11 @@ export function BillingPage() {
           );
           setPolling(false);
           await refreshMe();
+          try {
+            await loadBilling();
+          } catch {
+            /* keep success; status refresh is best-effort */
+          }
           return;
         }
         if (order.status === "expired" || order.status === "cancelled") {
@@ -110,7 +137,7 @@ export function BillingPage() {
       cancelled = true;
       if (timer) clearTimeout(timer);
     };
-  }, [accessToken, orderId, refreshMe, t]);
+  }, [accessToken, orderId, refreshMe, loadBilling, t]);
 
   const totalAmount = useMemo(() => {
     if (!billing) return 0;
@@ -118,6 +145,32 @@ export function BillingPage() {
   }, [billing, periodMonths]);
 
   const active = billing?.subscription_active ?? isCompanySubscriptionActive(user?.company);
+  const action = getBillingAction(billing ?? user?.company);
+  const isTrial = (billing?.subscription_status ?? user?.company?.subscription_status) === "trial";
+
+  const statusText = useMemo(() => {
+    const date = billing?.subscription_expires_at
+      ? new Date(billing.subscription_expires_at).toLocaleString()
+      : "—";
+    if (active && isTrial) {
+      return t("billing.statusTrial", "Trial until {{date}}").replace("{{date}}", date);
+    }
+    if (active) {
+      return t("billing.statusActive", "Active until {{date}}").replace("{{date}}", date);
+    }
+    return t(
+      "billing.statusExpired",
+      "Expired. Pay with Click to continue using the service.",
+    );
+  }, [active, billing?.subscription_expires_at, isTrial, t]);
+
+  const subtitle =
+    action === "extend"
+      ? t(
+          "billing.subtitleExtend",
+          "Add months to your current Regos Optom subscription with Click.",
+        )
+      : t("billing.subtitle", "Renew your Regos Optom subscription with Click.");
 
   const startCheckout = async () => {
     if (!accessToken) return;
@@ -142,10 +195,7 @@ export function BillingPage() {
   return (
     <AuthLayout
       title={t("billing.title", "Subscription")}
-      subtitle={t(
-        "billing.subtitle",
-        "Renew your Regos Optom subscription with Click.",
-      )}
+      subtitle={subtitle}
       headerAction={<LanguageSelector />}
       footer={
         <p className={styles.footer}>
@@ -176,20 +226,18 @@ export function BillingPage() {
           <p className={styles.subtitle}>{t("billing.loading", "Loading…")}</p>
         ) : (
           <>
-            <div className={styles.field}>
-              <label>{t("billing.status", "Status")}</label>
-              <p className={styles.subtitle} style={{ marginBottom: 0 }}>
-                {active
-                  ? t("billing.statusActive", "Active until {{date}}").replace(
-                      "{{date}}",
-                      billing?.subscription_expires_at
-                        ? new Date(billing.subscription_expires_at).toLocaleString()
-                        : "—",
-                    )
-                  : t(
-                      "billing.statusExpired",
-                      "Expired. Pay with Click to continue using the service.",
-                    )}
+            <div className={billingStyles.statusCard}>
+              <span className={billingStyles.statusLabel}>
+                {t("billing.status", "Status")}
+              </span>
+              <p
+                className={
+                  active
+                    ? billingStyles.statusValue
+                    : `${billingStyles.statusValue} ${billingStyles.statusExpired}`
+                }
+              >
+                {statusText}
               </p>
             </div>
 
@@ -218,12 +266,25 @@ export function BillingPage() {
                       </option>
                     ))}
                   </select>
+                  <p className={billingStyles.periodHint}>
+                    {action === "extend"
+                      ? t(
+                          "billing.periodHintExtend",
+                          "Selected months are added to your current end date.",
+                        )
+                      : t(
+                          "billing.periodHintRenew",
+                          "Choose how many months to activate after payment.",
+                        )}
+                  </p>
                 </div>
 
-                <p className={styles.subtitle}>
-                  {t("billing.total", "Total")}:{" "}
-                  {formatMoney(totalAmount, billing.currency || "UZS")}
-                </p>
+                <div className={billingStyles.totalRow}>
+                  <span>{t("billing.total", "Total")}</span>
+                  <span className={billingStyles.totalAmount}>
+                    {formatMoney(totalAmount, billing.currency || "UZS")}
+                  </span>
+                </div>
 
                 <button
                   type="button"
@@ -235,7 +296,7 @@ export function BillingPage() {
                     ? t("billing.starting", "Starting…")
                     : polling
                       ? t("billing.waitingPayment", "Waiting for payment…")
-                      : t("billing.payWithClick", "Pay with Click")}
+                      : ctaLabel(action, t)}
                 </button>
               </>
             ) : (
@@ -250,7 +311,7 @@ export function BillingPage() {
         )}
 
         {polling && (
-          <p className={styles.subtitle}>
+          <p className={billingStyles.hint}>
             {t(
               "billing.pollingHint",
               "Complete payment in the Click tab. This page updates automatically.",

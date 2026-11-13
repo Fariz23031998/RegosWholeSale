@@ -7,6 +7,7 @@ import {
   BookOpen,
   ChevronDown,
   ClipboardList,
+  CreditCard,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -37,6 +38,11 @@ import { ProductsTopBarProvider } from "@/components/Layout/products-top-bar";
 import { NotificationMenu } from "@/components/Notifications/NotificationMenu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { usePermissions } from "@/hooks/use-permissions";
+import {
+  daysUntilSubscriptionExpires,
+  getBillingAction,
+  getSubscriptionExpiryMs,
+} from "@/lib/subscription";
 import { useAuth } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
 import styles from "./Shell.module.css";
@@ -136,6 +142,12 @@ const NAV: NavItem[] = [
   },
   {
     kind: "link",
+    to: "/billing",
+    labelKey: "nav.billing",
+    icon: CreditCard,
+  },
+  {
+    kind: "link",
     to: "/docs",
     labelKey: "nav.docs",
     icon: BookOpen,
@@ -214,6 +226,26 @@ export function Shell() {
     navigate({ to: "/login" });
   };
 
+  const company = user?.company;
+  const expiryMs = getSubscriptionExpiryMs(company);
+  const daysLeft = daysUntilSubscriptionExpires(company);
+  const billingAction = getBillingAction(company);
+  const showBillingChip = expiryMs != null;
+  const billingSoon = daysLeft != null && daysLeft <= 14;
+  const billingChipLabel =
+    daysLeft == null
+      ? null
+      : daysLeft <= 0
+        ? t("billing.expiresToday", "Expires today")
+        : t("billing.expiresInDays", "Expires in {{n}} days").replace(
+            "{{n}}",
+            String(daysLeft),
+          );
+  const billingCtaLabel =
+    billingAction === "extend"
+      ? t("billing.extend", "Extend")
+      : t("billing.renew", "Renew");
+
   return (
     <ProductsTopBarProvider register={registerProductSettings}>
     <div className={styles.shell}>
@@ -228,22 +260,37 @@ export function Shell() {
 
       <aside className={clsx(styles.sidebar, sidebarOpen && styles.sidebarOpen)}>
         <div className={styles.sidebarHeader}>
-          <div className={styles.brand}>
-            <BrandLogo size="md" />
-            <div>
-              <div className={styles.brandSub}>{user?.company?.name ?? "POS"}</div>
+          <div className={styles.sidebarHeaderRow}>
+            <div className={styles.brand}>
+              <BrandLogo size="md" />
+              <div className={styles.brandTextBlock}>
+                <div className={styles.brandSub}>{user?.company?.name ?? "POS"}</div>
+              </div>
+            </div>
+            <div className={styles.sidebarActions}>
+              <button
+                type="button"
+                className={styles.closeBtn}
+                onClick={() => setSidebarOpen(false)}
+                aria-label={t("nav.closeMenu", "Close menu")}
+              >
+                <X size={20} />
+              </button>
             </div>
           </div>
-          <div className={styles.sidebarActions}>
-            <button
-              type="button"
-              className={styles.closeBtn}
-              onClick={() => setSidebarOpen(false)}
-              aria-label={t("nav.closeMenu", "Close menu")}
+          {showBillingChip && billingChipLabel ? (
+            <Link
+              to="/billing"
+              className={clsx(
+                styles.billingChip,
+                styles.billingChipSidebar,
+                billingSoon && styles.billingChipSoon,
+              )}
             >
-              <X size={20} />
-            </button>
-          </div>
+              <span className={styles.billingChipLabel}>{billingChipLabel}</span>
+              <span className={styles.billingChipCta}>{billingCtaLabel}</span>
+            </Link>
+          ) : null}
         </div>
 
         <nav className={styles.sidebarNav} aria-label={t("nav.main", "Main")}>
@@ -368,6 +415,20 @@ export function Shell() {
               <CatalogViewToggle className={styles.topBarViewToggle} />
             ) : null}
             <div className={styles.topBarEnd}>
+              {showBillingChip && billingChipLabel ? (
+                <Link
+                  to="/billing"
+                  className={clsx(
+                    styles.billingChip,
+                    styles.billingChipTop,
+                    billingSoon && styles.billingChipSoon,
+                  )}
+                  title={t("nav.billing", "Subscription")}
+                >
+                  <span className={styles.billingChipLabel}>{billingChipLabel}</span>
+                  <span className={styles.billingChipCta}>{billingCtaLabel}</span>
+                </Link>
+              ) : null}
               {isProductsPage && openProductSettings ? (
                 <button
                   type="button"
