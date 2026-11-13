@@ -44,10 +44,15 @@ def partner_telegram_env(monkeypatch):
         "MINI_APP_LINK", "https://mini.example.com/partner/{public_key}"
     )
     from app.config import get_settings
+    from app.services import partner_telegram as partner_telegram_service
 
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+    for task in list(partner_telegram_service._pending_balance_after.values()):
+        if not task.done():
+            task.cancel()
+    partner_telegram_service._pending_balance_after.clear()
 
 
 def _partners(*phones: str) -> list[dict]:
@@ -1725,6 +1730,9 @@ async def test_document_notification_sends_balance_followup_when_enabled(
             ]
         }
 
+    async def instant_wait():
+        return None
+
     monkeypatch.setattr("app.services.partner_telegram.telegram_service.send_message", fake_send)
     monkeypatch.setattr(
         "app.services.partner_balance_notify.telegram_service.send_message", fake_send
@@ -1735,7 +1743,13 @@ async def test_document_notification_sends_balance_followup_when_enabled(
     monkeypatch.setattr(
         "app.services.partner_balance_notify.get_partner_balance", fake_balance
     )
-    from app.services.partner_telegram import notify_partner_document
+    monkeypatch.setattr(
+        "app.services.partner_telegram._balance_after_debounce_wait", instant_wait
+    )
+    from app.services.partner_telegram import (
+        _await_pending_balance_after,
+        notify_partner_document,
+    )
 
     async with session_factory() as session:
         await notify_partner_document(
@@ -1758,11 +1772,162 @@ async def test_document_notification_sends_balance_followup_when_enabled(
         )
         await session.commit()
 
+    await _await_pending_balance_after()
+
     assert sent == [
         ("Doc WS-7", "HTML"),
         ("Bal Main UZS 60 000", "HTML"),
     ]
     assert documents == []
+
+
+@pytest.mark.asyncio
+async def test_wholesale_and_payment_coalesce_to_one_balance_followup(
+    client, monkeypatch, session_factory
+):
+    import asyncio
+
+    _mock_telegram_api(monkeypatch)
+    token = await _owner_token(client, "partner-notify-balance-coalesce@test.com")
+    await _save_bot(client, token)
+    patched = await client.patch(
+        "/api/v1/partner-telegram/bot/settings",
+        json=_settings_body(
+            notification_templates={
+                "wholesale": {
+                    "en": "Doc {{document_code}}",
+                    "ru": "",
+                    "uz": "",
+                },
+                "payment": {
+                    "en": "Pay {{document_code}}",
+                    "ru": "",
+                    "uz": "",
+                },
+                "balance": {
+                    "en": "Bal {{firm_name}} {{currency_name}} {{balance}}",
+                    "ru": "",
+                    "uz": "",
+                },
+            },
+            balance_notify_after_types={"wholesale": True, "payment": True},
+        ),
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert patched.status_code == 200, patched.text
+
+    async with session_factory() as session:
+        from sqlalchemy import select
+
+        company = (await session.execute(select(Company))).scalar_one()
+        bot = (await session.execute(select(PartnerTelegramBot))).scalar_one()
+        session.add(
+            _make_account(
+                company_id=company.id,
+                bot_id=bot.id,
+                telegram_user_id=14,
+                chat_id=1414,
+                language_code="en",
+                regos_partner_id=15,
+                link_state=PartnerTelegramLinkState.linked.value,
+            )
+        )
+        await session.commit()
+        company_id = company.id
+
+    sent: list[tuple[str, str | None]] = []
+    release = asyncio.Event()
+
+    async def fake_send(bot_token, chat_id, text, parse_mode="Markdown", reply_markup=None):
+        sent.append((text, parse_mode))
+        return True
+
+    async def fake_document(*args, **kwargs):
+        return True
+
+    async def fake_balance(session, company_id, *, partner_id, start_date, end_date, **kwargs):
+        return {
+            "rows": [
+                {
+                    "id": 1,
+                    "date": 1_700_000_000,
+                    "firm": {"id": 4, "name": "Main"},
+                    "currency": {"id": 1, "name": "UZS"},
+                    "end_amount": 25000,
+                }
+            ]
+        }
+
+    async def gated_wait():
+        await release.wait()
+
+    monkeypatch.setattr("app.services.partner_telegram.telegram_service.send_message", fake_send)
+    monkeypatch.setattr(
+        "app.services.partner_balance_notify.telegram_service.send_message", fake_send
+    )
+    monkeypatch.setattr(
+        "app.services.partner_balance_notify.telegram_service.send_document", fake_document
+    )
+    monkeypatch.setattr(
+        "app.services.partner_balance_notify.get_partner_balance", fake_balance
+    )
+    monkeypatch.setattr(
+        "app.services.partner_telegram._balance_after_debounce_wait", gated_wait
+    )
+    from app.services.partner_telegram import (
+        _await_pending_balance_after,
+        notify_partner_document,
+        notify_partner_payment,
+    )
+
+    async with session_factory() as session:
+        await notify_partner_document(
+            session,
+            company_id,
+            {
+                "id": 4,
+                "code": "WS-8",
+                "date": 1_700_000_000,
+                "partner": {"id": 15, "name": "Acme"},
+                "firm": {"id": 4, "name": "Main"},
+                "currency": {"id": 1, "name": "UZS"},
+            },
+            [{"item": {"name": "Rice"}, "quantity": 1, "price": 5}],
+            warehouse_name="Main",
+            is_cancelled=False,
+            is_return=False,
+            use_cost=False,
+            kind="wholesale",
+        )
+        await notify_partner_payment(
+            session,
+            company_id,
+            {
+                "id": 9,
+                "code": "PAY-9",
+                "date": 1_700_000_000,
+                "amount": 500,
+                "partner": {"id": 15, "name": "Acme"},
+                "firm": {"id": 4, "name": "Main"},
+                "currency": {"id": 1, "name": "UZS"},
+                "type": {"name": "Cash"},
+                "category": {"positive": False, "name": "Customer payment"},
+            },
+            is_cancelled=False,
+        )
+        await session.commit()
+
+    assert sent == [
+        ("Doc WS-8", "HTML"),
+        ("Pay PAY-9", "HTML"),
+    ]
+    release.set()
+    await _await_pending_balance_after()
+    assert sent == [
+        ("Doc WS-8", "HTML"),
+        ("Pay PAY-9", "HTML"),
+        ("Bal Main UZS 25 000", "HTML"),
+    ]
 
 
 @pytest.mark.asyncio

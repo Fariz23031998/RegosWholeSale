@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import re
 import uuid
@@ -51,6 +52,10 @@ _PHONE_SPLIT = re.compile(r"[,;]")
 # Regos often stores the 9-digit national number; Telegram shares +998…
 _UZ_COUNTRY_CODE = "998"
 _UZ_NATIONAL_LENGTH = 9
+
+# Coalesce wholesale+payment (e.g. Sell) balance follow-ups into one send.
+BALANCE_AFTER_DEBOUNCE_SECONDS = 5.0
+_pending_balance_after: dict[tuple[int, int], asyncio.Task] = {}
 
 
 def phone_digits(value: str | None) -> str:
@@ -1802,23 +1807,83 @@ async def notify_partner_payment(
     await _maybe_send_balance_after(session, bot, partner_id, accounts, "payment")
 
 
+async def _balance_after_debounce_wait() -> None:
+    await asyncio.sleep(BALANCE_AFTER_DEBOUNCE_SECONDS)
+
+
+async def _send_scheduled_balance_after(
+    company_id: int,
+    partner_id: int,
+    bot_id: int,
+) -> None:
+    from app.database import async_session_factory
+    from app.services.partner_balance_notify import notify_partner_balance_messages
+
+    async with async_session_factory() as session:
+        result = await session.execute(
+            select(PartnerTelegramBot).where(PartnerTelegramBot.id == bot_id)
+        )
+        bot = result.scalar_one_or_none()
+        if bot is None:
+            return
+        accounts = await list_accounts_for_partner(
+            session, company_id, partner_id, active_only=True
+        )
+        if not accounts:
+            return
+        await notify_partner_balance_messages(
+            session,
+            bot,
+            partner_id,
+            accounts,
+            include_excel=False,
+            pace=False,
+        )
+        await session.commit()
+
+
+def _schedule_balance_after(company_id: int, partner_id: int, bot_id: int) -> None:
+    key = (company_id, partner_id)
+    existing = _pending_balance_after.get(key)
+    if existing is not None and not existing.done():
+        existing.cancel()
+
+    async def _run() -> None:
+        try:
+            await _balance_after_debounce_wait()
+            await _send_scheduled_balance_after(company_id, partner_id, bot_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.error(
+                "Deferred partner balance notification failed company=%s partner=%s",
+                company_id,
+                partner_id,
+                exc_info=True,
+            )
+        finally:
+            current = _pending_balance_after.get(key)
+            if current is asyncio.current_task():
+                _pending_balance_after.pop(key, None)
+
+    _pending_balance_after[key] = asyncio.create_task(_run())
+
+
+async def _await_pending_balance_after() -> None:
+    """Wait for deferred balance-after tasks (used by tests)."""
+    tasks = [task for task in _pending_balance_after.values() if not task.done()]
+    if tasks:
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+
 async def _maybe_send_balance_after(
-    session: AsyncSession,
+    _session: AsyncSession,
     bot: PartnerTelegramBot,
     partner_id: int,
-    accounts: list[PartnerTelegramAccount],
+    _accounts: list[PartnerTelegramAccount],
     kind: str,
 ) -> None:
     after_types = _balance_notify_after_types(bot.balance_notify_after_types)
     if not after_types.get(kind):
         return
-    from app.services.partner_balance_notify import notify_partner_balance_messages
-
-    await notify_partner_balance_messages(
-        session,
-        bot,
-        partner_id,
-        accounts,
-        include_excel=False,
-        pace=False,
-    )
+    _schedule_balance_after(bot.company_id, partner_id, bot.id)
