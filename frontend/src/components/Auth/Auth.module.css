@@ -206,3 +206,75 @@
   text-align: center;
   margin-top: -8px;
 }
+
+.ssoDivider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: var(--space-5) 0 var(--space-4);
+  color: var(--color-text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.ssoDivider::before,
+.ssoDivider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.ssoWrap {
+  width: 100%;
+}
+
+.ssoWrap :global(#regos-login) {
+  width: 100%;
+  display: block;
+}
+
+.ssoWrap :global(#regos-login > *) {
+  width: 100% !important;
+  max-width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.ssoWrap :global(#regos-login button),
+.ssoWrap :global(#regos-login a),
+.ssoWrap :global(#regos-login [role="button"]) {
+  width: 100% !important;
+  max-width: 100% !important;
+  min-height: 42px !important;
+  padding: 11px 16px !important;
+  border-radius: var(--radius-md) !important;
+  box-sizing: border-box !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 8px !important;
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  line-height: 1.2 !important;
+  border: 1px solid var(--color-border-strong) !important;
+  background: var(--color-surface-2) !important;
+  color: var(--color-text) !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+  transition: background 0.15s, transform 0.1s !important;
+}
+
+.ssoWrap :global(#regos-login button:hover),
+.ssoWrap :global(#regos-login a:hover),
+.ssoWrap :global(#regos-login [role="button"]:hover) {
+  background: var(--color-border) !important;
+}
+
+.ssoWrap :global(#regos-login img),
+.ssoWrap :global(#regos-login svg) {
+  width: 18px !important;
+  height: 18px !important;
+  flex-shrink: 0;
+}

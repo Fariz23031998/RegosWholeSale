@@ -116,6 +116,18 @@ class RegosIntegrationLoginRequest(BaseModel):
         return trimmed
 
 
+class RegosSsoLoginRequest(BaseModel):
+    access_token: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("access_token")
+    @classmethod
+    def normalize_access_token(cls, value: str) -> str:
+        trimmed = value.strip()
+        if not trimmed:
+            raise ValueError("Access token is required")
+        return trimmed
+
+
 class SetInitialPasswordRequest(BaseModel):
     new_password: str = Field(min_length=8, max_length=128)
 

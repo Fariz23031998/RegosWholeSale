@@ -121,6 +121,8 @@ export const FALLBACK_TRANSLATIONS: Record<string, string> = {
   "auth.setNewPassword": "Set new password",
   "auth.digitN": "Digit {{n}}",
   "auth.loginWithRegos": "Login with Regos",
+  "auth.or": "or",
+  "auth.ssoFailed": "REGOS sign-in failed",
   "auth.integrationAuthorizing": "Authorizing integration…",
   "auth.integrationSetPasswordWaiting": "Set a password to finish registration",
   "auth.integrationErrorTitle": "Authorization failed",

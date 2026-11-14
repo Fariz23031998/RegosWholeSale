@@ -1,23 +1,139 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useSearch } from "@tanstack/react-router";
 import { AuthLayout } from "@/components/Auth/AuthLayout";
+import { SetInitialPasswordForm } from "@/components/Auth/SetInitialPasswordForm";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { loginWithRegosSso } from "@/lib/auth-api";
+import {
+  loadRegosOAuthSdk,
+  mapAppLanguageToRegos,
+} from "@/lib/regos-oauth-sdk";
 import { userNeedsBilling } from "@/lib/subscription";
 import { formatAuthError, useAuth } from "@/store/auth";
 import styles from "./Auth.module.css";
 
+const SSO_CLIENT_ID = String(import.meta.env.VITE_REGOS_SSO_CLIENT_ID || "").trim();
+const SSO_REDIRECT_URI = String(
+  import.meta.env.VITE_REGOS_SSO_REDIRECT_URI || "",
+).trim();
+const SSO_FLAG = String(import.meta.env.VITE_REGOS_SSO_ENABLED || "")
+  .trim()
+  .toLowerCase();
+const SSO_FLAG_ON = SSO_FLAG === "true" || SSO_FLAG === "1" || SSO_FLAG === "yes";
+const SSO_ENABLED = SSO_FLAG_ON && Boolean(SSO_CLIENT_ID && SSO_REDIRECT_URI);
+
+/** SDK often reports this on init when there is no saved REGOS session. */
+function isBenignSsoMessage(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return (
+    normalized === "no access token" ||
+    normalized.includes("not authenticated") ||
+    normalized.includes("user is not authenticated") ||
+    normalized.includes("no token")
+  );
+}
+
+function isDarkTheme(): boolean {
+  if (typeof document === "undefined") return false;
+  return document.documentElement.classList.contains("dark");
+}
+
 export function LoginScreen() {
-  const { t } = useLanguage();
+  const { t, currentLanguage } = useLanguage();
 
   const navigate = useNavigate();
   const search = useSearch({ from: "/login" });
   const login = useAuth((s) => s.login);
+  const setSession = useAuth((s) => s.setSession);
 
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [ssoSessionToken, setSsoSessionToken] = useState<string | null>(null);
+  const ssoBusy = useRef(false);
+
+  const goAfterAuth = () => {
+    const user = useAuth.getState().user;
+    if (userNeedsBilling(user)) {
+      void navigate({ to: "/billing" });
+    } else {
+      void navigate({ to: "/" });
+    }
+  };
+
+  useEffect(() => {
+    if (!SSO_ENABLED) return;
+
+    let cancelled = false;
+
+    const mountSso = async () => {
+      try {
+        const sdk = await loadRegosOAuthSdk();
+        if (cancelled) return;
+
+        sdk.initialize({
+          clientId: SSO_CLIENT_ID,
+          redirectUri: SSO_REDIRECT_URI,
+          containerId: "regos-login",
+          language: mapAppLanguageToRegos(currentLanguage),
+          buttonSize: "l",
+          buttonTheme: isDarkTheme() ? "dark" : "light",
+          buttonType: "icon-text",
+          buttonTextType: "full",
+          buttonBorderRadius: 8,
+          flow: "auto",
+          silent: false,
+          onData: (user, accessToken) => {
+            if (!user || !accessToken) return;
+            if (ssoBusy.current) return;
+            ssoBusy.current = true;
+            setError("");
+            setLoading(true);
+            void (async () => {
+              try {
+                const authData = await loginWithRegosSso(accessToken);
+                setSession(authData.access_token, authData.user);
+                if (authData.requires_password_setup) {
+                  setSsoSessionToken(authData.access_token);
+                  return;
+                }
+                const nextUser = useAuth.getState().user;
+                if (userNeedsBilling(nextUser)) {
+                  void navigate({ to: "/billing" });
+                } else {
+                  void navigate({ to: "/" });
+                }
+              } catch (err) {
+                setError(formatAuthError(err));
+              } finally {
+                setLoading(false);
+                ssoBusy.current = false;
+              }
+            })();
+          },
+          onError: (sdkError) => {
+            const message =
+              sdkError instanceof Error
+                ? sdkError.message
+                : String(sdkError.message || t("auth.ssoFailed", "REGOS sign-in failed"));
+            if (isBenignSsoMessage(message)) return;
+            setError(message);
+          },
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setError(formatAuthError(err));
+        }
+      }
+    };
+
+    void mountSso();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentLanguage, navigate, setSession, t]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -25,18 +141,28 @@ export function LoginScreen() {
     setLoading(true);
     try {
       await login(identifier.trim(), password);
-      const user = useAuth.getState().user;
-      if (userNeedsBilling(user)) {
-        navigate({ to: "/billing" });
-      } else {
-        navigate({ to: "/" });
-      }
+      goAfterAuth();
     } catch (err) {
       setError(formatAuthError(err));
     } finally {
       setLoading(false);
     }
   };
+
+  if (ssoSessionToken) {
+    return (
+      <AuthLayout
+        title={t("auth.title", "Regos Optom")}
+        subtitle={t("auth.setInitialPasswordTitle", "Set your password")}
+        headerAction={<LanguageSelector />}
+      >
+        <SetInitialPasswordForm
+          accessToken={ssoSessionToken}
+          onSuccess={goAfterAuth}
+        />
+      </AuthLayout>
+    );
+  }
 
   return (
     <AuthLayout
@@ -98,19 +224,13 @@ export function LoginScreen() {
         </button>
       </form>
 
-      {import.meta.env.VITE_REGOS_CATALOG_URL ? (
-        <div style={{ marginTop: 16 }}>
-          <button
-            type="button"
-            className={`${styles.btn} ${styles.btnSecondary}`}
-            disabled={loading}
-            onClick={() => {
-              window.location.href = String(import.meta.env.VITE_REGOS_CATALOG_URL);
-            }}
-          >
-            {t("auth.loginWithRegos", "Login with Regos")}
-          </button>
-        </div>
+      {SSO_ENABLED ? (
+        <>
+          <div className={styles.ssoDivider}>{t("auth.or", "or")}</div>
+          <div className={styles.ssoWrap}>
+            <div id="regos-login" />
+          </div>
+        </>
       ) : null}
 
       <p className={styles.footer} style={{ marginTop: 16 }}>

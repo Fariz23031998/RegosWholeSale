@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     resend_api_key: str = ""
     resend_email_from: str = "resend.dev"
     regos_oauth_token_url: str = "https://auth.regos.uz/oauth/token"
+    regos_oauth_introspect_url: str = "https://auth.regos.uz/oauth/introspect"
+    regos_oauth_userinfo_url: str = "https://auth.regos.uz/oauth/userinfo"
     regos_client_id: str = ""
     regos_client_secret: str = ""
     # Public base URL for Telegram bot webhooks

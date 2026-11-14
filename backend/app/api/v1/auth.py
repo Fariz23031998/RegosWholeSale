@@ -11,6 +11,7 @@ from app.schemas.auth import (
     MessageResponse,
     RegisterRequest,
     RegosIntegrationLoginRequest,
+    RegosSsoLoginRequest,
     ResetPasswordRequest,
     SendVerificationResponse,
     SetInitialPasswordRequest,
@@ -101,6 +102,22 @@ async def login_with_regos_integration(
     user, company, token, created = await auth_service.login_with_regos_integration(
         session,
         integration_token=body.token,
+    )
+    return AuthResponse(
+        access_token=token,
+        user=_user_response(user, company),
+        requires_password_setup=created or bool(user.must_set_password),
+    )
+
+
+@router.post("/regos-sso", response_model=AuthResponse)
+async def login_with_regos_sso(
+    body: RegosSsoLoginRequest,
+    session: AsyncSession = Depends(get_db),
+) -> AuthResponse:
+    user, company, token, created = await auth_service.login_with_regos_sso(
+        session,
+        access_token=body.access_token,
     )
     return AuthResponse(
         access_token=token,

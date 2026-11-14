@@ -17,6 +17,12 @@ from app.services.schedules import is_within_login_schedule
 from app.services.subscriptions import mark_expired_if_needed, start_trial
 from app.services.users import ensure_login_available, slugify, unique_company_slug
 
+_USER_LOGIN_LOAD_OPTIONS = (
+    selectinload(User.company),
+    selectinload(User.extra_permissions).selectinload(UserPermission.permission),
+    selectinload(User.login_schedules),
+)
+
 
 async def register_owner(
     session: AsyncSession,
@@ -126,6 +132,50 @@ async def login_with_regos_integration(
     return user, user.company, access_token, created
 
 
+async def login_with_regos_sso(
+    session: AsyncSession,
+    *,
+    access_token: str,
+) -> tuple[User, Company, str, bool]:
+    """Authenticate via REGOS SSO user access token. Returns requires_password_setup flag source.
+
+    Validates the user token with /oauth/userinfo only (Bearer). Does not require
+    REGOS_CLIENT_ID / REGOS_CLIENT_SECRET — those are for server client_credentials
+    and optional introspection.
+    """
+    await seed_permissions(session)
+
+    profile = await regos_oauth_service.fetch_userinfo(access_token)
+
+    email = profile.email
+    phone = profile.phone_number
+    if not email and not phone:
+        raise bad_request(
+            "Regos user has no email or phone number",
+            "REGOS_USER_CONTACT_REQUIRED",
+        )
+
+    name_parts = [part for part in (profile.given_name, profile.family_name) if part]
+    full_name = " ".join(name_parts).strip() or profile.company or "Regos User"
+    company_name = profile.company or (
+        full_name if full_name != "Regos User" else "Regos"
+    )
+
+    user, created = await _resolve_regos_sso_user(
+        session,
+        regos_sub=profile.sub,
+        email=email,
+        phone=phone,
+        full_name=full_name,
+        company_name=company_name,
+    )
+    await _ensure_user_can_session(user)
+    await session.refresh(user, attribute_names=["company", "extra_permissions"])
+
+    wholesale_token = _issue_token(user)
+    return user, user.company, wholesale_token, created
+
+
 async def set_initial_password(
     session: AsyncSession,
     user: User,
@@ -220,13 +270,7 @@ async def _resolve_regos_user(
 
     if email:
         by_email = await session.execute(
-            select(User)
-            .where(User.email == email)
-            .options(
-                selectinload(User.company),
-                selectinload(User.extra_permissions).selectinload(UserPermission.permission),
-                selectinload(User.login_schedules),
-            )
+            select(User).where(User.email == email).options(*_USER_LOGIN_LOAD_OPTIONS)
         )
         user = by_email.scalar_one_or_none()
         if user is not None:
@@ -240,16 +284,58 @@ async def _resolve_regos_user(
     ), True
 
 
+async def _resolve_regos_sso_user(
+    session: AsyncSession,
+    *,
+    regos_sub: str,
+    email: str | None,
+    phone: str | None,
+    full_name: str,
+    company_name: str,
+) -> tuple[User, bool]:
+    by_sub = await session.execute(
+        select(User).where(User.regos_sub == regos_sub).options(*_USER_LOGIN_LOAD_OPTIONS)
+    )
+    user = by_sub.scalar_one_or_none()
+    if user is not None:
+        return user, False
+
+    if email:
+        by_email = await session.execute(
+            select(User).where(User.email == email).options(*_USER_LOGIN_LOAD_OPTIONS)
+        )
+        user = by_email.scalar_one_or_none()
+        if user is not None:
+            if not user.regos_sub:
+                user.regos_sub = regos_sub
+                await session.flush()
+            return user, False
+
+    created = await _create_regos_owner(
+        session,
+        email=email,
+        phone=phone,
+        full_name=full_name,
+        company_name=company_name,
+        regos_sub=regos_sub,
+    )
+    return created, True
+
+
 async def _create_regos_owner(
     session: AsyncSession,
     *,
     email: str | None,
     phone: str | None,
     full_name: str,
+    company_name: str | None = None,
+    regos_sub: str | None = None,
 ) -> User:
-    company_name = full_name if full_name and full_name != "Regos User" else "Regos"
-    slug = await unique_company_slug(session, slugify(company_name))
-    company = Company(name=company_name, slug=slug, timezone="UTC", settings={})
+    resolved_company_name = company_name or (
+        full_name if full_name and full_name != "Regos User" else "Regos"
+    )
+    slug = await unique_company_slug(session, slugify(resolved_company_name))
+    company = Company(name=resolved_company_name, slug=slug, timezone="UTC", settings={})
     start_trial(company)
     session.add(company)
     await session.flush()
@@ -262,6 +348,7 @@ async def _create_regos_owner(
         company_id=company.id,
         email=email,
         login=login,
+        regos_sub=regos_sub,
         password_hash=hash_password(_generate_password()),
         display_name=full_name,
         role=UserRole.owner,
@@ -275,7 +362,6 @@ async def _create_regos_owner(
         attribute_names=["company", "extra_permissions", "login_schedules"],
     )
     return user
-
 
 async def _unique_login_from_phone(session: AsyncSession, phone: str) -> str:
     digits = re.sub(r"\D+", "", phone)
@@ -297,11 +383,7 @@ async def _load_company_owner(session: AsyncSession, company_id: int) -> User:
     result = await session.execute(
         select(User)
         .where(User.company_id == company_id, User.role == UserRole.owner)
-        .options(
-            selectinload(User.company),
-            selectinload(User.extra_permissions).selectinload(UserPermission.permission),
-            selectinload(User.login_schedules),
-        )
+        .options(*_USER_LOGIN_LOAD_OPTIONS)
         .order_by(User.id)
         .limit(1)
     )
@@ -320,11 +402,7 @@ async def _load_user_for_login(
     email: str | None = None,
     login: str | None = None,
 ) -> User:
-    query = select(User).options(
-        selectinload(User.company),
-        selectinload(User.extra_permissions).selectinload(UserPermission.permission),
-        selectinload(User.login_schedules),
-    )
+    query = select(User).options(*_USER_LOGIN_LOAD_OPTIONS)
     if email is not None:
         query = query.where(User.email == email)
     else:

@@ -38,6 +38,13 @@ export async function loginWithRegosIntegration(token: string): Promise<AuthResp
   });
 }
 
+export async function loginWithRegosSso(accessToken: string): Promise<AuthResponse> {
+  return apiRequest("/api/v1/auth/regos-sso", {
+    method: "POST",
+    body: { access_token: accessToken },
+  });
+}
+
 export async function setInitialPassword(
   accessToken: string,
   newPassword: string,
