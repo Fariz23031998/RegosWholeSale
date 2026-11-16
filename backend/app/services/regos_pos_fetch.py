@@ -16,6 +16,7 @@ CHEQUE_SHORT_ENDPOINT = "doccheque/getshort"
 CHEQUE_OPS_ENDPOINT = "chequeitemoperation/get"
 CHEQUE_PAYMENTS_ENDPOINT = "chequepaymentoperation/get"
 SESSION_DOC_ENDPOINT = "doccashsession/get"
+OPERATING_CASH_ENDPOINT = "operatingcash/get"
 SESSION_CHEQUE_PAGE_SIZE = 1000
 
 _UUID_PATTERN = re.compile(
@@ -52,29 +53,109 @@ def session_uuid_from_cheque(cheque: dict[str, Any]) -> str | None:
     return None
 
 
+def _operating_cash_id_value(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def operating_cash_description_text(operating_cash: dict[str, Any] | None) -> str | None:
+    if not operating_cash:
+        return None
+    description = operating_cash.get("description")
+    if not isinstance(description, str):
+        return None
+    text = description.strip()
+    return text or None
+
+
+async def resolve_cheque_session_context(
+    session: AsyncSession,
+    company_id: int,
+    cheque: dict[str, Any],
+) -> dict[str, Any]:
+    session_code = _session_code_text(cheque.get("session_code"))
+    if not session_code:
+        session_obj = cheque.get("session")
+        if isinstance(session_obj, dict):
+            session_code = _session_code_text(session_obj.get("code"))
+
+    operating_cash_id = _operating_cash_id_value(cheque.get("operating_cash_id"))
+    session_uuid = session_uuid_from_cheque(cheque)
+    if session_uuid:
+        cash_session = await fetch_session_by_uuid(session, company_id, session_uuid)
+        if cash_session:
+            if not session_code:
+                session_code = _session_code_text(cash_session.get("code"))
+            if operating_cash_id is None:
+                operating_cash_id = _operating_cash_id_value(
+                    cash_session.get("operating_cash_id")
+                )
+
+    return {
+        "session_code": session_code,
+        "operating_cash_id": operating_cash_id,
+    }
+
+
 async def resolve_cheque_session_code(
     session: AsyncSession,
     company_id: int,
     cheque: dict[str, Any],
 ) -> str | None:
-    session_code = _session_code_text(cheque.get("session_code"))
-    if session_code:
-        return session_code
+    context = await resolve_cheque_session_context(session, company_id, cheque)
+    return context.get("session_code")
 
-    session_obj = cheque.get("session")
-    if isinstance(session_obj, dict):
-        code = _session_code_text(session_obj.get("code"))
-        if code:
-            return code
 
-    session_uuid = session_uuid_from_cheque(cheque)
-    if not session_uuid:
+async def fetch_operating_cash_by_id(
+    session: AsyncSession,
+    company_id: int,
+    operating_cash_id: int,
+) -> dict[str, Any] | None:
+    try:
+        response = await regos_async_api_request_for_company(
+            session,
+            company_id,
+            OPERATING_CASH_ENDPOINT,
+            {
+                "filters": [
+                    {
+                        "field": "id",
+                        "operator": "equal",
+                        "value": str(operating_cash_id),
+                    }
+                ],
+                "limit": 1,
+                "offset": 0,
+            },
+        )
+        operating_cash = _first_result_item(response.get("result"))
+        if not operating_cash:
+            logger.warning(
+                "No operating cash found at %s for id %s",
+                OPERATING_CASH_ENDPOINT,
+                operating_cash_id,
+            )
+        return operating_cash
+    except AppError as exc:
+        logger.warning(
+            "Failed to fetch operating cash %s/%s: %s",
+            OPERATING_CASH_ENDPOINT,
+            operating_cash_id,
+            exc.detail,
+        )
         return None
-
-    cash_session = await fetch_session_by_uuid(session, company_id, session_uuid)
-    if not cash_session:
+    except Exception:
+        logger.warning(
+            "Failed to fetch operating cash %s/%s",
+            OPERATING_CASH_ENDPOINT,
+            operating_cash_id,
+            exc_info=True,
+        )
         return None
-    return _session_code_text(cash_session.get("code"))
 
 
 def _normalize_uuid(value: str) -> str:

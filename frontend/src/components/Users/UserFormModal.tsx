@@ -6,6 +6,10 @@ import { formatAuthError } from "@/store/auth";
 import { isValidScheduleTime, normalizeScheduleTime } from "@/lib/schedule-time";
 import { createUser, patchUser } from "@/lib/users-api";
 import {
+  PERMISSION_TEMPLATES,
+  rulesFromDesiredCodes,
+} from "@/types/permission-templates";
+import {
   CONFIGURABLE_PERMISSION_CODES,
   PERMISSION_GROUPS,
   explicitPermissionRules,
@@ -125,6 +129,10 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
     if (nextRole === "admin") {
       setRuleState({});
     }
+  };
+
+  const applyPermissionTemplate = (desiredCodes: readonly string[]) => {
+    setRuleState(rulesFromDesiredCodes(desiredCodes, "employee"));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -381,6 +389,30 @@ export function UserFormModal({ open, mode, token, user, permissions, onClose, o
                 "Set Allow or Deny rules for each permission. Inherit uses the employee role default.",
               )}
             </p>
+            <div className={styles.permissionTemplates}>
+              <div className={styles.permissionTemplatesTitle}>
+                {t("users.permissions.templates.title", "Templates")}
+              </div>
+              <p className={styles.hint}>
+                {t(
+                  "users.permissions.templates.hint",
+                  "Apply a template to set permissions quickly. This replaces your current overrides; you can still adjust individual rules after.",
+                )}
+              </p>
+              <div className={styles.permissionTemplateChips} role="group" aria-label={t("users.permissions.templates.title", "Templates")}>
+                {PERMISSION_TEMPLATES.map((template) => (
+                  <button
+                    key={template.id}
+                    type="button"
+                    className={styles.permissionTemplateChip}
+                    title={t(template.descriptionKey, template.descriptionFallback)}
+                    onClick={() => applyPermissionTemplate(template.desiredCodes)}
+                  >
+                    {t(template.labelKey, template.fallback)}
+                  </button>
+                ))}
+              </div>
+            </div>
             {PERMISSION_GROUPS.map((group) => {
               const groupCodes = group.codes.filter((code) =>
                 CONFIGURABLE_PERMISSION_CODES.includes(code),

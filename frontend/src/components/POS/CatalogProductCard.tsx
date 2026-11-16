@@ -4,8 +4,10 @@ import { Star } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { canAddProductToCart } from "@/lib/cart-stock";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
+import { formatCurrency } from "@/lib/format";
 import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
 import { useCart } from "@/store/cart";
+import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import type { Product } from "@/types/catalog";
 import styles from "./POS.module.css";
@@ -55,6 +57,7 @@ export const CatalogProductCard = memo(function CatalogProductCard({
 }: CatalogProductCardProps) {
   const { t } = useLanguage();
   const saleCurrency = useSellContext((state) => state.saleCurrency);
+  const showLastPurchaseCost = usePosConfig((state) => state.showLastPurchaseCost);
   const inCartQty = useCart(
     (state) => state.items.find((item) => item.productId === product.id)?.qty ?? 0,
   );
@@ -152,8 +155,18 @@ export const CatalogProductCard = memo(function CatalogProductCard({
         <div className={styles.cardCategory}>{categoryName}</div>
         <div className={styles.cardSku}>{productCodeLine(product)}</div>
         <div className={styles.cardFoot}>
-          <div className={styles.cardPrice}>
-            {formatAmountWithCurrency(product.price, saleCurrency)}
+          <div className={styles.cardPriceBlock}>
+            <div className={styles.cardPrice}>
+              {formatAmountWithCurrency(product.price, saleCurrency)}
+            </div>
+            {showLastPurchaseCost ? (
+              <div className={styles.cardCost}>
+                {t("stock.detail.table.cost", "Cost")}:{" "}
+                {product.last_purchase_cost != null
+                  ? formatCurrency(product.last_purchase_cost)
+                  : "—"}
+              </div>
+            ) : null}
           </div>
           <span
             className={clsx(styles.stockBadge, out && styles.stockOut, low && styles.stockLow)}

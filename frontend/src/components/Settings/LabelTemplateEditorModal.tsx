@@ -507,7 +507,7 @@ export function LabelTemplateEditorModal({ open, template, isNew, onClose, onSav
             </span>
             <p className={styles.templateMeta}>
               {
-                '{{formatNumber price}}  {{numberPart price 0 3}}  {{numberPart price -3}}  {{logoImg "Name"}}'
+                '{{formatNumber price}}  {{numberPart price 0 3}}  {{numberPart price -3}}  {{formatDate date "DD.MM.YYYY"}}  {{logoImg "Name"}}'
               }
             </p>
           </div>

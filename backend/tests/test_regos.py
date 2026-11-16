@@ -577,6 +577,7 @@ async def test_partners_create_edit_delete_mark(mock_regos: AsyncMock, client: A
         {"ok": True, "result": {"new_id": 16}},
         {"ok": True, "result": {"row_affected": 1}},
         {"ok": True, "result": {"row_affected": 1}},
+        {"ok": True, "result": {"row_affected": 1}},
     ]
 
     reg = await register_owner(client, email="partners-crud@test.com", company_name="Partners CRUD Co")
@@ -610,6 +611,14 @@ async def test_partners_create_edit_delete_mark(mock_regos: AsyncMock, client: A
     assert update.status_code == 200
     assert update.json()["row_affected"] == 1
 
+    clear_fields = await client.patch(
+        "/api/v1/regos/partners/16",
+        headers=headers,
+        json={"phones": None, "inn": None},
+    )
+    assert clear_fields.status_code == 200
+    assert clear_fields.json()["row_affected"] == 1
+
     delete_mark = await client.post(
         "/api/v1/regos/partners/16/delete-mark",
         headers=headers,
@@ -619,7 +628,13 @@ async def test_partners_create_edit_delete_mark(mock_regos: AsyncMock, client: A
 
     assert mock_regos.call_args_list[0][0][2] == "partner/add"
     assert mock_regos.call_args_list[1][0][2] == "partner/edit"
-    assert mock_regos.call_args_list[2][0][2] == "partner/deletemark"
+    assert mock_regos.call_args_list[2][0][2] == "partner/edit"
+    assert mock_regos.call_args_list[2][0][3] == {
+        "id": 16,
+        "phones": "",
+        "inn": "",
+    }
+    assert mock_regos.call_args_list[3][0][2] == "partner/deletemark"
 
 
 @patch("app.services.regos_partners.regos_async_api_request_for_company", new_callable=AsyncMock)

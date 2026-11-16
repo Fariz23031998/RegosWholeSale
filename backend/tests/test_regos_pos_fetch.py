@@ -58,6 +58,90 @@ async def test_resolve_cheque_session_code_fetches_session_code(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_resolve_cheque_session_context_returns_operating_cash_id(monkeypatch):
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        if endpoint == "doccashsession/get":
+            return {
+                "ok": True,
+                "result": [
+                    {
+                        "code": "17-0000004",
+                        "operating_cash_id": 12,
+                    }
+                ],
+            }
+        raise AssertionError(endpoint)
+
+    monkeypatch.setattr(
+        pos_fetch,
+        "regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    context = await pos_fetch.resolve_cheque_session_context(
+        None,
+        1,
+        {
+            "session_code": "17-0000004",
+            "session": "18c5b099-970c-4ab1-881a-02e1a919b94c",
+        },
+    )
+
+    assert context == {
+        "session_code": "17-0000004",
+        "operating_cash_id": 12,
+    }
+
+
+@pytest.mark.asyncio
+async def test_fetch_operating_cash_by_id(monkeypatch):
+    captured_payload: dict | None = None
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        nonlocal captured_payload
+        assert endpoint == "operatingcash/get"
+        captured_payload = request_data
+        return {
+            "ok": True,
+            "result": [{"id": 12, "description": "Main checkout"}],
+        }
+
+    monkeypatch.setattr(
+        pos_fetch,
+        "regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    operating_cash = await pos_fetch.fetch_operating_cash_by_id(None, 1, 12)
+
+    assert operating_cash == {"id": 12, "description": "Main checkout"}
+    assert captured_payload == {
+        "filters": [{"field": "id", "operator": "equal", "value": "12"}],
+        "limit": 1,
+        "offset": 0,
+    }
+    assert pos_fetch.operating_cash_description_text(operating_cash) == "Main checkout"
+
+
+@pytest.mark.asyncio
+async def test_fetch_operating_cash_by_id_failure_returns_none(monkeypatch):
+    from app.core.exceptions import AppError
+
+    async def fake_regos(session, company_id, endpoint, request_data, timeout_seconds=30):
+        raise AppError(502, "upstream", "UPSTREAM")
+
+    monkeypatch.setattr(
+        pos_fetch,
+        "regos_async_api_request_for_company",
+        fake_regos,
+    )
+
+    assert await pos_fetch.fetch_operating_cash_by_id(None, 1, 12) is None
+    assert pos_fetch.operating_cash_description_text(None) is None
+    assert pos_fetch.operating_cash_description_text({"description": "  "}) is None
+
+
+@pytest.mark.asyncio
 async def test_fetch_session_cheque_details_batches_ops_only(monkeypatch):
     captured_steps: list[dict] = []
     payment_calls: list[str] = []

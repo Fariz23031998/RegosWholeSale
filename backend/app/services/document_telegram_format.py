@@ -615,6 +615,34 @@ def _pos_session_code(cheque: dict[str, Any]) -> str:
     return ""
 
 
+def _append_operating_cash_line(
+    message_parts: list[str],
+    source: dict[str, Any],
+    lang: str,
+    *,
+    html: bool = False,
+) -> None:
+    operating_cash_id = source.get("operating_cash_id")
+    if operating_cash_id is None:
+        return
+
+    description = source.get("operating_cash_description")
+    if isinstance(description, str) and description.strip():
+        line = t(
+            "telegram.receipt.posOperatingCashNamed",
+            lang,
+            id=operating_cash_id,
+            description=description.strip(),
+        )
+    else:
+        line = t("telegram.receipt.posOperatingCash", lang, id=operating_cash_id)
+
+    if html:
+        message_parts.append(f"💰 {_escape_html(line)}")
+    else:
+        message_parts.append(f"💰 {line}")
+
+
 def format_pos_cheque_notification(
     cheque: dict[str, Any],
     operations: list[dict[str, Any]] | None,
@@ -653,6 +681,8 @@ def format_pos_cheque_notification(
         message_parts.append(
             f"🕐 {_escape_html(t('telegram.receipt.posSessionCode', lang, code=session_code))}"
         )
+
+    _append_operating_cash_line(message_parts, cheque, lang, html=True)
 
     cashier_name = _user_full_name(cheque.get("cashier"))
     if cashier_name:
@@ -781,11 +811,7 @@ def format_pos_session_notification(
         f"📄 *{t('telegram.receipt.documentNo', lang, code=doc_code)}*",
     ]
 
-    operating_cash_id = cash_session.get("operating_cash_id")
-    if operating_cash_id is not None:
-        message_parts.append(
-            f"💰 {t('telegram.receipt.posOperatingCash', lang, id=operating_cash_id)}"
-        )
+    _append_operating_cash_line(message_parts, cash_session, lang)
 
     start_date = cash_session.get("start_date")
     if start_date:

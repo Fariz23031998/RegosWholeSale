@@ -969,6 +969,7 @@
   "telegram.receipt.posSessionOpened": "Открытие кассовой смены",
   "telegram.receipt.posSessionClosed": "Закрытие кассовой смены",
   "telegram.receipt.posOperatingCash": "Касса: #{{id}}",
+  "telegram.receipt.posOperatingCashNamed": "Касса: #{{id}} — {{description}}",
   "telegram.receipt.posSessionOpenDate": "Открыта: {{date}}",
   "telegram.receipt.posSessionCloseDate": "Закрыта: {{date}}",
   "telegram.receipt.posSessionOpenedBy": "Открыл: {{name}}",

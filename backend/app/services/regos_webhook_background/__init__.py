@@ -256,11 +256,24 @@ async def process_pos_cheque(
 
             payments = await pos_fetch.fetch_cheque_payments(session, company_id, cheque_uuid)
 
-            session_code = await pos_fetch.resolve_cheque_session_code(
+            session_context = await pos_fetch.resolve_cheque_session_context(
                 session, company_id, cheque
             )
+            cheque_updates: dict[str, Any] = {}
+            session_code = session_context.get("session_code")
             if session_code:
-                cheque = {**cheque, "session_code": session_code}
+                cheque_updates["session_code"] = session_code
+            operating_cash_id = session_context.get("operating_cash_id")
+            if operating_cash_id is not None:
+                cheque_updates["operating_cash_id"] = operating_cash_id
+                operating_cash = await pos_fetch.fetch_operating_cash_by_id(
+                    session, company_id, operating_cash_id
+                )
+                description = pos_fetch.operating_cash_description_text(operating_cash)
+                if description:
+                    cheque_updates["operating_cash_description"] = description
+            if cheque_updates:
+                cheque = {**cheque, **cheque_updates}
 
             build_message = lambda lang, ch=cheque: fmt.format_pos_cheque_notification(
                 ch,
@@ -328,6 +341,18 @@ async def process_pos_session(
             )
             if not cash_session:
                 return
+
+            operating_cash_id = cash_session.get("operating_cash_id")
+            if operating_cash_id is not None:
+                operating_cash = await pos_fetch.fetch_operating_cash_by_id(
+                    session, company_id, operating_cash_id
+                )
+                description = pos_fetch.operating_cash_description_text(operating_cash)
+                if description:
+                    cash_session = {
+                        **cash_session,
+                        "operating_cash_description": description,
+                    }
 
             report_data = None
             if variant == "closed":

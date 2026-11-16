@@ -173,6 +173,7 @@ function SettingsPage() {
   const [zeroQuantity, setZeroQuantity] = useState(false);
   const [zeroPrice, setZeroPrice] = useState(false);
   const [allowOutOfStock, setAllowOutOfStock] = useState(false);
+  const [showLastPurchaseCost, setShowLastPurchaseCost] = useState(false);
   const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
   const [keypadUpdateDiscountedPriceOnly, setKeypadUpdateDiscountedPriceOnly] =
     useState(false);
@@ -378,6 +379,7 @@ function SettingsPage() {
     if (!res) return;
 
     setAllowOutOfStock(res.settings.allow_out_of_stock);
+    setShowLastPurchaseCost(res.settings.show_last_purchase_cost ?? false);
     setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
     setKeypadUpdateDiscountedPriceOnly(
       res.settings.keypad_update_discounted_price_only ?? false,
@@ -785,6 +787,27 @@ function SettingsPage() {
     }
   };
 
+  const handleShowLastPurchaseCostChange = async (checked: boolean) => {
+    if (!token || !canManageSettings) return;
+
+    setShowLastPurchaseCost(checked);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(
+        token,
+        { show_last_purchase_cost: checked },
+        cacheScope,
+      );
+      setShowLastPurchaseCost(res.settings.show_last_purchase_cost ?? false);
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setShowLastPurchaseCost(!checked);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
   const handleAutoOpenQtyKeypadChange = async (checked: boolean) => {
     if (!token || !canManageSettings) return;
 
@@ -1110,6 +1133,29 @@ function SettingsPage() {
                   checked={allowOutOfStock}
                   disabled={loadingPosSettings || savingPosSettings}
                   onChange={(e) => void handleAllowOutOfStockChange(e.target.checked)}
+                />
+                <span className={styles.slider} />
+              </span>
+            </label>
+
+            <label className={styles.row}>
+              <div>
+                <div className={styles.rowTitle}>
+                  {t("settings.pos.showLastPurchaseCost", "Show last purchase cost")}
+                </div>
+                <div className={styles.rowDesc}>
+                  {t(
+                    "settings.pos.showLastPurchaseCostDesc",
+                    "Show last purchase cost on Sell and Products catalog cards.",
+                  )}
+                </div>
+              </div>
+              <span className={styles.switch}>
+                <input
+                  type="checkbox"
+                  checked={showLastPurchaseCost}
+                  disabled={loadingPosSettings || savingPosSettings}
+                  onChange={(e) => void handleShowLastPurchaseCostChange(e.target.checked)}
                 />
                 <span className={styles.slider} />
               </span>

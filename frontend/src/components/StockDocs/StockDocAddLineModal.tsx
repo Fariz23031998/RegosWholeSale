@@ -700,7 +700,6 @@ export function StockDocAddLineModal({
   };
 
   const selectHit = (hit: StockItemSearchHit) => {
-    resetAll();
     onPick(hit);
   };
 

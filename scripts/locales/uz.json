@@ -969,6 +969,7 @@
   "telegram.receipt.posSessionOpened": "Kassa smenasi ochildi",
   "telegram.receipt.posSessionClosed": "Kassa smenasi yopildi",
   "telegram.receipt.posOperatingCash": "Kassa: #{{id}}",
+  "telegram.receipt.posOperatingCashNamed": "Kassa: #{{id}} — {{description}}",
   "telegram.receipt.posSessionOpenDate": "Ochilgan: {{date}}",
   "telegram.receipt.posSessionCloseDate": "Yopilgan: {{date}}",
   "telegram.receipt.posSessionOpenedBy": "Ochgan: {{name}}",

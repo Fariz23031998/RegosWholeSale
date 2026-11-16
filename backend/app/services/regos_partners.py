@@ -181,10 +181,7 @@ def _build_partner_payload(body: dict[str, Any], *, require_name: bool) -> dict[
     for field in text_fields:
         if field not in body:
             continue
-        value = body[field]
-        if value is None:
-            continue
-        text = _coerce_text(value)
+        text = _coerce_text(body[field])
         if field == "name":
             if not text:
                 if require_name:
@@ -193,8 +190,9 @@ def _build_partner_payload(body: dict[str, Any], *, require_name: bool) -> dict[
             payload["name"] = text
         elif text is not None:
             payload[field] = text
-        elif field == "name" and require_name:
-            raise bad_request("Partner name is required.", "REGOS_PARTNER_NAME_REQUIRED")
+        else:
+            # Explicit null/empty clears the field in Regos (omit = leave unchanged).
+            payload[field] = ""
 
     if require_name and "name" not in payload:
         raise bad_request("Partner name is required.", "REGOS_PARTNER_NAME_REQUIRED")

@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "template": {
+    "name": "58×40 mm Ravonak Express",
+    "is_default": false,
+    "paper": {
+      "width_mm": 58,
+      "height_mm": 40
+    },
+    "html": "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\" />\n</head>\n<body>\n  <div class=\"label\">\n    <div class=\"store\">RAVONAK EXPRESS MARKET</div>\n    <div class=\"name\">{{ name }}</div>\n    <div class=\"price\">\n      <span class=\"price-main\">{{numberPart price 0 -3}}</span><span class=\"price-tail\">{{numberPart price -3}}</span>\n    </div>\n    <div class=\"footer\">\n      <div class=\"barcode-wrap\">\n        <img class=\"barcode\" src=\"{{ barcode_src }}\" alt=\"\" />\n        <div class=\"barcode-text\">{{ barcode }}</div>\n      </div>\n      <div class=\"meta\">\n        <div class=\"sku\">{{ code }}</div>\n        <div class=\"date\">{{formatDate date \"DD.MM.YYYY\"}}</div>\n      </div>\n    </div>\n  </div>\n</body>\n</html>",
+    "css": "html, body {\n  margin: 0;\n  padding: 0;\n  font-family: Arial, Helvetica, sans-serif;\n  color: #000;\n}\n.label {\n  position: relative;\n  box-sizing: border-box;\n  width: 58mm;\n  height: 40mm;\n  overflow: hidden;\n}\n.store {\n  position: absolute;\n  top: 1.6mm;\n  left: 2.2mm;\n  right: 2.2mm;\n  font-size: 9px;\n  font-weight: 800;\n  line-height: 1.1;\n  letter-spacing: 0.04em;\n  text-align: center;\n  text-transform: uppercase;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n.name {\n  position: absolute;\n  top: 5.2mm;\n  left: 2.2mm;\n  right: 2.2mm;\n  font-size: 9.5px;\n  font-weight: 600;\n  font-style: italic;\n  line-height: 1.15;\n  max-height: 2.3em;\n  overflow: hidden;\n  text-align: center;\n}\n.price {\n  position: absolute;\n  top: 13mm;\n  left: 2mm;\n  right: 2mm;\n  font-weight: 900;\n  line-height: 0.95;\n  letter-spacing: 0.02em;\n  text-align: center;\n  white-space: nowrap;\n}\n.price-main {\n  font-size: 30px;\n}\n.price-tail {\n  font-size: 18px;\n  margin-left: 0.4mm;\n  vertical-align: baseline;\n}\n.footer {\n  position: absolute;\n  left: 2mm;\n  right: 2mm;\n  bottom: 1.4mm;\n  height: 12mm;\n}\n.barcode-wrap {\n  position: absolute;\n  left: 0;\n  top: 0;\n  bottom: 0;\n  width: 36mm;\n}\nimg.barcode {\n  position: absolute;\n  left: 0;\n  right: 0;\n  top: 0;\n  height: 9mm;\n  width: 100%;\n  max-width: 100%;\n  object-fit: fill;\n  object-position: center bottom;\n}\n.barcode-text {\n  position: absolute;\n  left: 0;\n  right: 0;\n  bottom: 0;\n  font-size: 7.5px;\n  font-weight: 600;\n  letter-spacing: 0.08em;\n  line-height: 1;\n  text-align: center;\n  white-space: nowrap;\n}\n.meta {\n  position: absolute;\n  right: 0.4mm;\n  top: 1.2mm;\n  width: 16mm;\n  text-align: left;\n  font-size: 9px;\n  font-weight: 700;\n  line-height: 1.25;\n}\n.sku {\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n.date {\n  margin-top: 0.6mm;\n  white-space: nowrap;\n}",
+    "logos": [],
+    "version": 1
+  }
+}

@@ -76,6 +76,9 @@ def _merge_pos_settings(
     if "allow_out_of_stock" in user_overrides:
         merged["allow_out_of_stock"] = bool(user_overrides["allow_out_of_stock"])
 
+    if "show_last_purchase_cost" in user_overrides:
+        merged["show_last_purchase_cost"] = bool(user_overrides["show_last_purchase_cost"])
+
     if "tendered_quick_amounts" in user_overrides:
         merged["tendered_quick_amounts"] = _normalize_tendered_quick_amounts(
             user_overrides["tendered_quick_amounts"]
@@ -122,6 +125,9 @@ def _apply_company_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> 
 
     if patch.get("allow_out_of_stock") is not None:
         updated["allow_out_of_stock"] = bool(patch["allow_out_of_stock"])
+
+    if patch.get("show_last_purchase_cost") is not None:
+        updated["show_last_purchase_cost"] = bool(patch["show_last_purchase_cost"])
 
     if patch.get("tendered_quick_amounts") is not None:
         updated["tendered_quick_amounts"] = _normalize_tendered_quick_amounts(
@@ -197,6 +203,9 @@ def _apply_user_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> dic
     if patch.get("allow_out_of_stock") is not None:
         updated["allow_out_of_stock"] = bool(patch["allow_out_of_stock"])
 
+    if patch.get("show_last_purchase_cost") is not None:
+        updated["show_last_purchase_cost"] = bool(patch["show_last_purchase_cost"])
+
     if patch.get("tendered_quick_amounts") is not None:
         updated["tendered_quick_amounts"] = _normalize_tendered_quick_amounts(
             patch["tendered_quick_amounts"]
@@ -231,6 +240,7 @@ def _normalize_company_pos_settings(raw: Any) -> dict[str, Any]:
     data = raw if isinstance(raw, dict) else {}
     return {
         "allow_out_of_stock": bool(data.get("allow_out_of_stock", False)),
+        "show_last_purchase_cost": bool(data.get("show_last_purchase_cost", False)),
         "tendered_quick_amounts": _normalize_tendered_quick_amounts(
             data.get("tendered_quick_amounts")
         ),

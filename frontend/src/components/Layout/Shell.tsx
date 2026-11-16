@@ -52,8 +52,8 @@ type NavLinkItem = {
   to: string;
   labelKey: string;
   icon: LucideIcon;
-  /** When omitted, the link is shown to every signed-in user. */
-  permission?: string;
+  /** When omitted, the link is shown to every signed-in user. String or any-of list. */
+  permission?: string | readonly string[];
 };
 
 type NavGroupItem = {
@@ -73,7 +73,13 @@ type NavItem = NavLinkItem | NavGroupItem;
 
 const NAV: NavItem[] = [
   { kind: "link", to: "/", labelKey: "nav.sell", icon: ShoppingCart, permission: "pos.access" },
-  { kind: "link", to: "/products", labelKey: "nav.products", icon: Tag, permission: "labels.print" },
+  {
+    kind: "link",
+    to: "/products",
+    labelKey: "nav.products",
+    icon: Tag,
+    permission: ["stock.item_info", "labels.print"],
+  },
   { kind: "link", to: "/sales", labelKey: "nav.sales", icon: Receipt, permission: "sales.read" },
   {
     kind: "group",
@@ -173,16 +179,23 @@ export function Shell() {
   const [stockOpen, setStockOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
   const sellContextHydrated = useSellContext((s) => s.hydrated);
-  const { can, canChangePosContext, canChangeWarehouse, canChangePriceType } = usePermissions();
+  const { can, canAny, canChangePosContext, canChangeWarehouse, canChangePriceType } =
+    usePermissions();
   const isSellPage = location.pathname === "/";
   const isProductsPage =
     location.pathname === "/products" || location.pathname.startsWith("/products/");
   const showSellContext = isSellPage && canChangePosContext() && sellContextHydrated;
   const showProductsContext =
     isProductsPage &&
-    can("labels.print") &&
+    canAny("stock.item_info", "labels.print") &&
     sellContextHydrated &&
     (canChangeWarehouse() || canChangePriceType());
+
+  const canAccessNav = (permission?: string | readonly string[]) => {
+    if (!permission) return true;
+    if (typeof permission === "string") return can(permission);
+    return canAny(...permission);
+  };
   const showCatalogViewToggle = (isSellPage || isProductsPage) && isCompactTopBar;
   const [openProductSettings, setOpenProductSettings] = useState<(() => void) | null>(null);
   const registerProductSettings = useCallback((open: (() => void) | null) => {
@@ -296,7 +309,7 @@ export function Shell() {
         <nav className={styles.sidebarNav} aria-label={t("nav.main", "Main")}>
           {NAV.map((item) => {
             if (item.kind === "link") {
-              if (item.permission && !can(item.permission)) return null;
+              if (!canAccessNav(item.permission)) return null;
               const active = isPathActive(location.pathname, item.to);
               const Icon = item.icon;
               return (

@@ -98,6 +98,7 @@ _PARTNER_PAY_DEBT = ("sales.write", "settings.manage", "pos.change_partner")
 _ITEM_CREATE = ("settings.manage", "stock.item_create")
 _ITEM_EDIT = ("settings.manage", "stock.item_edit")
 _ITEM_MUTATE = ("settings.manage", "stock.item_create", "stock.item_edit")
+_CATALOG_READ = ("pos.access", "labels.print", "stock.item_info")
 
 
 @router.get("/tokens/status", response_model=RegosTokenStatus)
@@ -278,7 +279,7 @@ async def get_regos_products(
     zero_price: bool | None = Query(default=None),
     sort_column: str | None = Query(default=None, max_length=64),
     sort_direction: str | None = Query(default=None, max_length=8),
-    current: CurrentUser = Depends(require_any_permission("pos.access", "labels.print")),
+    current: CurrentUser = Depends(require_any_permission(*_CATALOG_READ)),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogProductsResponse:
     await regos_defaults_service.assert_catalog_scope_allowed(
@@ -378,7 +379,7 @@ async def get_regos_products_by_ids(
     ids: str = Query(..., min_length=1, max_length=4000),
     warehouse_id: int | None = Query(default=None, ge=1),
     price_type_id: int | None = Query(default=None, ge=1),
-    current: CurrentUser = Depends(require_any_permission("pos.access", "labels.print")),
+    current: CurrentUser = Depends(require_any_permission(*_CATALOG_READ)),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogProductsResponse:
     await regos_defaults_service.assert_catalog_scope_allowed(
@@ -425,7 +426,7 @@ async def sync_products(
     since: str = Query(..., min_length=1, max_length=64),
     warehouse_id: int | None = Query(default=None, ge=1),
     price_type_id: int | None = Query(default=None, ge=1),
-    current: CurrentUser = Depends(require_permission("pos.access")),
+    current: CurrentUser = Depends(require_any_permission(*_CATALOG_READ)),
     session: AsyncSession = Depends(get_db),
 ) -> SyncProductsResponse:
     from datetime import datetime, timezone
@@ -533,7 +534,7 @@ async def sync_meta(
 
 @router.get("/product-groups", response_model=CatalogGroupsResponse)
 async def get_regos_product_groups(
-    current: CurrentUser = Depends(require_any_permission("pos.access", "labels.print")),
+    current: CurrentUser = Depends(require_any_permission(*_CATALOG_READ)),
     session: AsyncSession = Depends(get_db),
 ) -> CatalogGroupsResponse:
     data = await regos_groups_service.list_groups(session, current.company_id)

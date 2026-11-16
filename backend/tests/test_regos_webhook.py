@@ -92,9 +92,15 @@ SAMPLE_POS_CHEQUE = {
     "uuid": CHEQUE_UUID,
     "date": 1607608770,
     "code": "WEB-0000581",
+    "session": SESSION_UUID,
     "session_code": "WEB-0000077",
     "cashier": {"full_name": "John Kennedy"},
     "amount": 200.0,
+}
+
+SAMPLE_OPERATING_CASH = {
+    "id": 1,
+    "description": "Main checkout",
 }
 
 SAMPLE_POS_CHEQUE_OPS = [
@@ -776,6 +782,8 @@ def _fake_pos_regos(endpoint, request_data):
         return {"ok": True, "result": SAMPLE_POS_PAYMENTS}
     if endpoint == "doccashsession/get":
         return {"ok": True, "result": [SAMPLE_POS_SESSION]}
+    if endpoint == "operatingcash/get":
+        return {"ok": True, "result": [SAMPLE_OPERATING_CASH]}
     raise AssertionError(endpoint)
 
 
@@ -807,6 +815,7 @@ async def test_doc_cheque_closed_notifies_subscribers(client, monkeypatch):
             assert "Cash: 120" in payload["text"]
             assert "Card: 80" in payload["text"]
             assert "Total paid: 200" in payload["text"]
+            assert "Cash register: #1 — Main checkout" in payload["text"]
             return {"ok": True, "result": {"message_id": 1}}
         raise AssertionError(method)
 

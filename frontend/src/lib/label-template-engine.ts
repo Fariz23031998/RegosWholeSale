@@ -46,6 +46,71 @@ function isHelperOptions(value: unknown): boolean {
   return typeof value === "object" && value !== null && "hash" in value && "data" in value;
 }
 
+const DEFAULT_DATE_PATTERN = "DD.MM.YYYY";
+const PAD2 = (value: number) => String(value).padStart(2, "0");
+
+function partsFromYmd(year: number, month: number, day: number): { year: number; month: number; day: number } | null {
+  if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return null;
+  if (year < 1 || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const parsed = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(parsed.getTime()) ||
+    parsed.getFullYear() !== year ||
+    parsed.getMonth() !== month - 1 ||
+    parsed.getDate() !== day
+  ) {
+    return null;
+  }
+  return { year, month, day };
+}
+
+function parseLabelDate(value: unknown): { year: number; month: number; day: number } | null {
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return { year: value.getFullYear(), month: value.getMonth() + 1, day: value.getDate() };
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return { year: parsed.getFullYear(), month: parsed.getMonth() + 1, day: parsed.getDate() };
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+
+  const slash = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (slash) {
+    return partsFromYmd(Number(slash[3]), Number(slash[1]), Number(slash[2]));
+  }
+
+  const dotted = trimmed.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/);
+  if (dotted) {
+    return partsFromYmd(Number(dotted[3]), Number(dotted[2]), Number(dotted[1]));
+  }
+
+  const isoDay = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoDay) {
+    return partsFromYmd(Number(isoDay[1]), Number(isoDay[2]), Number(isoDay[3]));
+  }
+
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return { year: parsed.getFullYear(), month: parsed.getMonth() + 1, day: parsed.getDate() };
+}
+
+function formatLabelDateParts(
+  parts: { year: number; month: number; day: number },
+  pattern: string,
+): string {
+  return pattern
+    .replace(/YYYY/g, String(parts.year))
+    .replace(/DD/g, PAD2(parts.day))
+    .replace(/MM/g, PAD2(parts.month))
+    .replace(/D/g, String(parts.day))
+    .replace(/M/g, String(parts.month));
+}
+
 function registerHelpers(): void {
   if (helpersRegistered) return;
   helpersRegistered = true;
@@ -64,6 +129,16 @@ function registerHelpers(): void {
     const endIndex = toIndex(end);
     if (endIndex === null) return "";
     return digits.slice(startIndex, endIndex);
+  });
+
+  Handlebars.registerHelper("formatDate", (value: unknown, pattern: unknown) => {
+    const parts = parseLabelDate(value);
+    if (!parts) return "";
+    const patternText =
+      typeof pattern === "string" && pattern.trim() && !isHelperOptions(pattern)
+        ? pattern.trim()
+        : DEFAULT_DATE_PATTERN;
+    return formatLabelDateParts(parts, patternText);
   });
 
   Handlebars.registerHelper("logoImg", function (name: unknown, maxWidth: unknown) {

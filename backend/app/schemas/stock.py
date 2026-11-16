@@ -193,6 +193,12 @@ class StockItemOperationRow(BaseModel):
     price: float | None = None
 
 
+class StockItemOperationsResponse(BaseModel):
+    operations: list[StockItemOperationRow] = Field(default_factory=list)
+    next_offset: int = 0
+    total: int = 0
+
+
 class StockItemInfoResponse(BaseModel):
     item: StockItemSearchHit
     quantities: list[StockQuantityRow] = Field(default_factory=list)

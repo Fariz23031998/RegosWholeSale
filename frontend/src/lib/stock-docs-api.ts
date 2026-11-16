@@ -148,6 +148,17 @@ export type StockItemSearchHit = {
   quantity_common: number | null;
 };
 
+export type StockItemOperationRow = {
+  id: number | null;
+  datetime: number | null;
+  document_code: string | null;
+  document_type: string | null;
+  stock_id: number | null;
+  stock_name: string | null;
+  quantity: number | null;
+  price: number | null;
+};
+
 export type StockItemInfoResponse = {
   item: StockItemSearchHit;
   quantities: Array<{
@@ -161,17 +172,14 @@ export type StockItemInfoResponse = {
     price: number;
     currency_code: string | null;
   }>;
-  operations: Array<{
-    id: number | null;
-    datetime: number | null;
-    document_code: string | null;
-    document_type: string | null;
-    stock_id: number | null;
-    stock_name: string | null;
-    quantity: number | null;
-    price: number | null;
-  }>;
+  operations: StockItemOperationRow[];
   similar: StockItemSearchHit[];
+};
+
+export type StockItemOperationsResponse = {
+  operations: StockItemOperationRow[];
+  next_offset: number;
+  total: number;
 };
 
 export type StockDocumentsQuery = {
@@ -383,4 +391,34 @@ export async function fetchStockItemInfo(
   if (params.operation_limit != null) qs.set("operation_limit", String(params.operation_limit));
   const suffix = qs.toString() ? `?${qs}` : "";
   return apiRequest<StockItemInfoResponse>(`/api/v1/stock/item-info/${itemId}${suffix}`, { token });
+}
+
+export async function fetchItemOperations(
+  token: string,
+  itemId: number,
+  params: {
+    limit?: number;
+    offset?: number;
+    start_date?: number;
+    end_date?: number;
+    stock_ids?: number[];
+    all_stocks?: boolean;
+  } = {},
+): Promise<StockItemOperationsResponse> {
+  const qs = new URLSearchParams();
+  if (params.limit != null) qs.set("limit", String(params.limit));
+  if (params.offset != null) qs.set("offset", String(params.offset));
+  if (params.start_date != null) qs.set("start_date", String(params.start_date));
+  if (params.end_date != null) qs.set("end_date", String(params.end_date));
+  if (params.all_stocks !== undefined) qs.set("all_stocks", params.all_stocks ? "true" : "false");
+  if (params.stock_ids?.length) {
+    for (const stockId of params.stock_ids) {
+      qs.append("stock_ids", String(stockId));
+    }
+  }
+  const suffix = qs.toString() ? `?${qs}` : "";
+  return apiRequest<StockItemOperationsResponse>(
+    `/api/v1/stock/item-info/${itemId}/operations${suffix}`,
+    { token },
+  );
 }

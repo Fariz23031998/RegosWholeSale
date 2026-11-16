@@ -13,7 +13,11 @@ async def test_manager_can_configure_user_pos_settings(client: AsyncClient) -> N
     await client.patch(
         "/api/v1/company/settings/pos",
         headers=headers,
-        json={"allow_out_of_stock": True, "tendered_quick_amounts": [100.0, 200.0]},
+        json={
+            "allow_out_of_stock": True,
+            "show_last_purchase_cost": True,
+            "tendered_quick_amounts": [100.0, 200.0],
+        },
     )
 
     await client.post(
@@ -33,6 +37,7 @@ async def test_manager_can_configure_user_pos_settings(client: AsyncClient) -> N
     initial = await client.get(f"/api/v1/users/{employee_id}/settings/pos", headers=headers)
     assert initial.status_code == 200
     assert initial.json()["settings"]["allow_out_of_stock"] is True
+    assert initial.json()["settings"]["show_last_purchase_cost"] is True
     assert initial.json()["settings"]["tendered_quick_amounts"] == [100.0, 200.0]
 
     patched = await client.patch(
@@ -40,12 +45,14 @@ async def test_manager_can_configure_user_pos_settings(client: AsyncClient) -> N
         headers=headers,
         json={
             "allow_out_of_stock": False,
+            "show_last_purchase_cost": False,
             "tendered_quick_amounts": [10.0, 20.0],
             "default_category": {"mode": "featured", "group_id": None},
         },
     )
     assert patched.status_code == 200
     assert patched.json()["settings"]["allow_out_of_stock"] is False
+    assert patched.json()["settings"]["show_last_purchase_cost"] is False
     assert patched.json()["settings"]["tendered_quick_amounts"] == [10.0, 20.0]
     assert patched.json()["settings"]["default_category"]["mode"] == "featured"
 
@@ -64,6 +71,7 @@ async def test_manager_can_configure_user_pos_settings(client: AsyncClient) -> N
     cleared = await client.delete(f"/api/v1/users/{employee_id}/settings/pos", headers=headers)
     assert cleared.status_code == 200
     assert cleared.json()["settings"]["allow_out_of_stock"] is True
+    assert cleared.json()["settings"]["show_last_purchase_cost"] is True
     assert cleared.json()["settings"]["tendered_quick_amounts"] == [100.0, 200.0]
     assert cleared.json()["settings"]["allowed_product_group_ids"] == []
     assert cleared.json()["settings"]["allowed_partner_group_ids"] == []

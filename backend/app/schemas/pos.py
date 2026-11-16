@@ -19,6 +19,7 @@ class DefaultCategorySetting(BaseModel):
 
 class PosSettings(BaseModel):
     allow_out_of_stock: bool = False
+    show_last_purchase_cost: bool = False
     tendered_quick_amounts: list[float] = Field(
         default_factory=lambda: list(DEFAULT_TENDERED_QUICK_AMOUNTS)
     )
@@ -42,6 +43,7 @@ class PosSettings(BaseModel):
 
 class UserPosSettings(BaseModel):
     allow_out_of_stock: bool = False
+    show_last_purchase_cost: bool = False
     tendered_quick_amounts: list[float] = Field(
         default_factory=lambda: list(DEFAULT_TENDERED_QUICK_AMOUNTS)
     )
@@ -70,6 +72,7 @@ class UserPosSettingsResponse(BaseModel):
 
 class PosSettingsPatchRequest(BaseModel):
     allow_out_of_stock: bool | None = None
+    show_last_purchase_cost: bool | None = None
     tendered_quick_amounts: list[float] | None = None
     default_category: DefaultCategorySetting | None = None
     auto_open_qty_keypad: bool | None = None
@@ -89,6 +92,7 @@ class PosSettingsPatchRequest(BaseModel):
 
 class UserPosSettingsPatchRequest(BaseModel):
     allow_out_of_stock: bool | None = None
+    show_last_purchase_cost: bool | None = None
     tendered_quick_amounts: list[float] | None = None
     default_category: DefaultCategorySetting | None = None
     auto_open_qty_keypad: bool | None = None

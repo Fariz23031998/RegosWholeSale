@@ -1,8 +1,17 @@
+import type { SyntheticEvent } from "react";
 import clsx from "clsx";
-import { Check, Minus, Plus } from "lucide-react";
+import { Check, EllipsisVertical, History, Minus, Pencil, Plus } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
+import { formatCurrency } from "@/lib/format";
 import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
+import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import type { Product } from "@/types/catalog";
 import posStyles from "@/components/POS/POS.module.css";
@@ -17,6 +26,10 @@ type Props = {
   copies?: number;
   onCopiesChange?: (product: Product, copies: number) => void;
   onCopiesKeypad?: (product: Product) => void;
+  canEdit?: boolean;
+  canViewHistory?: boolean;
+  onEdit?: (product: Product) => void;
+  onHistory?: (product: Product) => void;
 };
 
 function productDisplayName(product: Product): string {
@@ -47,14 +60,20 @@ export function LabelProductCard({
   copies = 1,
   onCopiesChange,
   onCopiesKeypad,
+  canEdit = false,
+  canViewHistory = false,
+  onEdit,
+  onHistory,
 }: Props) {
   const { t } = useLanguage();
   const saleCurrency = useSellContext((state) => state.saleCurrency);
+  const showLastPurchaseCost = usePosConfig((state) => state.showLastPurchaseCost);
   const out = product.stock <= 0;
   const low = product.stock > 0 && product.stock < 10;
   const stockText = Number.isInteger(product.stock)
     ? t("pos.stockLeft", "{{n}} left", { n: product.stock })
     : t("pos.stockLeft", "{{n}} left", { n: product.stock.toFixed(2).replace(/\.?0+$/, "") });
+  const showMenu = (canEdit && onEdit != null) || (canViewHistory && onHistory != null);
   const check = selected ? (
     <span
       className={clsx(styles.check, styles.checkOn, hideCardImages && styles.checkInline)}
@@ -101,6 +120,67 @@ export function LabelProductCard({
       </div>
     ) : null;
 
+  const stopCardToggle = (event: SyntheticEvent) => {
+    event.stopPropagation();
+  };
+
+  const menu = showMenu ? (
+    <div
+      className={styles.cardMenu}
+      onPointerDown={stopCardToggle}
+      onMouseDown={stopCardToggle}
+      onClick={stopCardToggle}
+      onKeyDown={stopCardToggle}
+    >
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <button
+            type="button"
+            className={styles.cardMenuBtn}
+            aria-label={t("products.menu", "Product actions")}
+            title={t("products.menu", "Product actions")}
+            onPointerDown={stopCardToggle}
+            onMouseDown={stopCardToggle}
+            onClick={stopCardToggle}
+          >
+            <EllipsisVertical size={18} strokeWidth={2.5} />
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent
+          align="end"
+          sideOffset={4}
+          className={styles.cardMenuContent}
+          onCloseAutoFocus={(event) => event.preventDefault()}
+        >
+          {canEdit && onEdit ? (
+            <DropdownMenuItem
+              className={styles.cardMenuItem}
+              onSelect={(event) => {
+                event.preventDefault();
+                onEdit(product);
+              }}
+            >
+              <Pencil size={16} />
+              {t("stock.item.edit", "Edit product")}
+            </DropdownMenuItem>
+          ) : null}
+          {canViewHistory && onHistory ? (
+            <DropdownMenuItem
+              className={styles.cardMenuItem}
+              onSelect={(event) => {
+                event.preventDefault();
+                onHistory(product);
+              }}
+            >
+              <History size={16} />
+              {t("products.history", "History")}
+            </DropdownMenuItem>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  ) : null;
+
   return (
     <div
       className={clsx(
@@ -112,14 +192,23 @@ export function LabelProductCard({
       role="button"
       tabIndex={0}
       aria-pressed={selected}
-      onClick={() => onToggle(product)}
+      onClick={(event) => {
+        if ((event.target as HTMLElement | null)?.closest?.(`.${styles.cardMenu}`)) {
+          return;
+        }
+        onToggle(product);
+      }}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
+          if ((event.target as HTMLElement | null)?.closest?.(`.${styles.cardMenu}`)) {
+            return;
+          }
           event.preventDefault();
           onToggle(product);
         }
       }}
     >
+      {menu}
       {hideCardImages ? null : check}
       {hideCardImages ? null : (
         <div className={posStyles.cardMedia}>
@@ -134,8 +223,18 @@ export function LabelProductCard({
         <div className={posStyles.cardCategory}>{product.category}</div>
         <div className={posStyles.cardSku}>{productCodeLine(product)}</div>
         <div className={posStyles.cardFoot}>
-          <div className={posStyles.cardPrice}>
-            {formatAmountWithCurrency(product.price, saleCurrency)}
+          <div className={posStyles.cardPriceBlock}>
+            <div className={posStyles.cardPrice}>
+              {formatAmountWithCurrency(product.price, saleCurrency)}
+            </div>
+            {showLastPurchaseCost ? (
+              <div className={posStyles.cardCost}>
+                {t("stock.detail.table.cost", "Cost")}:{" "}
+                {product.last_purchase_cost != null
+                  ? formatCurrency(product.last_purchase_cost)
+                  : "—"}
+              </div>
+            ) : null}
           </div>
           <span
             className={clsx(

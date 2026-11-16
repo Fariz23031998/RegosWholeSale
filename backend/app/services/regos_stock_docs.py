@@ -1269,11 +1269,11 @@ async def get_item_info(
         {
             "key": "ops",
             "path": "ItemOperation/Get",
-            "payload": {
-                "item_ids": [item_id],
-                "limit": max(1, min(operation_limit, 1000)),
-                "sort_orders": [{"column": "Date", "direction": "desc"}],
-            },
+            "payload": _item_operation_payload(
+                item_id=item_id,
+                limit=max(1, min(operation_limit, 1000)),
+                offset=0,
+            ),
         },
     ]
     responses = await regos_batch_request_for_company(session, company_id, steps)
@@ -1340,28 +1340,9 @@ async def get_item_info(
         for row in ops_raw:
             if not isinstance(row, dict):
                 continue
-            stock = row.get("stock") if isinstance(row.get("stock"), dict) else {}
-            operations.append(
-                {
-                    "id": int(row["id"]) if row.get("id") is not None else None,
-                    "datetime": int(row["datetime"]) if row.get("datetime") is not None else (
-                        int(row["date"]) if row.get("date") is not None else None
-                    ),
-                    "document_code": (
-                        str(row.get("document_code") or row.get("code") or "")
-                        or None
-                    ),
-                    "document_type": (
-                        row.get("document_type")
-                        if isinstance(row.get("document_type"), str)
-                        else None
-                    ),
-                    "stock_id": stock.get("id") if isinstance(stock.get("id"), int) else None,
-                    "stock_name": stock.get("name") if isinstance(stock.get("name"), str) else None,
-                    "quantity": float(row["quantity"]) if row.get("quantity") is not None else None,
-                    "price": float(row["price"]) if row.get("price") is not None else None,
-                }
-            )
+            mapped = _map_item_operation(row)
+            if mapped is not None:
+                operations.append(mapped)
 
     similar: list[dict[str, Any]] = []
     articul = mapped_item.get("articul")
@@ -1390,4 +1371,189 @@ async def get_item_info(
         "operations": operations,
         "similar": similar,
         "raw": None,
+    }
+
+
+def _as_optional_int(value: Any) -> int | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, str) and value.strip().lstrip("-").isdigit():
+        try:
+            return int(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _as_optional_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
+
+
+def _document_type_name(row: dict[str, Any]) -> str | None:
+    for key in ("document_type_name", "doc_type_name"):
+        value = row.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    document_type = row.get("document_type")
+    if isinstance(document_type, str) and document_type.strip():
+        return document_type.strip()
+    if isinstance(document_type, dict):
+        name = document_type.get("name")
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return None
+
+
+def _document_code(row: dict[str, Any]) -> str | None:
+    for key in ("document_code", "doc_code", "code"):
+        value = row.get(key)
+        if value is None:
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _map_item_operation(row: dict[str, Any]) -> dict[str, Any] | None:
+    if not isinstance(row, dict):
+        return None
+    stock = row.get("stock") if isinstance(row.get("stock"), dict) else {}
+    firm = stock.get("firm") if isinstance(stock.get("firm"), dict) else {}
+    stock_id = _as_optional_int(stock.get("id"))
+    if stock_id is None:
+        stock_id = _as_optional_int(row.get("stock_id"))
+    stock_name = stock.get("name") if isinstance(stock.get("name"), str) else None
+    if not stock_name and isinstance(firm.get("name"), str):
+        stock_name = firm.get("name")
+    return {
+        "id": _as_optional_int(row.get("id")),
+        "datetime": _as_optional_int(row.get("datetime"))
+        if row.get("datetime") is not None
+        else _as_optional_int(row.get("date")),
+        "document_code": _document_code(row),
+        "document_type": _document_type_name(row),
+        "stock_id": stock_id,
+        "stock_name": stock_name,
+        "quantity": _as_optional_float(row.get("quantity")),
+        "price": _as_optional_float(row.get("price")),
+    }
+
+
+def _item_operation_payload(
+    *,
+    item_id: int,
+    limit: int,
+    offset: int,
+    start_date: int | None = None,
+    end_date: int | None = None,
+    stock_ids: list[int] | None = None,
+    all_stocks: bool = True,
+) -> dict[str, Any]:
+    filters: list[dict[str, Any]] = [
+        {
+            "field": "item_id",
+            "operator": "equal",
+            "value": str(item_id),
+        }
+    ]
+    if start_date is not None:
+        filters.append(
+            {
+                "field": "date",
+                "operator": "GreaterOrEqual",
+                "value": str(start_date),
+            }
+        )
+    if end_date is not None:
+        filters.append(
+            {
+                "field": "date",
+                "operator": "LessOrEqual",
+                "value": str(end_date),
+            }
+        )
+    if not all_stocks and stock_ids:
+        filters.append(
+            {
+                "field": "stock_id",
+                "operator": "In",
+                "value": ",".join(str(stock_id) for stock_id in stock_ids),
+            }
+        )
+    return {
+        "filters": filters,
+        "sort_orders": [{"column": "date", "direction": "DESC"}],
+        "limit": limit,
+        "offset": max(0, offset),
+    }
+
+
+async def list_item_operations(
+    session: AsyncSession,
+    company_id: int,
+    *,
+    item_id: int,
+    limit: int = 50,
+    offset: int = 0,
+    start_date: int | None = None,
+    end_date: int | None = None,
+    stock_ids: list[int] | None = None,
+    all_stocks: bool = True,
+) -> dict[str, Any]:
+    if item_id <= 0:
+        raise bad_request("Invalid item id.", "INVALID_ITEM_ID")
+
+    page_limit = max(1, min(limit, 200))
+    page_offset = max(0, offset)
+    response = await regos_async_api_request_for_company(
+        session,
+        company_id,
+        "ItemOperation/Get",
+        _item_operation_payload(
+            item_id=item_id,
+            limit=page_limit,
+            offset=page_offset,
+            start_date=start_date,
+            end_date=end_date,
+            stock_ids=stock_ids,
+            all_stocks=all_stocks,
+        ),
+    )
+    raw = response.get("result") or []
+    operations: list[dict[str, Any]] = []
+    if isinstance(raw, list):
+        for row in raw:
+            mapped = _map_item_operation(row) if isinstance(row, dict) else None
+            if mapped is not None:
+                operations.append(mapped)
+
+    total_raw = response.get("total")
+    total = _as_optional_int(total_raw)
+    if total is None:
+        total = page_offset + len(operations)
+
+    next_offset_raw = response.get("next_offset")
+    next_offset = _as_optional_int(next_offset_raw)
+    if next_offset is None:
+        computed = page_offset + len(operations)
+        next_offset = computed if computed < total and len(operations) > 0 else 0
+
+    return {
+        "operations": operations,
+        "next_offset": next_offset,
+        "total": total,
     }

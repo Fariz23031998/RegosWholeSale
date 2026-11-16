@@ -130,11 +130,13 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [allowedProductGroupIds, setAllowedProductGroupIds] = useState<number[]>([]);
   const [allowedPartnerGroupIds, setAllowedPartnerGroupIds] = useState<number[]>([]);
   const [companyAllowOutOfStock, setCompanyAllowOutOfStock] = useState(false);
+  const [companyShowLastPurchaseCost, setCompanyShowLastPurchaseCost] = useState(false);
   const [companyAutoOpenQtyKeypad, setCompanyAutoOpenQtyKeypad] = useState(false);
   const [companySearchTransliteration, setCompanySearchTransliteration] = useState(true);
   const [companySearchFuzzy, setCompanySearchFuzzy] = useState(true);
   const [companyTenderedAmounts, setCompanyTenderedAmounts] = useState("20, 50, 100");
   const [allowOutOfStock, setAllowOutOfStock] = useState(false);
+  const [showLastPurchaseCost, setShowLastPurchaseCost] = useState(false);
   const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
   const [searchTransliteration, setSearchTransliteration] = useState(true);
   const [searchFuzzy, setSearchFuzzy] = useState(true);
@@ -201,6 +203,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
         .then(([userPosRes, companyPosRes, groupsRes, partnerGroupsRes, userRegosRes, refOptions, labelRes]) => {
           if (cancelled) return;
           setAllowOutOfStock(userPosRes.settings.allow_out_of_stock);
+          setShowLastPurchaseCost(userPosRes.settings.show_last_purchase_cost ?? false);
           setAutoOpenQtyKeypad(userPosRes.settings.auto_open_qty_keypad);
           setSearchTransliteration(userPosRes.settings.search_transliteration ?? true);
           setSearchFuzzy(userPosRes.settings.search_fuzzy ?? true);
@@ -213,6 +216,9 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           setAllowedProductGroupIds(userPosRes.settings.allowed_product_group_ids ?? []);
           setAllowedPartnerGroupIds(userPosRes.settings.allowed_partner_group_ids ?? []);
           setCompanyAllowOutOfStock(companyPosRes.settings.allow_out_of_stock);
+          setCompanyShowLastPurchaseCost(
+            companyPosRes.settings.show_last_purchase_cost ?? false,
+          );
           setCompanyAutoOpenQtyKeypad(companyPosRes.settings.auto_open_qty_keypad);
           setCompanySearchTransliteration(
             companyPosRes.settings.search_transliteration ?? true,
@@ -320,6 +326,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
       const [posRes, regosRes] = await Promise.all([
         patchUserPosSettingsById(token, user.id, {
           allow_out_of_stock: allowOutOfStock,
+          show_last_purchase_cost: showLastPurchaseCost,
           auto_open_qty_keypad: autoOpenQtyKeypad,
           search_transliteration: searchTransliteration,
           search_fuzzy: searchFuzzy,
@@ -353,6 +360,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           : Promise.resolve(null),
       ]);
       setAllowOutOfStock(posRes.settings.allow_out_of_stock);
+      setShowLastPurchaseCost(posRes.settings.show_last_purchase_cost ?? false);
       setAutoOpenQtyKeypad(posRes.settings.auto_open_qty_keypad);
       setSearchTransliteration(posRes.settings.search_transliteration ?? true);
       setSearchFuzzy(posRes.settings.search_fuzzy ?? true);
@@ -392,6 +400,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
     try {
       const res = await clearUserPosSettings(token, user.id);
       setAllowOutOfStock(res.settings.allow_out_of_stock);
+      setShowLastPurchaseCost(res.settings.show_last_purchase_cost ?? false);
       setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
       setSearchTransliteration(res.settings.search_transliteration ?? true);
       setSearchFuzzy(res.settings.search_fuzzy ?? true);
@@ -585,6 +594,36 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
               <p className={styles.hint}>
                 {t("common.companyDefault", "Company default: {{value}}", {
                   value: companyAllowOutOfStock
+                    ? t("common.on", "on")
+                    : t("common.off", "off"),
+                })}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className={styles.field}>
+          <div className={styles.switchRow}>
+            <label className={styles.switch}>
+              <input
+                type="checkbox"
+                checked={showLastPurchaseCost}
+                disabled={busy}
+                onChange={(e) => setShowLastPurchaseCost(e.target.checked)}
+              />
+              <span className={styles.slider} />
+            </label>
+            <div>
+              <div className={styles.label}>
+                {t("users.settings.showLastPurchaseCost", "Show last purchase cost")}
+              </div>
+              <p className={styles.hint}>
+                {t(
+                  "users.settings.showLastPurchaseCostDesc",
+                  "Show last purchase cost on Sell and Products catalog cards.",
+                )}{" "}
+                {t("common.companyDefault", "Company default: {{value}}", {
+                  value: companyShowLastPurchaseCost
                     ? t("common.on", "on")
                     : t("common.off", "off"),
                 })}

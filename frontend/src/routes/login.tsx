@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { z } from "zod";
 import { LoginScreen } from "@/components/Auth/LoginScreen";
+import { getAppHomePath } from "@/lib/app-home";
 import { userNeedsBilling } from "@/lib/subscription";
 import { languageService } from "@/services/language";
 import { isAuthenticated, useAuth, waitForAuthHydration } from "@/store/auth";
@@ -18,10 +19,11 @@ export const Route = createFileRoute("/login")({
 
     await waitForAuthHydration();
     if (isAuthenticated()) {
-      if (userNeedsBilling(useAuth.getState().user)) {
+      const user = useAuth.getState().user;
+      if (userNeedsBilling(user)) {
         throw redirect({ to: "/billing" });
       }
-      throw redirect({ to: "/" });
+      throw redirect({ to: getAppHomePath(user?.permissions) });
     }
   },
   head: () => ({

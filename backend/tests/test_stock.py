@@ -375,6 +375,124 @@ async def test_item_info_search(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_item_operations_list(client: AsyncClient) -> None:
+    reg = await register_owner(client, email="stock-item-ops@test.com", company_name="Item Ops Co")
+    token = reg.json()["access_token"]
+
+    with patch(
+        "app.services.regos_stock_docs.regos_async_api_request_for_company",
+        new_callable=AsyncMock,
+    ) as mock_regos:
+        mock_regos.return_value = {
+            "ok": True,
+            "result": [
+                {
+                    "date": 1712345600,
+                    "document_code": "PUR-00007001",
+                    "document_type": {"id": 1, "name": "Purchase"},
+                    "document_type_name": "Purchase",
+                    "stock": {"id": 1, "name": "Main warehouse"},
+                    "quantity": 5,
+                    "price": 42000,
+                }
+            ],
+            "next_offset": 0,
+            "total": 1,
+        }
+        response = await client.get(
+            "/api/v1/stock/item-info/24/operations",
+            params={
+                "limit": 50,
+                "offset": 0,
+                "start_date": 1711929600,
+                "end_date": 1714521599,
+                "all_stocks": "false",
+                "stock_ids": [1, 2],
+            },
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["total"] == 1
+    assert body["next_offset"] == 0
+    assert len(body["operations"]) == 1
+    op = body["operations"][0]
+    assert op["document_type"] == "Purchase"
+    assert op["document_code"] == "PUR-00007001"
+    assert op["stock_name"] == "Main warehouse"
+    assert op["datetime"] == 1712345600
+    assert op["quantity"] == 5
+    assert op["price"] == 42000
+    call = mock_regos.await_args_list[0]
+    assert call.args[2] == "ItemOperation/Get"
+    payload = call.args[3]
+    assert payload["filters"] == [
+        {"field": "item_id", "operator": "equal", "value": "24"},
+        {"field": "date", "operator": "GreaterOrEqual", "value": "1711929600"},
+        {"field": "date", "operator": "LessOrEqual", "value": "1714521599"},
+        {"field": "stock_id", "operator": "In", "value": "1,2"},
+    ]
+    assert payload["limit"] == 50
+    assert payload["offset"] == 0
+
+
+@pytest.mark.asyncio
+async def test_item_operations_scoped_to_default_warehouse_without_change_permission(
+    client: AsyncClient,
+) -> None:
+    reg = await register_owner(
+        client, email="stock-item-ops-scoped@test.com", company_name="Item Ops Scoped Co"
+    )
+    owner_token = reg.json()["access_token"]
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+    await client.patch(
+        "/api/v1/company/settings",
+        headers=owner_headers,
+        json={
+            "settings": {
+                "regos_defaults": {
+                    "warehouse": {"id": 11, "name": "Main warehouse"},
+                    "price_type": {"id": 22, "name": "Retail"},
+                    "partner": {"id": 33, "name": "Walk-in"},
+                    "currency": {
+                        "id": 44,
+                        "name": "UZS",
+                        "code_chr": "UZS",
+                        "exchange_rate": 1,
+                    },
+                    "firm": {"id": 55, "name": "Main firm"},
+                }
+            }
+        },
+    )
+    await _create_employee(client, owner_token, login="item-ops-scoped")
+    emp_token = await _login_employee(client, "item-ops-scoped")
+
+    with patch(
+        "app.services.regos_stock_docs.regos_async_api_request_for_company",
+        new_callable=AsyncMock,
+    ) as mock_regos:
+        mock_regos.return_value = {
+            "ok": True,
+            "result": [],
+            "next_offset": 0,
+            "total": 0,
+        }
+        response = await client.get(
+            "/api/v1/stock/item-info/24/operations",
+            params={"all_stocks": "true", "limit": 50, "offset": 0},
+            headers={"Authorization": f"Bearer {emp_token}"},
+        )
+
+    assert response.status_code == 200, response.text
+    payload = mock_regos.await_args_list[0].args[3]
+    assert payload["filters"] == [
+        {"field": "item_id", "operator": "equal", "value": "24"},
+        {"field": "stock_id", "operator": "In", "value": "11"},
+    ]
+
+@pytest.mark.asyncio
 async def test_add_purchase_operation(client: AsyncClient) -> None:
     reg = await register_owner(client, email="stock-add-op@test.com", company_name="Add Op Co")
     token = reg.json()["access_token"]

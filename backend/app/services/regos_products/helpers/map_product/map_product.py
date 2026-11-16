@@ -33,6 +33,8 @@ def map_product(row: dict[str, Any]) -> dict[str, Any]:
         or str(regos_item_id)
     )
 
+    last_purchase_cost = row.get("last_purchase_cost")
+
     return {
         "id": str(regos_item_id),
         "regos_item_id": regos_item_id,
@@ -41,6 +43,9 @@ def map_product(row: dict[str, Any]) -> dict[str, Any]:
         else None,
         "name": name,
         "price": coerce_number(row.get("price")),
+        "last_purchase_cost": (
+            float(last_purchase_cost) if last_purchase_cost is not None else None
+        ),
         "category": category,
         "stock": coerce_number(quantity.get("allowed"), quantity.get("common")),
         "image": coerce_text(row.get("image_url")) or coerce_text(item.get("image_url")) or "",

@@ -4,6 +4,7 @@ import { AuthLayout } from "@/components/Auth/AuthLayout";
 import { SetInitialPasswordForm } from "@/components/Auth/SetInitialPasswordForm";
 import { LanguageSelector } from "@/components/LanguageSelector";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { getAppHomePath } from "@/lib/app-home";
 import { loginWithRegosSso } from "@/lib/auth-api";
 import {
   loadRegosOAuthSdk,
@@ -59,7 +60,7 @@ export function LoginScreen() {
     if (userNeedsBilling(user)) {
       void navigate({ to: "/billing" });
     } else {
-      void navigate({ to: "/" });
+      void navigate({ to: getAppHomePath(user?.permissions) });
     }
   };
 
@@ -103,7 +104,7 @@ export function LoginScreen() {
                 if (userNeedsBilling(nextUser)) {
                   void navigate({ to: "/billing" });
                 } else {
-                  void navigate({ to: "/" });
+                  void navigate({ to: getAppHomePath(nextUser?.permissions) });
                 }
               } catch (err) {
                 setError(formatAuthError(err));

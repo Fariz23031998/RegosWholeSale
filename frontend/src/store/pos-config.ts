@@ -18,6 +18,7 @@ type HydrateOptions = {
 
 type PosConfigState = {
   allowOutOfStock: boolean;
+  showLastPurchaseCost: boolean;
   tenderedQuickAmounts: number[];
   autoOpenQtyKeypad: boolean;
   keypadUpdateDiscountedPriceOnly: boolean;
@@ -43,6 +44,7 @@ function applyPosSettings(settings: UserPosSettings) {
   const amounts = settings.tendered_quick_amounts;
   return {
     allowOutOfStock: settings.allow_out_of_stock,
+    showLastPurchaseCost: settings.show_last_purchase_cost ?? false,
     tenderedQuickAmounts: amounts.length > 0 ? amounts : DEFAULT_TENDERED_QUICK_AMOUNTS,
     autoOpenQtyKeypad: settings.auto_open_qty_keypad,
     keypadUpdateDiscountedPriceOnly: settings.keypad_update_discounted_price_only ?? false,
@@ -62,6 +64,7 @@ function applyPosSettings(settings: UserPosSettings) {
 function defaultPosConfigState() {
   return {
     allowOutOfStock: false,
+    showLastPurchaseCost: false,
     tenderedQuickAmounts: DEFAULT_TENDERED_QUICK_AMOUNTS,
     autoOpenQtyKeypad: false,
     keypadUpdateDiscountedPriceOnly: false,

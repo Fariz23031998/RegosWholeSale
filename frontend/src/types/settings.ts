@@ -159,6 +159,7 @@ export type DefaultCategorySetting = {
 
 export type PosSettings = {
   allow_out_of_stock: boolean;
+  show_last_purchase_cost: boolean;
   tendered_quick_amounts: number[];
   default_category: DefaultCategorySetting;
   auto_open_qty_keypad: boolean;
@@ -182,6 +183,7 @@ export type PosSettingsResponse = {
 
 export type PosSettingsPatchRequest = {
   allow_out_of_stock?: boolean;
+  show_last_purchase_cost?: boolean;
   tendered_quick_amounts?: number[];
   default_category?: DefaultCategorySetting;
   auto_open_qty_keypad?: boolean;
@@ -201,6 +203,7 @@ export type PosSettingsPatchRequest = {
 
 export type UserPosSettings = {
   allow_out_of_stock: boolean;
+  show_last_purchase_cost: boolean;
   tendered_quick_amounts: number[];
   default_category: DefaultCategorySetting;
   auto_open_qty_keypad: boolean;
@@ -222,6 +225,7 @@ export type UserPosSettingsResponse = {
 
 export type UserPosSettingsPatchRequest = {
   allow_out_of_stock?: boolean;
+  show_last_purchase_cost?: boolean;
   tendered_quick_amounts?: number[];
   default_category?: DefaultCategorySetting;
   auto_open_qty_keypad?: boolean;

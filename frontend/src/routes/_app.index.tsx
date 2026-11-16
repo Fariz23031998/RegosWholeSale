@@ -1,13 +1,14 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { ProductCatalog } from "@/components/POS/ProductCatalog";
 import { CartPanel } from "@/components/Cart/CartPanel";
 import { languageService } from "@/services/language";
 import { usePermissions } from "@/hooks/use-permissions";
+import { canAccessSell, getAppHomePath } from "@/lib/app-home";
 import { connectCatalogEvents, shouldForceCatalogGapFill, subscribeCatalogEventsReconnect } from "@/lib/catalog-events";
 import { loadPaymentTypes } from "@/lib/payment-service";
-import { useAuth } from "@/store/auth";
+import { useAuth, waitForAuthHydration } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
 import { useCheckoutTabs } from "@/store/checkout-tabs";
@@ -18,6 +19,14 @@ import { subscribeAppResume } from "@/lib/app-resume";
 import styles from "@/components/POS/POS.module.css";
 
 export const Route = createFileRoute("/_app/")({
+  beforeLoad: async () => {
+    if (typeof window === "undefined") return;
+    await waitForAuthHydration();
+    const user = useAuth.getState().user;
+    if (!canAccessSell(user?.permissions)) {
+      throw redirect({ to: getAppHomePath(user?.permissions) });
+    }
+  },
   head: () => ({
     meta: [
       { title: languageService.t("meta.sellTitle", "Sell · Regos Optom") },
@@ -46,12 +55,14 @@ function PosPage() {
   const priceTypeId = useSellContext((s) => s.priceTypeId);
   const requestRefresh = useCatalog((s) => s.requestRefresh);
   const sellContextHydrated = useSellContext((s) => s.hydrated);
-  const { canChangePosContext, canChangeWarehouse, canChangePriceType } = usePermissions();
+  const { can, canChangePosContext, canChangeWarehouse, canChangePriceType } = usePermissions();
+  const canSell = can("pos.access");
   const canChangePosContextPerm = canChangePosContext();
   const canChangeWarehousePerm = canChangeWarehouse();
   const canChangePriceTypePerm = canChangePriceType();
   const catalogEventsRef = useRef<ReturnType<typeof connectCatalogEvents> | null>(null);
   const startupSyncDoneForScope = useRef<string | null>(null);
+  const { t } = useLanguage();
 
   useEffect(() => {
     void hydrateCatalogUi();
@@ -69,13 +80,14 @@ function PosPage() {
   }, [canChangePosContextPerm, hydrate, hydrateSellContext, token, user?.company_id, user?.id]);
 
   useEffect(() => {
-    if (!token || !user) {
+    if (!token || !user || !canSell) {
       resetCheckoutTabs();
       return;
     }
     if (!sellContextHydrated) return;
     void hydrateCheckoutTabs(user.id, user.company_id);
   }, [
+    canSell,
     hydrateCheckoutTabs,
     resetCheckoutTabs,
     sellContextHydrated,
@@ -84,14 +96,13 @@ function PosPage() {
   ]);
 
   useEffect(() => {
-    if (!token || !user?.company_id) return;
+    if (!token || !user?.company_id || !canSell) return;
     void loadPaymentTypes(token, user.company_id);
-  }, [token, user?.company_id]);
-
-  const { t } = useLanguage();
+  }, [canSell, token, user?.company_id]);
 
   useEffect(() => {
     if (
+      !canSell ||
       !token ||
       !user?.company_id ||
       warehouseId === null ||
@@ -152,6 +163,7 @@ function PosPage() {
       unsubscribeReconnect();
     };
   }, [
+    canSell,
     token,
     user?.company_id,
     warehouseId,
@@ -170,7 +182,7 @@ function PosPage() {
     catalogEventsRef.current?.close();
     catalogEventsRef.current = null;
 
-    if (!token || !user?.company_id || !sellContextHydrated) return;
+    if (!canSell || !token || !user?.company_id || !sellContextHydrated) return;
 
     catalogEventsRef.current = connectCatalogEvents(
       token,
@@ -207,6 +219,7 @@ function PosPage() {
   }, [
     canChangePriceTypePerm,
     canChangeWarehousePerm,
+    canSell,
     patchProducts,
     priceTypeId,
     queryClient,
@@ -217,6 +230,14 @@ function PosPage() {
     user?.company_id,
     warehouseId,
   ]);
+
+  if (!canSell) {
+    return (
+      <div className={styles.empty}>
+        {t("pos.forbidden", "You do not have permission to access the sell screen.")}
+      </div>
+    );
+  }
 
   return (
     <div className={styles.page}>

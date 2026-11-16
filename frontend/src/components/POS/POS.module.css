@@ -1372,6 +1372,16 @@
   font-size: 15px;
   color: var(--color-text);
 }
+.cardPriceBlock {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.cardCost {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+}
 .stockBadge {
   font-size: 11px;
   font-weight: 600;

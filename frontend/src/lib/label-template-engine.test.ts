@@ -42,6 +42,42 @@ describe("numberPart", () => {
   });
 });
 
+describe("formatDate", () => {
+  it("defaults to DD.MM.YYYY for label M/D/YYYY dates", () => {
+    expect(renderLabelSnippet("{{formatDate date}}", { date: "4/13/2023" })).toBe("13.04.2023");
+  });
+
+  it("formats with an explicit pattern", () => {
+    expect(renderLabelSnippet('{{formatDate date "DD.MM.YYYY"}}', { date: "4/13/2023" })).toBe(
+      "13.04.2023",
+    );
+    expect(renderLabelSnippet('{{formatDate date "MM/DD/YYYY"}}', { date: "4/13/2023" })).toBe(
+      "04/13/2023",
+    );
+    expect(renderLabelSnippet('{{formatDate date "YYYY-MM-DD"}}', { date: "4/13/2023" })).toBe(
+      "2023-04-13",
+    );
+    expect(renderLabelSnippet('{{formatDate date "D.M.YYYY"}}', { date: "4/13/2023" })).toBe(
+      "13.4.2023",
+    );
+  });
+
+  it("parses dotted and ISO day values", () => {
+    expect(renderLabelSnippet('{{formatDate date "YYYY-MM-DD"}}', { date: "13.04.2023" })).toBe(
+      "2023-04-13",
+    );
+    expect(renderLabelSnippet('{{formatDate date "DD.MM.YYYY"}}', { date: "2023-04-13" })).toBe(
+      "13.04.2023",
+    );
+  });
+
+  it("prints nothing for empty or invalid values", () => {
+    expect(renderLabelSnippet("{{formatDate date}}", { date: "" })).toBe("");
+    expect(renderLabelSnippet("{{formatDate date}}", { date: "not-a-date" })).toBe("");
+    expect(renderLabelSnippet("{{formatDate date}}", {})).toBe("");
+  });
+});
+
 describe("label template rendering", () => {
   it("substitutes fields and escapes text", () => {
     const html = renderLabelPage(

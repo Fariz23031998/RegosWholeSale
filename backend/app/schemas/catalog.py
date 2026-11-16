@@ -9,6 +9,7 @@ class CatalogProduct(BaseModel):
     group_id: int | None = Field(default=None, ge=1)
     name: str
     price: float = 0
+    last_purchase_cost: float | None = None
     category: str
     stock: float = 0
     image: str = ""

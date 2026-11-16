@@ -745,6 +745,140 @@ img.barcode {
 }`,
   },
   {
+    id: "label-58x40-ravonak",
+    name: "58×40 mm Ravonak Express",
+    paper: { width_mm: 58, height_mm: 40 },
+    html: wrapLabelHtml(`  <div class="label">
+    <div class="store">RAVONAK EXPRESS MARKET</div>
+    <div class="name">{{ name }}</div>
+    <div class="price">
+      <span class="price-main">{{numberPart price 0 -3}}</span><span class="price-tail">{{numberPart price -3}}</span>
+    </div>
+    <div class="footer">
+      <div class="barcode-wrap">
+        <img class="barcode" src="{{ barcode_src }}" alt="" />
+        <div class="barcode-text">{{ barcode }}</div>
+      </div>
+      <div class="meta">
+        <div class="sku">{{ code }}</div>
+        <div class="date">{{formatDate date "DD.MM.YYYY"}}</div>
+      </div>
+    </div>
+  </div>`),
+    css:
+      BASE_CSS +
+      `.label {
+  position: relative;
+  box-sizing: border-box;
+  width: 58mm;
+  height: 40mm;
+  overflow: hidden;
+}
+.store {
+  position: absolute;
+  top: 1.6mm;
+  left: 2.2mm;
+  right: 2.2mm;
+  font-size: 9px;
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: 0.04em;
+  text-align: center;
+  text-transform: uppercase;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.name {
+  position: absolute;
+  top: 5.2mm;
+  left: 2.2mm;
+  right: 2.2mm;
+  font-size: 9.5px;
+  font-weight: 600;
+  font-style: italic;
+  line-height: 1.15;
+  max-height: 2.3em;
+  overflow: hidden;
+  text-align: center;
+}
+.price {
+  position: absolute;
+  top: 13mm;
+  left: 2mm;
+  right: 2mm;
+  font-weight: 900;
+  line-height: 0.95;
+  letter-spacing: 0.02em;
+  text-align: center;
+  white-space: nowrap;
+}
+.price-main {
+  font-size: 30px;
+}
+.price-tail {
+  font-size: 18px;
+  margin-left: 0.4mm;
+  vertical-align: baseline;
+}
+.footer {
+  position: absolute;
+  left: 2mm;
+  right: 2mm;
+  bottom: 1.4mm;
+  height: 12mm;
+}
+.barcode-wrap {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 36mm;
+}
+img.barcode {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: 9mm;
+  width: 100%;
+  max-width: 100%;
+  object-fit: fill;
+  object-position: center bottom;
+}
+.barcode-text {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  font-size: 7.5px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+.meta {
+  position: absolute;
+  right: 0.4mm;
+  top: 1.2mm;
+  width: 16mm;
+  text-align: left;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+.sku {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.date {
+  margin-top: 0.6mm;
+  white-space: nowrap;
+}`,
+  },
+  {
     id: "label-60x40",
     name: "60×40 mm split price",
     paper: { width_mm: 60, height_mm: 40 },

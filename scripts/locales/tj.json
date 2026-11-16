@@ -969,6 +969,7 @@
   "telegram.receipt.posSessionOpened": "Кушодани сменаи касса",
   "telegram.receipt.posSessionClosed": "Пӯшидани сменаи касса",
   "telegram.receipt.posOperatingCash": "Касса: #{{id}}",
+  "telegram.receipt.posOperatingCashNamed": "Касса: #{{id}} — {{description}}",
   "telegram.receipt.posSessionOpenDate": "Кушода шуд: {{date}}",
   "telegram.receipt.posSessionCloseDate": "Пӯшида шуд: {{date}}",
   "telegram.receipt.posSessionOpenedBy": "Кушод: {{name}}",

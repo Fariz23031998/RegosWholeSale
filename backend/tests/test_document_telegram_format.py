@@ -546,6 +546,33 @@ def test_format_pos_cheque_notification_pay_debt():
     assert "Cash: 200" in message
 
 
+def test_format_pos_cheque_notification_includes_operating_cash_id():
+    message = format_pos_cheque_notification(
+        {**SAMPLE_POS_CHEQUE, "operating_cash_id": 12},
+        SAMPLE_POS_CHEQUE_OPS,
+        SAMPLE_POS_PAYMENTS,
+        variant="closed",
+        lang="en",
+    )
+    assert "Cash register: #12" in message
+    assert "—" not in message.split("Cash register: #12", 1)[1].split("\n", 1)[0]
+
+
+def test_format_pos_cheque_notification_includes_operating_cash_description():
+    message = format_pos_cheque_notification(
+        {
+            **SAMPLE_POS_CHEQUE,
+            "operating_cash_id": 12,
+            "operating_cash_description": "Main checkout",
+        },
+        SAMPLE_POS_CHEQUE_OPS,
+        SAMPLE_POS_PAYMENTS,
+        variant="closed",
+        lang="en",
+    )
+    assert "Cash register: #12 — Main checkout" in message
+
+
 def test_format_pos_session_notification_opened():
     message = format_pos_session_notification(
         SAMPLE_POS_SESSION,
@@ -554,9 +581,22 @@ def test_format_pos_session_notification_opened():
     )
     assert "*Cash session opened*" in message
     assert "WEB-0000004" in message
+    assert "Cash register: #1" in message
     assert "John Kennedy" in message
     assert "Opening amount: 10 000" in message
     assert "Closing amount" not in message
+
+
+def test_format_pos_session_notification_includes_operating_cash_description():
+    message = format_pos_session_notification(
+        {
+            **SAMPLE_POS_SESSION,
+            "operating_cash_description": "Main checkout",
+        },
+        variant="opened",
+        lang="en",
+    )
+    assert "Cash register: #1 — Main checkout" in message
 
 
 def test_format_pos_session_notification_closed():
@@ -566,6 +606,7 @@ def test_format_pos_session_notification_closed():
         lang="ru",
     )
     assert "*Закрытие кассовой смены*" in message
+    assert "Касса: #1" in message
     assert "Сумма при закрытии: 15 000" in message
 
 

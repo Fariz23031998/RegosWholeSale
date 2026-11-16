@@ -11,6 +11,7 @@ from app.schemas.stock import (
     StockDocumentUpdateRequest,
     StockDocumentsResponse,
     StockItemInfoResponse,
+    StockItemOperationsResponse,
     StockItemSearchResponse,
     StockMutationResponse,
     StockOperationsAddRequest,
@@ -111,6 +112,38 @@ async def get_item_info(
         operation_limit=operation_limit,
     )
     return StockItemInfoResponse(**data)
+
+
+@router.get("/item-info/{item_id}/operations", response_model=StockItemOperationsResponse)
+async def list_item_operations(
+    item_id: int,
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
+    start_date: int | None = Query(default=None),
+    end_date: int | None = Query(default=None),
+    stock_ids: list[int] | None = Query(default=None),
+    all_stocks: bool = Query(default=True),
+    current: CurrentUser = Depends(require_permission("stock.item_info")),
+    session: AsyncSession = Depends(get_db),
+) -> StockItemOperationsResponse:
+    scoped_stock_ids, scoped_all_stocks = await _scoped_stock_params(
+        session,
+        current,
+        stock_ids=stock_ids,
+        all_stocks=all_stocks,
+    )
+    data = await stock_docs_service.list_item_operations(
+        session,
+        current.company_id,
+        item_id=item_id,
+        limit=limit,
+        offset=offset,
+        start_date=start_date,
+        end_date=end_date,
+        stock_ids=scoped_stock_ids,
+        all_stocks=scoped_all_stocks,
+    )
+    return StockItemOperationsResponse(**data)
 
 
 @router.get("/{kind}/documents", response_model=StockDocumentsResponse)

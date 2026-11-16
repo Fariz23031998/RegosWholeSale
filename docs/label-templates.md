@@ -318,6 +318,22 @@ Useful for display prices. Raw `{{ price }}` stays ungrouped.
 
 Use this to split large prices across styled spans (e.g. large leading digits, small trailing zeros).
 
+### `formatDate`
+
+```handlebars
+{{formatDate date}}
+{{formatDate date "DD.MM.YYYY"}}
+{{formatDate date "MM/DD/YYYY"}}
+{{formatDate date "YYYY-MM-DD"}}
+```
+
+- Reformats the print `date` field (or another parseable date value) with a pattern.
+- Default pattern when omitted: `DD.MM.YYYY` (e.g. `4/13/2023` → `13.04.2023`).
+- Tokens: `YYYY`, `DD` / `D`, `MM` / `M` (padded / unpadded).
+- Accepts label `M/D/YYYY`, dotted `DD.MM.YYYY`, ISO day (`YYYY-MM-DD…`), or other `Date`-parseable strings.
+- Empty / unparseable → `""`.
+- Plain `{{ date }}` stays the backend format `M/D/YYYY`.
+
 ### `logoImg`
 
 ```handlebars
@@ -377,11 +393,11 @@ Logos are included in export/import JSON under `template.logos`.
 
 | Path | Behavior |
 |------|----------|
-| Editor preview / browser print / Print Service pages | Handlebars + helpers (`formatNumber`, `numberPart`, `logoImg`); CSS injected; logos on template context; each product → `.label-sheet` at `paper` size |
+| Editor preview / browser print / Print Service pages | Handlebars + helpers (`formatNumber`, `numberPart`, `formatDate`, `logoImg`); CSS injected; logos on template context; each product → `.label-sheet` at `paper` size |
 | Print Service protocol templates | Composed HTML (`html` + injected `css`); paper as `widthMm` / `heightMm` |
 | Backend placeholder expand | Simple `{{ token }}` replace for some server paths — `image_src` works there; `logoImg` does not (use frontend-rendered `html_pages`) |
 
-For agent-authored templates: stick to listed placeholders + `formatNumber` / `numberPart` / `logoImg`, and keep CSS in the `css` field.
+For agent-authored templates: stick to listed placeholders + `formatNumber` / `numberPart` / `formatDate` / `logoImg`, and keep CSS in the `css` field.
 
 Company limits: max **50** templates; HTML/CSS each ≤ **50 KB**; logos ≤ **200 KB** each (max **10**).
 
@@ -540,7 +556,7 @@ Upload a logo named `Primary` in the editor (or put it under `template.logos` in
 When asked to create or edit a label template:
 
 1. Confirm target size in mm → set both `paper` and CSS box to that size.
-2. Use only documented placeholders and helpers (`formatNumber`, `numberPart`, `logoImg`).
+2. Use only documented placeholders and helpers (`formatNumber`, `numberPart`, `formatDate`, `logoImg`).
 3. Separate HTML and CSS; produce importable `{ "version": 1, "template": { ... } }` when delivering a file.
 4. Include barcode via `{{ barcode_src }}` (QR via `{{ qr_src }}`, product photo via `{{ image_src }}` if requested).
 5. For company branding, upload logos and use `{{logoImg "Name"}}` (not remote logo URLs).

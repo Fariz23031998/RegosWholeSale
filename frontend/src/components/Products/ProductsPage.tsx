@@ -64,6 +64,8 @@ import { ChangePricesDialog } from "./ChangePricesDialog";
 import { LabelPrintDialog } from "./LabelPrintDialog";
 import { LabelPrintSettingsDialog } from "./LabelPrintSettingsDialog";
 import { LabelProductCard } from "./LabelProductCard";
+import { ProductEditDialog } from "./ProductEditDialog";
+import { ProductHistoryDialog } from "./ProductHistoryDialog";
 import styles from "./Products.module.css";
 
 const PAGE_SIZE = 60;
@@ -113,6 +115,9 @@ export function ProductsPage() {
   const canChangePriceTypePerm = canChangePriceType();
   const canEditPrintSettings = canManageOwnPrintSettings() || canManagePrintSettings();
   const canEditPrices = can("prices.write");
+  const canEditItem = can("stock.item_edit") || can("settings.manage");
+  const canViewHistory = can("stock.item_info");
+  const canAccessProducts = can("stock.item_info") || canPrintLabels();
   const canAccessUserSettings = can("users.manage");
   const token = useAuth((state) => state.accessToken);
   const user = useAuth((state) => state.user);
@@ -144,6 +149,8 @@ export function ProductsPage() {
   const [selectionHydrated, setSelectionHydrated] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
   const [pricesOpen, setPricesOpen] = useState(false);
+  const [editProduct, setEditProduct] = useState<Product | null>(null);
+  const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
   const [printConfirmOpen, setPrintConfirmOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsIntent, setSettingsIntent] = useState<"edit" | "print">("edit");
@@ -383,7 +390,7 @@ export function ProductsPage() {
     if (
       !token ||
       !hydrated ||
-      !canPrintLabels() ||
+      !canAccessProducts ||
       !catalogFiltersReady ||
       !catalogReady ||
       showSelectedOnly
@@ -433,7 +440,7 @@ export function ProductsPage() {
       cancelled = true;
     };
   }, [
-    canPrintLabels,
+    canAccessProducts,
     catalogFiltersReady,
     catalogOverrides.priceTypeId,
     catalogOverrides.warehouseId,
@@ -673,6 +680,37 @@ export function ProductsPage() {
     });
     setPricesOpen(false);
     setPrintConfirmOpen(true);
+  };
+
+  const handleProductEdited = (update: {
+    id: string;
+    name: string;
+    articul?: string;
+    barcode?: string;
+    barcode_list?: string;
+    code?: string;
+  }) => {
+    const patch = (product: Product): Product =>
+      product.id === update.id
+        ? {
+            ...product,
+            name: update.name,
+            articul: update.articul ?? product.articul,
+            barcode: update.barcode ?? product.barcode,
+            barcode_list: update.barcode_list ?? product.barcode_list,
+            code: update.code ?? product.code,
+            sku: update.articul || update.barcode || product.sku,
+          }
+        : product;
+    setProducts((current) => current.map(patch));
+    setSelectedById((current) => {
+      const existing = current.get(update.id);
+      if (!existing) return current;
+      const next = new Map(current);
+      next.set(update.id, patch(existing));
+      return next;
+    });
+    setEditProduct(null);
   };
 
   const toggleCatalogFilter = async (field: "zero_quantity" | "zero_price") => {
@@ -930,10 +968,13 @@ export function ProductsPage() {
     setSettingsOpen(false);
   }, []);
 
-  if (!canPrintLabels()) {
+  if (!canAccessProducts) {
     return (
       <div className={posStyles.empty}>
-        {t("products.forbidden", "You do not have permission to print product labels.")}
+        {t(
+          "products.forbidden",
+          "You do not have permission to view products or print labels.",
+        )}
       </div>
     );
   }
@@ -1124,6 +1165,10 @@ export function ProductsPage() {
                   copies={copiesById.get(product.id) ?? 1}
                   onCopiesChange={setProductCopies}
                   onCopiesKeypad={(item) => setKeypadProductId(item.id)}
+                  canEdit={canEditItem}
+                  canViewHistory={canViewHistory}
+                  onEdit={canEditItem ? setEditProduct : undefined}
+                  onHistory={canViewHistory ? setHistoryProduct : undefined}
                 />
               ))}
             </div>
@@ -1142,18 +1187,20 @@ export function ProductsPage() {
           >
             <CheckCheck size={22} />
           </button>
-          <button
-            type="button"
-            className={styles.actionBtn}
-            aria-label={t("products.print", "Print labels")}
-            title={t("products.selected", "{{n}} selected", {
-              n: selectedProducts.length || selectedIds.size,
-            })}
-            disabled={printing}
-            onClick={() => void printSelected()}
-          >
-            <Printer size={22} />
-          </button>
+          {canPrintLabels() ? (
+            <button
+              type="button"
+              className={styles.actionBtn}
+              aria-label={t("products.print", "Print labels")}
+              title={t("products.selected", "{{n}} selected", {
+                n: selectedProducts.length || selectedIds.size,
+              })}
+              disabled={printing}
+              onClick={() => void printSelected()}
+            >
+              <Printer size={22} />
+            </button>
+          ) : null}
           {canEditPrices ? (
             <button
               type="button"
@@ -1170,7 +1217,7 @@ export function ProductsPage() {
               <BadgeDollarSign size={22} />
             </button>
           ) : null}
-          {showSelectedOnly ? (
+          {canPrintLabels() && showSelectedOnly ? (
             <button
               type="button"
               className={styles.actionBtn}
@@ -1195,6 +1242,17 @@ export function ProductsPage() {
         priceTypeId={priceTypeId}
         onClose={() => setPricesOpen(false)}
         onSaved={handlePricesSaved}
+      />
+      <ProductEditDialog
+        open={editProduct != null}
+        product={editProduct}
+        onClose={() => setEditProduct(null)}
+        onSaved={handleProductEdited}
+      />
+      <ProductHistoryDialog
+        open={historyProduct != null}
+        product={historyProduct}
+        onClose={() => setHistoryProduct(null)}
       />
       <Modal
         open={printConfirmOpen}

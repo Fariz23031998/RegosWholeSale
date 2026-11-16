@@ -4,6 +4,7 @@ export type Product = {
   group_id?: number | null;
   name: string;
   price: number;
+  last_purchase_cost?: number | null;
   category: string;
   stock: number;
   image: string;

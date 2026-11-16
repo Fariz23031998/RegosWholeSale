@@ -17,6 +17,7 @@ async def test_user_pos_settings_default_category(client: AsyncClient) -> None:
         "group_id": None,
     }
     assert initial.json()["settings"]["allow_out_of_stock"] is False
+    assert initial.json()["settings"]["show_last_purchase_cost"] is False
     assert initial.json()["settings"]["auto_open_qty_keypad"] is False
     assert initial.json()["settings"]["keypad_update_discounted_price_only"] is False
     assert initial.json()["settings"]["search_transliteration"] is True
@@ -64,6 +65,7 @@ async def test_user_pos_settings_fallback_to_company(client: AsyncClient) -> Non
         headers=headers,
         json={
             "allow_out_of_stock": True,
+            "show_last_purchase_cost": True,
             "auto_open_qty_keypad": True,
             "search_transliteration": False,
             "search_fuzzy": False,
@@ -75,6 +77,7 @@ async def test_user_pos_settings_fallback_to_company(client: AsyncClient) -> Non
     effective = await client.get("/api/v1/me/settings/pos", headers=headers)
     assert effective.status_code == 200
     assert effective.json()["settings"]["allow_out_of_stock"] is True
+    assert effective.json()["settings"]["show_last_purchase_cost"] is True
     assert effective.json()["settings"]["auto_open_qty_keypad"] is True
     assert effective.json()["settings"]["search_transliteration"] is False
     assert effective.json()["settings"]["search_fuzzy"] is False
@@ -86,6 +89,7 @@ async def test_user_pos_settings_fallback_to_company(client: AsyncClient) -> Non
         headers=headers,
         json={
             "allow_out_of_stock": False,
+            "show_last_purchase_cost": False,
             "auto_open_qty_keypad": False,
             "search_transliteration": True,
             "search_fuzzy": True,
@@ -93,6 +97,7 @@ async def test_user_pos_settings_fallback_to_company(client: AsyncClient) -> Non
     )
     assert user_patch.status_code == 200
     assert user_patch.json()["settings"]["allow_out_of_stock"] is False
+    assert user_patch.json()["settings"]["show_last_purchase_cost"] is False
     assert user_patch.json()["settings"]["auto_open_qty_keypad"] is False
     assert user_patch.json()["settings"]["search_transliteration"] is True
     assert user_patch.json()["settings"]["search_fuzzy"] is True
