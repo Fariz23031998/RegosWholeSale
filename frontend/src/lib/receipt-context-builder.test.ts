@@ -83,6 +83,10 @@ describe("receipt context builder", () => {
     expect(context.kind).toBe("sale");
     expect(context.document.code).toBe("WS-10");
     expect(context.operations[0]?.item_code).toBe("SKU-7");
+    expect(context.operations[0]?.main_unit_name).toBe("шт");
+    expect(context.operations[0]?.main_unit_quantity).toBe(2);
+    expect(context.operations[0]?.secondary_unit_name).toBeNull();
+    expect(context.operations[0]?.secondary_unit_quantity).toBeNull();
     expect(context.operation_groups).toHaveLength(1);
     expect(context.totals.quantity).toBe(2);
     expect(context.payments[0]?.payment_type_name).toBe("Cash");
@@ -210,8 +214,110 @@ describe("receipt context builder", () => {
     expect(context.document.performed).toBe(false);
     expect(context.document.code).toBe("213");
     expect(context.operations[0]?.item_code).toBe("BP-42");
+    expect(context.operations[0]?.main_unit_name).toBe("шт");
+    expect(context.operations[0]?.main_unit_quantity).toBe(2);
+    expect(context.operations[0]?.secondary_unit_name).toBeNull();
+    expect(context.operations[0]?.secondary_unit_quantity).toBeNull();
     expect(context.payments).toHaveLength(0);
     expect(context.sale.total).toBe(89900);
+  });
+
+  it("exposes dual-unit fields when secondary unit is selected", () => {
+    const catalogProducts: Product[] = [
+      {
+        id: "p1",
+        regos_item_id: 42,
+        group_id: 9,
+        name: "Brake Pad Set",
+        price: 100,
+        category: "Brakes",
+        stock: 100,
+        image: "",
+        sku: "BP-42",
+        code: "BP-42",
+        unit_name: "шт",
+        secondary_unit_id: 2,
+        secondary_unit_name: "уп",
+        conversion_factor: 12,
+      },
+    ];
+
+    const context = buildPrintContextFromCartDraft({
+      items: [
+        {
+          productId: "p1",
+          regosItemId: 42,
+          name: "Brake Pad Set",
+          price: 100,
+          qty: 24,
+          enteredQty: 2,
+          selectedUnit: "secondary",
+          conversionFactor: 12,
+          selectedUnitName: "уп",
+          itemUnitName: "шт",
+        },
+      ],
+      totals: { subtotal: 2400, discount: 0, total: 2400 },
+      catalogProducts,
+      saleCurrency: null,
+    });
+
+    const line = context.operations[0];
+    expect(line?.quantity).toBe(2);
+    expect(line?.item_unit_name).toBe("уп");
+    expect(line?.main_unit_name).toBe("шт");
+    expect(line?.main_unit_quantity).toBe(24);
+    expect(line?.secondary_unit_name).toBe("уп");
+    expect(line?.secondary_unit_quantity).toBe(2);
+  });
+
+  it("exposes secondary qty when main unit is selected but conversion exists", () => {
+    const catalogProducts: Product[] = [
+      {
+        id: "p1",
+        regos_item_id: 42,
+        group_id: 9,
+        name: "Brake Pad Set",
+        price: 100,
+        category: "Brakes",
+        stock: 100,
+        image: "",
+        sku: "BP-42",
+        code: "BP-42",
+        unit_name: "шт",
+        secondary_unit_id: 2,
+        secondary_unit_name: "уп",
+        conversion_factor: 12,
+      },
+    ];
+
+    const context = buildPrintContextFromCartDraft({
+      items: [
+        {
+          productId: "p1",
+          regosItemId: 42,
+          name: "Brake Pad Set",
+          price: 100,
+          qty: 24,
+          enteredQty: 24,
+          selectedUnit: "main",
+          conversionFactor: 1,
+          selectedUnitName: "шт",
+          itemUnitName: "шт",
+        },
+      ],
+      totals: { subtotal: 2400, discount: 0, total: 2400 },
+      catalogProducts,
+      saleCurrency: null,
+    });
+
+    const line = context.operations[0];
+    expect(line?.quantity).toBe(24);
+    expect(line?.item_unit_name).toBe("шт");
+    expect(line?.main_unit_name).toBe("шт");
+    expect(line?.main_unit_quantity).toBe(24);
+    expect(line?.secondary_unit_name).toBe("уп");
+    expect(line?.secondary_unit_quantity).toBe(2);
   });
 
   it("uses listPrice for draft price2 when keypad preserves list price", () => {

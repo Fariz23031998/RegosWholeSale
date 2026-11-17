@@ -57,7 +57,11 @@ async def complete_checkout(
         **session_overrides,
     )
     defaults = await regos_defaults_service.enrich_checkout_defaults(
-        session, company_id, defaults, refresh=True
+        session,
+        company_id,
+        defaults,
+        refresh=True,
+        currency_id=session_overrides.get("currency_id"),
     )
     regos_defaults_service.validate_checkout_defaults(defaults)
 
@@ -228,7 +232,11 @@ async def postpone_sale(
         **session_overrides,
     )
     defaults = await regos_defaults_service.enrich_checkout_defaults(
-        session, company_id, defaults, refresh=True
+        session,
+        company_id,
+        defaults,
+        refresh=True,
+        currency_id=session_overrides.get("currency_id"),
     )
     regos_defaults_service.validate_checkout_defaults(defaults)
 
@@ -1079,7 +1087,11 @@ async def complete_wholesale_return(
             **session_overrides,
         )
     defaults = await regos_defaults_service.enrich_checkout_defaults(
-        session, company_id, defaults, refresh=True
+        session,
+        company_id,
+        defaults,
+        refresh=True,
+        currency_id=session_overrides.get("currency_id"),
     )
     if partner_override_id is not None:
         current_partner_id = defaults.get("partner", {}).get("id")
@@ -1091,7 +1103,11 @@ async def complete_wholesale_return(
                 partner_id=partner_override_id,
             )
             defaults = await regos_defaults_service.enrich_checkout_defaults(
-                session, company_id, defaults, refresh=True
+                session,
+                company_id,
+                defaults,
+                refresh=True,
+                currency_id=session_overrides.get("currency_id"),
             )
     regos_defaults_service.validate_checkout_defaults(defaults)
 
@@ -1380,7 +1396,26 @@ def _validate_checkout_cart(
         source_currency=source_currency,
         keypad_update_discounted_price_only=keypad_update_discounted_price_only,
     )
-    expected_total = round(subtotal - discount, 2)
+    # Line prices stay in price-type currency for Regos (it converts using the document
+    # exchange_rate). Payload total is already in document/sale currency.
+    converts = (
+        source_currency is not None
+        and document_currency is not None
+        and not same_currency(source_currency, document_currency)
+    )
+    if converts:
+        source_rate = parse_exchange_rate(source_currency.get("exchange_rate"))
+        document_rate = parse_exchange_rate(document_currency.get("exchange_rate"))
+        expected_total = round(
+            sum(
+                float(line["qty"])
+                * convert_between_rates(float(line["price"]), source_rate, document_rate)
+                for line in lines
+            ),
+            2,
+        )
+    else:
+        expected_total = round(subtotal - discount, 2)
     if abs(expected_total - total) > 0.02:
         raise bad_request(
             f"Checkout total {total} does not match expected {expected_total}.",
@@ -1389,14 +1424,52 @@ def _validate_checkout_cart(
     return lines, subtotal, discount, total
 
 
+async def _price_type_source_currency(
+    session: AsyncSession,
+    company_id: int,
+    defaults: dict[str, Any],
+) -> dict[str, Any] | None:
+    price_type = defaults.get("price_type")
+    if not isinstance(price_type, dict) or not isinstance(price_type.get("id"), int):
+        return None
+
+    nested = price_type.get("currency")
+    if isinstance(nested, dict) and isinstance(nested.get("id"), int):
+        if nested.get("exchange_rate") is not None:
+            return nested
+        currencies = await regos_defaults_service.fetch_currency_items_by_ids(
+            session, company_id, [int(nested["id"])]
+        )
+        resolved = currencies.get(int(nested["id"]))
+        return resolved or nested
+
+    try:
+        _price_type, currency = await regos_defaults_service._resolve_price_type_reference(
+            session, company_id, int(price_type["id"])
+        )
+    except AppError:
+        return None
+    return currency if isinstance(currency, dict) else None
+
+
 async def _resolve_wholesale_document_defaults(
     session: AsyncSession,
     company_id: int,
     defaults: dict[str, Any],
     payments_input: list[dict[str, Any]] | None,
 ) -> tuple[dict[str, Any], dict[str, Any] | None]:
-    del session, company_id, payments_input
-    return defaults, None
+    del payments_input
+    document_currency = (
+        defaults.get("currency") if isinstance(defaults.get("currency"), dict) else None
+    )
+    source_currency = await _price_type_source_currency(session, company_id, defaults)
+    if (
+        source_currency is None
+        or document_currency is None
+        or same_currency(source_currency, document_currency)
+    ):
+        return defaults, None
+    return defaults, source_currency
 
 
 def _nested_option_id(value: Any) -> int | None:
@@ -1608,19 +1681,11 @@ def _build_operation_lines(
     source_currency: dict[str, Any] | None = None,
     keypad_update_discounted_price_only: bool = False,
 ) -> list[dict[str, Any]]:
+    # Regos wholesaleoperation/add expects prices in the price-type currency. When the
+    # document currency differs, Regos converts using the document exchange_rate.
+    # Pre-converting into document currency makes Regos store 0.
+    del document_currency, source_currency
     discount_ratio = (discount / subtotal) if subtotal > 0 and discount > 0 else 0
-    document_rate = parse_exchange_rate(
-        document_currency.get("exchange_rate") if document_currency else None
-    )
-    if source_currency:
-        source_rate = parse_exchange_rate(source_currency.get("exchange_rate"))
-    else:
-        source_rate = document_rate
-    convert_prices = (
-        source_currency is not None
-        and document_currency is not None
-        and not same_currency(source_currency, document_currency)
-    )
 
     lines: list[dict[str, Any]] = []
     for item in items:
@@ -1633,15 +1698,11 @@ def _build_operation_lines(
         else:
             list_price = submitted_price
             actual_price = round(list_price * (1 - discount_ratio), 2)
-        if convert_prices:
-            list_price = convert_between_rates(list_price, source_rate, document_rate)
-            actual_price = convert_between_rates(actual_price, source_rate, document_rate)
         if actual_price <= 0 and list_price > 0:
             actual_price = list_price
         prices = wholesale_operation_price_fields(
             actual_price,
             list_price,
-            currency=document_currency,
         )
         lines.append(
             {
@@ -2145,6 +2206,10 @@ def _extract_session_overrides(
         value = payload.get("partner_id")
         if value is not None:
             overrides["partner_id"] = int(value)
+    if "pos.change_currency" in permissions:
+        value = payload.get("currency_id")
+        if value is not None:
+            overrides["currency_id"] = int(value)
     return overrides
 
 

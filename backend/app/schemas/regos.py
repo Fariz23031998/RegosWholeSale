@@ -46,6 +46,12 @@ class RegosDocPaymentSaleIdFieldResponse(BaseModel):
     created: bool = False
 
 
+class RegosItemSecondaryUnitFieldResponse(BaseModel):
+    configured: bool
+    field: RegosCustomField | None = None
+    created: bool = False
+
+
 class RegosPaymentLinkingResponse(BaseModel):
     mode: str
     sale_id_field_configured: bool

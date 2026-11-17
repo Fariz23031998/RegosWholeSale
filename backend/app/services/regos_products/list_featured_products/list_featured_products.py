@@ -108,6 +108,15 @@ async def list_featured_products(
                 by_id[p_id]["price"] = fresh_prices[p_id]
 
     products = [by_id[product_id] for product_id in page_ids if product_id in by_id]
+    if products:
+        from app.services import unit_conversions as conversions_service
+
+        conversions = await conversions_service.list_conversions(session, company_id)
+        conversions_service.merge_conversions_into_products(products, conversions)
+        await conversions_service.enrich_products_with_secondary_prices(
+            session, company_id, products
+        )
+
     next_offset = offset + limit if offset + limit < total else 0
 
     return {

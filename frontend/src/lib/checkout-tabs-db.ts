@@ -18,6 +18,7 @@ export type CheckoutTabData = {
   warehouseId?: number | null;
   priceTypeId?: number | null;
   partnerId?: number | null;
+  currencyId?: number | null;
   updatedAt: number;
 };
 

@@ -31,6 +31,7 @@ export type CheckoutRequest = {
   warehouse_id?: number;
   price_type_id?: number;
   partner_id?: number;
+  currency_id?: number;
 };
 
 export type CheckoutLineResponse = {
@@ -62,6 +63,7 @@ export type PostponeRequest = {
   warehouse_id?: number;
   price_type_id?: number;
   partner_id?: number;
+  currency_id?: number;
 };
 
 export type PostponeResponse = {
@@ -129,6 +131,14 @@ export type WholesaleOperationLine = {
   price: number;
   price2: number | null;
   amount: number | null;
+  /** Main (Regos) unit name — independent of cashier-selected unit. */
+  main_unit_name?: string | null;
+  /** Quantity in the main unit. */
+  main_unit_quantity?: number | null;
+  /** Secondary unit name when a conversion exists; otherwise null. */
+  secondary_unit_name?: string | null;
+  /** Quantity in the secondary unit when a conversion exists; otherwise null. */
+  secondary_unit_quantity?: number | null;
   item?: ReceiptOperationItem;
 };
 

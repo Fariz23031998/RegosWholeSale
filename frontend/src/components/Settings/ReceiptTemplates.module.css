@@ -446,6 +446,28 @@
   margin: var(--space-4) 0;
 }
 
+.serviceForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.serviceForm .hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.serviceForm input {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0 10px;
+}
+
 .compactBtn,
 .compactBtnSecondary {
   align-self: center;

@@ -41,6 +41,7 @@ import type {
   RegosDocPaymentSaleIdFieldResponse,
   RegosPaymentLinkingResponse,
   RegosReferenceOptionsResponse,
+  SecondaryUnitMode,
   VatCalculationType,
 } from "@/types/settings";
 import { getVatCalculationTypeOptions } from "@/types/settings";
@@ -49,6 +50,12 @@ import { ChevronRight, RefreshCw } from "lucide-react";
 import clsx from "clsx";
 import { fetchProductGroups } from "@/lib/catalog-api";
 import { fetchUnits, fetchTaxVats } from "@/lib/items-api";
+import {
+  deleteUnitConversion,
+  fetchUnitConversions,
+  upsertUnitConversion,
+  type UnitConversion,
+} from "@/lib/unit-conversions-api";
 import {
   defaultCategoryToSelectValue,
   selectValueToDefaultCategory,
@@ -69,6 +76,8 @@ const EMPTY_OPTIONS: RegosReferenceOptionsResponse = {
   payment_categories: [],
   refund_payment_categories: [],
   attached_users: [],
+  firms: [],
+  currencies: [],
 };
 
 type SettingsSectionId =
@@ -185,6 +194,16 @@ function SettingsPage() {
   const [postponeDocumentType, setPostponeDocumentType] =
     useState<PostponeDocumentType>("doc_wholesale");
   const [postponeOrderBooked, setPostponeOrderBooked] = useState(true);
+  const [secondaryUnitMode, setSecondaryUnitMode] =
+    useState<SecondaryUnitMode>("disabled");
+  const [unitConversions, setUnitConversions] = useState<UnitConversion[]>([]);
+  const [loadingUnitConversions, setLoadingUnitConversions] = useState(false);
+  const [savingUnitConversion, setSavingUnitConversion] = useState(false);
+  const [unitConversionError, setUnitConversionError] = useState("");
+  const [draftMainUnitId, setDraftMainUnitId] = useState(0);
+  const [draftSecondaryUnitId, setDraftSecondaryUnitId] = useState(0);
+  const [draftConversionFactor, setDraftConversionFactor] = useState("");
+  const [draftPriceTypeId, setDraftPriceTypeId] = useState(0);
   const [tasnifCreateOnBarcodeMiss, setTasnifCreateOnBarcodeMiss] = useState(false);
   const [tasnifDefaultGroupId, setTasnifDefaultGroupId] = useState<number | null>(null);
   const [tasnifDefaultUnitId, setTasnifDefaultUnitId] = useState<number | null>(null);
@@ -392,6 +411,7 @@ function SettingsPage() {
     setInternalBarcodePiecePrefix(res.settings.internal_barcode_piece_prefix ?? "23");
     setPostponeDocumentType(res.settings.postpone_document_type ?? "doc_wholesale");
     setPostponeOrderBooked(res.settings.postpone_order_booked ?? true);
+    setSecondaryUnitMode(res.settings.secondary_unit_mode ?? "disabled");
     setTasnifCreateOnBarcodeMiss(res.settings.tasnif_create_on_barcode_miss ?? false);
     setTasnifDefaultGroupId(res.settings.tasnif_default_group_id ?? null);
     setTasnifDefaultUnitId(res.settings.tasnif_default_unit_id ?? null);
@@ -404,6 +424,7 @@ function SettingsPage() {
       setProductGroups([]);
       setUnits([]);
       setTaxVats([]);
+      setUnitConversions([]);
       return;
     }
 
@@ -423,6 +444,18 @@ function SettingsPage() {
       })
       .catch(() => {
         if (!cancelled) setUnits([]);
+      });
+
+    setLoadingUnitConversions(true);
+    void fetchUnitConversions(token)
+      .then((list) => {
+        if (!cancelled) setUnitConversions(list);
+      })
+      .catch(() => {
+        if (!cancelled) setUnitConversions([]);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingUnitConversions(false);
       });
 
     void fetchTaxVats(token)
@@ -906,6 +939,98 @@ function SettingsPage() {
       setPostponeDocumentType(previous);
     } finally {
       setSavingPosSettings(false);
+    }
+  };
+
+  const handleSecondaryUnitModeChange = async (value: SecondaryUnitMode) => {
+    if (!token || !canManageSettings) return;
+
+    const previous = secondaryUnitMode;
+    setSecondaryUnitMode(value);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(token, { secondary_unit_mode: value }, cacheScope);
+      setSecondaryUnitMode(res.settings.secondary_unit_mode ?? "disabled");
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setSecondaryUnitMode(previous);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
+  const handleSaveUnitConversion = async () => {
+    if (!token || !canManageSettings) return;
+    if (!draftMainUnitId || !draftSecondaryUnitId) {
+      setUnitConversionError(
+        t(
+          "settings.pos.unitConversionUnitsRequired",
+          "Select both a main unit and a secondary unit.",
+        ),
+      );
+      return;
+    }
+    if (draftMainUnitId === draftSecondaryUnitId) {
+      setUnitConversionError(
+        t(
+          "settings.pos.unitConversionSameUnit",
+          "Secondary unit must differ from the main unit.",
+        ),
+      );
+      return;
+    }
+    const factor = Number(draftConversionFactor.trim().replace(",", "."));
+    if (!(factor > 0)) {
+      setUnitConversionError(
+        t(
+          "settings.pos.unitConversionFactorRequired",
+          "Enter how many main units equal one secondary unit.",
+        ),
+      );
+      return;
+    }
+
+    setSavingUnitConversion(true);
+    setUnitConversionError("");
+    try {
+      const saved = await upsertUnitConversion(token, {
+        main_unit_id: draftMainUnitId,
+        secondary_unit_id: draftSecondaryUnitId,
+        conversion_factor: factor,
+        price_type_id: draftPriceTypeId > 0 ? draftPriceTypeId : null,
+      });
+      setUnitConversions((prev) => {
+        const without = prev.filter(
+          (row) =>
+            !(
+              row.main_unit_id === saved.main_unit_id &&
+              row.secondary_unit_id === saved.secondary_unit_id
+            ),
+        );
+        return [...without, saved].sort((a, b) => a.id - b.id);
+      });
+      setDraftSecondaryUnitId(0);
+      setDraftConversionFactor("");
+      setDraftPriceTypeId(0);
+    } catch (err) {
+      setUnitConversionError(formatAuthError(err));
+    } finally {
+      setSavingUnitConversion(false);
+    }
+  };
+
+  const handleDeleteUnitConversion = async (conversionId: number) => {
+    if (!token || !canManageSettings) return;
+    setSavingUnitConversion(true);
+    setUnitConversionError("");
+    try {
+      const next = await deleteUnitConversion(token, conversionId);
+      setUnitConversions(next);
+    } catch (err) {
+      setUnitConversionError(formatAuthError(err));
+    } finally {
+      setSavingUnitConversion(false);
     }
   };
 
@@ -1410,6 +1535,230 @@ function SettingsPage() {
                   )}
                 </option>
               </select>
+            </div>
+
+            <div className={styles.fieldBlock}>
+              <div className={styles.rowTitle}>
+                {t("settings.pos.secondaryUnitMode", "Secondary units")}
+              </div>
+              <div className={styles.rowDesc}>
+                {t(
+                  "settings.pos.secondaryUnitModeDesc",
+                  "Control how secondary units are used when adding products on the Sell page.",
+                )}
+              </div>
+              <select
+                className={styles.select}
+                value={secondaryUnitMode}
+                disabled={loadingPosSettings || savingPosSettings}
+                onChange={(e) =>
+                  void handleSecondaryUnitModeChange(
+                    e.target.value as SecondaryUnitMode,
+                  )
+                }
+              >
+                <option value="use_secondary">
+                  {t(
+                    "settings.pos.secondaryUnitUseSecondary",
+                    "Use secondary unit by default",
+                  )}
+                </option>
+                <option value="ask">
+                  {t(
+                    "settings.pos.secondaryUnitAsk",
+                    "Ask which unit to use",
+                  )}
+                </option>
+                <option value="disabled">
+                  {t(
+                    "settings.pos.secondaryUnitDisabled",
+                    "Do not use secondary units",
+                  )}
+                </option>
+              </select>
+            </div>
+
+            <div className={styles.fieldBlock}>
+              <div className={styles.rowTitle}>
+                {t("settings.pos.unitConversions", "Unit conversions")}
+              </div>
+              <div className={styles.rowDesc}>
+                {t(
+                  "settings.pos.unitConversionsDesc",
+                  "Define how many main units equal one secondary unit (for example 1 package = 12 pieces). Products that use these units will convert automatically on Sell.",
+                )}
+              </div>
+
+              {loadingUnitConversions ? (
+                <p className={styles.rowDesc}>{t("common.loading", "Loading…")}</p>
+              ) : unitConversions.length === 0 ? (
+                <p className={styles.rowDesc}>
+                  {t(
+                    "settings.pos.unitConversionsEmpty",
+                    "No unit conversions configured yet.",
+                  )}
+                </p>
+              ) : (
+                <div style={{ display: "grid", gap: 8, marginBottom: 12 }}>
+                  {unitConversions.map((row) => {
+                    const mainName =
+                      row.main_unit_name ||
+                      units.find((u) => u.id === row.main_unit_id)?.name ||
+                      `#${row.main_unit_id}`;
+                    const secondaryName =
+                      row.secondary_unit_name ||
+                      units.find((u) => u.id === row.secondary_unit_id)?.name ||
+                      `#${row.secondary_unit_id}`;
+                    const priceTypeName =
+                      row.price_type_id != null
+                        ? options.price_types.find((pt) => pt.id === row.price_type_id)
+                            ?.name || `#${row.price_type_id}`
+                        : null;
+                    return (
+                      <div
+                        key={row.id}
+                        style={{
+                          display: "flex",
+                          gap: 8,
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          flexWrap: "wrap",
+                        }}
+                      >
+                        <span>
+                          {t(
+                            "settings.pos.unitConversionRow",
+                            "1 {{secondary}} = {{factor}} {{main}}",
+                            {
+                              secondary: secondaryName,
+                              factor: row.conversion_factor,
+                              main: mainName,
+                            },
+                          )}
+                          {priceTypeName
+                            ? ` · ${t(
+                                "settings.pos.unitConversionPriceTypeShort",
+                                "Price type: {{name}}",
+                                { name: priceTypeName },
+                              )}`
+                            : ""}
+                        </span>
+                        <button
+                          type="button"
+                          className={styles.saveBtn}
+                          disabled={savingUnitConversion}
+                          onClick={() => void handleDeleteUnitConversion(row.id)}
+                        >
+                          {t("common.delete", "Delete")}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className={styles.formGrid} style={{ marginTop: 8 }}>
+                <label className={styles.field}>
+                  <span className={styles.label}>
+                    {t("settings.pos.unitConversionMain", "Main unit")}
+                  </span>
+                  <select
+                    className={styles.select}
+                    value={draftMainUnitId || ""}
+                    disabled={savingUnitConversion || units.length === 0}
+                    onChange={(e) => setDraftMainUnitId(Number(e.target.value) || 0)}
+                  >
+                    <option value="">
+                      {t("settings.pos.tasnifDefaultNone", "Not set")}
+                    </option>
+                    {units.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.label}>
+                    {t("settings.pos.unitConversionSecondary", "Secondary unit")}
+                  </span>
+                  <select
+                    className={styles.select}
+                    value={draftSecondaryUnitId || ""}
+                    disabled={savingUnitConversion || units.length === 0}
+                    onChange={(e) =>
+                      setDraftSecondaryUnitId(Number(e.target.value) || 0)
+                    }
+                  >
+                    <option value="">
+                      {t("settings.pos.tasnifDefaultNone", "Not set")}
+                    </option>
+                    {units
+                      .filter((u) => u.id !== draftMainUnitId)
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
+                  </select>
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.label}>
+                    {t(
+                      "settings.pos.unitConversionFactor",
+                      "1 secondary = N main",
+                    )}
+                  </span>
+                  <input
+                    className={styles.input}
+                    type="text"
+                    inputMode="decimal"
+                    value={draftConversionFactor}
+                    disabled={savingUnitConversion}
+                    placeholder="12"
+                    onChange={(e) => setDraftConversionFactor(e.target.value)}
+                  />
+                </label>
+                <label className={styles.field}>
+                  <span className={styles.label}>
+                    {t(
+                      "settings.pos.unitConversionPriceType",
+                      "Price type (optional)",
+                    )}
+                  </span>
+                  <select
+                    className={styles.select}
+                    value={draftPriceTypeId || ""}
+                    disabled={savingUnitConversion}
+                    onChange={(e) => setDraftPriceTypeId(Number(e.target.value) || 0)}
+                  >
+                    <option value="">
+                      {t(
+                        "settings.pos.unitConversionPriceTypeNone",
+                        "Use sell context price type",
+                      )}
+                    </option>
+                    {options.price_types.map((pt) => (
+                      <option key={pt.id} value={pt.id}>
+                        {pt.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+              {unitConversionError ? (
+                <p className={styles.error}>{unitConversionError}</p>
+              ) : null}
+              <button
+                type="button"
+                className={styles.saveBtn}
+                disabled={savingUnitConversion || units.length === 0}
+                onClick={() => void handleSaveUnitConversion()}
+              >
+                {savingUnitConversion
+                  ? t("common.saving", "Saving…")
+                  : t("settings.pos.unitConversionSave", "Save conversion")}
+              </button>
             </div>
 
             {postponeDocumentType === "doc_order_from_partner" && (

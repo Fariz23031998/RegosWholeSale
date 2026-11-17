@@ -171,6 +171,12 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
         accessorFn: (op) => op.quantity,
         header: t("stock.detail.table.qty", "Qty"),
         meta: { align: "right", cellClassName: styles.right, headerClassName: styles.right },
+        cell: ({ row }) => {
+          const unit = row.original.item_unit_name?.trim();
+          return unit
+            ? `${row.original.quantity} ${unit}`
+            : String(row.original.quantity);
+        },
       },
     ];
     if (def.showCost) {
@@ -475,9 +481,12 @@ export function StockDocDetailPage({ kind, documentId }: Props) {
                           : op.price != null
                             ? formatCurrency(op.price * op.quantity)
                             : "—";
+                    const qtyLabel = op.item_unit_name?.trim()
+                      ? `${op.quantity} ${op.item_unit_name.trim()}`
+                      : String(op.quantity);
                     const metaParts = [
                       op.item_code || null,
-                      `${t("stock.detail.table.qty", "Qty")}: ${op.quantity}`,
+                      `${t("stock.detail.table.qty", "Qty")}: ${qtyLabel}`,
                       def.showCost
                         ? `${t("stock.detail.table.cost", "Cost")}: ${
                             op.cost != null ? formatCurrency(op.cost) : "—"

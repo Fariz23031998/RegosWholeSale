@@ -100,6 +100,21 @@ def test_build_operation_lines_falls_back_when_price2_missing() -> None:
     assert lines[0]["price2"] == 80
 
 
+def test_build_operation_lines_keeps_price_type_currency_for_regos() -> None:
+    """Regos converts price-type amounts using the document exchange_rate."""
+    uzs = {"id": 44, "name": "UZS", "code_chr": "UZS", "exchange_rate": 1}
+    usd = {"id": 2, "name": "USD", "code_chr": "USD", "exchange_rate": 12600}
+    lines = _build_operation_lines(
+        [{"regos_item_id": 1, "qty": 1, "price": 12600}],
+        0,
+        12600,
+        document_currency=usd,
+        source_currency=uzs,
+    )
+    assert lines[0]["price"] == 12600
+    assert lines[0]["price2"] == 12600
+
+
 def test_operative_operation_price_uses_document_currency_price() -> None:
     usd = {"id": 2, "name": "USD", "code_chr": "USD", "exchange_rate": 12600}
     assert operative_operation_price(35.0, 35.0, usd) == 35.0

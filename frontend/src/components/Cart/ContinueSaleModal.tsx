@@ -28,6 +28,7 @@ import {
   type WholesaleOperationLine,
 } from "@/lib/sales-api";
 import {
+  amountInPriceCurrency,
   listOperationPrice,
   operativeOperationPrice,
 } from "@/lib/currency-conversion";
@@ -47,7 +48,8 @@ const SALE_PERIOD_PRESETS: SalePeriodPreset[] = ["today", "week", "month", "all"
 function operationsToCartItems(
   operations: WholesaleOperationLine[],
   catalogProducts: Product[],
-  currency: RegosCurrencyOption | null | undefined,
+  documentCurrency: RegosCurrencyOption | null | undefined,
+  priceCurrency: RegosCurrencyOption | null | undefined,
   t: (key: string, fallback?: string, params?: Record<string, string | number>) => string,
 ): CartItem[] {
   return operations.map((op) => {
@@ -56,6 +58,8 @@ function operationsToCartItems(
       (product) =>
         product.regos_item_id === op.item_id || product.id === productId,
     );
+    const operative = operativeOperationPrice(op.price, op.price2, documentCurrency);
+    const list = listOperationPrice(op.price, op.price2, documentCurrency);
     return {
       productId,
       regosItemId: op.item_id,
@@ -63,9 +67,15 @@ function operationsToCartItems(
         op.item_name ??
         catalogProduct?.name ??
         t("sales.itemFallback", "Item #{{id}}", { id: op.item_id }),
-      price: operativeOperationPrice(op.price, op.price2, currency),
-      listPrice: listOperationPrice(op.price, op.price2, currency),
+      // Cart stores price-type currency; convert out of the postponed document currency.
+      price: amountInPriceCurrency(operative, priceCurrency, documentCurrency),
+      listPrice: amountInPriceCurrency(list, priceCurrency, documentCurrency),
       qty: op.quantity,
+      enteredQty: op.quantity,
+      selectedUnit: "main" as const,
+      conversionFactor: 1,
+      selectedUnitName: op.item_unit_name ?? catalogProduct?.unit_name ?? null,
+      selectedUnitType: catalogProduct?.unit_type ?? null,
       postponedQty: op.quantity,
       image: catalogProduct?.image ?? PRODUCT_FALLBACK_IMAGE,
       unitType: catalogProduct?.unit_type ?? null,
@@ -81,19 +91,32 @@ function operationsToCartItems(
 
 function discountFromOperations(
   operations: WholesaleOperationLine[],
-  currency: RegosCurrencyOption | null | undefined,
+  documentCurrency: RegosCurrencyOption | null | undefined,
+  priceCurrency: RegosCurrencyOption | null | undefined,
 ): {
   discountMode: DiscountMode;
   discountValue: number;
 } {
   const subtotal = operations.reduce(
     (sum, op) =>
-      sum + listOperationPrice(op.price, op.price2, currency) * op.quantity,
+      sum +
+      amountInPriceCurrency(
+        listOperationPrice(op.price, op.price2, documentCurrency),
+        priceCurrency,
+        documentCurrency,
+      ) *
+        op.quantity,
     0,
   );
   const total = operations.reduce(
     (sum, op) =>
-      sum + operativeOperationPrice(op.price, op.price2, currency) * op.quantity,
+      sum +
+      amountInPriceCurrency(
+        operativeOperationPrice(op.price, op.price2, documentCurrency),
+        priceCurrency,
+        documentCurrency,
+      ) *
+        op.quantity,
     0,
   );
   const discount = Math.max(0, +(subtotal - total).toFixed(2));
@@ -128,6 +151,9 @@ function applySellContextFromDocument(doc: WholesaleDocument): void {
   const priceTypeId = resolvePriceTypeIdFromDocument(doc);
   if (priceTypeId != null) {
     sellContext.setPriceTypeId(priceTypeId);
+  }
+  if (typeof doc.currency?.id === "number" && doc.currency.id > 0) {
+    sellContext.setSaleCurrencyId(doc.currency.id);
   }
 }
 
@@ -251,11 +277,19 @@ export function ContinueSaleModal({ open, onClose }: Props) {
         return;
       }
 
+      applySellContextFromDocument(doc);
+      const priceCurrency = useSellContext.getState().priceCurrency;
       const { discountMode, discountValue } = keypadUpdateDiscountedPriceOnly
         ? { discountMode: "percent" as const, discountValue: 0 }
-        : discountFromOperations(operations, doc.currency);
+        : discountFromOperations(operations, doc.currency, priceCurrency);
       restore({
-        items: operationsToCartItems(operations, catalogProducts, doc.currency, t),
+        items: operationsToCartItems(
+          operations,
+          catalogProducts,
+          doc.currency,
+          priceCurrency,
+          t,
+        ),
         discountMode,
         discountValue,
         postponedWholesaleDocId: doc.id,
@@ -263,7 +297,6 @@ export function ContinueSaleModal({ open, onClose }: Props) {
       });
       setPostponedWholesaleDocId(doc.id);
       setPostponedDocType(documentKind);
-      applySellContextFromDocument(doc);
       reset();
       onClose();
     } catch (err: unknown) {

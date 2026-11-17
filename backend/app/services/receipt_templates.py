@@ -10,10 +10,18 @@ from app.models import Company
 RECEIPT_TEMPLATES_KEY = "receipt_templates"
 VALID_FORMATS = {"80mm", "a4"}
 VALID_ENGINES = {"builtin", "html"}
+DEFAULT_RECEIPT_PRINTER_NAME = "Receipts"
 MAX_HTML_BYTES = 50_000
 MAX_CSS_BYTES = 20_000
+MAX_RENDERED_HTML_BYTES = 500_000
+MAX_PRINT_SERVICES = 20
 MAX_RECEIPT_TEMPLATE_LOGOS = 10
 MAX_RECEIPT_LOGO_BYTES = 200_000
+_HEAD_CLOSE_RE = re.compile(r"</head>", re.IGNORECASE)
+_DATA_IMAGE_RE = re.compile(
+    r"data:image/[a-zA-Z0-9.+-]+;base64,[A-Za-z0-9+/=\s]+",
+    re.IGNORECASE,
+)
 VALID_LOGO_MIME_PREFIXES = (
     "data:image/png",
     "data:image/jpeg",
@@ -108,6 +116,9 @@ async def patch_receipt_templates(
     if "default_template_id" in patch:
         current["default_template_id"] = patch["default_template_id"]
 
+    if patch.get("print") is not None:
+        current["print"] = _normalize_print_settings(patch["print"])
+
     current = _normalize_settings(current)
 
     settings = dict(company.settings or {})
@@ -115,6 +126,87 @@ async def patch_receipt_templates(
     company.settings = settings
     await session.flush()
     return current
+
+
+async def patch_receipt_print(
+    session: AsyncSession, company_id: int, patch: dict[str, Any]
+) -> dict[str, Any]:
+    current = await get_receipt_templates(session, company_id)
+    print_state = {
+        "printer_name": current["print"]["printer_name"],
+        "services": current["print"]["services"],
+    }
+    if patch.get("services") is not None:
+        print_state["services"] = patch["services"]
+    elif patch.get("printer_name") is not None:
+        services = [dict(item) for item in current["print"]["services"]]
+        for service in services:
+            if service.get("is_default"):
+                service["printer_name"] = patch["printer_name"]
+                service["name"] = patch["printer_name"]
+        print_state["services"] = services
+    print_state = _normalize_print_settings(print_state)
+    return await patch_receipt_templates(session, company_id, {"print": print_state})
+
+
+def find_template(settings: dict[str, Any], template_id: str | None) -> dict[str, Any]:
+    templates = settings.get("templates") or []
+    if not templates:
+        raise bad_request("No receipt templates are configured.", "RECEIPT_TEMPLATE_NOT_FOUND")
+    if template_id:
+        match = next((item for item in templates if item["id"] == template_id), None)
+        if match is None:
+            raise not_found("Receipt template not found.", "RECEIPT_TEMPLATE_NOT_FOUND")
+        return match
+    default_id = settings.get("default_template_id")
+    match = next((item for item in templates if item["id"] == default_id), None)
+    return match or templates[0]
+
+
+def protocol_templates(settings: dict[str, Any]) -> list[dict[str, Any]]:
+    templates: list[dict[str, Any]] = []
+    for item in settings.get("templates") or []:
+        fmt = str(item.get("format") or "80mm")
+        if fmt == "a4":
+            paper = {"widthMm": 210.0, "heightMm": 297.0, "orientation": "portrait"}
+        else:
+            paper = {"widthMm": 80.0, "heightMm": 297.0, "orientation": "portrait"}
+        html = ""
+        if item.get("engine") == "html":
+            html = compose_receipt_html(item.get("html") or "", item.get("css") or "")
+        templates.append(
+            {
+                "id": item["id"],
+                "kind": "receipt",
+                "version": 1,
+                "paper": paper,
+                "html": html,
+            }
+        )
+    return templates
+
+
+def compose_receipt_html(html: str, css: str) -> str:
+    markup = html or ""
+    sheet = (css or "").strip()
+    if not sheet:
+        return markup
+    style = f"<style>\n{sheet}\n</style>"
+    if _HEAD_CLOSE_RE.search(markup):
+        return _HEAD_CLOSE_RE.sub(style + "\n</head>", markup, count=1)
+    return f"{style}\n{markup}"
+
+
+def normalize_rendered_html(raw: Any) -> str:
+    if not isinstance(raw, str) or not raw.strip():
+        raise bad_request("Rendered document html is required.", "INVALID_DOCUMENT_HTML")
+    if len(raw.encode("utf-8")) > MAX_RENDERED_HTML_BYTES:
+        raise bad_request("Rendered document html exceeds size limit.", "DOCUMENT_HTML_TOO_LARGE")
+    scanned = _DATA_IMAGE_RE.sub("", raw)
+    for pattern, message in DANGEROUS_MARKUP_PATTERNS:
+        if pattern.search(scanned):
+            raise bad_request(message, "INVALID_RECEIPT_TEMPLATE_SCRIPT")
+    return raw
 
 
 def _seed_defaults(company_name: str) -> dict[str, Any]:
@@ -169,6 +261,7 @@ def _seed_defaults(company_name: str) -> dict[str, Any]:
             },
         ],
         "default_template_id": receipt_id,
+        "print": _normalize_print_settings(None),
     }
 
 
@@ -211,7 +304,83 @@ def _normalize_settings(raw: Any) -> dict[str, Any]:
     return {
         "templates": templates,
         "default_template_id": default_template_id,
+        "print": _normalize_print_settings(data.get("print")),
     }
+
+
+def _normalize_print_settings(raw: Any) -> dict[str, Any]:
+    data = raw if isinstance(raw, dict) else {}
+    services_raw = data.get("services")
+    if isinstance(services_raw, list) and services_raw:
+        services = _normalize_services(services_raw)
+    else:
+        services = _services_from_legacy(data.get("printer_name"))
+    default = next(item for item in services if item["is_default"])
+    return {
+        "printer_name": default["printer_name"],
+        "services": services,
+    }
+
+
+def _services_from_legacy(printer_name: Any) -> list[dict[str, Any]]:
+    name = _normalize_printer_name(printer_name)
+    return [
+        {
+            "id": str(uuid.uuid4()),
+            "name": name,
+            "printer_name": name,
+            "is_default": True,
+        }
+    ]
+
+
+def _normalize_services(raw: list[Any]) -> list[dict[str, Any]]:
+    if len(raw) > MAX_PRINT_SERVICES:
+        raise bad_request("Too many print services.", "TOO_MANY_PRINT_SERVICES")
+    normalized: list[dict[str, Any]] = []
+    seen_ids: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise bad_request("Each print service must be an object.", "INVALID_PRINT_SERVICE")
+        service_id = item.get("id")
+        if not isinstance(service_id, str) or not service_id.strip():
+            service_id = str(uuid.uuid4())
+        service_id = service_id.strip()
+        if service_id in seen_ids:
+            raise bad_request("Duplicate print service id.", "DUPLICATE_PRINT_SERVICE_ID")
+        seen_ids.add(service_id)
+        name = item.get("name")
+        if not isinstance(name, str) or not name.strip():
+            raise bad_request("Print service name is required.", "INVALID_PRINT_SERVICE")
+        name = name.strip()
+        if len(name) > 80:
+            raise bad_request("Print service name is too long.", "INVALID_PRINT_SERVICE")
+        printer_name = item.get("printer_name")
+        if not isinstance(printer_name, str) or not printer_name.strip():
+            raise bad_request("Printer name is required.", "INVALID_RECEIPT_PRINTER")
+        normalized.append(
+            {
+                "id": service_id,
+                "name": name,
+                "printer_name": _normalize_printer_name(printer_name),
+                "is_default": bool(item.get("is_default", False)),
+            }
+        )
+    chosen = next((index for index, item in enumerate(normalized) if item["is_default"]), 0)
+    for index, item in enumerate(normalized):
+        item["is_default"] = index == chosen
+    return normalized
+
+
+def _normalize_printer_name(raw: Any) -> str:
+    if raw is None:
+        return DEFAULT_RECEIPT_PRINTER_NAME
+    if not isinstance(raw, str) or not raw.strip():
+        raise bad_request("Printer name is required.", "INVALID_RECEIPT_PRINTER")
+    name = raw.strip()
+    if len(name) > 80:
+        raise bad_request("Printer name is too long.", "INVALID_RECEIPT_PRINTER")
+    return name
 
 
 def _normalize_templates(raw: Any) -> list[dict[str, Any]]:

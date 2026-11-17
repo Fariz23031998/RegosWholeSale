@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
@@ -19,8 +19,42 @@ import {
   loadPurchaseLineMarkup,
   savePurchaseLineMarkup,
 } from "@/lib/purchase-line-markup-db";
+import {
+  productHasSecondaryUnit,
+  toBaseQty,
+  toDisplayUnitMoney,
+  toEnteredQty,
+  toMainUnitMoney,
+  unitMetaForSelection,
+  type SecondaryUnitCapable,
+  type SelectedUnitKind,
+} from "@/lib/secondary-units";
 import { formatAuthError, useAuth } from "@/store/auth";
 import styles from "./StockDocs.module.css";
+
+function hitToUnitSource(hit: StockItemSearchHit): SecondaryUnitCapable {
+  return {
+    unit_name: hit.unit,
+    unit_type: hit.unit_type ?? (hit.unit_piece ? 1 : null),
+    secondary_unit_id: hit.secondary_unit_id,
+    secondary_unit_name: hit.secondary_unit_name,
+    secondary_unit_type: hit.secondary_unit_type,
+    conversion_factor: hit.conversion_factor,
+  };
+}
+
+/** Rescale a cost/price string between unit factors; leave empty/invalid alone. */
+function rescaleMoneyField(
+  value: string,
+  fromFactor: number,
+  toFactor: number,
+): string {
+  if (!value.trim()) return value;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  const main = toMainUnitMoney(n, fromFactor);
+  return String(toDisplayUnitMoney(main, toFactor));
+}
 
 type Props = {
   open: boolean;
@@ -60,6 +94,7 @@ export function StockDocEditLineModal({
   const focusedGenRef = useRef(0);
 
   const [qty, setQty] = useState("1");
+  const [selectedUnit, setSelectedUnit] = useState<SelectedUnitKind>("main");
   const [cost, setCost] = useState("");
   const [markup, setMarkup] = useState("");
   const [price, setPrice] = useState("");
@@ -67,6 +102,15 @@ export function StockDocEditLineModal({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [focusGen, setFocusGen] = useState(0);
+
+  const unitSource = useMemo(
+    () => (hit ? hitToUnitSource(hit) : null),
+    [hit],
+  );
+  const canChooseUnit = Boolean(unitSource && productHasSecondaryUnit(unitSource));
+  const unitMeta = unitSource
+    ? unitMetaForSelection(unitSource, selectedUnit)
+    : { conversionFactor: 1, selectedUnitName: null, selectedUnitType: null, unitType: null };
 
   const fieldOrder: LineField[] = [
     "qty",
@@ -84,6 +128,7 @@ export function StockDocEditLineModal({
       hit.last_purchase_cost != null ? String(hit.last_purchase_cost) : "";
     const nextPrice = hit.price != null ? String(hit.price) : "";
     setQty("1");
+    setSelectedUnit("main");
     setCost(nextCost);
     setMarkup("");
     setPrice(nextPrice);
@@ -123,9 +168,32 @@ export function StockDocEditLineModal({
     return () => cancelAnimationFrame(id);
   }, [open, hit, focusGen, qty]);
 
+  const selectUnit = (next: SelectedUnitKind) => {
+    if (!unitSource || next === selectedUnit) return;
+    const entered = Number(qty);
+    const currentMeta = unitMetaForSelection(unitSource, selectedUnit);
+    const nextMeta = unitMetaForSelection(unitSource, next);
+    if (Number.isFinite(entered) && entered > 0) {
+      const base = toBaseQty(entered, currentMeta.conversionFactor);
+      setQty(String(toEnteredQty(base, nextMeta.conversionFactor)));
+    }
+    setCost((prev) =>
+      rescaleMoneyField(prev, currentMeta.conversionFactor, nextMeta.conversionFactor),
+    );
+    setPrice((prev) =>
+      rescaleMoneyField(prev, currentMeta.conversionFactor, nextMeta.conversionFactor),
+    );
+    setSelectedUnit(next);
+  };
+
   const submit = async () => {
     if (!token || busy || !hit) return;
-    const quantity = Number(qty);
+    const enteredQty = Number(qty);
+    if (!Number.isFinite(enteredQty) || enteredQty <= 0) {
+      setError(t("stock.errors.invalidQty", "Enter a valid quantity"));
+      return;
+    }
+    const quantity = toBaseQty(enteredQty, unitMeta.conversionFactor);
     if (!Number.isFinite(quantity) || quantity <= 0) {
       setError(t("stock.errors.invalidQty", "Enter a valid quantity"));
       return;
@@ -158,19 +226,39 @@ export function StockDocEditLineModal({
           vat_value: hit.vat_value ?? 0,
         };
         if (def.editableCost) {
-          entry.cost = cost ? Number(cost) : (hit.last_purchase_cost ?? 0);
+          if (cost) {
+            const raw = Number(cost);
+            entry.cost = Number.isFinite(raw)
+              ? toMainUnitMoney(raw, unitMeta.conversionFactor)
+              : 0;
+          } else {
+            // Catalog fallback is already per main unit.
+            entry.cost = hit.last_purchase_cost ?? 0;
+          }
         }
         if (def.showPrice) {
-          const p = price ? Number(price) : (hit.price ?? 0);
+          let p: number;
+          if (price) {
+            const raw = Number(price);
+            p = Number.isFinite(raw)
+              ? toMainUnitMoney(raw, unitMeta.conversionFactor)
+              : 0;
+          } else {
+            // Catalog fallback is already per main unit.
+            p = hit.price ?? 0;
+          }
           if (p > 0) entry.price = p;
         }
         operation = entry;
       }
       await addStockOperations(token, kind, [operation]);
+      const toastQty = unitMeta.selectedUnitName
+        ? `${enteredQty} ${unitMeta.selectedUnitName}`
+        : String(enteredQty);
       toast.success(
         t("stock.toast.lineAdded", "Added {{name}} × {{qty}}", {
           name: truncateToastName(hit.name),
-          qty: quantity,
+          qty: toastQty,
         }),
       );
       onAdded();
@@ -259,8 +347,44 @@ export function StockDocEditLineModal({
                 {hit.barcode ? ` · ${hit.barcode}` : ""}
               </div>
             </div>
+            {canChooseUnit && unitSource ? (
+              <div className={`${styles.formField} ${styles.unitChoiceField}`}>
+                <label>{t("pos.unitChoice.title", "Choose unit")}</label>
+                <div className={styles.unitChoice} role="group">
+                  <button
+                    type="button"
+                    className={`${styles.unitBtn} ${
+                      selectedUnit === "main" ? styles.unitBtnActive : ""
+                    }`}
+                    onClick={() => selectUnit("main")}
+                    disabled={busy}
+                    tabIndex={-1}
+                  >
+                    {unitSource.unit_name?.trim() ||
+                      t("pos.unitChoice.main", "Main unit")}
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.unitBtn} ${
+                      selectedUnit === "secondary" ? styles.unitBtnActive : ""
+                    }`}
+                    onClick={() => selectUnit("secondary")}
+                    disabled={busy}
+                    tabIndex={-1}
+                  >
+                    {unitSource.secondary_unit_name?.trim() ||
+                      t("pos.unitChoice.secondary", "Secondary unit")}
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className={styles.formField}>
-              <label>{t("stock.detail.table.qty", "Qty")}</label>
+              <label>
+                {t("stock.detail.table.qty", "Qty")}
+                {unitMeta.selectedUnitName
+                  ? ` (${unitMeta.selectedUnitName})`
+                  : ""}
+              </label>
               <input
                 ref={qtyRef}
                 name="qty"

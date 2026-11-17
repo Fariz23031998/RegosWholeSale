@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ChangeEvent } from "react";
 import { Link } from "@tanstack/react-router";
 import { ArrowLeft } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { patchReceiptPrintSettings } from "@/lib/documents-api";
 import {
   fetchReceiptTemplates,
   patchReceiptTemplates,
@@ -17,7 +18,14 @@ import {
   parseImportedReceiptTemplate,
 } from "@/lib/receipt-template-utils";
 import { formatAuthError, useAuth } from "@/store/auth";
-import type { ReceiptFormat, ReceiptTemplate, ReceiptTemplateEngine } from "@/types/receipt-templates";
+import type {
+  ReceiptFormat,
+  ReceiptPrintService,
+  ReceiptTemplate,
+  ReceiptTemplateEngine,
+} from "@/types/receipt-templates";
+import { Modal } from "@/components/posui/Modal";
+import { Button } from "@/components/posui/Button";
 import { ReceiptTemplateEditorModal } from "./ReceiptTemplateEditorModal";
 import styles from "./ReceiptTemplates.module.css";
 import pageStyles from "@/routes/settings.module.css";
@@ -40,10 +48,15 @@ export function ReceiptTemplatesPage() {
 
   const [templates, setTemplates] = useState<ReceiptTemplate[]>([]);
   const [defaultTemplateId, setDefaultTemplateId] = useState<string | null>(null);
+  const [services, setServices] = useState<ReceiptPrintService[]>([]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [editor, setEditor] = useState<EditorState>(null);
+  const [serviceModalOpen, setServiceModalOpen] = useState(false);
+  const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
+  const [serviceName, setServiceName] = useState("");
+  const [servicePrinterName, setServicePrinterName] = useState("");
   const importInputRef = useRef<HTMLInputElement>(null);
   const loadTemplatesRef = useRef<() => Promise<void>>(async () => undefined);
 
@@ -55,6 +68,7 @@ export function ReceiptTemplatesPage() {
       const response = await fetchReceiptTemplates(token, { force: true, cacheScope });
       setTemplates(normalizeReceiptTemplates(response.settings.templates));
       setDefaultTemplateId(response.settings.default_template_id);
+      setServices(response.settings.print?.services ?? []);
     } catch (err: unknown) {
       setError(
         formatAuthError(
@@ -160,6 +174,72 @@ export function ReceiptTemplatesPage() {
 
   const handleSetDefault = async (templateId: string) => {
     await persistTemplates(templates, templateId);
+  };
+
+  const persistServices = async (next: ReceiptPrintService[]) => {
+    if (!token || !canManageSettings) return false;
+    setSaving(true);
+    setError("");
+    try {
+      const response = await patchReceiptPrintSettings(token, { services: next });
+      setServices(response.settings.print?.services ?? []);
+      return true;
+    } catch (err: unknown) {
+      setError(
+        formatAuthError(
+          err,
+          t("settings.receiptTemplates.errors.save", "Failed to save receipt templates"),
+        ),
+      );
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resetServiceForm = () => {
+    setServiceName("");
+    setServicePrinterName("");
+    setEditingServiceId(null);
+    setServiceModalOpen(false);
+  };
+
+  const saveService = async () => {
+    const name = serviceName.trim();
+    const printerName = servicePrinterName.trim();
+    if (!name || !printerName) return;
+    const next = editingServiceId
+      ? services.map((service) =>
+          service.id === editingServiceId
+            ? { ...service, name, printer_name: printerName }
+            : service,
+        )
+      : [
+          ...services,
+          {
+            id: crypto.randomUUID(),
+            name,
+            printer_name: printerName,
+            is_default: services.length === 0,
+          },
+        ];
+    const saved = await persistServices(next);
+    if (!saved) return;
+    resetServiceForm();
+  };
+
+  const openNewService = () => {
+    setEditingServiceId(null);
+    setServiceName("");
+    setServicePrinterName("");
+    setServiceModalOpen(true);
+  };
+
+  const openEditService = (service: ReceiptPrintService) => {
+    setEditingServiceId(service.id);
+    setServiceName(service.name);
+    setServicePrinterName(service.printer_name);
+    setServiceModalOpen(true);
   };
 
   const handleImportFile = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -357,6 +437,120 @@ export function ReceiptTemplatesPage() {
         </div>
       </section>
 
+      <section className={pageStyles.section}>
+        <div className={styles.serviceSectionHead}>
+          <h2 className={pageStyles.sectionTitle}>
+            {t("settings.receiptTemplates.services", "Print services")}
+          </h2>
+          {canManageSettings ? (
+            <button
+              type="button"
+              className={styles.compactBtn}
+              disabled={saving}
+              onClick={openNewService}
+            >
+              {t("settings.receiptTemplates.addService", "Add print service")}
+            </button>
+          ) : null}
+        </div>
+        <p className={pageStyles.sectionDesc}>
+          {t(
+            "settings.receiptTemplates.serviceHint",
+            "Printer names must match receipt printers reported by the Windows Print Service. The gateway token is shared with label printing.",
+          )}
+        </p>
+        {services.length === 0 ? (
+          <p className={`${pageStyles.note} ${styles.serviceEmpty}`}>
+            {t("settings.receiptTemplates.noServices", "No print services yet.")}
+          </p>
+        ) : (
+          <div className={styles.serviceTableWrap}>
+            <table className={styles.serviceTable}>
+              <thead>
+                <tr>
+                  <th scope="col">
+                    {t("settings.receiptTemplates.serviceName", "Display name")}
+                  </th>
+                  <th scope="col">
+                    {t("settings.receiptTemplates.printerName", "Receipt printer name")}
+                  </th>
+                  {canManageSettings ? (
+                    <th scope="col" className={styles.serviceActionsCell} />
+                  ) : null}
+                </tr>
+              </thead>
+              <tbody>
+                {services.map((service) => (
+                  <tr key={service.id}>
+                    <td>
+                      <span className={styles.templateName}>
+                        {service.name}
+                        {service.is_default ? (
+                          <span className={styles.defaultBadge}>
+                            {t("settings.receiptTemplates.defaultBadge", "Default")}
+                          </span>
+                        ) : null}
+                      </span>
+                    </td>
+                    <td>{service.printer_name}</td>
+                    {canManageSettings ? (
+                      <td className={styles.serviceActionsCell}>
+                        <div className={styles.templateActions}>
+                          <button
+                            type="button"
+                            className={styles.actionBtn}
+                            onClick={() => openEditService(service)}
+                          >
+                            {t("common.edit", "Edit")}
+                          </button>
+                          {!service.is_default ? (
+                            <button
+                              type="button"
+                              className={styles.actionBtn}
+                              onClick={() =>
+                                void persistServices(
+                                  services.map((item) => ({
+                                    ...item,
+                                    is_default: item.id === service.id,
+                                  })),
+                                )
+                              }
+                            >
+                              {t("settings.receiptTemplates.setDefault", "Set default")}
+                            </button>
+                          ) : null}
+                          {services.length > 1 ? (
+                            <button
+                              type="button"
+                              className={`${styles.actionBtn} ${styles.actionBtnDanger}`}
+                              onClick={() => {
+                                const next = services.filter((item) => item.id !== service.id);
+                                const hasDefault = next.some((item) => item.is_default);
+                                void persistServices(
+                                  hasDefault
+                                    ? next
+                                    : next.map((item, index) => ({
+                                        ...item,
+                                        is_default: index === 0,
+                                      })),
+                                );
+                                if (editingServiceId === service.id) resetServiceForm();
+                              }}
+                            >
+                              {t("common.delete", "Delete")}
+                            </button>
+                          ) : null}
+                        </div>
+                      </td>
+                    ) : null}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
       <ReceiptTemplateEditorModal
         open={editor !== null}
         template={editor?.template ?? null}
@@ -364,6 +558,52 @@ export function ReceiptTemplatesPage() {
         onClose={() => setEditor(null)}
         onSave={(template) => void handleSaveEditor(template)}
       />
+
+      <Modal
+        open={serviceModalOpen}
+        onClose={resetServiceForm}
+        title={
+          editingServiceId
+            ? t("settings.receiptTemplates.editService", "Edit print service")
+            : t("settings.receiptTemplates.newService", "New print service")
+        }
+      >
+        <div className={styles.serviceForm}>
+          <label className={styles.field}>
+            <span>{t("settings.receiptTemplates.serviceName", "Display name")}</span>
+            <input
+              value={serviceName}
+              onChange={(event) => setServiceName(event.target.value)}
+              maxLength={80}
+            />
+          </label>
+          <label className={styles.field}>
+            <span>{t("settings.receiptTemplates.printerName", "Receipt printer name")}</span>
+            <input
+              value={servicePrinterName}
+              onChange={(event) => setServicePrinterName(event.target.value)}
+              maxLength={80}
+            />
+          </label>
+          <p className={styles.hint}>
+            {t(
+              "settings.receiptTemplates.printerNameHint",
+              "Must match the logical receipt printer name in the Windows Print Service.",
+            )}
+          </p>
+          <div className={styles.templateActions}>
+            <Button variant="secondary" onClick={resetServiceForm}>
+              {t("common.cancel", "Cancel")}
+            </Button>
+            <Button
+              onClick={() => void saveService()}
+              disabled={saving || !serviceName.trim() || !servicePrinterName.trim()}
+            >
+              {t("common.save", "Save")}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

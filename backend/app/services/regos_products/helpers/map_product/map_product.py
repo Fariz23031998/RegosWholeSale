@@ -1,5 +1,6 @@
 from typing import Any
 from app.core.exceptions import bad_request
+from app.services import regos_fields as regos_fields_service
 from app.services.regos_products.helpers.coerce_text.coerce_text import coerce_text
 from app.services.regos_products.helpers.coerce_number.coerce_number import coerce_number
 from app.services.regos_products.helpers.coerce_unit_type.coerce_unit_type import coerce_unit_type
@@ -24,8 +25,10 @@ def map_product(row: dict[str, Any]) -> dict[str, Any]:
     code = coerce_text(item.get("code")) or ""
     articul = coerce_text(item.get("articul")) or ""
     unit = item.get("unit") if isinstance(item.get("unit"), dict) else {}
+    unit_id = unit.get("id") if isinstance(unit.get("id"), int) and unit.get("id") > 0 else None
     unit_name = coerce_text(unit.get("name")) or ""
     unit_type = coerce_unit_type(unit.get("type"))
+    secondary_unit_id = regos_fields_service.parse_item_secondary_unit_id(item.get("fields"))
     sku = (
         articul
         or barcode
@@ -54,6 +57,13 @@ def map_product(row: dict[str, Any]) -> dict[str, Any]:
         "barcode": barcode,
         "barcode_list": barcode_list,
         "code": code,
+        "unit_id": unit_id,
         "unit_name": unit_name,
         "unit_type": unit_type,
+        "secondary_unit_id": secondary_unit_id,
+        "secondary_unit_name": None,
+        "secondary_unit_type": None,
+        "conversion_factor": None,
+        "secondary_price": None,
+        "secondary_price_type_id": None,
     }

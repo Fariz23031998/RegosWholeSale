@@ -446,6 +446,7 @@ export function ReturnModal({ open, onClose }: Props) {
             canChangeWarehouse: false,
             canChangePriceType: false,
             canChangePartner: true,
+            canChangeCurrency: false,
           })
         : {};
       const overridePartnerId = partnerOverrides.partner_id;
@@ -474,6 +475,7 @@ export function ReturnModal({ open, onClose }: Props) {
               canChangeWarehouse: false,
               canChangePriceType: false,
               canChangePartner: true,
+              canChangeCurrency: false,
             })
           : {}),
         ...(resolvedPartnerId ? { partner_id: resolvedPartnerId } : {}),

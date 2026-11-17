@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   canAddProductToCart,
+  canFitBaseQtyInCart,
   canIncreaseCartQty,
+  cartLinesWithinStock,
   clampCartQty,
   applyStockAdjustments,
   computeCheckoutStockAdjustments,
@@ -54,6 +56,61 @@ describe("canAddProductToCart", () => {
     const p = product(35);
     expect(canAddProductToCart(p, 35, false, 0)).toBe(false);
     expect(canAddProductToCart(p, 34, false, 0)).toBe(true);
+  });
+});
+
+describe("canFitBaseQtyInCart", () => {
+  it("blocks a secondary-sized add when remaining stock is below the conversion factor", () => {
+    const p = product(10);
+    const factor = 12;
+    expect(canFitBaseQtyInCart(p, 0, factor, false, 0)).toBe(false);
+    expect(canFitBaseQtyInCart(p, 0, 10, false, 0)).toBe(true);
+  });
+
+  it("allows a secondary-sized add when out-of-stock sales are enabled", () => {
+    const p = product(0);
+    expect(canFitBaseQtyInCart(p, 0, 12, true, 0)).toBe(true);
+  });
+
+  it("accounts for qty already in the active cart", () => {
+    const p = product(20);
+    expect(canFitBaseQtyInCart(p, 10, 12, false, 0)).toBe(false);
+    expect(canFitBaseQtyInCart(p, 8, 12, false, 0)).toBe(true);
+  });
+
+  it("blocks a second secondary package when stock is 23 and factor is 13", () => {
+    const p = product(23);
+    const factor = 13;
+    expect(canFitBaseQtyInCart(p, 0, factor, false, 0)).toBe(true);
+    expect(canFitBaseQtyInCart(p, 13, factor, false, 0)).toBe(false);
+  });
+});
+
+describe("cartLinesWithinStock", () => {
+  it("returns true when out-of-stock sales are enabled even if over stock", () => {
+    expect(
+      cartLinesWithinStock([{ productId: "1", qty: 50 }], [product(10)], true),
+    ).toBe(true);
+  });
+
+  it("returns false when a line exceeds available stock with out-of-stock sales off", () => {
+    expect(
+      cartLinesWithinStock([{ productId: "1", qty: 15 }], [product(10)], false),
+    ).toBe(false);
+    expect(
+      cartLinesWithinStock([{ productId: "1", qty: 10 }], [product(10)], false),
+    ).toBe(true);
+  });
+
+  it("subtracts other-tab reservations from available stock", () => {
+    expect(
+      cartLinesWithinStock(
+        [{ productId: "1", qty: 10 }],
+        [product(20)],
+        false,
+        { "1": 15 },
+      ),
+    ).toBe(false);
   });
 });
 

@@ -38,23 +38,37 @@ def noop_payment_linking_unless_testing_link_writes(request, monkeypatch):
     )
     yield
 
+UZS_CURRENCY = {"id": 44, "name": "UZS", "code_chr": "UZS", "exchange_rate": 1}
+USD_CURRENCY = {
+    "id": 2,
+    "name": "US Dollar",
+    "code_chr": "USD",
+    "exchange_rate": 12600,
+}
+
 FULL_DEFAULTS = {
     "warehouse": {"id": 11, "name": "Main warehouse"},
-    "price_type": {"id": 22, "name": "Retail"},
+    "price_type": {"id": 22, "name": "Retail", "currency": UZS_CURRENCY},
     "partner": {"id": 33, "name": "Walk-in"},
     "payment_category": {"id": 66, "name": "Sales"},
 }
 
 ENRICHED_DEFAULTS = {
     **FULL_DEFAULTS,
-    "currency": {"id": 44, "name": "UZS", "code_chr": "UZS", "exchange_rate": 1},
+    "currency": UZS_CURRENCY,
     "firm": {"id": 55, "name": "Main firm"},
     "vat_calculation_type": "Include",
 }
 
 ENRICHED_DEFAULTS_USD = {
     **ENRICHED_DEFAULTS,
-    "currency": {"id": 2, "name": "US Dollar", "code_chr": "USD", "exchange_rate": 12600},
+    "price_type": {"id": 77, "name": "Wholesale USD", "currency": USD_CURRENCY},
+    "currency": USD_CURRENCY,
+}
+
+ENRICHED_DEFAULTS_UZS_PRICE_USD_DOC = {
+    **ENRICHED_DEFAULTS,
+    "currency": USD_CURRENCY,
 }
 
 PAYMENT_TYPE_UZS = {
@@ -609,6 +623,68 @@ async def test_checkout_foreign_currency_puts_actual_price_in_price(
 
     add_payload = mock_regos.call_args_list[0][0][3]
     assert add_payload["exchange_rate"] == 12600
+
+
+@patch(
+    "app.services.regos_sales.regos_payment_types_service.get_payment_type_by_id",
+    new_callable=AsyncMock,
+)
+@patch(
+    "app.services.regos_sales.regos_defaults_service.get_doc_wholesale_document_type_id",
+    new_callable=AsyncMock,
+)
+@patch("app.services.regos_sales.regos_defaults_service.enrich_checkout_defaults", new_callable=AsyncMock)
+@patch("app.services.regos_sales.regos_async_api_request_for_company", new_callable=AsyncMock)
+@pytest.mark.asyncio
+async def test_checkout_converts_uzs_price_type_items_to_usd_document(
+    mock_regos: AsyncMock,
+    mock_enriched: AsyncMock,
+    mock_doc_type_id: AsyncMock,
+    mock_payment_type: AsyncMock,
+    client: AsyncClient,
+) -> None:
+    """UZS line prices are sent as-is; Regos converts via the USD document exchange_rate."""
+    mock_enriched.return_value = ENRICHED_DEFAULTS_UZS_PRICE_USD_DOC
+    mock_doc_type_id.return_value = DOC_WHOLESALE_TYPE_ID
+    mock_payment_type.side_effect = _mock_payment_type_by_id
+    mock_regos.side_effect = [
+        {"ok": True, "result": {"new_id": 1001, "code": "WS-1001"}},
+        {"ok": True, "result": {}},
+        {"ok": True, "result": [{"new_id": 2001}]},
+        {"ok": True, "result": {}},
+        REGOS_EDIT_OK,
+        {"ok": True, "result": {"code": "WS-1001"}},
+        {"ok": True, "result": {"new_id": 3001}},
+        {"ok": True, "result": {}},
+    ]
+
+    reg = await register_owner(
+        client, email="checkout-uzs-to-usd@test.com", company_name="FX Co"
+    )
+    headers = {"Authorization": f"Bearer {reg.json()['access_token']}"}
+    await _configure_checkout_defaults(client, headers)
+
+    response = await client.post(
+        "/api/v1/sales/checkout",
+        headers=headers,
+        json={
+            # Cart keeps price-type (UZS) amounts; total is already in sale currency (USD).
+            "items": [{"regos_item_id": 101, "qty": 1, "price": 12600}],
+            "discount": 0,
+            "payment_type_id": 6,
+            "total": 1,
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    add_payload = mock_regos.call_args_list[0][0][3]
+    assert add_payload["currency_id"] == USD_CURRENCY["id"]
+    assert add_payload["exchange_rate"] == USD_CURRENCY["exchange_rate"]
+    assert add_payload["price_type_id"] == FULL_DEFAULTS["price_type"]["id"]
+
+    ops_payload = mock_regos.call_args_list[2][0][3]
+    assert ops_payload[0]["price"] == 12600
+    assert ops_payload[0]["price2"] == 12600
 
 
 CHECKOUT_REGOS_SIDE_EFFECT = [

@@ -18,8 +18,11 @@ from app.schemas.label_templates import (
     UserLabelPrintSettingsResponse,
 )
 from app.schemas.receipt_templates import (
+    ReceiptPrintPatchRequest,
     ReceiptTemplatesPatchRequest,
     ReceiptTemplatesResponse,
+    UserDocumentPrintPatchRequest,
+    UserDocumentPrintSettingsResponse,
 )
 from app.schemas.exchange_rate_sync import (
     ExchangeRateFormulaPreviewRequest,
@@ -39,6 +42,7 @@ from app.services import featured_products as featured_products_service
 from app.services import exchange_rate_sync as exchange_rate_sync_service
 from app.services import pos_settings as pos_settings_service
 from app.services import label_templates as label_templates_service
+from app.services import user_document_print as user_document_print_service
 from app.services import user_label_print as user_label_print_service
 from app.services import receipt_templates as receipt_templates_service
 from app.services import regos_defaults as regos_defaults_service
@@ -247,12 +251,79 @@ async def patch_company_receipt_templates(
         current.company_id,
         body.model_dump(exclude_unset=True),
     )
+    label_settings = await label_templates_service.get_label_settings(
+        session, current.company_id
+    )
+    await gateway.broadcast_templates(
+        current.company_id,
+        [
+            *label_templates_service.protocol_templates(label_settings),
+            *receipt_templates_service.protocol_templates(settings),
+        ],
+    )
     await notify_settings_updated(session, 
         current.company_id,
         scope="company",
         namespace="receipt_templates",
     )
     return ReceiptTemplatesResponse(settings=settings)
+
+
+@router.patch("/company/settings/receipt-print", response_model=ReceiptTemplatesResponse)
+async def patch_company_receipt_print(
+    body: ReceiptPrintPatchRequest,
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> ReceiptTemplatesResponse:
+    settings = await receipt_templates_service.patch_receipt_print(
+        session,
+        current.company_id,
+        body.model_dump(exclude_unset=True),
+    )
+    await notify_settings_updated(
+        session,
+        current.company_id,
+        scope="company",
+        namespace="receipt_templates",
+    )
+    return ReceiptTemplatesResponse(settings=settings)
+
+
+@router.get("/me/settings/document-print", response_model=UserDocumentPrintSettingsResponse)
+async def get_my_document_print_settings(
+    current: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> UserDocumentPrintSettingsResponse:
+    settings = await user_document_print_service.get_effective_user_document_print(
+        session, current.id, current.company_id
+    )
+    return UserDocumentPrintSettingsResponse(settings=settings)
+
+
+@router.patch("/me/settings/document-print", response_model=UserDocumentPrintSettingsResponse)
+async def patch_my_document_print_settings(
+    body: UserDocumentPrintPatchRequest,
+    current: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> UserDocumentPrintSettingsResponse:
+    user = await get_user_with_permissions(session, current.id)
+    if not user:
+        from app.core.exceptions import not_found
+
+        raise not_found("User not found")
+    settings = await user_document_print_service.patch_user_document_print(
+        session,
+        user,
+        body.model_dump(),
+    )
+    await notify_settings_updated(
+        session,
+        current.company_id,
+        scope="employee",
+        namespace="document_print",
+        user_id=current.id,
+    )
+    return UserDocumentPrintSettingsResponse(settings=settings)
 
 
 @router.get("/company/settings/label-templates", response_model=LabelTemplatesResponse)
@@ -282,9 +353,15 @@ async def patch_company_label_templates(
         current.company_id,
         body.model_dump(exclude_unset=True),
     )
+    receipt_settings = await receipt_templates_service.get_receipt_templates(
+        session, current.company_id
+    )
     await gateway.broadcast_templates(
         current.company_id,
-        label_templates_service.protocol_templates(settings),
+        [
+            *label_templates_service.protocol_templates(settings),
+            *receipt_templates_service.protocol_templates(receipt_settings),
+        ],
     )
     await notify_settings_updated(
         session,

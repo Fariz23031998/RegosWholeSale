@@ -6,6 +6,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from app import database as database_module
 from app.services import label_templates as label_templates_service
+from app.services import receipt_templates as receipt_templates_service
 from app.services.print_gateway import StationConn, gateway, normalize_protocol_printers
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,9 @@ async def print_gateway_ws(websocket: WebSocket) -> None:
                 await websocket.close()
                 return
             settings = await label_templates_service.get_label_settings(session, company_id)
+            receipt_settings = await receipt_templates_service.get_receipt_templates(
+                session, company_id
+            )
             await session.commit()
 
         printers = normalize_protocol_printers(message.get("printers"))
@@ -58,7 +62,10 @@ async def print_gateway_ws(websocket: WebSocket) -> None:
             websocket,
             {
                 "type": "hello",
-                "templates": label_templates_service.protocol_templates(settings),
+                "templates": [
+                    *label_templates_service.protocol_templates(settings),
+                    *receipt_templates_service.protocol_templates(receipt_settings),
+                ],
                 "jobs": pending,
             },
         )

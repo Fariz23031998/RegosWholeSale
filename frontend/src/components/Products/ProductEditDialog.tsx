@@ -3,6 +3,8 @@ import { Barcode, Camera, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
+import { ItemFormImageField } from "@/components/StockDocs/ItemFormImageField";
+import { ItemFormOptionalFieldsMenu } from "@/components/StockDocs/ItemFormOptionalFieldsMenu";
 import { ProductGroupPicker } from "@/components/StockDocs/ProductGroupPicker";
 import stockStyles from "@/components/StockDocs/StockDocs.module.css";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -12,11 +14,14 @@ import {
   updateProductGroup,
 } from "@/lib/catalog-api";
 import { filterProductGroups } from "@/lib/category-scope";
+import type { ItemImageFilePayload } from "@/lib/item-image-file";
 import {
+  createItem,
   fetchItem,
   fetchTaxVats,
   fetchUnits,
   generateEan13,
+  saveItemImage,
   updateItem,
 } from "@/lib/items-api";
 import {
@@ -25,6 +30,13 @@ import {
   lookupByBarcode,
   type MxikPackageOption,
 } from "@/lib/mxik";
+import {
+  DEFAULT_PRODUCT_ITEM_FORM_PREFS,
+  loadProductItemFormPrefs,
+  saveProductItemFormPrefs,
+  type ProductItemOptionalFieldKey,
+} from "@/lib/product-item-form-db";
+import { fetchPosSettings } from "@/lib/settings-api";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { usePermissions } from "@/hooks/use-permissions";
 import { formatAuthError, useAuth } from "@/store/auth";
@@ -54,6 +66,7 @@ type Props = {
     barcode?: string;
     barcode_list?: string;
     code?: string;
+    image?: string;
   }) => void;
 };
 
@@ -69,11 +82,13 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
   const { t } = useLanguage();
   const isMobile = useIsMobile();
   const token = useAuth((s) => s.accessToken);
+  const companyId = useAuth((s) => s.user?.company_id ?? null);
   const { can } = usePermissions();
   const canCreateItem = can("stock.item_create") || can("settings.manage");
   const canEditItem = can("stock.item_edit") || can("settings.manage");
   const allowedProductGroupIds = usePosConfig((s) => s.allowedProductGroupIds);
 
+  const isCreate = open && product == null;
   const itemId = resolveItemId(product);
   const [view, setView] = useState<View>("form");
   const [busy, setBusy] = useState(false);
@@ -94,6 +109,11 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
   const [groupName, setGroupName] = useState("");
   const [groupParentId, setGroupParentId] = useState(0);
   const [loadedItemId, setLoadedItemId] = useState<number | null>(null);
+  const [pendingImage, setPendingImage] = useState<ItemImageFilePayload | null>(null);
+  const [visibleOptionalFields, setVisibleOptionalFields] = useState(
+    () => DEFAULT_PRODUCT_ITEM_FORM_PREFS.visibleOptionalFields,
+  );
+  const fieldsDisabled = busy || loading || (!isCreate && loadedItemId == null);
 
   const scopedGroups = useMemo(
     () => filterProductGroups(groups, allowedProductGroupIds),
@@ -117,6 +137,15 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
     setGroupName("");
     setGroupParentId(0);
     setLoadedItemId(null);
+    setPendingImage(null);
+  };
+
+  const setOptionalFieldVisible = (key: ProductItemOptionalFieldKey, visible: boolean) => {
+    setVisibleOptionalFields((prev) => {
+      const next = { ...prev, [key]: visible };
+      void saveProductItemFormPrefs({ visibleOptionalFields: next }).catch(() => undefined);
+      return next;
+    });
   };
 
   const loadPackageOptions = async (icps: string, preferredCode?: string | null) => {
@@ -153,14 +182,83 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
       resetFormState();
       return;
     }
-    if (!token || !canEditItem || itemId <= 0) return;
+    let cancelled = false;
+    void loadProductItemFormPrefs()
+      .then((prefs) => {
+        if (!cancelled) setVisibleOptionalFields(prefs.visibleOptionalFields);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !token) return;
 
     let cancelled = false;
     const load = async () => {
       setLoading(true);
       setError("");
       setView("form");
+      setPendingImage(null);
+
       try {
+        if (isCreate) {
+          if (!canCreateItem) return;
+          const [g, u, v] = await Promise.all([
+            fetchProductGroups(token),
+            fetchUnits(token),
+            fetchTaxVats(token),
+          ]);
+          if (cancelled) return;
+          setGroups(g.groups);
+          setUnits(u);
+          setTaxVats(v);
+          setOriginalBarcodes([]);
+          setBarcodeDraft("");
+          setPackageOptions([]);
+          setLoadedItemId(null);
+
+          let defaults: {
+            groupId?: number | null;
+            unitId?: number | null;
+            vatId?: number | null;
+          } = {};
+          try {
+            const cacheScope = companyId != null ? { companyId } : undefined;
+            const res = await fetchPosSettings(token, { cacheScope });
+            defaults = {
+              groupId: res.settings.tasnif_default_group_id ?? null,
+              unitId: res.settings.tasnif_default_unit_id ?? null,
+              vatId: res.settings.tasnif_default_vat_id ?? null,
+            };
+          } catch {
+            // Defaults are optional.
+          }
+          if (cancelled) return;
+
+          const scoped = filterProductGroups(g.groups, allowedProductGroupIds);
+          const preferredGroup =
+            defaults.groupId != null
+              ? scoped.find((group) => group.id === defaults.groupId)
+              : undefined;
+          const preferredUnit =
+            defaults.unitId != null ? u.find((unit) => unit.id === defaults.unitId) : undefined;
+          const preferredVat =
+            defaults.vatId != null ? v.find((vat) => vat.id === defaults.vatId) : undefined;
+          const pcs = u.find((unit) => unit.type === "pcs");
+          setForm({
+            ...EMPTY_ITEM_FORM,
+            group_id: preferredGroup?.id ?? scoped[0]?.id ?? 0,
+            unit_id: preferredUnit?.id ?? pcs?.id ?? u[0]?.id ?? 0,
+            vat_id: preferredVat?.id ?? v[0]?.id ?? 0,
+            secondary_unit_id: 0,
+          });
+          return;
+        }
+
+        if (!canEditItem || itemId <= 0) return;
         const [g, u, v, item] = await Promise.all([
           fetchProductGroups(token),
           fetchUnits(token),
@@ -179,11 +277,13 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
               : [];
         setOriginalBarcodes(barcodes);
         setBarcodeDraft("");
+        const secondaryUnitId = item.secondary_unit_id ?? 0;
         setForm({
           name: item.name,
           group_id: item.group_id || filterProductGroups(g.groups, allowedProductGroupIds)[0]?.id || 0,
           unit_id: item.unit_id || u[0]?.id || 0,
           vat_id: item.vat_id || v[0]?.id || 0,
+          secondary_unit_id: secondaryUnitId > 0 ? secondaryUnitId : 0,
           articul: item.articul ?? "",
           barcodes,
           icps: item.icps ?? "",
@@ -199,7 +299,14 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
         }
       } catch (err: unknown) {
         if (!cancelled) {
-          setError(formatAuthError(err, t("stock.item.errors.loadItem", "Failed to load product")));
+          setError(
+            formatAuthError(
+              err,
+              isCreate
+                ? t("stock.item.errors.loadLookups", "Failed to load form data")
+                : t("stock.item.errors.loadItem", "Failed to load product"),
+            ),
+          );
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -210,7 +317,17 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [open, itemId, token, canEditItem, allowedProductGroupIds, t]);
+  }, [
+    open,
+    isCreate,
+    itemId,
+    token,
+    companyId,
+    canCreateItem,
+    canEditItem,
+    allowedProductGroupIds,
+    t,
+  ]);
 
   const applyTasnifLookup = async (barcode: string) => {
     setIcpsLookupBusy(true);
@@ -356,7 +473,13 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
   };
 
   const submitForm = async () => {
-    if (!token || busy || !product || loadedItemId == null) return;
+    if (!token || busy) return;
+    if (isCreate) {
+      if (!canCreateItem) return;
+    } else if (!product || loadedItemId == null) {
+      return;
+    }
+
     const name = form.name.trim();
     if (!name) {
       setError(t("stock.item.errors.nameRequired", "Enter a product name"));
@@ -374,6 +497,16 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
       setError(t("stock.item.errors.vatRequired", "Select a VAT rate"));
       return;
     }
+    const secondaryUnitId = form.secondary_unit_id > 0 ? form.secondary_unit_id : 0;
+    if (secondaryUnitId > 0 && secondaryUnitId === form.unit_id) {
+      setError(
+        t(
+          "stock.item.errors.secondaryUnitSame",
+          "Secondary unit must differ from the main unit",
+        ),
+      );
+      return;
+    }
 
     setBusy(true);
     setError("");
@@ -383,6 +516,46 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
       const description = form.description.trim() || null;
       const icps = form.icps.trim() || null;
       const packageCode = form.package_code.trim() || null;
+
+      if (isCreate) {
+        const created = await createItem(token, {
+          name,
+          group_id: form.group_id,
+          unit_id: form.unit_id,
+          vat_id: form.vat_id,
+          type: "Item",
+          articul,
+          description,
+          barcodes: barcodes.length > 0 ? barcodes : null,
+          icps,
+          package_code: packageCode,
+          is_labeled: form.is_labeled,
+          ...(secondaryUnitId > 0 ? { secondary_unit_id: secondaryUnitId } : {}),
+        });
+        let imageUrl: string | undefined;
+        if (pendingImage) {
+          try {
+            await saveItemImage(token, created.id, pendingImage.base64);
+            imageUrl = pendingImage.previewUrl;
+          } catch (err: unknown) {
+            toast.error(
+              formatAuthError(err, t("stock.item.errors.imageUpload", "Failed to upload image")),
+            );
+          }
+        }
+        toast.success(t("stock.item.created", "Product created"));
+        onSaved({
+          id: String(created.id),
+          name,
+          articul: articul ?? undefined,
+          barcode: barcodes[0],
+          barcode_list: barcodes.join(", "),
+          image: imageUrl,
+        });
+        onClose();
+        return;
+      }
+
       const body: Parameters<typeof updateItem>[2] = {
         name,
         group_id: form.group_id,
@@ -394,24 +567,48 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
         package_code: packageCode,
         is_labeled: form.is_labeled,
       };
+      if (secondaryUnitId > 0) {
+        body.secondary_unit_id = secondaryUnitId;
+      } else {
+        body.clear_secondary_unit = true;
+      }
       const originalSet = new Set(originalBarcodes);
       const newBarcodes = barcodes.filter((b) => !originalSet.has(b));
       if (newBarcodes.length > 0) {
         body.barcodes = newBarcodes;
       }
-      await updateItem(token, loadedItemId, body);
+      await updateItem(token, loadedItemId!, body);
+      let imageUrl: string | undefined;
+      if (pendingImage) {
+        try {
+          await saveItemImage(token, loadedItemId!, pendingImage.base64);
+          imageUrl = pendingImage.previewUrl;
+        } catch (err: unknown) {
+          toast.error(
+            formatAuthError(err, t("stock.item.errors.imageUpload", "Failed to upload image")),
+          );
+        }
+      }
       toast.success(t("stock.item.updated", "Product updated"));
       onSaved({
-        id: product.id,
+        id: product!.id,
         name,
         articul: articul ?? undefined,
         barcode: barcodes[0],
         barcode_list: barcodes.join(", "),
-        code: product.code,
+        code: product!.code,
+        image: imageUrl,
       });
       onClose();
     } catch (err: unknown) {
-      setError(formatAuthError(err, t("stock.item.errors.update", "Failed to update product")));
+      setError(
+        formatAuthError(
+          err,
+          isCreate
+            ? t("stock.item.errors.create", "Failed to create product")
+            : t("stock.item.errors.update", "Failed to update product"),
+        ),
+      );
     } finally {
       setBusy(false);
     }
@@ -422,7 +619,9 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
       ? editingGroupId
         ? t("stock.item.group.edit", "Edit group")
         : t("stock.item.group.create", "Create group")
-      : t("stock.item.edit", "Edit product");
+      : isCreate
+        ? t("stock.item.create", "Create product")
+        : t("stock.item.edit", "Edit product");
 
   return (
     <>
@@ -439,8 +638,16 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
         size="lg"
         fullscreen={isMobile}
         elevated
-        modalClassName={stockStyles.addLineModal}
-        bodyClassName={stockStyles.addLineModalBody}
+        modalClassName={stockStyles.itemFormModal}
+        bodyClassName={stockStyles.itemFormModalBody}
+        headerActions={
+          view === "form" ? (
+            <ItemFormOptionalFieldsMenu
+              visible={visibleOptionalFields}
+              onChange={setOptionalFieldVisible}
+            />
+          ) : undefined
+        }
       >
         {loading ? (
           <div className={stockStyles.errorInline}>{t("common.loading", "Loading…")}</div>
@@ -496,7 +703,7 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
                 maxLength={ITEM_NAME_MAX_LENGTH}
                 onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
                 autoFocus
-                disabled={busy || loadedItemId == null}
+                disabled={fieldsDisabled}
               />
             </div>
             <div className={stockStyles.formField}>
@@ -504,13 +711,48 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
               <ProductGroupPicker
                 groups={scopedGroups}
                 value={form.group_id}
-                disabled={busy || loadedItemId == null}
+                disabled={fieldsDisabled}
                 onChange={(groupId) => setForm((prev) => ({ ...prev, group_id: groupId }))}
                 onCreate={canCreateItem ? openCreateGroup : undefined}
                 onEdit={canEditItem ? openEditGroup : undefined}
               />
             </div>
-            <div className={stockStyles.formRow}>
+            {visibleOptionalFields.vat ? (
+              <div className={stockStyles.formRow}>
+                <div className={stockStyles.formField}>
+                  <label>{t("stock.item.fields.unit", "Unit")}</label>
+                  <select
+                    value={form.unit_id}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, unit_id: Number(e.target.value) }))
+                    }
+                    disabled={fieldsDisabled}
+                  >
+                    {units.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className={stockStyles.formField}>
+                  <label>{t("stock.item.fields.vat", "VAT")}</label>
+                  <select
+                    value={form.vat_id}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, vat_id: Number(e.target.value) }))
+                    }
+                    disabled={fieldsDisabled}
+                  >
+                    {taxVats.map((v) => (
+                      <option key={v.id} value={v.id}>
+                        {v.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            ) : (
               <div className={stockStyles.formField}>
                 <label>{t("stock.item.fields.unit", "Unit")}</label>
                 <select
@@ -518,7 +760,7 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
                   onChange={(e) =>
                     setForm((prev) => ({ ...prev, unit_id: Number(e.target.value) }))
                   }
-                  disabled={busy || loadedItemId == null}
+                  disabled={fieldsDisabled}
                 >
                   {units.map((u) => (
                     <option key={u.id} value={u.id}>
@@ -527,195 +769,229 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
                   ))}
                 </select>
               </div>
+            )}
+            {visibleOptionalFields.secondary_unit ? (
               <div className={stockStyles.formField}>
-                <label>{t("stock.item.fields.vat", "VAT")}</label>
+                <label>
+                  {t("stock.item.fields.secondaryUnit", "Secondary unit (optional)")}
+                </label>
                 <select
-                  value={form.vat_id}
+                  value={form.secondary_unit_id}
                   onChange={(e) =>
-                    setForm((prev) => ({ ...prev, vat_id: Number(e.target.value) }))
+                    setForm((prev) => ({
+                      ...prev,
+                      secondary_unit_id: Number(e.target.value),
+                    }))
                   }
-                  disabled={busy || loadedItemId == null}
+                  disabled={fieldsDisabled}
                 >
-                  {taxVats.map((v) => (
-                    <option key={v.id} value={v.id}>
-                      {v.name}
-                    </option>
-                  ))}
+                  <option value={0}>
+                    {t("stock.item.fields.secondaryUnitNone", "None")}
+                  </option>
+                  {units
+                    .filter((u) => u.id !== form.unit_id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
                 </select>
               </div>
-            </div>
-            <div className={stockStyles.formField}>
-              <label>{t("stock.item.fields.articul", "SKU")}</label>
-              <input
-                value={form.articul}
-                onChange={(e) => setForm((prev) => ({ ...prev, articul: e.target.value }))}
-                disabled={busy || loadedItemId == null}
+            ) : null}
+            {visibleOptionalFields.image ? (
+              <ItemFormImageField
+                existingImageUrl={product?.image}
+                pending={pendingImage}
+                disabled={fieldsDisabled}
+                onPendingChange={setPendingImage}
               />
-            </div>
-            <div className={stockStyles.formField}>
-              <label>{t("stock.item.fields.barcode", "Barcode")}</label>
-              <div className={stockStyles.barcodeField}>
-                {form.barcodes.length > 0 ? (
-                  <div className={stockStyles.barcodeChips}>
-                    {form.barcodes.map((code) => (
-                      <span key={code} className={stockStyles.barcodeChip}>
-                        <span className={stockStyles.barcodeChipValue}>{code}</span>
-                        <button
-                          type="button"
-                          className={stockStyles.barcodeChipRemove}
-                          disabled={busy}
-                          aria-label={t("stock.item.removeBarcode", "Remove barcode")}
-                          title={t("stock.item.removeBarcode", "Remove barcode")}
-                          onClick={() => removeBarcode(code)}
-                        >
-                          <X size={14} />
-                        </button>
-                      </span>
-                    ))}
+            ) : null}
+            {visibleOptionalFields.articul ? (
+              <div className={stockStyles.formField}>
+                <label>{t("stock.item.fields.articul", "SKU")}</label>
+                <input
+                  value={form.articul}
+                  onChange={(e) => setForm((prev) => ({ ...prev, articul: e.target.value }))}
+                  disabled={fieldsDisabled}
+                />
+              </div>
+            ) : null}
+            {visibleOptionalFields.barcodes ? (
+              <div className={stockStyles.formField}>
+                <label>{t("stock.item.fields.barcode", "Barcode")}</label>
+                <div className={stockStyles.barcodeField}>
+                  {form.barcodes.length > 0 ? (
+                    <div className={stockStyles.barcodeChips}>
+                      {form.barcodes.map((code) => (
+                        <span key={code} className={stockStyles.barcodeChip}>
+                          <span className={stockStyles.barcodeChipValue}>{code}</span>
+                          <button
+                            type="button"
+                            className={stockStyles.barcodeChipRemove}
+                            disabled={busy}
+                            aria-label={t("stock.item.removeBarcode", "Remove barcode")}
+                            title={t("stock.item.removeBarcode", "Remove barcode")}
+                            onClick={() => removeBarcode(code)}
+                          >
+                            <X size={14} />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  <div className={stockStyles.barcodeInputRow}>
+                    <input
+                      value={barcodeDraft}
+                      onChange={(e) => setBarcodeDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          commitBarcode(barcodeDraft);
+                        }
+                      }}
+                      placeholder={t("stock.item.fields.barcode", "Barcode")}
+                      disabled={fieldsDisabled}
+                    />
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="secondary"
+                      disabled={fieldsDisabled}
+                      aria-label={t("stock.item.addBarcode", "Add barcode")}
+                      title={t("stock.item.addBarcode", "Add barcode")}
+                      onClick={() => commitBarcode(barcodeDraft)}
+                    >
+                      <Plus size={18} />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="secondary"
+                      disabled={fieldsDisabled}
+                      aria-label={t("pos.scanBarcodeAria", "Scan barcode with camera")}
+                      title={t("pos.scanBarcode", "Scan barcode")}
+                      onClick={() => setScannerOpen(true)}
+                    >
+                      <Camera size={18} />
+                    </Button>
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="secondary"
+                      disabled={fieldsDisabled || generatingBarcode}
+                      aria-label={t("stock.item.generateBarcodeAria", "Generate EAN-13 barcode")}
+                      title={t("stock.item.generateBarcode", "Generate barcode")}
+                      onClick={() => void handleGenerateBarcode()}
+                    >
+                      <Barcode size={18} />
+                    </Button>
                   </div>
-                ) : null}
-                <div className={stockStyles.barcodeInputRow}>
-                  <input
-                    value={barcodeDraft}
-                    onChange={(e) => setBarcodeDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        commitBarcode(barcodeDraft);
-                      }
-                    }}
-                    placeholder={t("stock.item.fields.barcode", "Barcode")}
-                    disabled={busy || loadedItemId == null}
-                  />
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="secondary"
-                    disabled={busy || loadedItemId == null}
-                    aria-label={t("stock.item.addBarcode", "Add barcode")}
-                    title={t("stock.item.addBarcode", "Add barcode")}
-                    onClick={() => commitBarcode(barcodeDraft)}
-                  >
-                    <Plus size={18} />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="secondary"
-                    disabled={busy || loadedItemId == null}
-                    aria-label={t("pos.scanBarcodeAria", "Scan barcode with camera")}
-                    title={t("pos.scanBarcode", "Scan barcode")}
-                    onClick={() => setScannerOpen(true)}
-                  >
-                    <Camera size={18} />
-                  </Button>
-                  <Button
-                    type="button"
-                    size="icon"
-                    variant="secondary"
-                    disabled={busy || generatingBarcode || loadedItemId == null}
-                    aria-label={t("stock.item.generateBarcodeAria", "Generate EAN-13 barcode")}
-                    title={t("stock.item.generateBarcode", "Generate barcode")}
-                    onClick={() => void handleGenerateBarcode()}
-                  >
-                    <Barcode size={18} />
-                  </Button>
                 </div>
               </div>
-            </div>
-            <div className={`${stockStyles.formRow} ${stockStyles.formRowStack}`}>
-              <div className={stockStyles.formField}>
-                <label>{t("stock.item.fields.icps", "IKPU")}</label>
-                <input
-                  value={form.icps}
-                  onChange={(e) => {
-                    const next = e.target.value;
-                    setForm((prev) => ({ ...prev, icps: next }));
-                    setPackageOptions([]);
-                  }}
-                  onBlur={(e) => {
-                    const code = e.target.value.trim();
-                    if (code) void loadPackageOptions(code, form.package_code);
-                  }}
-                  disabled={busy || loadedItemId == null}
-                  placeholder={
-                    icpsLookupBusy
-                      ? t("stock.item.icpsLookingUp", "Looking up IKPU…")
-                      : undefined
-                  }
-                />
-                {icpsLookupBusy ? (
-                  <div className={stockStyles.fieldHint}>
-                    {t("stock.item.icpsLookingUp", "Looking up IKPU…")}
-                  </div>
-                ) : null}
-              </div>
-              <div className={stockStyles.formField}>
-                <label>{t("stock.item.fields.packageCode", "Package code")}</label>
-                {packageOptions.length > 0 ? (
-                  <select
-                    value={form.package_code}
-                    disabled={busy || packageOptionsBusy || loadedItemId == null}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, package_code: e.target.value }))
-                    }
-                  >
-                    {!packageOptions.some((item) => item.code === form.package_code) ? (
-                      <option value={form.package_code}>
-                        {form.package_code ||
-                          t("stock.item.packageSelect", "Select package")}
-                      </option>
+            ) : null}
+            {visibleOptionalFields.icps || visibleOptionalFields.package_code ? (
+              <div className={`${stockStyles.formRow} ${stockStyles.formRowStack}`}>
+                {visibleOptionalFields.icps ? (
+                  <div className={stockStyles.formField}>
+                    <label>{t("stock.item.fields.icps", "IKPU")}</label>
+                    <input
+                      value={form.icps}
+                      onChange={(e) => {
+                        const next = e.target.value;
+                        setForm((prev) => ({ ...prev, icps: next }));
+                        setPackageOptions([]);
+                      }}
+                      onBlur={(e) => {
+                        const code = e.target.value.trim();
+                        if (code) void loadPackageOptions(code, form.package_code);
+                      }}
+                      disabled={fieldsDisabled}
+                      placeholder={
+                        icpsLookupBusy
+                          ? t("stock.item.icpsLookingUp", "Looking up IKPU…")
+                          : undefined
+                      }
+                    />
+                    {icpsLookupBusy ? (
+                      <div className={stockStyles.fieldHint}>
+                        {t("stock.item.icpsLookingUp", "Looking up IKPU…")}
+                      </div>
                     ) : null}
-                    {packageOptions.map((item) => (
-                      <option key={item.code} value={item.code}>
-                        {item.name !== item.code ? `${item.name} (${item.code})` : item.name}
-                      </option>
-                    ))}
-                  </select>
-                ) : (
-                  <input
-                    value={form.package_code}
-                    onChange={(e) =>
-                      setForm((prev) => ({ ...prev, package_code: e.target.value }))
-                    }
-                    disabled={busy || packageOptionsBusy || loadedItemId == null}
-                    placeholder={
-                      packageOptionsBusy
-                        ? t("stock.item.packageLookingUp", "Loading packages…")
-                        : undefined
-                    }
-                  />
-                )}
-                {packageOptionsBusy ? (
-                  <div className={stockStyles.fieldHint}>
-                    {t("stock.item.packageLookingUp", "Loading packages…")}
+                  </div>
+                ) : null}
+                {visibleOptionalFields.package_code ? (
+                  <div className={stockStyles.formField}>
+                    <label>{t("stock.item.fields.packageCode", "Package code")}</label>
+                    {packageOptions.length > 0 ? (
+                      <select
+                        value={form.package_code}
+                        disabled={fieldsDisabled || packageOptionsBusy}
+                        onChange={(e) =>
+                          setForm((prev) => ({ ...prev, package_code: e.target.value }))
+                        }
+                      >
+                        {!packageOptions.some((item) => item.code === form.package_code) ? (
+                          <option value={form.package_code}>
+                            {form.package_code ||
+                              t("stock.item.packageSelect", "Select package")}
+                          </option>
+                        ) : null}
+                        {packageOptions.map((item) => (
+                          <option key={item.code} value={item.code}>
+                            {item.name !== item.code ? `${item.name} (${item.code})` : item.name}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <input
+                        value={form.package_code}
+                        onChange={(e) =>
+                          setForm((prev) => ({ ...prev, package_code: e.target.value }))
+                        }
+                        disabled={fieldsDisabled || packageOptionsBusy}
+                        placeholder={
+                          packageOptionsBusy
+                            ? t("stock.item.packageLookingUp", "Loading packages…")
+                            : undefined
+                        }
+                      />
+                    )}
+                    {packageOptionsBusy ? (
+                      <div className={stockStyles.fieldHint}>
+                        {t("stock.item.packageLookingUp", "Loading packages…")}
+                      </div>
+                    ) : null}
                   </div>
                 ) : null}
               </div>
-            </div>
-            <div className={stockStyles.formField}>
-              <label className={stockStyles.checkboxLabel}>
+            ) : null}
+            {visibleOptionalFields.is_labeled ? (
+              <div className={stockStyles.formField}>
+                <label className={stockStyles.checkboxLabel}>
+                  <input
+                    type="checkbox"
+                    checked={form.is_labeled}
+                    onChange={(e) =>
+                      setForm((prev) => ({ ...prev, is_labeled: e.target.checked }))
+                    }
+                    disabled={fieldsDisabled}
+                  />
+                  <span>{t("stock.item.fields.isLabeled", "Subject to labeling")}</span>
+                </label>
+              </div>
+            ) : null}
+            {visibleOptionalFields.description ? (
+              <div className={stockStyles.formField}>
+                <label>{t("common.description")}</label>
                 <input
-                  type="checkbox"
-                  checked={form.is_labeled}
+                  value={form.description}
                   onChange={(e) =>
-                    setForm((prev) => ({ ...prev, is_labeled: e.target.checked }))
+                    setForm((prev) => ({ ...prev, description: e.target.value }))
                   }
-                  disabled={busy || loadedItemId == null}
+                  disabled={fieldsDisabled}
                 />
-                <span>{t("stock.item.fields.isLabeled", "Subject to labeling")}</span>
-              </label>
-            </div>
-            <div className={stockStyles.formField}>
-              <label>{t("common.description")}</label>
-              <input
-                value={form.description}
-                onChange={(e) =>
-                  setForm((prev) => ({ ...prev, description: e.target.value }))
-                }
-                disabled={busy || loadedItemId == null}
-              />
-            </div>
+              </div>
+            ) : null}
 
             {error ? <div className={stockStyles.errorInline}>{error}</div> : null}
 
@@ -725,10 +1001,10 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
               </Button>
               <Button
                 type="button"
-                disabled={busy || loadedItemId == null}
+                disabled={fieldsDisabled}
                 onClick={() => void submitForm()}
               >
-                {t("common.save", "Save")}
+                {isCreate ? t("common.create", "Create") : t("common.save", "Save")}
               </Button>
             </div>
           </div>

@@ -9,12 +9,14 @@ from app.schemas.pos import (
     DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX,
     DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX,
     DEFAULT_POSTPONE_DOCUMENT_TYPE,
+    DEFAULT_SECONDARY_UNIT_MODE,
 )
 from app.services import settings as settings_service
 
 POS_SETTINGS_KEY = "pos"
 VALID_CROSS_CURRENCY_PAYMENT_MODES = {"payment_currency", "sale_currency_transfer"}
 VALID_POSTPONE_DOCUMENT_TYPES = {"doc_wholesale", "doc_order_from_partner"}
+VALID_SECONDARY_UNIT_MODES = {"use_secondary", "ask", "disabled"}
 DEFAULT_TENDERED_QUICK_AMOUNTS = [20.0, 50.0, 100.0]
 MAX_TENDERED_QUICK_AMOUNTS = 8
 
@@ -110,6 +112,15 @@ def _merge_pos_settings(
     else:
         merged["search_fuzzy"] = bool(company_settings.get("search_fuzzy", True))
 
+    if "secondary_unit_mode" in user_overrides:
+        merged["secondary_unit_mode"] = _normalize_secondary_unit_mode(
+            user_overrides["secondary_unit_mode"]
+        )
+    else:
+        merged["secondary_unit_mode"] = _normalize_secondary_unit_mode(
+            company_settings.get("secondary_unit_mode")
+        )
+
     merged["allowed_product_group_ids"] = _normalize_id_list(
         user_overrides.get("allowed_product_group_ids")
     )
@@ -176,6 +187,11 @@ def _apply_company_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> 
     if patch.get("postpone_order_booked") is not None:
         updated["postpone_order_booked"] = bool(patch["postpone_order_booked"])
 
+    if patch.get("secondary_unit_mode") is not None:
+        updated["secondary_unit_mode"] = _normalize_secondary_unit_mode(
+            patch["secondary_unit_mode"]
+        )
+
     if patch.get("tasnif_create_on_barcode_miss") is not None:
         updated["tasnif_create_on_barcode_miss"] = bool(patch["tasnif_create_on_barcode_miss"])
 
@@ -223,6 +239,11 @@ def _apply_user_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> dic
     if patch.get("search_fuzzy") is not None:
         updated["search_fuzzy"] = bool(patch["search_fuzzy"])
 
+    if patch.get("secondary_unit_mode") is not None:
+        updated["secondary_unit_mode"] = _normalize_secondary_unit_mode(
+            patch["secondary_unit_mode"]
+        )
+
     if "allowed_product_group_ids" in patch:
         updated["allowed_product_group_ids"] = _normalize_id_list(
             patch.get("allowed_product_group_ids")
@@ -266,6 +287,9 @@ def _normalize_company_pos_settings(raw: Any) -> dict[str, Any]:
             data.get("postpone_document_type")
         ),
         "postpone_order_booked": bool(data.get("postpone_order_booked", True)),
+        "secondary_unit_mode": _normalize_secondary_unit_mode(
+            data.get("secondary_unit_mode")
+        ),
         "tasnif_create_on_barcode_miss": bool(data.get("tasnif_create_on_barcode_miss", False)),
         "tasnif_default_group_id": _normalize_optional_positive_id(
             data.get("tasnif_default_group_id")
@@ -371,6 +395,12 @@ def _normalize_postpone_document_type(raw: Any) -> str:
     if isinstance(raw, str) and raw in VALID_POSTPONE_DOCUMENT_TYPES:
         return raw
     return DEFAULT_POSTPONE_DOCUMENT_TYPE
+
+
+def _normalize_secondary_unit_mode(raw: Any) -> str:
+    if isinstance(raw, str) and raw in VALID_SECONDARY_UNIT_MODES:
+        return raw
+    return DEFAULT_SECONDARY_UNIT_MODE
 
 
 def _normalize_internal_barcode_prefix(raw: Any, default: str) -> str:

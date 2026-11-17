@@ -9,16 +9,24 @@ import {
   fetchProductGroups,
   updateProductGroup,
 } from "@/lib/catalog-api";
+import type { ItemImageFilePayload } from "@/lib/item-image-file";
 import {
   createItem,
   fetchItem,
   fetchTaxVats,
   fetchUnits,
   generateEan13,
+  saveItemImage,
   updateItem,
 } from "@/lib/items-api";
 import { formatCurrency } from "@/lib/format";
 import { lookupByBarcode, listPackagesByIcps, type MxikPackageOption, ITEM_NAME_MAX_LENGTH } from "@/lib/mxik";
+import {
+  DEFAULT_PRODUCT_ITEM_FORM_PREFS,
+  loadProductItemFormPrefs,
+  saveProductItemFormPrefs,
+  type ProductItemOptionalFieldKey,
+} from "@/lib/product-item-form-db";
 import { fetchPosSettings } from "@/lib/settings-api";
 import {
   fetchStockItemInfo,
@@ -39,6 +47,8 @@ import {
   type RegosTaxVat,
   type RegosUnit,
 } from "@/types/items";
+import { ItemFormImageField } from "./ItemFormImageField";
+import { ItemFormOptionalFieldsMenu } from "./ItemFormOptionalFieldsMenu";
 import { ProductGroupPicker } from "./ProductGroupPicker";
 import styles from "./StockDocs.module.css";
 
@@ -108,6 +118,11 @@ export function StockDocAddLineModal({
   const [editingGroupId, setEditingGroupId] = useState<number | null>(null);
   const [groupName, setGroupName] = useState("");
   const [groupParentId, setGroupParentId] = useState(0);
+  const [pendingImage, setPendingImage] = useState<ItemImageFilePayload | null>(null);
+  const [existingImageUrl, setExistingImageUrl] = useState("");
+  const [visibleOptionalFields, setVisibleOptionalFields] = useState(
+    () => DEFAULT_PRODUCT_ITEM_FORM_PREFS.visibleOptionalFields,
+  );
 
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -144,6 +159,16 @@ export function StockDocAddLineModal({
     setEditingGroupId(null);
     setGroupName("");
     setGroupParentId(0);
+    setPendingImage(null);
+    setExistingImageUrl("");
+  };
+
+  const setOptionalFieldVisible = (key: ProductItemOptionalFieldKey, visible: boolean) => {
+    setVisibleOptionalFields((prev) => {
+      const next = { ...prev, [key]: visible };
+      void saveProductItemFormPrefs({ visibleOptionalFields: next }).catch(() => undefined);
+      return next;
+    });
   };
 
   const handleClose = () => {
@@ -225,7 +250,17 @@ export function StockDocAddLineModal({
       clearDebounce();
       resetAll();
       setScannerOpen(false);
+      return;
     }
+    let cancelled = false;
+    void loadProductItemFormPrefs()
+      .then((prefs) => {
+        if (!cancelled) setVisibleOptionalFields(prefs.visibleOptionalFields);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   useEffect(() => {
@@ -277,6 +312,7 @@ export function StockDocAddLineModal({
       group_id: preferredGroup?.id ?? available[0]?.id ?? 0,
       unit_id: preferredUnit?.id ?? pcs?.id ?? u[0]?.id ?? 0,
       vat_id: preferredVat?.id ?? v[0]?.id ?? 0,
+      secondary_unit_id: 0,
     };
   };
 
@@ -336,6 +372,8 @@ export function StockDocAddLineModal({
       setOriginalBarcodes([]);
       setBarcodeDraft("");
       setPackageOptions([]);
+      setPendingImage(null);
+      setExistingImageUrl("");
       setForm(
         defaultFormValues(lookup.groups, lookup.units, lookup.taxVats, seed, defaults),
       );
@@ -374,6 +412,8 @@ export function StockDocAddLineModal({
     setOriginalBarcodes([]);
     setBarcodeDraft("");
     setPackageOptions([]);
+    setPendingImage(null);
+    setExistingImageUrl("");
     setForm({
       ...defaultFormValues(
         lookup.groups,
@@ -427,11 +467,15 @@ export function StockDocAddLineModal({
       setEditingItemId(itemId);
       setOriginalBarcodes(barcodes);
       setBarcodeDraft("");
+      setPendingImage(null);
+      setExistingImageUrl("");
+      const secondaryUnitId = item.secondary_unit_id ?? 0;
       setForm({
         name: item.name,
         group_id: item.group_id || lookup.groups[0]?.id || 0,
         unit_id: item.unit_id || lookup.units[0]?.id || 0,
         vat_id: item.vat_id || lookup.taxVats[0]?.id || 0,
+        secondary_unit_id: secondaryUnitId > 0 ? secondaryUnitId : 0,
         articul: item.articul ?? "",
         barcodes,
         icps: item.icps ?? "",
@@ -460,6 +504,8 @@ export function StockDocAddLineModal({
     setBarcodeDraft("");
     setPackageOptions([]);
     setPackageOptionsBusy(false);
+    setPendingImage(null);
+    setExistingImageUrl("");
     setError("");
   };
 
@@ -631,6 +677,16 @@ export function StockDocAddLineModal({
       setError(t("stock.item.errors.vatRequired", "Select a VAT rate"));
       return;
     }
+    const secondaryUnitId = form.secondary_unit_id > 0 ? form.secondary_unit_id : 0;
+    if (secondaryUnitId > 0 && secondaryUnitId === form.unit_id) {
+      setError(
+        t(
+          "stock.item.errors.secondaryUnitSame",
+          "Secondary unit must differ from the main unit",
+        ),
+      );
+      return;
+    }
 
     setBusy(true);
     setError("");
@@ -653,12 +709,26 @@ export function StockDocAddLineModal({
           package_code: packageCode,
           is_labeled: form.is_labeled,
         };
+        if (secondaryUnitId > 0) {
+          body.secondary_unit_id = secondaryUnitId;
+        } else {
+          body.clear_secondary_unit = true;
+        }
         const originalSet = new Set(originalBarcodes);
         const newBarcodes = barcodes.filter((b) => !originalSet.has(b));
         if (newBarcodes.length > 0) {
           body.barcodes = newBarcodes;
         }
         await updateItem(token, editingItemId, body);
+        if (pendingImage) {
+          try {
+            await saveItemImage(token, editingItemId, pendingImage.base64);
+          } catch (err: unknown) {
+            toast.error(
+              formatAuthError(err, t("stock.item.errors.imageUpload", "Failed to upload image")),
+            );
+          }
+        }
         backToSearch();
         if (queryRef.current.trim()) {
           await search(queryRef.current.trim(), { autoPickSingle: false });
@@ -676,7 +746,17 @@ export function StockDocAddLineModal({
           icps,
           package_code: packageCode,
           is_labeled: form.is_labeled,
+          ...(secondaryUnitId > 0 ? { secondary_unit_id: secondaryUnitId } : {}),
         });
+        if (pendingImage) {
+          try {
+            await saveItemImage(token, created.id, pendingImage.base64);
+          } catch (err: unknown) {
+            toast.error(
+              formatAuthError(err, t("stock.item.errors.imageUpload", "Failed to upload image")),
+            );
+          }
+        }
         const info = await fetchStockItemInfo(token, created.id, {
           stock_id: warehouseId ?? undefined,
           price_type_id: priceTypeId ?? undefined,
@@ -904,8 +984,16 @@ export function StockDocAddLineModal({
         size="lg"
         fullscreen={isMobile}
         elevated
-        modalClassName={styles.addLineModal}
-        bodyClassName={styles.addLineModalBody}
+        modalClassName={styles.itemFormModal}
+        bodyClassName={styles.itemFormModalBody}
+        headerActions={
+          view === "form" ? (
+            <ItemFormOptionalFieldsMenu
+              visible={visibleOptionalFields}
+              onChange={setOptionalFieldVisible}
+            />
+          ) : undefined
+        }
       >
         {view === "groupForm" ? (
         <div className={styles.addLineForm}>
@@ -976,7 +1064,40 @@ export function StockDocAddLineModal({
               onEdit={canEditItem ? openEditGroup : undefined}
             />
           </div>
-          <div className={styles.formRow}>
+          {visibleOptionalFields.vat ? (
+            <div className={styles.formRow}>
+              <div className={styles.formField}>
+                <label>{t("stock.item.fields.unit", "Unit")}</label>
+                <select
+                  value={form.unit_id}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, unit_id: Number(e.target.value) }))
+                  }
+                >
+                  {units.map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className={styles.formField}>
+                <label>{t("stock.item.fields.vat", "VAT")}</label>
+                <select
+                  value={form.vat_id}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, vat_id: Number(e.target.value) }))
+                  }
+                >
+                  {taxVats.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ) : (
             <div className={styles.formField}>
               <label>{t("stock.item.fields.unit", "Unit")}</label>
               <select
@@ -992,191 +1113,225 @@ export function StockDocAddLineModal({
                 ))}
               </select>
             </div>
+          )}
+          {visibleOptionalFields.secondary_unit ? (
             <div className={styles.formField}>
-              <label>{t("stock.item.fields.vat", "VAT")}</label>
+              <label>
+                {t("stock.item.fields.secondaryUnit", "Secondary unit (optional)")}
+              </label>
               <select
-                value={form.vat_id}
+                value={form.secondary_unit_id}
                 onChange={(e) =>
-                  setForm((prev) => ({ ...prev, vat_id: Number(e.target.value) }))
+                  setForm((prev) => ({
+                    ...prev,
+                    secondary_unit_id: Number(e.target.value),
+                  }))
                 }
               >
-                {taxVats.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.name}
-                  </option>
-                ))}
+                <option value={0}>
+                  {t("stock.item.fields.secondaryUnitNone", "None")}
+                </option>
+                {units
+                  .filter((u) => u.id !== form.unit_id)
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name}
+                    </option>
+                  ))}
               </select>
             </div>
-          </div>
-          <div className={styles.formField}>
-            <label>{t("stock.item.fields.articul", "SKU")}</label>
-            <input
-              value={form.articul}
-              onChange={(e) => setForm((prev) => ({ ...prev, articul: e.target.value }))}
+          ) : null}
+          {visibleOptionalFields.image ? (
+            <ItemFormImageField
+              existingImageUrl={existingImageUrl}
+              pending={pendingImage}
+              disabled={busy}
+              onPendingChange={setPendingImage}
             />
-          </div>
-          <div className={styles.formField}>
-            <label>{t("stock.item.fields.barcode", "Barcode")}</label>
-            <div className={styles.barcodeField}>
-              {form.barcodes.length > 0 ? (
-                <div className={styles.barcodeChips}>
-                  {form.barcodes.map((code) => (
-                    <span key={code} className={styles.barcodeChip}>
-                      <span className={styles.barcodeChipValue}>{code}</span>
-                      <button
-                        type="button"
-                        className={styles.barcodeChipRemove}
-                        disabled={busy}
-                        aria-label={t("stock.item.removeBarcode", "Remove barcode")}
-                        title={t("stock.item.removeBarcode", "Remove barcode")}
-                        onClick={() => removeBarcode(code)}
-                      >
-                        <X size={14} />
-                      </button>
-                    </span>
-                  ))}
+          ) : null}
+          {visibleOptionalFields.articul ? (
+            <div className={styles.formField}>
+              <label>{t("stock.item.fields.articul", "SKU")}</label>
+              <input
+                value={form.articul}
+                onChange={(e) => setForm((prev) => ({ ...prev, articul: e.target.value }))}
+              />
+            </div>
+          ) : null}
+          {visibleOptionalFields.barcodes ? (
+            <div className={styles.formField}>
+              <label>{t("stock.item.fields.barcode", "Barcode")}</label>
+              <div className={styles.barcodeField}>
+                {form.barcodes.length > 0 ? (
+                  <div className={styles.barcodeChips}>
+                    {form.barcodes.map((code) => (
+                      <span key={code} className={styles.barcodeChip}>
+                        <span className={styles.barcodeChipValue}>{code}</span>
+                        <button
+                          type="button"
+                          className={styles.barcodeChipRemove}
+                          disabled={busy}
+                          aria-label={t("stock.item.removeBarcode", "Remove barcode")}
+                          title={t("stock.item.removeBarcode", "Remove barcode")}
+                          onClick={() => removeBarcode(code)}
+                        >
+                          <X size={14} />
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+                <div className={styles.barcodeInputRow}>
+                  <input
+                    value={barcodeDraft}
+                    onChange={(e) => setBarcodeDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        commitBarcode(barcodeDraft);
+                      }
+                    }}
+                    placeholder={t("stock.item.fields.barcode", "Barcode")}
+                  />
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    disabled={busy}
+                    aria-label={t("stock.item.addBarcode", "Add barcode")}
+                    title={t("stock.item.addBarcode", "Add barcode")}
+                    onClick={() => commitBarcode(barcodeDraft)}
+                  >
+                    <Plus size={18} />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    disabled={busy}
+                    aria-label={t("pos.scanBarcodeAria", "Scan barcode with camera")}
+                    title={t("pos.scanBarcode", "Scan barcode")}
+                    onClick={() => setScannerOpen(true)}
+                  >
+                    <Camera size={18} />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    disabled={busy || generatingBarcode}
+                    aria-label={t("stock.item.generateBarcodeAria", "Generate EAN-13 barcode")}
+                    title={t("stock.item.generateBarcode", "Generate barcode")}
+                    onClick={() => void handleGenerateBarcode()}
+                  >
+                    <Barcode size={18} />
+                  </Button>
                 </div>
-              ) : null}
-              <div className={styles.barcodeInputRow}>
-                <input
-                  value={barcodeDraft}
-                  onChange={(e) => setBarcodeDraft(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      commitBarcode(barcodeDraft);
-                    }
-                  }}
-                  placeholder={t("stock.item.fields.barcode", "Barcode")}
-                />
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="secondary"
-                  disabled={busy}
-                  aria-label={t("stock.item.addBarcode", "Add barcode")}
-                  title={t("stock.item.addBarcode", "Add barcode")}
-                  onClick={() => commitBarcode(barcodeDraft)}
-                >
-                  <Plus size={18} />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="secondary"
-                  disabled={busy}
-                  aria-label={t("pos.scanBarcodeAria", "Scan barcode with camera")}
-                  title={t("pos.scanBarcode", "Scan barcode")}
-                  onClick={() => setScannerOpen(true)}
-                >
-                  <Camera size={18} />
-                </Button>
-                <Button
-                  type="button"
-                  size="icon"
-                  variant="secondary"
-                  disabled={busy || generatingBarcode}
-                  aria-label={t("stock.item.generateBarcodeAria", "Generate EAN-13 barcode")}
-                  title={t("stock.item.generateBarcode", "Generate barcode")}
-                  onClick={() => void handleGenerateBarcode()}
-                >
-                  <Barcode size={18} />
-                </Button>
               </div>
             </div>
-          </div>
-          <div className={`${styles.formRow} ${styles.formRowStack}`}>
-            <div className={styles.formField}>
-              <label>{t("stock.item.fields.icps", "IKPU")}</label>
-              <input
-                value={form.icps}
-                onChange={(e) => {
-                  const next = e.target.value;
-                  setForm((prev) => ({ ...prev, icps: next }));
-                  setPackageOptions([]);
-                }}
-                onBlur={(e) => {
-                  const code = e.target.value.trim();
-                  if (code) void loadPackageOptions(code, form.package_code);
-                }}
-                disabled={busy}
-                placeholder={
-                  icpsLookupBusy
-                    ? t("stock.item.icpsLookingUp", "Looking up IKPU…")
-                    : undefined
-                }
-              />
-              {icpsLookupBusy ? (
-                <div className={styles.fieldHint}>
-                  {t("stock.item.icpsLookingUp", "Looking up IKPU…")}
-                </div>
-              ) : null}
-            </div>
-            <div className={styles.formField}>
-              <label>{t("stock.item.fields.packageCode", "Package code")}</label>
-              {packageOptions.length > 0 ? (
-                <select
-                  value={form.package_code}
-                  disabled={busy || packageOptionsBusy}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, package_code: e.target.value }))
-                  }
-                >
-                  {!packageOptions.some((item) => item.code === form.package_code) ? (
-                    <option value={form.package_code}>
-                      {form.package_code ||
-                        t("stock.item.packageSelect", "Select package")}
-                    </option>
+          ) : null}
+          {visibleOptionalFields.icps || visibleOptionalFields.package_code ? (
+            <div className={`${styles.formRow} ${styles.formRowStack}`}>
+              {visibleOptionalFields.icps ? (
+                <div className={styles.formField}>
+                  <label>{t("stock.item.fields.icps", "IKPU")}</label>
+                  <input
+                    value={form.icps}
+                    onChange={(e) => {
+                      const next = e.target.value;
+                      setForm((prev) => ({ ...prev, icps: next }));
+                      setPackageOptions([]);
+                    }}
+                    onBlur={(e) => {
+                      const code = e.target.value.trim();
+                      if (code) void loadPackageOptions(code, form.package_code);
+                    }}
+                    disabled={busy}
+                    placeholder={
+                      icpsLookupBusy
+                        ? t("stock.item.icpsLookingUp", "Looking up IKPU…")
+                        : undefined
+                    }
+                  />
+                  {icpsLookupBusy ? (
+                    <div className={styles.fieldHint}>
+                      {t("stock.item.icpsLookingUp", "Looking up IKPU…")}
+                    </div>
                   ) : null}
-                  {packageOptions.map((item) => (
-                    <option key={item.code} value={item.code}>
-                      {item.name !== item.code ? `${item.name} (${item.code})` : item.name}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  value={form.package_code}
-                  onChange={(e) =>
-                    setForm((prev) => ({ ...prev, package_code: e.target.value }))
-                  }
-                  disabled={busy || packageOptionsBusy}
-                  placeholder={
-                    packageOptionsBusy
-                      ? t("stock.item.packageLookingUp", "Loading packages…")
-                      : undefined
-                  }
-                />
-              )}
-              {packageOptionsBusy ? (
-                <div className={styles.fieldHint}>
-                  {t("stock.item.packageLookingUp", "Loading packages…")}
+                </div>
+              ) : null}
+              {visibleOptionalFields.package_code ? (
+                <div className={styles.formField}>
+                  <label>{t("stock.item.fields.packageCode", "Package code")}</label>
+                  {packageOptions.length > 0 ? (
+                    <select
+                      value={form.package_code}
+                      disabled={busy || packageOptionsBusy}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, package_code: e.target.value }))
+                      }
+                    >
+                      {!packageOptions.some((item) => item.code === form.package_code) ? (
+                        <option value={form.package_code}>
+                          {form.package_code ||
+                            t("stock.item.packageSelect", "Select package")}
+                        </option>
+                      ) : null}
+                      {packageOptions.map((item) => (
+                        <option key={item.code} value={item.code}>
+                          {item.name !== item.code ? `${item.name} (${item.code})` : item.name}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={form.package_code}
+                      onChange={(e) =>
+                        setForm((prev) => ({ ...prev, package_code: e.target.value }))
+                      }
+                      disabled={busy || packageOptionsBusy}
+                      placeholder={
+                        packageOptionsBusy
+                          ? t("stock.item.packageLookingUp", "Loading packages…")
+                          : undefined
+                      }
+                    />
+                  )}
+                  {packageOptionsBusy ? (
+                    <div className={styles.fieldHint}>
+                      {t("stock.item.packageLookingUp", "Loading packages…")}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
             </div>
-          </div>
-          <div className={styles.formField}>
-            <label className={styles.checkboxLabel}>
+          ) : null}
+          {visibleOptionalFields.is_labeled ? (
+            <div className={styles.formField}>
+              <label className={styles.checkboxLabel}>
+                <input
+                  type="checkbox"
+                  checked={form.is_labeled}
+                  onChange={(e) =>
+                    setForm((prev) => ({ ...prev, is_labeled: e.target.checked }))
+                  }
+                  disabled={busy}
+                />
+                <span>{t("stock.item.fields.isLabeled", "Subject to labeling")}</span>
+              </label>
+            </div>
+          ) : null}
+          {visibleOptionalFields.description ? (
+            <div className={styles.formField}>
+              <label>{t("common.description")}</label>
               <input
-                type="checkbox"
-                checked={form.is_labeled}
+                value={form.description}
                 onChange={(e) =>
-                  setForm((prev) => ({ ...prev, is_labeled: e.target.checked }))
+                  setForm((prev) => ({ ...prev, description: e.target.value }))
                 }
-                disabled={busy}
               />
-              <span>{t("stock.item.fields.isLabeled", "Subject to labeling")}</span>
-            </label>
-          </div>
-          <div className={styles.formField}>
-            <label>{t("common.description")}</label>
-            <input
-              value={form.description}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, description: e.target.value }))
-              }
-            />
-          </div>
+            </div>
+          ) : null}
 
           {error ? <div className={styles.errorInline}>{error}</div> : null}
 

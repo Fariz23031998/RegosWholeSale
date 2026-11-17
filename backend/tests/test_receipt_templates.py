@@ -33,6 +33,10 @@ async def test_get_seeds_default_receipt_templates(client: AsyncClient) -> None:
     assert invoice["partner_debt_enabled"] is False
     assert invoice["partner_debt_negative_only"] is False
 
+    assert data["print"]["printer_name"]
+    assert len(data["print"]["services"]) >= 1
+    assert data["print"]["services"][0]["is_default"] is True
+
 
 @pytest.mark.asyncio
 async def test_patch_receipt_templates(client: AsyncClient) -> None:
@@ -369,3 +373,84 @@ async def test_patch_rejects_dangerous_template_markup(
         json={"templates": templates},
     )
     assert response.status_code in (400, 422)
+@pytest.mark.asyncio
+async def test_document_print_and_stations(client: AsyncClient) -> None:
+    from app.services.print_gateway import StationConn, gateway
+
+    class FakeSocket:
+        def __init__(self) -> None:
+            self.sent: list[str] = []
+
+        async def send_text(self, message: str) -> None:
+            self.sent.append(message)
+
+    gateway.reset()
+    reg = await register_owner(
+        client, email="doc-print@test.com", company_name="Doc Print Co"
+    )
+    token = reg.json()["access_token"]
+    headers = {"Authorization": f"Bearer {token}"}
+
+    settings = await client.get("/api/v1/company/settings/receipt-templates", headers=headers)
+    template_id = settings.json()["settings"]["templates"][0]["id"]
+    service = settings.json()["settings"]["print"]["services"][0]
+
+    patched = await client.patch(
+        "/api/v1/company/settings/receipt-print",
+        headers=headers,
+        json={
+            "services": [
+                {
+                    **service,
+                    "printer_name": "Front Receipts",
+                    "name": "Front",
+                }
+            ]
+        },
+    )
+    assert patched.status_code == 200
+    assert patched.json()["settings"]["print"]["printer_name"] == "Front Receipts"
+
+    stations = await client.get("/api/v1/documents/stations", headers=headers)
+    assert stations.status_code == 200
+    assert stations.json()["stations"] == []
+
+    missing = await client.post(
+        "/api/v1/documents/print",
+        headers=headers,
+        json={
+            "template_id": template_id,
+            "html": "<html><body>sale</body></html>",
+            "copies": 1,
+        },
+    )
+    assert missing.status_code == 409
+
+    socket = FakeSocket()
+    await gateway.register(
+        StationConn(
+            company_id=reg.json()["user"]["company_id"],
+            station_id="pos-1",
+            station_name="POS",
+            location_id=None,
+            printers=[{"name": "Front Receipts", "kind": "receipt", "enabled": True}],
+            websocket=socket,
+        )
+    )
+    printed = await client.post(
+        "/api/v1/documents/print",
+        headers=headers,
+        json={
+            "template_id": template_id,
+            "html": "<html><body>sale</body></html>",
+            "copies": 1,
+            "printer_name": "Front Receipts",
+        },
+    )
+    assert printed.status_code == 200
+    body = printed.json()
+    assert body["delivered"] == 1
+    assert len(body["job_ids"]) == 1
+    assert socket.sent
+    assert '"kind": "receipt"' in socket.sent[0]
+    gateway.reset()

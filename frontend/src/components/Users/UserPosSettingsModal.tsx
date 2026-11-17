@@ -9,8 +9,11 @@ import { fetchPartnerGroups } from "@/lib/partners-api";
 import { CategoryAllowlistField } from "./CategoryAllowlistField";
 import { expandProductGroupIds, filterProductGroups } from "@/lib/category-scope";
 import { subscribeReferenceOptionsEvents } from "@/lib/catalog-events";
+import { fetchDocumentStations } from "@/lib/documents-api";
 import { fetchLabelStations, fetchLabelTemplates } from "@/lib/label-templates-api";
 import { labelPrinterNames } from "@/lib/print-product-labels";
+import { receiptPrinterNames } from "@/lib/print-receipt";
+import { fetchReceiptTemplates } from "@/lib/receipt-templates-api";
 import { fetchRegosReferenceOptions } from "@/lib/settings-api";
 import {
   subscribeSettingsEvents,
@@ -20,9 +23,11 @@ import {
   clearUserPosSettings,
   clearUserRegosDefaults,
   fetchCompanyPosSettings,
+  fetchUserDocumentPrintSettingsById,
   fetchUserLabelPrintSettingsById,
   fetchUserPosSettingsById,
   fetchUserRegosDefaultsById,
+  patchUserDocumentPrintSettingsById,
   patchUserLabelPrintSettingsById,
   patchUserPosSettingsById,
   patchUserRegosDefaultsById,
@@ -42,10 +47,16 @@ import type { PartnerGroup } from "@/types/partners";
 import type {
   RegosDefaultOption,
   RegosReferenceOptionsResponse,
+  SecondaryUnitMode,
   VatCalculationType,
 } from "@/types/settings";
 import { getVatCalculationTypeOptions } from "@/types/settings";
 import type { LabelPrintService, LabelTemplate, UserLabelPrintMethod } from "@/types/label-templates";
+import type {
+  ReceiptPrintService,
+  ReceiptTemplate,
+  UserDocumentPrintMethod,
+} from "@/types/receipt-templates";
 import type { UserDetail } from "@/types/users";
 import styles from "./Users.module.css";
 
@@ -63,6 +74,8 @@ const EMPTY_OPTIONS: RegosReferenceOptionsResponse = {
   payment_categories: [],
   refund_payment_categories: [],
   attached_users: [],
+  firms: [],
+  currencies: [],
 };
 
 function applyRegosDefaults(defaults: {
@@ -100,7 +113,9 @@ function isUserSettingsEventForUser(event: SettingsEventMessage, userId: number)
     event.namespace !== "pos" &&
     event.namespace !== "regos_defaults" &&
     event.namespace !== "label_print" &&
-    event.namespace !== "label_templates"
+    event.namespace !== "label_templates" &&
+    event.namespace !== "document_print" &&
+    event.namespace !== "receipt_templates"
   ) {
     return false;
   }
@@ -108,7 +123,7 @@ function isUserSettingsEventForUser(event: SettingsEventMessage, userId: number)
   return event.user_id === userId;
 }
 
-function printServiceLabel(service: LabelPrintService): string {
+function printServiceLabel(service: LabelPrintService | ReceiptPrintService): string {
   if (service.name.trim().toLowerCase() === service.printer_name.trim().toLowerCase()) {
     return service.name;
   }
@@ -134,12 +149,16 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [companyAutoOpenQtyKeypad, setCompanyAutoOpenQtyKeypad] = useState(false);
   const [companySearchTransliteration, setCompanySearchTransliteration] = useState(true);
   const [companySearchFuzzy, setCompanySearchFuzzy] = useState(true);
+  const [companySecondaryUnitMode, setCompanySecondaryUnitMode] =
+    useState<SecondaryUnitMode>("disabled");
   const [companyTenderedAmounts, setCompanyTenderedAmounts] = useState("20, 50, 100");
   const [allowOutOfStock, setAllowOutOfStock] = useState(false);
   const [showLastPurchaseCost, setShowLastPurchaseCost] = useState(false);
   const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
   const [searchTransliteration, setSearchTransliteration] = useState(true);
   const [searchFuzzy, setSearchFuzzy] = useState(true);
+  const [secondaryUnitMode, setSecondaryUnitMode] =
+    useState<SecondaryUnitMode>("disabled");
   const [tenderedAmountsInput, setTenderedAmountsInput] = useState("20, 50, 100");
   const [defaultCategoryValue, setDefaultCategoryValue] = useState("all");
   const [companyDefaultCategoryValue, setCompanyDefaultCategoryValue] = useState("all");
@@ -165,6 +184,13 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
   const [labelMethod, setLabelMethod] = useState<UserLabelPrintMethod>("service");
   const [labelPrompt, setLabelPrompt] = useState(true);
   const [labelUseWarehouseQuantity, setLabelUseWarehouseQuantity] = useState(false);
+  const [docTemplates, setDocTemplates] = useState<ReceiptTemplate[]>([]);
+  const [docServices, setDocServices] = useState<ReceiptPrintService[]>([]);
+  const [docConnectedPrinters, setDocConnectedPrinters] = useState<string[]>([]);
+  const [docTemplateId, setDocTemplateId] = useState("");
+  const [docServiceId, setDocServiceId] = useState("");
+  const [docPrinterName, setDocPrinterName] = useState("");
+  const [docMethod, setDocMethod] = useState<UserDocumentPrintMethod>("service");
   const reloadSettingsRef = useRef<() => void>(() => undefined);
 
   useEffect(() => {
@@ -199,14 +225,20 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
               fetchLabelStations(token).catch(() => ({ stations: [] })),
             ])
           : Promise.resolve(null),
+        Promise.all([
+          fetchUserDocumentPrintSettingsById(token, user.id),
+          fetchReceiptTemplates(token),
+          fetchDocumentStations(token).catch(() => ({ stations: [], printer_name: "" })),
+        ]),
       ])
-        .then(([userPosRes, companyPosRes, groupsRes, partnerGroupsRes, userRegosRes, refOptions, labelRes]) => {
+        .then(([userPosRes, companyPosRes, groupsRes, partnerGroupsRes, userRegosRes, refOptions, labelRes, docRes]) => {
           if (cancelled) return;
           setAllowOutOfStock(userPosRes.settings.allow_out_of_stock);
           setShowLastPurchaseCost(userPosRes.settings.show_last_purchase_cost ?? false);
           setAutoOpenQtyKeypad(userPosRes.settings.auto_open_qty_keypad);
           setSearchTransliteration(userPosRes.settings.search_transliteration ?? true);
           setSearchFuzzy(userPosRes.settings.search_fuzzy ?? true);
+          setSecondaryUnitMode(userPosRes.settings.secondary_unit_mode ?? "disabled");
           setTenderedAmountsInput(
             formatTenderedQuickAmounts(userPosRes.settings.tendered_quick_amounts),
           );
@@ -224,6 +256,9 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
             companyPosRes.settings.search_transliteration ?? true,
           );
           setCompanySearchFuzzy(companyPosRes.settings.search_fuzzy ?? true);
+          setCompanySecondaryUnitMode(
+            companyPosRes.settings.secondary_unit_mode ?? "disabled",
+          );
           setCompanyTenderedAmounts(
             formatTenderedQuickAmounts(companyPosRes.settings.tendered_quick_amounts),
           );
@@ -260,6 +295,19 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
             setLabelMethod(labelSettings.settings.method);
             setLabelPrompt(labelSettings.settings.prompt_before_print);
             setLabelUseWarehouseQuantity(labelSettings.settings.use_warehouse_quantity);
+          }
+          if (docRes) {
+            const [docSettings, docCompany, docStationsResponse] = docRes;
+            const nextTemplates = docCompany.settings.templates;
+            const nextServices = docCompany.settings.print?.services ?? [];
+            const savedPrinter = docSettings.settings.printer_name?.trim() ?? "";
+            setDocTemplates(nextTemplates);
+            setDocServices(nextServices);
+            setDocConnectedPrinters(receiptPrinterNames(docStationsResponse.stations));
+            setDocTemplateId(docSettings.settings.template_id ?? nextTemplates[0]?.id ?? "");
+            setDocServiceId(docSettings.settings.service_id ?? nextServices[0]?.id ?? "");
+            setDocPrinterName(savedPrinter);
+            setDocMethod(docSettings.settings.method);
           }
         })
         .catch((err) => {
@@ -330,6 +378,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           auto_open_qty_keypad: autoOpenQtyKeypad,
           search_transliteration: searchTransliteration,
           search_fuzzy: searchFuzzy,
+          secondary_unit_mode: secondaryUnitMode,
           tendered_quick_amounts: amounts,
           default_category: scopedDefaultCategory,
           allowed_product_group_ids: allowedProductGroupIds,
@@ -358,12 +407,19 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
               use_warehouse_quantity: labelUseWarehouseQuantity,
             })
           : Promise.resolve(null),
+        patchUserDocumentPrintSettingsById(token, user.id, {
+          template_id: docTemplateId || null,
+          service_id: docServiceId || null,
+          printer_name: docPrinterName.trim() || null,
+          method: docMethod,
+        }),
       ]);
       setAllowOutOfStock(posRes.settings.allow_out_of_stock);
       setShowLastPurchaseCost(posRes.settings.show_last_purchase_cost ?? false);
       setAutoOpenQtyKeypad(posRes.settings.auto_open_qty_keypad);
       setSearchTransliteration(posRes.settings.search_transliteration ?? true);
       setSearchFuzzy(posRes.settings.search_fuzzy ?? true);
+      setSecondaryUnitMode(posRes.settings.secondary_unit_mode ?? "disabled");
       setTenderedAmountsInput(
         formatTenderedQuickAmounts(posRes.settings.tendered_quick_amounts),
       );
@@ -404,6 +460,7 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
       setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
       setSearchTransliteration(res.settings.search_transliteration ?? true);
       setSearchFuzzy(res.settings.search_fuzzy ?? true);
+      setSecondaryUnitMode(res.settings.secondary_unit_mode ?? "disabled");
       setTenderedAmountsInput(
         formatTenderedQuickAmounts(res.settings.tendered_quick_amounts),
       );
@@ -454,6 +511,15 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
     }
     return names;
   }, [labelConnectedPrinters, labelPrinterName]);
+
+  const docPrinterOptions = useMemo(() => {
+    const names = [...docConnectedPrinters];
+    const saved = docPrinterName.trim();
+    if (saved && !names.some((name) => name.toLowerCase() === saved.toLowerCase())) {
+      names.unshift(saved);
+    }
+    return names;
+  }, [docConnectedPrinters, docPrinterName]);
 
   const defaultCategoryGroups = useMemo(
     () => filterProductGroups(productGroups, allowedProductGroupIds),
@@ -713,6 +779,57 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
           />
         </div>
 
+        <div className={styles.field}>
+          <label className={styles.label} htmlFor="user-secondary-unit-mode">
+            {t("users.settings.secondaryUnitMode", "Secondary units")}
+          </label>
+          <p className={styles.hint}>
+            {t(
+              "users.settings.secondaryUnitModeDesc",
+              "How secondary units are used when adding products on Sell.",
+            )}{" "}
+            {t("common.companyDefault", "Company default: {{value}}", {
+              value:
+                companySecondaryUnitMode === "use_secondary"
+                  ? t(
+                      "settings.pos.secondaryUnitUseSecondary",
+                      "Use secondary unit by default",
+                    )
+                  : companySecondaryUnitMode === "ask"
+                    ? t("settings.pos.secondaryUnitAsk", "Ask which unit to use")
+                    : t(
+                        "settings.pos.secondaryUnitDisabled",
+                        "Do not use secondary units",
+                      ),
+            })}
+          </p>
+          <select
+            id="user-secondary-unit-mode"
+            className={styles.select}
+            value={secondaryUnitMode}
+            disabled={busy}
+            onChange={(e) =>
+              setSecondaryUnitMode(e.target.value as SecondaryUnitMode)
+            }
+          >
+            <option value="use_secondary">
+              {t(
+                "settings.pos.secondaryUnitUseSecondary",
+                "Use secondary unit by default",
+              )}
+            </option>
+            <option value="ask">
+              {t("settings.pos.secondaryUnitAsk", "Ask which unit to use")}
+            </option>
+            <option value="disabled">
+              {t(
+                "settings.pos.secondaryUnitDisabled",
+                "Do not use secondary units",
+              )}
+            </option>
+          </select>
+        </div>
+
         <div className={styles.modalActions}>
           <Button
             type="button"
@@ -935,6 +1052,92 @@ export function UserPosSettingsModal({ open, token, user, onClose }: Props) {
             <span className={styles.slider} />
           </span>
         </label>
+
+        <>
+          <div className={styles.sectionTitle}>
+            {t("users.settings.documentPrint", "Receipt / invoice print")}
+          </div>
+          <p className={styles.hint}>
+            {t(
+              "users.settings.documentPrintDesc",
+              "Default template, printer, and print method for receipts and invoices.",
+            )}
+          </p>
+          <label className={styles.field}>
+            <span className={styles.label}>{t("products.defaultTemplate", "Default template")}</span>
+            <select
+              className={styles.select}
+              value={docTemplateId}
+              disabled={busy || docTemplates.length === 0}
+              onChange={(event) => setDocTemplateId(event.target.value)}
+            >
+              {docTemplates.map((template) => (
+                <option key={template.id} value={template.id}>
+                  {template.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {docTemplates.length === 0 ? (
+            <p className={styles.hint}>
+              {t("receipt.noTemplates", "Receipt templates are not available.")}
+            </p>
+          ) : null}
+          <label className={styles.field}>
+            <span className={styles.label}>{t("products.service", "Print service")}</span>
+            <select
+              className={styles.select}
+              value={docServiceId}
+              disabled={busy || docServices.length === 0}
+              onChange={(event) => setDocServiceId(event.target.value)}
+            >
+              {docServices.map((service) => (
+                <option key={service.id} value={service.id}>
+                  {printServiceLabel(service)}
+                </option>
+              ))}
+            </select>
+          </label>
+          {docServices.length === 0 ? (
+            <p className={styles.hint}>{t("products.noServices", "No print service is configured.")}</p>
+          ) : null}
+          <label className={styles.field}>
+            <span className={styles.label}>{t("products.defaultPrinter", "Default printer")}</span>
+            <select
+              className={styles.select}
+              value={docPrinterName}
+              disabled={busy}
+              onChange={(event) => setDocPrinterName(event.target.value)}
+            >
+              <option value="">{t("products.noPrinterPreference", "No preference")}</option>
+              {docPrinterOptions.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+          </label>
+          {docPrinterOptions.length === 0 ? (
+            <p className={styles.hint}>
+              {t(
+                "receipt.noConnectedPrinters",
+                "No connected receipt printers. Connect Print Service to choose a default.",
+              )}
+            </p>
+          ) : null}
+          <label className={styles.field}>
+            <span className={styles.label}>{t("products.printMethod", "Printing method")}</span>
+            <select
+              className={styles.select}
+              value={docMethod}
+              disabled={busy}
+              onChange={(event) => setDocMethod(event.target.value as UserDocumentPrintMethod)}
+            >
+              <option value="service">{t("products.printMethodService", "Print Service")}</option>
+              <option value="browser">{t("products.printMethodBrowser", "Browser")}</option>
+            </select>
+          </label>
+        </>
 
         {canEditLabelPrint ? (
           <>

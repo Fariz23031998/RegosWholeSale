@@ -52,6 +52,12 @@ export type StockOperationLine = {
   item_code: string | null;
   item_name: string | null;
   item_unit_name: string | null;
+  unit_id?: number | null;
+  unit_type?: number | null;
+  secondary_unit_id?: number | null;
+  secondary_unit_name?: string | null;
+  secondary_unit_type?: number | null;
+  conversion_factor?: number | null;
   quantity: number;
   cost: number | null;
   price: number | null;
@@ -140,7 +146,13 @@ export type StockItemSearchHit = {
   code: string | null;
   articul: string | null;
   unit: string | null;
+  unit_id?: number | null;
+  unit_type?: number | null;
   unit_piece: boolean;
+  secondary_unit_id?: number | null;
+  secondary_unit_name?: string | null;
+  secondary_unit_type?: number | null;
+  conversion_factor?: number | null;
   vat_value: number | null;
   last_purchase_cost: number | null;
   price: number | null;

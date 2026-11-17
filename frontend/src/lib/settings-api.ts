@@ -388,6 +388,7 @@ export async function fetchRegosReferenceOptions(
           refund_payment_categories: data.refund_payment_categories,
           attached_users: data.attached_users,
           firms: data.firms,
+          currencies: data.currencies,
         }).catch(() => undefined);
       }
       return data;
@@ -430,6 +431,7 @@ function referenceOptionsFromIdb(
       cached.refund_payment_categories ?? existing?.refund_payment_categories ?? [],
     attached_users: cached.attached_users ?? existing?.attached_users ?? [],
     firms: cached.firms ?? existing?.firms ?? [],
+    currencies: cached.currencies ?? existing?.currencies ?? [],
   };
 }
 

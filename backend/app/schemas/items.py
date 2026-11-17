@@ -40,6 +40,7 @@ class RegosItemDetail(BaseModel):
     group_name: str | None = None
     unit_id: int = Field(ge=0)
     unit_name: str | None = None
+    secondary_unit_id: int | None = None
     vat_id: int = Field(ge=0)
     vat_name: str | None = None
     vat_value: float | None = None
@@ -61,6 +62,7 @@ class ItemCreateRequest(BaseModel):
     icps: str | None = Field(default=None, max_length=64)
     package_code: str | None = Field(default=None, max_length=64)
     is_labeled: bool | None = None
+    secondary_unit_id: int | None = Field(default=None, ge=1)
 
 
 class ItemUpdateRequest(BaseModel):
@@ -78,6 +80,8 @@ class ItemUpdateRequest(BaseModel):
     icps: str | None = Field(default=None, max_length=64)
     package_code: str | None = Field(default=None, max_length=64)
     is_labeled: bool | None = None
+    secondary_unit_id: int | None = Field(default=None, ge=1)
+    clear_secondary_unit: bool | None = None
 
 
 class ItemCreateResponse(BaseModel):
@@ -90,3 +94,11 @@ class ItemMutationResponse(BaseModel):
 
 class BarcodeGenerateResponse(BaseModel):
     value: str = Field(min_length=1, max_length=64)
+
+
+class ItemImageSaveRequest(BaseModel):
+    file: str = Field(min_length=1)
+
+
+class ItemImageSaveResponse(BaseModel):
+    new_id: int = Field(ge=1)

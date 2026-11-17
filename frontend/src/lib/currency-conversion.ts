@@ -63,6 +63,38 @@ export function convertBetweenRates(
   return Math.round((amount * from) / to * 100) / 100;
 }
 
+/** Convert a catalog/cart amount from price-type currency into the selected sale currency. */
+export function amountInSaleCurrency(
+  amount: number,
+  priceCurrency: RegosCurrencyOption | null | undefined,
+  saleCurrency: RegosCurrencyOption | null | undefined,
+): number {
+  if (sameCurrency(priceCurrency, saleCurrency)) {
+    return amount;
+  }
+  return convertBetweenRates(
+    amount,
+    priceCurrency?.exchange_rate,
+    saleCurrency?.exchange_rate,
+  );
+}
+
+/** Convert a displayed/edited sale-currency amount back to price-type currency for storage. */
+export function amountInPriceCurrency(
+  amount: number,
+  priceCurrency: RegosCurrencyOption | null | undefined,
+  saleCurrency: RegosCurrencyOption | null | undefined,
+): number {
+  if (sameCurrency(priceCurrency, saleCurrency)) {
+    return amount;
+  }
+  return convertBetweenRates(
+    amount,
+    saleCurrency?.exchange_rate,
+    priceCurrency?.exchange_rate,
+  );
+}
+
 export function saleAmountFromPaymentAmount(
   paymentAmount: number,
   saleCurrency: RegosCurrencyOption | null | undefined,

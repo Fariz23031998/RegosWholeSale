@@ -9,10 +9,14 @@ import { formatAuthError, useAuth } from "@/store/auth";
 import { useCatalog } from "@/store/catalog";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
-import { useCheckoutTabs } from "@/store/checkout-tabs";
+import {
+  getReservedQtyInOtherTabs,
+  useCheckoutTabs,
+} from "@/store/checkout-tabs";
 import { usePendingSales } from "@/store/pending-sales";
 import {
   applyStockAdjustments,
+  cartLinesWithinStock,
   computeCheckoutStockAdjustments,
   isBookedOrderFromPartnerContinuation,
   type StockAdjustOp,
@@ -20,6 +24,7 @@ import {
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
 import { extractWholesaleDocIdFromError } from "@/lib/checkout-error";
 import { isCacheEnabled } from "@/lib/cache-policy";
+import { convertCartTotalsForSaleCurrency } from "@/lib/sale-currency-amounts";
 import { checkoutSale, type CheckoutRequest } from "@/lib/sales-api";
 import type { PaymentType } from "@/types/payment";
 import type { Sale, SalePaymentLine } from "@/data/seed";
@@ -61,22 +66,36 @@ export function CheckoutModal({
   const clearCart = useCart((s) => s.clear);
   const discountMode = useCart((s) => s.discountMode);
   const discountValue = useCart((s) => s.discountValue);
+  const checkoutTabs = useCheckoutTabs((s) => s.tabs);
+  const activeCheckoutTabId = useCheckoutTabs((s) => s.activeTabId);
   const clearActiveTabAfterCheckout = useCheckoutTabs(
     (s) => s.clearActiveTabAfterCheckout,
   );
   const cashier = useAuth((s) => s.cashier);
   const user = useAuth((s) => s.user);
   const accessToken = useAuth((s) => s.accessToken);
-  const { canChangeWarehouse, canChangePriceType, canChangePartner, canPrintDocuments } =
-    usePermissions();
+  const {
+    canChangeWarehouse,
+    canChangePriceType,
+    canChangePartner,
+    canChangeCurrency,
+    canPrintDocuments,
+  } = usePermissions();
   const checkoutOverrides = useSellContext((s) => s.checkoutOverrides);
   const permittedOverrides = () =>
     filterCheckoutOverrides(checkoutOverrides(), {
       canChangeWarehouse: canChangeWarehouse(),
       canChangePriceType: canChangePriceType(),
       canChangePartner: canChangePartner(),
+      canChangeCurrency: canChangeCurrency(),
     });
   const saleCurrency = useSellContext((s) => s.saleCurrency);
+  const priceCurrency = useSellContext((s) => s.priceCurrency);
+  const saleTotals = convertCartTotalsForSaleCurrency(
+    totals,
+    priceCurrency,
+    saleCurrency,
+  );
   const partnerId = useSellContext((s) => s.partnerId);
   const warehouseId = useSellContext((s) => s.warehouseId);
   const partners = useSellContext((s) => s.options.partners);
@@ -88,6 +107,7 @@ export function CheckoutModal({
   const decrementStock = useCatalog((s) => s.decrementStock);
   const incrementStock = useCatalog((s) => s.incrementStock);
   const catalogProducts = useCatalog((s) => s.products);
+  const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
   const postponeDocumentType = usePosConfig((s) => s.postponeDocumentType);
   const postponeOrderBooked = usePosConfig((s) => s.postponeOrderBooked);
   const keypadUpdateDiscountedPriceOnly = usePosConfig(
@@ -129,7 +149,7 @@ export function CheckoutModal({
     const warehouse = warehouses.find((entry) => entry.id === warehouseId) ?? null;
     const draftInput = {
       items: cartItems,
-      totals,
+      totals: saleTotals,
       catalogProducts,
       saleCurrency,
       partnerId,
@@ -164,13 +184,45 @@ export function CheckoutModal({
       return;
     }
 
+    const { postponedWholesaleDocId, postponedDocType } = useCart.getState();
+    const bookedOrderContinuation = isBookedOrderFromPartnerContinuation(
+      postponedDocType,
+      postponedWholesaleDocId,
+      postponeDocumentType,
+      postponeOrderBooked,
+    );
+    const reservedByProductId: Record<string, number> = {};
+    for (const item of cartItems) {
+      reservedByProductId[item.productId] = getReservedQtyInOtherTabs(
+        checkoutTabs,
+        activeCheckoutTabId,
+        item.productId,
+      );
+    }
+    if (
+      !cartLinesWithinStock(
+        cartItems,
+        catalogProducts,
+        allowOutOfStock,
+        reservedByProductId,
+        bookedOrderContinuation ? { bookedOrderContinuation: true } : undefined,
+      )
+    ) {
+      setCheckoutError(
+        t(
+          "checkout.errors.insufficientStock",
+          "Some products exceed available stock. Reduce quantities or enable out-of-stock sales.",
+        ),
+      );
+      return;
+    }
+
     const scopeKey = buildPendingSalesScopeKey(user.company_id, user.id);
     if (!scopeKey) return;
 
     setProcessing(true);
     setCheckoutError(null);
 
-    const { postponedWholesaleDocId, postponedDocType } = useCart.getState();
     const wholesaleDocId =
       postponedDocType === "wholesale" || postponedDocType == null
         ? postponedWholesaleDocId
@@ -181,11 +233,12 @@ export function CheckoutModal({
         : null;
 
     const request: CheckoutRequest = {
-      items: cartItems.map((i) =>
-        toCheckoutCartItem(i, keypadUpdateDiscountedPriceOnly),
+      // Line prices stay in price-type currency; backend converts into sale currency.
+      items: cartItems.map((item) =>
+        toCheckoutCartItem(item, keypadUpdateDiscountedPriceOnly),
       ),
       discount: totals.discount,
-      total: totals.total,
+      total: saleTotals.total,
       description: `POS ${cashier.name}`,
       ...(wholesaleDocId ? { wholesale_doc_id: wholesaleDocId } : {}),
       ...(orderFromPartnerDocId
@@ -206,7 +259,7 @@ export function CheckoutModal({
     const warehouse = warehouses.find((entry) => entry.id === warehouseId) ?? null;
     const draftInput = {
       items: cartItems,
-      totals,
+      totals: saleTotals,
       catalogProducts,
       saleCurrency,
       partnerId,
@@ -221,12 +274,7 @@ export function CheckoutModal({
 
     const stockAdjustments: StockAdjustOp[] = computeCheckoutStockAdjustments(
       cartItems,
-      isBookedOrderFromPartnerContinuation(
-        postponedDocType,
-        postponedWholesaleDocId,
-        postponeDocumentType,
-        postponeOrderBooked,
-      ),
+      bookedOrderContinuation,
     );
 
     let receiptContext: DocumentPrintContext;
@@ -259,7 +307,7 @@ export function CheckoutModal({
       cartItems: [...cartItems],
       discountMode,
       discountValue,
-      totals: { ...totals },
+      totals: { ...saleTotals },
       sellContext: {
         warehouseId,
         priceTypeId: useSellContext.getState().priceTypeId,
@@ -350,7 +398,7 @@ export function CheckoutModal({
             <div className={styles.totalLine}>
               <div className={styles.totalLabel}>{t("checkout.totalDue", "Total due")}</div>
               <div className={styles.totalValue}>
-                {formatAmountWithCurrency(totals.total, saleCurrency)}
+                {formatAmountWithCurrency(saleTotals.total, saleCurrency)}
               </div>
             </div>
 
@@ -358,7 +406,7 @@ export function CheckoutModal({
 
             <PaymentPanel
               mode="sale"
-              total={totals.total}
+              total={saleTotals.total}
               saleCurrency={saleCurrency}
               accessToken={accessToken}
               active={open}

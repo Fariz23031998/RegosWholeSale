@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  amountInSaleCurrency,
   paymentAmountFromSaleAmount,
   paymentAmountFromSaleAmountCeil,
   saleAmountFromPaymentAmount,
@@ -19,6 +20,16 @@ const usd: RegosCurrencyOption = {
   code_chr: "USD",
   exchange_rate: 12200,
 };
+
+describe("amountInSaleCurrency", () => {
+  it("converts from price currency into sale currency", () => {
+    expect(amountInSaleCurrency(12200, uzs, usd)).toBe(1);
+  });
+
+  it("returns the original amount when currencies match", () => {
+    expect(amountInSaleCurrency(500, uzs, uzs)).toBe(500);
+  });
+});
 
 describe("paymentAmountFromSaleAmountCeil", () => {
   it("rounds converted payment amounts up to cover the sale total", () => {

@@ -13,8 +13,15 @@ export type Product = {
   barcode?: string;
   barcode_list?: string;
   code?: string;
+  unit_id?: number | null;
   unit_name?: string;
   unit_type?: number | null;
+  secondary_unit_id?: number | null;
+  secondary_unit_name?: string | null;
+  secondary_unit_type?: number | null;
+  conversion_factor?: number | null;
+  secondary_price?: number | null;
+  secondary_price_type_id?: number | null;
 };
 
 export type CatalogProductsResponse = {

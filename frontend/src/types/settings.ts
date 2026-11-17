@@ -55,6 +55,7 @@ export type RegosReferenceOptionsResponse = {
   refund_payment_categories: RegosDefaultOption[];
   attached_users: RegosDefaultOption[];
   firms: RegosDefaultOption[];
+  currencies: RegosCurrencyOption[];
 };
 
 export type RegosTokenConfig = {
@@ -151,6 +152,7 @@ export type ExchangeRateFormulaPreviewResponse = {
 
 export type CrossCurrencyPaymentMode = "payment_currency" | "sale_currency_transfer";
 export type PostponeDocumentType = "doc_wholesale" | "doc_order_from_partner";
+export type SecondaryUnitMode = "use_secondary" | "ask" | "disabled";
 
 export type DefaultCategorySetting = {
   mode: "all" | "featured" | "group";
@@ -171,6 +173,7 @@ export type PosSettings = {
   internal_barcode_piece_prefix: string;
   postpone_document_type: PostponeDocumentType;
   postpone_order_booked: boolean;
+  secondary_unit_mode: SecondaryUnitMode;
   tasnif_create_on_barcode_miss: boolean;
   tasnif_default_group_id: number | null;
   tasnif_default_unit_id: number | null;
@@ -195,6 +198,7 @@ export type PosSettingsPatchRequest = {
   internal_barcode_piece_prefix?: string;
   postpone_document_type?: PostponeDocumentType;
   postpone_order_booked?: boolean;
+  secondary_unit_mode?: SecondaryUnitMode;
   tasnif_create_on_barcode_miss?: boolean;
   tasnif_default_group_id?: number | null;
   tasnif_default_unit_id?: number | null;
@@ -215,6 +219,7 @@ export type UserPosSettings = {
   internal_barcode_piece_prefix: string;
   postpone_document_type: PostponeDocumentType;
   postpone_order_booked: boolean;
+  secondary_unit_mode: SecondaryUnitMode;
   allowed_product_group_ids: number[];
   allowed_partner_group_ids: number[];
 };
@@ -231,6 +236,7 @@ export type UserPosSettingsPatchRequest = {
   auto_open_qty_keypad?: boolean;
   search_transliteration?: boolean;
   search_fuzzy?: boolean;
+  secondary_unit_mode?: SecondaryUnitMode;
   allowed_product_group_ids?: number[];
   allowed_partner_group_ids?: number[];
 };

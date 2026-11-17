@@ -7,6 +7,7 @@ import type {
   CrossCurrencyPaymentMode,
   DefaultCategorySetting,
   PostponeDocumentType,
+  SecondaryUnitMode,
   UserPosSettings,
 } from "@/types/settings";
 
@@ -29,6 +30,7 @@ type PosConfigState = {
   internalBarcodePiecePrefix: string;
   postponeDocumentType: PostponeDocumentType;
   postponeOrderBooked: boolean;
+  secondaryUnitMode: SecondaryUnitMode;
   defaultCategory: DefaultCategorySetting;
   allowedProductGroupIds: number[];
   allowedPartnerGroupIds: number[];
@@ -55,6 +57,7 @@ function applyPosSettings(settings: UserPosSettings) {
     internalBarcodePiecePrefix: settings.internal_barcode_piece_prefix ?? "23",
     postponeDocumentType: settings.postpone_document_type ?? "doc_wholesale",
     postponeOrderBooked: settings.postpone_order_booked ?? true,
+    secondaryUnitMode: settings.secondary_unit_mode ?? "disabled",
     defaultCategory: settings.default_category,
     allowedProductGroupIds: settings.allowed_product_group_ids ?? [],
     allowedPartnerGroupIds: settings.allowed_partner_group_ids ?? [],
@@ -75,6 +78,7 @@ function defaultPosConfigState() {
     internalBarcodePiecePrefix: "23",
     postponeDocumentType: "doc_wholesale" as PostponeDocumentType,
     postponeOrderBooked: true,
+    secondaryUnitMode: "disabled" as SecondaryUnitMode,
     defaultCategory: DEFAULT_CATEGORY_ALL,
     allowedProductGroupIds: [] as number[],
     allowedPartnerGroupIds: [] as number[],

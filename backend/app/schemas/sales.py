@@ -28,6 +28,7 @@ class PostponeRequest(BaseModel):
     warehouse_id: int | None = Field(default=None, ge=1)
     price_type_id: int | None = Field(default=None, ge=1)
     partner_id: int | None = Field(default=None, ge=1)
+    currency_id: int | None = Field(default=None, ge=1)
 
 
 class CheckoutRequest(BaseModel):
@@ -45,6 +46,7 @@ class CheckoutRequest(BaseModel):
     warehouse_id: int | None = Field(default=None, ge=1)
     price_type_id: int | None = Field(default=None, ge=1)
     partner_id: int | None = Field(default=None, ge=1)
+    currency_id: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def validate_payment_source(self) -> "CheckoutRequest":
@@ -236,6 +238,7 @@ class WholesaleReturnRequest(BaseModel):
     warehouse_id: int | None = Field(default=None, ge=1)
     price_type_id: int | None = Field(default=None, ge=1)
     partner_id: int | None = Field(default=None, ge=1)
+    currency_id: int | None = Field(default=None, ge=1)
 
     @model_validator(mode="after")
     def validate_return_mode(self) -> "WholesaleReturnRequest":

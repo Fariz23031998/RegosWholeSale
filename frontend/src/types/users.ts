@@ -60,6 +60,7 @@ const ALL_PERMISSION_CODES = [
   "pos.change_warehouse",
   "pos.change_price_type",
   "pos.change_partner",
+  "pos.change_currency",
   "pos.apply_discount",
   "pos.modify_price",
   "sales.read",
@@ -182,7 +183,12 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     id: "posContext",
     labelKey: "users.permissions.groups.posContext",
     fallback: "Sell context",
-    codes: ["pos.change_warehouse", "pos.change_price_type", "pos.change_partner"],
+    codes: [
+      "pos.change_warehouse",
+      "pos.change_price_type",
+      "pos.change_partner",
+      "pos.change_currency",
+    ],
   },
   {
     id: "salesActions",
@@ -327,13 +333,29 @@ export type CheckoutOverridePermissions = {
   canChangeWarehouse: boolean;
   canChangePriceType: boolean;
   canChangePartner: boolean;
+  canChangeCurrency: boolean;
 };
 
 export function filterCheckoutOverrides(
-  overrides: { warehouse_id?: number; price_type_id?: number; partner_id?: number },
+  overrides: {
+    warehouse_id?: number;
+    price_type_id?: number;
+    partner_id?: number;
+    currency_id?: number;
+  },
   perms: CheckoutOverridePermissions,
-): { warehouse_id?: number; price_type_id?: number; partner_id?: number } {
-  const result: { warehouse_id?: number; price_type_id?: number; partner_id?: number } = {};
+): {
+  warehouse_id?: number;
+  price_type_id?: number;
+  partner_id?: number;
+  currency_id?: number;
+} {
+  const result: {
+    warehouse_id?: number;
+    price_type_id?: number;
+    partner_id?: number;
+    currency_id?: number;
+  } = {};
   if (perms.canChangeWarehouse && overrides.warehouse_id !== undefined) {
     result.warehouse_id = overrides.warehouse_id;
   }
@@ -342,6 +364,9 @@ export function filterCheckoutOverrides(
   }
   if (perms.canChangePartner && overrides.partner_id !== undefined) {
     result.partner_id = overrides.partner_id;
+  }
+  if (perms.canChangeCurrency && overrides.currency_id !== undefined) {
+    result.currency_id = overrides.currency_id;
   }
   return result;
 }

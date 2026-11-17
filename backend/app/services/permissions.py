@@ -12,6 +12,7 @@ PERMISSION_CODES = [
     ("pos.change_warehouse", "Change selected warehouse on sell screen"),
     ("pos.change_price_type", "Change selected price type on sell screen"),
     ("pos.change_partner", "Change selected customer or partner on sell screen"),
+    ("pos.change_currency", "Change selected currency on sell screen"),
     ("pos.apply_discount", "Apply discounts on sales"),
     ("pos.modify_price", "Modify product prices on sales"),
     ("sales.read", "View sales history"),
@@ -74,6 +75,7 @@ SPLIT_OVERRIDE_PERMISSIONS = (
     "pos.change_warehouse",
     "pos.change_price_type",
     "pos.change_partner",
+    "pos.change_currency",
 )
 POS_CONTEXT_CHANGE_PERMISSIONS = SPLIT_OVERRIDE_PERMISSIONS
 

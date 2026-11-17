@@ -27,6 +27,7 @@ export type RegosItemDetail = {
   group_name: string | null;
   unit_id: number;
   unit_name: string | null;
+  secondary_unit_id: number | null;
   vat_id: number;
   vat_name: string | null;
   vat_value: number | null;
@@ -48,6 +49,7 @@ export type ItemCreateRequest = {
   icps?: string | null;
   package_code?: string | null;
   is_labeled?: boolean | null;
+  secondary_unit_id?: number | null;
 };
 
 export type ItemUpdateRequest = {
@@ -65,6 +67,8 @@ export type ItemUpdateRequest = {
   icps?: string | null;
   package_code?: string | null;
   is_labeled?: boolean | null;
+  secondary_unit_id?: number | null;
+  clear_secondary_unit?: boolean | null;
 };
 
 export type ItemFormValues = {
@@ -72,6 +76,7 @@ export type ItemFormValues = {
   group_id: number;
   unit_id: number;
   vat_id: number;
+  secondary_unit_id: number;
   articul: string;
   barcodes: string[];
   icps: string;
@@ -85,6 +90,7 @@ export const EMPTY_ITEM_FORM: ItemFormValues = {
   group_id: 0,
   unit_id: 0,
   vat_id: 0,
+  secondary_unit_id: 0,
   articul: "",
   barcodes: [],
   icps: "",

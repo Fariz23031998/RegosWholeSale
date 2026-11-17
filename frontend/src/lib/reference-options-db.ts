@@ -1,6 +1,10 @@
 import { REFERENCE_OPTIONS_STORE, openPulsePosDb } from "@/lib/pulse-pos-db";
 import { isCacheEnabled } from "@/lib/cache-policy";
-import type { RegosDefaultOption, RegosPriceTypeOption } from "@/types/settings";
+import type {
+  RegosCurrencyOption,
+  RegosDefaultOption,
+  RegosPriceTypeOption,
+} from "@/types/settings";
 
 export type CachedReferenceOptions = {
   warehouses: RegosDefaultOption[];
@@ -11,6 +15,7 @@ export type CachedReferenceOptions = {
   refund_payment_categories?: RegosDefaultOption[];
   attached_users?: RegosDefaultOption[];
   firms?: RegosDefaultOption[];
+  currencies?: RegosCurrencyOption[];
   fetchedAt: number;
 };
 
@@ -24,6 +29,7 @@ export type ReferenceOptionsPatch = Partial<
     | "refund_payment_categories"
     | "attached_users"
     | "firms"
+    | "currencies"
   >
 >;
 
@@ -46,6 +52,8 @@ export function mergeReferenceOptionsCache(
   if (attachedUsers) merged.attached_users = attachedUsers;
   const firms = patch.firms ?? existing?.firms;
   if (firms) merged.firms = firms;
+  const currencies = patch.currencies ?? existing?.currencies;
+  if (currencies) merged.currencies = currencies;
   return merged;
 }
 

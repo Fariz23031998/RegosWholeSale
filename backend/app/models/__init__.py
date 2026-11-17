@@ -23,6 +23,7 @@ from app.models.telegram_bot import TelegramBot
 from app.models.telegram_user import TelegramUser
 from app.models.user_featured_product import UserFeaturedProduct
 from app.models.out_of_stock_product import OutOfStockProduct
+from app.models.unit_conversion import UnitConversion
 from app.models.verification_code import VerificationCode
 from app.models.receipt_share import ReceiptShare
 
@@ -42,6 +43,7 @@ __all__ = [
     "UserSetting",
     "UserFeaturedProduct",
     "OutOfStockProduct",
+    "UnitConversion",
     "VerificationCode",
     "RegosToken",
     "PartnerTelegramAccount",

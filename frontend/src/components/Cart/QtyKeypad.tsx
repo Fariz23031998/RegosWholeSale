@@ -5,9 +5,18 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { Modal } from "@/components/posui/Modal";
 import { Button } from "@/components/posui/Button";
 import { formatCurrency } from "@/lib/format";
+import type { SelectedUnitKind } from "@/lib/secondary-units";
 import styles from "./QtyKeypad.module.css";
 
 type Field = "qty" | "price";
+
+export type QtyKeypadUnitChoice = {
+  selected: SelectedUnitKind;
+  mainLabel: string;
+  secondaryLabel: string;
+  secondaryDisabled?: boolean;
+  onSelect: (unit: SelectedUnitKind) => void;
+};
 
 type Props = {
   open: boolean;
@@ -16,6 +25,7 @@ type Props = {
   productName?: string;
   maxQty?: number | null;
   allowDecimals?: boolean;
+  unitChoice?: QtyKeypadUnitChoice | null;
   onClose: () => void;
   onConfirm: (qty: number, price?: number) => void;
 };
@@ -36,6 +46,7 @@ export function QtyKeypad({
   productName,
   maxQty,
   allowDecimals = true,
+  unitChoice = null,
   onClose,
   onConfirm,
 }: Props) {
@@ -45,6 +56,7 @@ export function QtyKeypad({
   const [price, setPriceVal] = useState(String(initialPrice ?? 0));
   const [focus, setFocus] = useState<Field>("qty");
   const [replaceOnNextInput, setReplaceOnNextInput] = useState(true);
+  const selectedUnit = unitChoice?.selected;
 
   const qtyAllowsDecimalInput = allowDecimals || (hasPrice && focus === "price");
   const keys = useMemo(
@@ -65,7 +77,7 @@ export function QtyKeypad({
       setFocus("qty");
       setReplaceOnNextInput(true);
     }
-  }, [open, initial, initialPrice, allowDecimals]);
+  }, [open, initial, initialPrice, allowDecimals, selectedUnit]);
 
   useEffect(() => {
     if (!open) return;
@@ -171,6 +183,31 @@ export function QtyKeypad({
     <Modal open={open} onClose={onClose} title={t("cart.keypad.title", "Set quantity")}>
       <div className={styles.wrap}>
         {productName && <div className={styles.product}>{productName}</div>}
+        {unitChoice ? (
+          <div className={styles.unitChoice} role="group" aria-label={t("pos.unitChoice.title", "Choose unit")}>
+            <button
+              type="button"
+              className={clsx(
+                styles.unitBtn,
+                unitChoice.selected === "main" && styles.unitBtnActive,
+              )}
+              onClick={() => unitChoice.onSelect("main")}
+            >
+              {unitChoice.mainLabel}
+            </button>
+            <button
+              type="button"
+              className={clsx(
+                styles.unitBtn,
+                unitChoice.selected === "secondary" && styles.unitBtnActive,
+              )}
+              disabled={unitChoice.secondaryDisabled}
+              onClick={() => unitChoice.onSelect("secondary")}
+            >
+              {unitChoice.secondaryLabel}
+            </button>
+          </div>
+        ) : null}
         {maxQty !== null && maxQty !== undefined ? (
           <div className={styles.limit}>
             {t("cart.keypad.maxAvailable", "Max available: {{n}}", { n: maxQty })}

@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import type { Product } from "@/types/catalog";
 import { normalizeCartQty } from "@/lib/cart-stock";
+import {
+  resolveUnitPrice,
+  toBaseQty,
+  toEnteredQty,
+  unitMetaForSelection,
+  type SelectedUnitKind,
+} from "@/lib/secondary-units";
 
 export type CartItemPrintMeta = {
   itemCode?: string | null;
@@ -18,7 +25,14 @@ export type CartItem = {
   price: number;
   /** Original list / catalog unit price captured when the item was added. */
   listPrice?: number;
+  /** Quantity in the item's main (Regos) unit — used for stock and checkout. */
   qty: number;
+  /** Quantity in the cashier-selected unit (display / receipts). */
+  enteredQty?: number;
+  selectedUnit?: SelectedUnitKind;
+  conversionFactor?: number;
+  selectedUnitName?: string | null;
+  selectedUnitType?: number | null;
   image: string;
   unitType?: number | null;
   /** Qty from the postponed document when continuing a sale. */
@@ -56,6 +70,10 @@ export type PostponedDocType = "wholesale" | "order_from_partner" | null;
 
 type AddWithQtyOptions = {
   skipKeypad?: boolean;
+  /** Force quantity keypad open even when auto-open is off (e.g. ask-unit mode). */
+  forceKeypad?: boolean;
+  /** Quantity is in this unit; converted to main-unit `qty` when secondary. */
+  selectedUnit?: SelectedUnitKind;
 };
 
 type CartState = {
@@ -67,11 +85,19 @@ type CartState = {
   lastAddedId: string | null;
   lastAddedAt: number;
   skipKeypadOnLastAdd: boolean;
-  add: (p: Product) => void;
+  forceKeypadOnLastAdd: boolean;
+  add: (p: Product, options?: AddWithQtyOptions) => void;
   addWithQty: (p: Product, qty: number, options?: AddWithQtyOptions) => void;
   clearSkipKeypadOnLastAdd: () => void;
+  clearForceKeypadOnLastAdd: () => void;
   remove: (productId: string) => void;
+  /** `qty` argument is entered (selected-unit) quantity. */
   setQty: (productId: string, qty: number, unitType?: number | null) => void;
+  setSelectedUnit: (
+    productId: string,
+    selectedUnit: SelectedUnitKind,
+    product: Product,
+  ) => void;
   setPrice: (productId: string, price: number) => void;
   setDiscountValue: (value: number) => void;
   toggleDiscountMode: () => void;
@@ -112,35 +138,52 @@ export const useCart = create<CartState>((set, get) => ({
   lastAddedId: null,
   lastAddedAt: 0,
   skipKeypadOnLastAdd: false,
-  add: (p) => get().addWithQty(p, 1),
+  forceKeypadOnLastAdd: false,
+  add: (p, options) => get().addWithQty(p, 1, options),
   addWithQty: (p, qty, options) =>
     set((s) => {
-      const unitType = p.unit_type ?? null;
-      const normalizedQty = normalizeCartQty(qty, unitType);
-      if (normalizedQty <= 0) return s;
+      const selectedUnit: SelectedUnitKind = options?.selectedUnit ?? "main";
+      const meta = unitMetaForSelection(p, selectedUnit);
+      const entered = normalizeCartQty(qty, meta.selectedUnitType);
+      if (entered <= 0) return s;
+      const addBase = normalizeCartQty(
+        toBaseQty(entered, meta.conversionFactor),
+        p.unit_type ?? null,
+      );
+      if (addBase <= 0) return s;
 
       const existing = s.items.find((i) => i.productId === p.id);
       const base = {
         lastAddedId: p.id,
         lastAddedAt: Date.now(),
         skipKeypadOnLastAdd: options?.skipKeypad ?? false,
+        forceKeypadOnLastAdd: options?.forceKeypad ?? false,
       };
       if (existing) {
+        const factor = existing.conversionFactor ?? 1;
+        const nextBase = normalizeCartQty(
+          existing.qty + addBase,
+          p.unit_type ?? existing.unitType,
+        );
+        const nextEntered = normalizeCartQty(
+          toEnteredQty(nextBase, factor),
+          existing.selectedUnitType ?? existing.unitType,
+        );
         return {
           ...base,
           items: s.items.map((i) =>
             i.productId === p.id
               ? {
                   ...i,
-                  qty: normalizeCartQty(
-                    i.qty + normalizedQty,
-                    i.unitType ?? unitType,
-                  ),
+                  qty: nextBase,
+                  enteredQty: nextEntered,
                 }
               : i,
           ),
         };
       }
+      const printMeta = cartItemPrintMetaFromProduct(p);
+      const unitPrice = resolveUnitPrice(p, selectedUnit);
       return {
         ...base,
         items: [
@@ -152,17 +195,25 @@ export const useCart = create<CartState>((set, get) => ({
                 ? p.regos_item_id
                 : Number.parseInt(p.id, 10) || 0,
             name: p.name,
-            price: p.price,
-            listPrice: p.price,
-            qty: normalizedQty,
+            price: unitPrice,
+            listPrice: unitPrice,
+            qty: addBase,
+            enteredQty: entered,
+            selectedUnit,
+            conversionFactor: meta.conversionFactor,
+            selectedUnitName: meta.selectedUnitName,
+            selectedUnitType: meta.selectedUnitType,
             image: p.image,
-            unitType,
-            ...cartItemPrintMetaFromProduct(p),
+            unitType: meta.unitType,
+            ...printMeta,
+            // Always keep the product main unit name for dual-unit cart display.
+            itemUnitName: printMeta.itemUnitName,
           },
         ],
       };
     }),
   clearSkipKeypadOnLastAdd: () => set({ skipKeypadOnLastAdd: false }),
+  clearForceKeypadOnLastAdd: () => set({ forceKeypadOnLastAdd: false }),
   remove: (productId) =>
     set((s) => ({ items: s.items.filter((i) => i.productId !== productId) })),
   setQty: (productId, qty, unitType) =>
@@ -170,14 +221,59 @@ export const useCart = create<CartState>((set, get) => ({
       items: s.items
         .map((i) => {
           if (i.productId !== productId) return i;
-          const resolvedUnitType = unitType ?? i.unitType;
+          const factor = i.conversionFactor ?? 1;
+          const displayUnitType =
+            unitType ?? i.selectedUnitType ?? i.unitType;
+          const entered = normalizeCartQty(qty, displayUnitType);
+          const base = normalizeCartQty(toBaseQty(entered, factor), null);
           return {
             ...i,
-            unitType: resolvedUnitType ?? i.unitType,
-            qty: normalizeCartQty(qty, resolvedUnitType),
+            unitType: displayUnitType ?? i.unitType,
+            selectedUnitType: displayUnitType ?? i.selectedUnitType,
+            enteredQty: entered,
+            qty: base,
           };
         })
         .filter((i) => i.qty > 0),
+    })),
+  setSelectedUnit: (productId, selectedUnit, product) =>
+    set((s) => ({
+      items: s.items.map((i) => {
+        if (i.productId !== productId) return i;
+        const previousUnit = i.selectedUnit ?? "main";
+        const meta = unitMetaForSelection(product, selectedUnit);
+        const entered =
+          i.enteredQty ??
+          toEnteredQty(i.qty, i.conversionFactor ?? 1);
+        const normalizedEntered = normalizeCartQty(
+          entered,
+          meta.selectedUnitType,
+        );
+        const base = normalizeCartQty(
+          toBaseQty(normalizedEntered, meta.conversionFactor),
+          product.unit_type ?? null,
+        );
+        const next: CartItem = {
+          ...i,
+          selectedUnit,
+          conversionFactor: meta.conversionFactor,
+          selectedUnitName: meta.selectedUnitName,
+          selectedUnitType: meta.selectedUnitType,
+          unitType: meta.unitType,
+          enteredQty: normalizedEntered,
+          qty: base,
+        };
+        if (previousUnit !== selectedUnit) {
+          const unitPrice = resolveUnitPrice(product, selectedUnit);
+          const listPrice = cartItemListPrice(i);
+          const priceWasModified = Math.abs(i.price - listPrice) > 0.0001;
+          next.listPrice = unitPrice;
+          if (!priceWasModified) {
+            next.price = unitPrice;
+          }
+        }
+        return next;
+      }),
     })),
   setPrice: (productId, price) =>
     set((s) => ({
@@ -233,6 +329,7 @@ export const useCart = create<CartState>((set, get) => ({
       lastAddedId: null,
       lastAddedAt: 0,
       skipKeypadOnLastAdd: false,
+      forceKeypadOnLastAdd: false,
     }),
   snapshot: () => {
     const {

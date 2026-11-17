@@ -281,6 +281,68 @@ async def test_gateway_queues_when_no_station_matches() -> None:
 
 
 @pytest.mark.asyncio
+async def test_gateway_sends_to_matching_receipt_printer() -> None:
+    socket = FakeSocket()
+    await gateway.register(
+        StationConn(
+            company_id=3,
+            station_id="counter",
+            station_name="Counter",
+            location_id=None,
+            printers=[{"name": "Receipts", "kind": "receipt", "enabled": True}],
+            websocket=socket,
+        )
+    )
+    job = build_print_job(
+        template_id="tpl",
+        printer_name="Receipts",
+        copies=1,
+        data={"name": "Sale"},
+        html="<html><body>receipt</body></html>",
+        kind="receipt",
+    )
+    job_ids, delivered = await gateway.enqueue(
+        company_id=3,
+        printer_name="Receipts",
+        station_id=None,
+        jobs=[job],
+    )
+    assert delivered == 1
+    assert job_ids == [job["id"]]
+    assert socket.sent
+    assert '"kind": "receipt"' in socket.sent[0]
+
+    label_only = FakeSocket()
+    await gateway.register(
+        StationConn(
+            company_id=3,
+            station_id="labels",
+            station_name="Labels",
+            location_id=None,
+            printers=[{"name": "Receipts", "kind": "label", "enabled": True}],
+            websocket=label_only,
+        )
+    )
+    _, delivered_again = await gateway.enqueue(
+        company_id=3,
+        printer_name="Receipts",
+        station_id=None,
+        jobs=[
+            build_print_job(
+                template_id="tpl",
+                printer_name="Receipts",
+                copies=1,
+                data={"name": "Sale 2"},
+                html="<html><body>receipt2</body></html>",
+                kind="receipt",
+            )
+        ],
+    )
+    assert delivered_again == 1
+    assert label_only.sent == []
+
+
+@pytest.mark.asyncio
 async def test_gateway_sends_to_matching_label_printer() -> None:
     socket = FakeSocket()
     await gateway.register(

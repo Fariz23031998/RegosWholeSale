@@ -13,8 +13,13 @@ from app.core.regos_api import regos_async_api_request_for_company
 from app.core.regos_batch import regos_batch_request_for_company
 from app.services import category_scope as category_scope_service
 from app.services import regos_defaults as regos_defaults_service
+from app.services import regos_fields as regos_fields_service
+from app.services import unit_conversions as unit_conversions_service
 from app.services.document_telegram_format import parse_inout_type
 from app.services.regos_defaults import _extract_currency_reference
+from app.services.regos_products.helpers.coerce_unit_type.coerce_unit_type import (
+    coerce_unit_type,
+)
 
 StockKind = Literal["purchase", "movement", "inventory", "wholesale", "inout", "return_to_partner"]
 
@@ -332,6 +337,11 @@ def _map_document(kind: StockKind, item: dict[str, Any]) -> dict[str, Any]:
 def _map_operation(kind: StockKind, item: dict[str, Any]) -> dict[str, Any]:
     product = item.get("item") if isinstance(item.get("item"), dict) else {}
     unit = product.get("unit") if isinstance(product.get("unit"), dict) else {}
+    unit_id = unit.get("id") if isinstance(unit.get("id"), int) and unit.get("id") > 0 else None
+    unit_type = coerce_unit_type(unit.get("type"))
+    secondary_unit_id = regos_fields_service.parse_item_secondary_unit_id(
+        product.get("fields")
+    )
 
     if kind == "inventory":
         qty = item.get("actual_quantity", item.get("quantity", 0))
@@ -365,6 +375,12 @@ def _map_operation(kind: StockKind, item: dict[str, Any]) -> dict[str, Any]:
         "item_code": str(product.get("code") or "") or None,
         "item_name": product.get("name") if isinstance(product.get("name"), str) else None,
         "item_unit_name": unit.get("name") if isinstance(unit.get("name"), str) else None,
+        "unit_id": unit_id,
+        "unit_type": unit_type,
+        "secondary_unit_id": secondary_unit_id,
+        "secondary_unit_name": None,
+        "secondary_unit_type": None,
+        "conversion_factor": None,
         "quantity": float(qty or 0),
         "cost": float(cost) if cost is not None else None,
         "price": float(price) if price is not None else None,
@@ -373,6 +389,18 @@ def _map_operation(kind: StockKind, item: dict[str, Any]) -> dict[str, Any]:
         "description": item.get("description") if isinstance(item.get("description"), str) else None,
         "vat_value": float(item["vat_value"]) if item.get("vat_value") is not None else None,
     }
+
+
+async def _enrich_secondary_units(
+    session: AsyncSession,
+    company_id: int,
+    rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Attach company conversion factor/name onto rows that have unit_id + secondary_unit_id."""
+    if not rows:
+        return rows
+    conversions = await unit_conversions_service.list_conversions(session, company_id)
+    return unit_conversions_service.merge_conversions_into_products(rows, conversions)
 
 
 def _apply_stock_filter(
@@ -606,6 +634,7 @@ async def list_operations(
     response = await _regos_call(session, company_id, endpoints.ops_get, payload)
     raw_items = response.get("result") or []
     operations = [_map_operation(kind, item) for item in raw_items if isinstance(item, dict)]
+    await _enrich_secondary_units(session, company_id, operations)
     return {"operations": operations}
 
 
@@ -1181,7 +1210,11 @@ def _map_item_ext(ext: dict[str, Any]) -> dict[str, Any]:
         parts = [p.strip() for p in barcode_list.split(",") if p.strip()]
         first_barcode = parts[0] if parts else None
 
-    unit_type = unit.get("type")
+    unit_id = unit.get("id") if isinstance(unit.get("id"), int) and unit.get("id") > 0 else None
+    unit_type = coerce_unit_type(unit.get("type"))
+    secondary_unit_id = regos_fields_service.parse_item_secondary_unit_id(
+        core.get("fields")
+    )
     vat_value = vat.get("value")
     if vat_value is None:
         vat_value = vat.get("rate")
@@ -1193,7 +1226,13 @@ def _map_item_ext(ext: dict[str, Any]) -> dict[str, Any]:
         "code": str(core["code"]) if core.get("code") is not None else None,
         "articul": core.get("articul") if isinstance(core.get("articul"), str) else None,
         "unit": unit.get("name") if isinstance(unit.get("name"), str) else None,
-        "unit_piece": unit_type == "pcs" or unit_type == 1,
+        "unit_id": unit_id,
+        "unit_type": unit_type,
+        "unit_piece": unit_type == 1,
+        "secondary_unit_id": secondary_unit_id,
+        "secondary_unit_name": None,
+        "secondary_unit_type": None,
+        "conversion_factor": None,
         "vat_value": float(vat_value) if vat_value is not None else None,
         "last_purchase_cost": (
             float(ext["last_purchase_cost"]) if ext.get("last_purchase_cost") is not None else None
@@ -1229,7 +1268,9 @@ async def search_items(
     response = await _regos_call(session, company_id, "item/getext", payload)
     raw = response.get("result") or []
     items = [_map_item_ext(item) for item in raw if isinstance(item, dict) and item]
-    return {"items": [i for i in items if i.get("id")]}
+    items = [i for i in items if i.get("id")]
+    await _enrich_secondary_units(session, company_id, items)
+    return {"items": items}
 
 
 async def get_item_info(
@@ -1288,6 +1329,7 @@ async def get_item_info(
         raise not_found(f"Item {item_id} was not found.", "ITEM_NOT_FOUND")
 
     mapped_item = _map_item_ext(first_ext)
+    await _enrich_secondary_units(session, company_id, [mapped_item])
 
     quantities: list[dict[str, Any]] = []
     qty_raw = responses.get("qty", {}).get("result") or []

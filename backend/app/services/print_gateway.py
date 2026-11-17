@@ -4,6 +4,9 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+PRINTER_KIND_LABEL = "label"
+PRINTER_KIND_RECEIPT = "receipt"
+
 
 def _names_match(left: str | None, right: str | None) -> bool:
     return (left or "").strip().casefold() == (right or "").strip().casefold()
@@ -14,6 +17,13 @@ def matching_printer_name(names: list[str], printer_name: str) -> str | None:
         if _names_match(name, printer_name):
             return name
     return None
+
+
+def job_printer_kind(payload: dict[str, Any] | None) -> str:
+    if not isinstance(payload, dict):
+        return PRINTER_KIND_LABEL
+    kind = str(payload.get("kind") or "").strip().lower()
+    return kind or PRINTER_KIND_LABEL
 
 
 @dataclass
@@ -74,9 +84,10 @@ class PrintGateway:
                     continue
                 if job.station_id and job.station_id != station_id:
                     continue
+                kind = job_printer_kind(job.payload)
                 scoped = self._company_stations(company_id, job.station_id)
-                resolved = _resolve_label_printer_name(scoped, job.printer_name)
-                if resolved is None or not _has_label_printer(printers, resolved):
+                resolved = _resolve_printer_name(scoped, job.printer_name, kind)
+                if resolved is None or not _has_printer(printers, resolved, kind):
                     continue
                 if not _names_match(job.printer_name, resolved):
                     job.printer_name = resolved
@@ -87,9 +98,23 @@ class PrintGateway:
     async def resolve_label_printer(
         self, company_id: int, printer_name: str, station_id: str | None
     ) -> tuple[str | None, list[str]]:
+        return await self.resolve_printer(
+            company_id, printer_name, station_id, PRINTER_KIND_LABEL
+        )
+
+    async def resolve_printer(
+        self,
+        company_id: int,
+        printer_name: str,
+        station_id: str | None,
+        kind: str,
+    ) -> tuple[str | None, list[str]]:
         async with self.lock:
             stations = self._company_stations(company_id, station_id)
-            return _resolve_label_printer_name(stations, printer_name), _online_label_names(stations)
+            return (
+                _resolve_printer_name(stations, printer_name, kind),
+                _online_printer_names(stations, kind),
+            )
 
     def _company_stations(self, company_id: int, station_id: str | None) -> list[StationConn]:
         return [
@@ -144,7 +169,12 @@ class PrintGateway:
         for station in stations:
             await _safe_send(station.websocket, message)
 
-    def list_stations(self, company_id: int, printer_name: str) -> list[dict[str, Any]]:
+    def list_stations(
+        self,
+        company_id: int,
+        printer_name: str,
+        kind: str = PRINTER_KIND_LABEL,
+    ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         for station in self.stations.values():
             if station.company_id != company_id:
@@ -156,7 +186,7 @@ class PrintGateway:
                     "station_name": station.station_name,
                     "location_id": station.location_id,
                     "online": True,
-                    "matches_printer": _has_label_printer(station.printers, printer_name),
+                    "matches_printer": _has_printer(station.printers, printer_name, kind),
                     "printers": printers,
                 }
             )
@@ -185,10 +215,12 @@ def build_print_job(
     copies: int,
     data: dict[str, Any],
     html: str | None = None,
+    kind: str = PRINTER_KIND_LABEL,
 ) -> dict[str, Any]:
+    job_kind = (kind or PRINTER_KIND_LABEL).strip().lower() or PRINTER_KIND_LABEL
     job: dict[str, Any] = {
         "id": str(uuid.uuid4()),
-        "kind": "label",
+        "kind": job_kind,
         "printerName": printer_name,
         "templateId": template_id,
         "copies": max(1, min(int(copies), 99)),
@@ -227,15 +259,16 @@ def _station_matches(station: StationConn, job: PendingJob) -> bool:
         return False
     if job.station_id and station.station_id != job.station_id:
         return False
-    return _has_label_printer(station.printers, job.printer_name)
+    return _has_printer(station.printers, job.printer_name, job_printer_kind(job.payload))
 
 
-def _enabled_label_names(printers: list[dict[str, Any]]) -> list[str]:
+def _enabled_printer_names(printers: list[dict[str, Any]], kind: str) -> list[str]:
+    target = (kind or PRINTER_KIND_LABEL).strip().lower() or PRINTER_KIND_LABEL
     names: list[str] = []
     for printer in printers:
         if not printer.get("enabled"):
             continue
-        if str(printer.get("kind") or "").lower() != "label":
+        if str(printer.get("kind") or "").lower() != target:
             continue
         name = str(printer.get("name") or "").strip()
         if name:
@@ -243,11 +276,15 @@ def _enabled_label_names(printers: list[dict[str, Any]]) -> list[str]:
     return names
 
 
-def _online_label_names(stations: list[StationConn]) -> list[str]:
+def _enabled_label_names(printers: list[dict[str, Any]]) -> list[str]:
+    return _enabled_printer_names(printers, PRINTER_KIND_LABEL)
+
+
+def _online_printer_names(stations: list[StationConn], kind: str) -> list[str]:
     names: list[str] = []
     seen: set[str] = set()
     for station in stations:
-        for name in _enabled_label_names(station.printers):
+        for name in _enabled_printer_names(station.printers, kind):
             key = name.casefold()
             if key in seen:
                 continue
@@ -256,8 +293,14 @@ def _online_label_names(stations: list[StationConn]) -> list[str]:
     return names
 
 
-def _resolve_label_printer_name(stations: list[StationConn], printer_name: str) -> str | None:
-    names = _online_label_names(stations)
+def _online_label_names(stations: list[StationConn]) -> list[str]:
+    return _online_printer_names(stations, PRINTER_KIND_LABEL)
+
+
+def _resolve_printer_name(
+    stations: list[StationConn], printer_name: str, kind: str
+) -> str | None:
+    names = _online_printer_names(stations, kind)
     for name in names:
         if _names_match(name, printer_name):
             return name
@@ -266,8 +309,19 @@ def _resolve_label_printer_name(stations: list[StationConn], printer_name: str) 
     return None
 
 
+def _resolve_label_printer_name(stations: list[StationConn], printer_name: str) -> str | None:
+    return _resolve_printer_name(stations, printer_name, PRINTER_KIND_LABEL)
+
+
+def _has_printer(printers: list[dict[str, Any]], printer_name: str, kind: str) -> bool:
+    return any(
+        _names_match(name, printer_name)
+        for name in _enabled_printer_names(printers, kind)
+    )
+
+
 def _has_label_printer(printers: list[dict[str, Any]], printer_name: str) -> bool:
-    return any(_names_match(name, printer_name) for name in _enabled_label_names(printers))
+    return _has_printer(printers, printer_name, PRINTER_KIND_LABEL)
 
 
 def _public_printer(printer: dict[str, Any]) -> dict[str, Any]:

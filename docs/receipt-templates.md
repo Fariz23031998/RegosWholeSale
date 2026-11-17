@@ -297,12 +297,16 @@ Loop with `{{#each operations}}…{{/each}}`.
 | `item_name` | Product name |
 | `item_group_id` | Group ID |
 | `item_group_name` | Product group / category |
-| `item_unit_name` | Unit of measure |
+| `item_unit_name` | Cashier-selected unit of measure (same unit as `quantity` / `price`) |
 | `item_brand` | Brand |
-| `quantity` | Quantity |
-| `price` | Unit price |
+| `quantity` | Cashier-selected quantity |
+| `price` | Unit price (in the selected unit) |
 | `price2` | Price without discount |
 | `amount` | Line total |
+| `main_unit_name` | Product main (Regos) unit name |
+| `main_unit_quantity` | Quantity in the main unit |
+| `secondary_unit_name` | Secondary unit name when a conversion exists; otherwise empty |
+| `secondary_unit_quantity` | Quantity in the secondary unit when a conversion exists; otherwise empty |
 | `item_fullname` | Product full name (Regos `item.fullname`) |
 | `item_description` | Product description |
 | `item_articul` | Article / SKU |

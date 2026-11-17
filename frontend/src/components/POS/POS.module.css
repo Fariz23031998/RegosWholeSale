@@ -245,12 +245,12 @@
 
 .sellContext {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
 }
 
 .sellContextPair {
-  grid-template-columns: repeat(2, minmax(140px, 220px));
+  grid-template-columns: repeat(3, minmax(140px, 220px));
   width: max-content;
   max-width: 100%;
   flex: 0 1 auto;

@@ -141,7 +141,7 @@ export function SellContextFields({
 
   const { t } = useLanguage();
 
-  const { canChangeWarehouse, canChangePriceType } = usePermissions();
+  const { canChangeWarehouse, canChangePriceType, canChangeCurrency } = usePermissions();
 
   const options = useSellContext((s) => s.options);
 
@@ -149,9 +149,13 @@ export function SellContextFields({
 
   const priceTypeId = useSellContext((s) => s.priceTypeId);
 
+  const saleCurrency = useSellContext((s) => s.saleCurrency);
+
   const setWarehouseId = useSellContext((s) => s.setWarehouseId);
 
   const setPriceTypeId = useSellContext((s) => s.setPriceTypeId);
+
+  const setSaleCurrencyId = useSellContext((s) => s.setSaleCurrencyId);
 
   const fieldClassName =
 
@@ -233,6 +237,46 @@ export function SellContextFields({
             <option key={item.id} value={item.id}>
 
               {item.name}
+
+            </option>
+
+          ))}
+
+        </select>
+
+      </label>
+      )}
+
+      {canChangeCurrency() && (
+      <label className={fieldClassName}>
+
+        <span className={styles.sellContextLabel}>{t("pos.sellContext.currency", "Currency")}</span>
+
+        <select
+
+          className={styles.sellContextSelect}
+
+          value={saleCurrency?.id ?? ""}
+
+          onChange={(e) =>
+
+            setSaleCurrencyId(e.target.value ? Number(e.target.value) : null)
+
+          }
+
+        >
+
+          <option value="" disabled>
+
+            {t("pos.sellContext.selectCurrency", "Select currency")}
+
+          </option>
+
+          {options.currencies.map((item) => (
+
+            <option key={item.id} value={item.id}>
+
+              {item.code_chr?.trim() || item.name}
 
             </option>
 

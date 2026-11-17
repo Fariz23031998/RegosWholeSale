@@ -21,9 +21,16 @@ import {
 } from "@/lib/catalog-incremental-sync";
 import { isCacheEnabled } from "@/lib/cache-policy";
 import { buildCatalogScopeKey } from "@/lib/pulse-pos-db";
-import { canAddProductToCart } from "@/lib/cart-stock";
+import { canFitBaseQtyInCart } from "@/lib/cart-stock";
 import { isBarcodeInput } from "@/lib/barcode";
 import { truncateToastName } from "@/lib/format";
+import {
+  resolveDefaultSelectedUnit,
+  shouldAskUnit,
+  toBaseQty,
+  unitMetaForSelection,
+  type SelectedUnitKind,
+} from "@/lib/secondary-units";
 import {
   isShortNumericCodeSearch,
   prioritizeCatalogProductsByCode,
@@ -145,6 +152,7 @@ export function ProductCatalog() {
   const checkoutTabs = useCheckoutTabs((s) => s.tabs);
   const activeCheckoutTabId = useCheckoutTabs((s) => s.activeTabId);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
+  const secondaryUnitMode = usePosConfig((s) => s.secondaryUnitMode);
   const bookedOrderContinuation = useBookedOrderContinuation();
   const catalogStockOptions = bookedOrderContinuation
     ? { bookedOrderContinuation: true as const }
@@ -360,29 +368,57 @@ export function ProductCatalog() {
     [activeCheckoutTabId, checkoutTabs],
   );
 
+  const minAddBaseQtyForProduct = useCallback(
+    (product: Product) => {
+      // Ask mode: card stays enabled if main unit fits; secondary is gated on add.
+      // use_secondary: require room for one full secondary package when available.
+      const gateUnit =
+        secondaryUnitMode === "ask"
+          ? "main"
+          : resolveDefaultSelectedUnit(secondaryUnitMode, product);
+      const meta = unitMetaForSelection(product, gateUnit);
+      return toBaseQty(1, meta.conversionFactor);
+    },
+    [secondaryUnitMode],
+  );
+
   const canAddToCart = useCallback(
     (product: Product) => {
       const inCart = getInCartQty(product.id);
-      return canAddProductToCart(
+      return canFitBaseQtyInCart(
         product,
         inCart,
+        minAddBaseQtyForProduct(product),
         allowOutOfStock,
         getReservedInOtherTabs(product.id),
         catalogStockOptions,
       );
     },
-    [allowOutOfStock, catalogStockOptions, getReservedInOtherTabs],
+    [
+      allowOutOfStock,
+      catalogStockOptions,
+      getReservedInOtherTabs,
+      minAddBaseQtyForProduct,
+    ],
   );
 
   const firstAddableProduct = (items: Product[]) =>
     items.find((product) => canAddToCart(product));
 
-  const handleAddToCart = useCallback(
-    (product: Product) => {
+  const addProductWithUnit = useCallback(
+    (
+      product: Product,
+      selectedUnit: SelectedUnitKind,
+      options?: { forceKeypad?: boolean },
+    ) => {
+      const meta = unitMetaForSelection(product, selectedUnit);
+      const baseAdd = toBaseQty(1, meta.conversionFactor);
+      const inCart = getInCartQty(product.id);
       if (
-        !canAddProductToCart(
+        !canFitBaseQtyInCart(
           product,
-          getInCartQty(product.id),
+          inCart,
+          baseAdd,
           allowOutOfStock,
           getReservedInOtherTabs(product.id),
           catalogStockOptions,
@@ -391,10 +427,23 @@ export function ProductCatalog() {
         return;
       }
       startTransition(() => {
-        add(product);
+        add(product, {
+          selectedUnit,
+          forceKeypad: options?.forceKeypad,
+        });
       });
     },
     [add, allowOutOfStock, catalogStockOptions, getReservedInOtherTabs],
+  );
+
+  const handleAddToCart = useCallback(
+    (product: Product) => {
+      const selectedUnit = resolveDefaultSelectedUnit(secondaryUnitMode, product);
+      addProductWithUnit(product, selectedUnit, {
+        forceKeypad: shouldAskUnit(secondaryUnitMode, product),
+      });
+    },
+    [addProductWithUnit, secondaryUnitMode],
   );
 
   const catalogFetchParams = useCallback(
@@ -979,10 +1028,17 @@ export function ProductCatalog() {
       }
 
       startTransition(() => {
+        const selectedUnit = resolveDefaultSelectedUnit(
+          secondaryUnitMode,
+          result.product,
+        );
         if (result.qty === 1) {
-          add(result.product);
+          add(result.product, { selectedUnit });
         } else {
-          addWithQty(result.product, result.qty, { skipKeypad: true });
+          addWithQty(result.product, result.qty, {
+            skipKeypad: true,
+            selectedUnit,
+          });
         }
       });
       setError("");
@@ -1005,10 +1061,17 @@ export function ProductCatalog() {
         }
 
         startTransition(() => {
+          const selectedUnit = resolveDefaultSelectedUnit(
+            secondaryUnitMode,
+            result.product,
+          );
           if (result.qty === 1) {
-            add(result.product);
+            add(result.product, { selectedUnit });
           } else {
-            addWithQty(result.product, result.qty, { skipKeypad: true });
+            addWithQty(result.product, result.qty, {
+              skipKeypad: true,
+              selectedUnit,
+            });
           }
         });
         toast.success(
@@ -1021,7 +1084,7 @@ export function ProductCatalog() {
         toast.error(formatAuthError(err));
       }
     },
-    [add, addWithQty, barcodeLookupOptions, t, token],
+    [add, addWithQty, barcodeLookupOptions, secondaryUnitMode, t, token],
   );
 
   const submitSearch = async (term: string) => {
@@ -1287,6 +1350,7 @@ export function ProductCatalog() {
                   allowOutOfStock={allowOutOfStock}
                   reservedInOtherTabs={getReservedInOtherTabs(p.id)}
                   bookedOrderContinuation={bookedOrderContinuation}
+                  minAddBaseQty={minAddBaseQtyForProduct(p)}
                   onAdd={handleAddToCart}
                   onToggleFeatured={toggleFeatured}
                 />

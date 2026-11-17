@@ -14,8 +14,8 @@ import { useCheckoutTabs, getReservedQtyInOtherTabs } from "@/store/checkout-tab
 import {
   allowsDecimalQty,
   applyStockAdjustments,
-  clampCartQty,
-  canIncreaseCartQty,
+  canFitBaseQtyInCart,
+  cartLinesWithinStock,
   computePostponeStockAdjustments,
   formatCartQty,
   getCartAvailabilityStock,
@@ -25,7 +25,18 @@ import {
   shouldReserveStockOnPostpone,
   type StockAdjustOp,
 } from "@/lib/cart-stock";
-import { formatCurrency } from "@/lib/format";
+import {
+  maxEnteredQty,
+  productHasSecondaryUnit,
+  unitMetaForSelection,
+  type SelectedUnitKind,
+} from "@/lib/secondary-units";
+import { formatAmountWithCurrency } from "@/lib/checkout-payments";
+import { amountInPriceCurrency } from "@/lib/currency-conversion";
+import {
+  convertCartTotalsForSaleCurrency,
+  convertPriceAmount,
+} from "@/lib/sale-currency-amounts";
 import { toast } from "sonner";
 import { extractWholesaleDocIdFromError } from "@/lib/checkout-error";
 import { isCacheEnabled } from "@/lib/cache-policy";
@@ -51,6 +62,7 @@ export function CartPanel() {
   const discountMode = useCart((s) => s.discountMode);
   const discountValue = useCart((s) => s.discountValue);
   const setQty = useCart((s) => s.setQty);
+  const setSelectedUnit = useCart((s) => s.setSelectedUnit);
   const setPrice = useCart((s) => s.setPrice);
   const remove = useCart((s) => s.remove);
   const setDiscountValue = useCart((s) => s.setDiscountValue);
@@ -67,6 +79,7 @@ export function CartPanel() {
     canChangeWarehouse,
     canChangePriceType,
     canChangePartner,
+    canChangeCurrency,
     canApplyDiscount,
     canModifyPrice,
     canPostponeSale,
@@ -79,8 +92,10 @@ export function CartPanel() {
       canChangeWarehouse: canChangeWarehouse(),
       canChangePriceType: canChangePriceType(),
       canChangePartner: canChangePartner(),
+      canChangeCurrency: canChangeCurrency(),
     });
   const saleCurrency = useSellContext((s) => s.saleCurrency);
+  const priceCurrency = useSellContext((s) => s.priceCurrency);
   const priceTypeId = useSellContext((s) => s.priceTypeId);
   const partnerId = useSellContext((s) => s.partnerId);
   const warehouseId = useSellContext((s) => s.warehouseId);
@@ -105,16 +120,56 @@ export function CartPanel() {
     ? { bookedOrderContinuation: true as const }
     : undefined;
   const autoOpenKeypad = usePosConfig((s) => s.autoOpenQtyKeypad);
+  const secondaryUnitMode = usePosConfig((s) => s.secondaryUnitMode);
   const [keypadFor, setKeypadFor] = useState<string | null>(null);
+  const [keypadPendingUnit, setKeypadPendingUnit] =
+    useState<SelectedUnitKind>("main");
   const [mobileOpen, setMobileOpen] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const totals = cartTotals(items, discountMode, discountValue);
+  const displayTotals = convertCartTotalsForSaleCurrency(
+    totals,
+    priceCurrency,
+    saleCurrency,
+  );
+  const formatSaleAmount = (amount: number) =>
+    formatAmountWithCurrency(
+      convertPriceAmount(amount, priceCurrency, saleCurrency),
+      saleCurrency,
+    );
   const keypadItem = items.find((i) => i.productId === keypadFor) ?? null;
+  const keypadCatalogProduct = keypadItem
+    ? catalogProducts.find((p) => p.id === keypadItem.productId)
+    : undefined;
+  const keypadShowUnitChoice = Boolean(
+    secondaryUnitMode === "ask" &&
+      keypadCatalogProduct &&
+      productHasSecondaryUnit(keypadCatalogProduct),
+  );
+  const keypadPendingMeta =
+    keypadShowUnitChoice && keypadCatalogProduct
+      ? unitMetaForSelection(keypadCatalogProduct, keypadPendingUnit)
+      : null;
   const keypadUnitType = keypadItem
-    ? resolveCartUnitType(keypadItem.unitType, catalogProducts, keypadItem.productId)
+    ? resolveCartUnitType(
+        keypadPendingMeta?.selectedUnitType ??
+          keypadItem.selectedUnitType ??
+          keypadItem.unitType,
+        catalogProducts,
+        keypadItem.productId,
+      )
     : undefined;
   const keypadQtyAllowsDecimals = allowsDecimalQty(keypadUnitType);
-  const keypadMaxQty = keypadItem
+  const keypadFactor =
+    keypadPendingMeta?.conversionFactor ?? keypadItem?.conversionFactor ?? 1;
+  const keypadLineFactor = keypadItem?.conversionFactor ?? 1;
+  const keypadEnteredQty = keypadItem
+    ? (keypadItem.enteredQty ??
+      (keypadLineFactor > 0
+        ? keypadItem.qty / keypadLineFactor
+        : keypadItem.qty))
+    : 0;
+  const keypadMaxBaseQty = keypadItem
     ? maxCartQty(
         getCartAvailabilityStock(
           getProductStock(catalogProducts, keypadItem.productId),
@@ -129,6 +184,28 @@ export function CartPanel() {
         ),
       )
     : null;
+  const keypadMaxQty = maxEnteredQty(
+    keypadMaxBaseQty,
+    keypadFactor,
+    keypadUnitType,
+  );
+  const keypadSecondaryMeta =
+    keypadShowUnitChoice && keypadCatalogProduct
+      ? unitMetaForSelection(keypadCatalogProduct, "secondary")
+      : null;
+  const keypadSecondaryMaxQty = keypadSecondaryMeta
+    ? maxEnteredQty(
+        keypadMaxBaseQty,
+        keypadSecondaryMeta.conversionFactor,
+        resolveCartUnitType(
+          keypadSecondaryMeta.selectedUnitType,
+          catalogProducts,
+          keypadItem?.productId ?? "",
+        ),
+      )
+    : null;
+  const keypadSecondaryDisabled =
+    keypadSecondaryMaxQty != null && keypadSecondaryMaxQty < 1;
   const itemCount = items.reduce((s, i) => s + i.qty, 0);
 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
@@ -150,7 +227,9 @@ export function CartPanel() {
   const lastAddedId = useCart((s) => s.lastAddedId);
   const lastAddedAt = useCart((s) => s.lastAddedAt);
   const skipKeypadOnLastAdd = useCart((s) => s.skipKeypadOnLastAdd);
+  const forceKeypadOnLastAdd = useCart((s) => s.forceKeypadOnLastAdd);
   const clearSkipKeypadOnLastAdd = useCart((s) => s.clearSkipKeypadOnLastAdd);
+  const clearForceKeypadOnLastAdd = useCart((s) => s.clearForceKeypadOnLastAdd);
   const seenAddRef = useRef(0);
 
   useEffect(() => {
@@ -170,15 +249,30 @@ export function CartPanel() {
   }, []);
 
   useEffect(() => {
+    if (!keypadFor) return;
+    const item = items.find((i) => i.productId === keypadFor);
+    if (item) setKeypadPendingUnit(item.selectedUnit ?? "main");
+    // Only re-init when opening for a product id.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keypadFor]);
+
+  useEffect(() => {
     if (!lastAddedAt || lastAddedAt === seenAddRef.current) return;
     seenAddRef.current = lastAddedAt;
-    if (autoOpenKeypad && lastAddedId && !skipKeypadOnLastAdd) {
+    if (
+      (autoOpenKeypad || forceKeypadOnLastAdd) &&
+      lastAddedId &&
+      !skipKeypadOnLastAdd
+    ) {
       setKeypadFor(lastAddedId);
     }
     if (skipKeypadOnLastAdd) clearSkipKeypadOnLastAdd();
+    if (forceKeypadOnLastAdd) clearForceKeypadOnLastAdd();
   }, [
     autoOpenKeypad,
+    clearForceKeypadOnLastAdd,
     clearSkipKeypadOnLastAdd,
+    forceKeypadOnLastAdd,
     lastAddedAt,
     lastAddedId,
     skipKeypadOnLastAdd,
@@ -233,18 +327,50 @@ export function CartPanel() {
       return;
     }
 
+    const reservedByProductId: Record<string, number> = {};
+    for (const item of cartItems) {
+      reservedByProductId[item.productId] = getReservedQtyInOtherTabs(
+        checkoutTabs,
+        activeCheckoutTabId,
+        item.productId,
+      );
+    }
+    if (
+      !cartLinesWithinStock(
+        cartItems,
+        catalogProducts,
+        allowOutOfStock,
+        reservedByProductId,
+        catalogStockOptions,
+      )
+    ) {
+      setPostponeError(
+        t(
+          "checkout.errors.insufficientStock",
+          "Some products exceed available stock. Reduce quantities or enable out-of-stock sales.",
+        ),
+      );
+      return;
+    }
+
     const scopeKey = buildPendingSalesScopeKey(user.company_id, user.id);
     if (!scopeKey) return;
 
     setPostponing(true);
     setPostponeError(null);
 
+    const saleTotals = convertCartTotalsForSaleCurrency(
+      totals,
+      priceCurrency,
+      saleCurrency,
+    );
     const request: PostponeRequest = {
+      // Line prices stay in price-type currency; backend converts into sale currency.
       items: cartItems.map((item) =>
         toCheckoutCartItem(item, keypadUpdateDiscountedPriceOnly),
       ),
       discount: totals.discount,
-      total: totals.total,
+      total: saleTotals.total,
       description: `POS ${cashier.name}`,
       ...(postponedWholesaleDocId
         ? { wholesale_doc_id: postponedWholesaleDocId }
@@ -425,37 +551,59 @@ export function CartPanel() {
           </div>
         ) : (
           items.map((i) => {
+            const factor = i.conversionFactor ?? 1;
             const unitType = resolveCartUnitType(
-              i.unitType,
+              i.selectedUnitType ?? i.unitType,
               catalogProducts,
               i.productId,
             );
+            const catalogProduct = catalogProducts.find(
+              (p) => p.id === i.productId,
+            );
+            const mainUnitType = catalogProduct?.unit_type ?? null;
+            const mainUnitName =
+              i.itemUnitName?.trim() ||
+              catalogProduct?.unit_name?.trim() ||
+              "";
+            const enteredQty =
+              i.enteredQty ?? (factor > 0 ? i.qty / factor : i.qty);
             const reservedInOtherTabs = getReservedQtyInOtherTabs(
               checkoutTabs,
               activeCheckoutTabId,
               i.productId,
             );
-            const canIncrease = canIncreaseCartQty(
-              i.productId,
-              i.qty,
-              catalogProducts,
-              allowOutOfStock,
-              reservedInOtherTabs,
-              catalogStockOptions,
-            );
+            const canIncrease = catalogProduct
+              ? canFitBaseQtyInCart(
+                  catalogProduct,
+                  i.qty,
+                  factor,
+                  allowOutOfStock,
+                  reservedInOtherTabs,
+                  catalogStockOptions,
+                )
+              : allowOutOfStock;
+            const unitLabel =
+              i.selectedUnitName?.trim() || i.itemUnitName?.trim() || "";
+            const showMainEquivalent =
+              i.selectedUnit === "secondary" && factor > 0;
             return (
             <div key={i.productId} className={styles.line}>
               <CartLineImage image={i.image} name={i.name} />
               <div>
                 <div className={styles.lineName}>{i.name}</div>
                 <div className={styles.linePrice}>
-                  {t("cart.priceEa", "{{price}} ea", { price: formatCurrency(i.price) })}
+                  {t("cart.priceEa", "{{price}} ea", {
+                    price: formatSaleAmount(i.price * factor),
+                  })}
+                  {unitLabel ? ` · ${unitLabel}` : null}
                 </div>
                 <div className={styles.qty} style={{ marginTop: 6, width: "fit-content" }}>
                   <button
                     className={styles.qtyBtn}
                     onClick={() => {
-                      startTransition(() => setQty(i.productId, i.qty - 1, unitType));
+                      startTransition(() =>
+                        setQty(i.productId, enteredQty - 1, unitType),
+                      );
                     }}
                     aria-label={t("cart.qty.decrease", "Decrease")}
                   >
@@ -468,20 +616,30 @@ export function CartPanel() {
                     aria-label={`Edit quantity for ${i.name}`}
                     title={t("cart.qty.tapToEnter", "Tap to enter quantity")}
                   >
-                    {formatCartQty(i.qty, unitType)}
+                    {formatCartQty(enteredQty, unitType)}
                   </button>
                   <button
                     className={styles.qtyBtn}
                     disabled={!canIncrease}
                     onClick={() => {
                       if (!canIncrease) return;
-                      startTransition(() => setQty(i.productId, i.qty + 1, unitType));
+                      startTransition(() =>
+                        setQty(i.productId, enteredQty + 1, unitType),
+                      );
                     }}
                     aria-label={t("cart.qty.increase", "Increase")}
                   >
                     <Plus size={13} />
                   </button>
                 </div>
+                {showMainEquivalent ? (
+                  <div className={styles.mainEquivalent}>
+                    {t("cart.qty.mainEquivalent", "= {{qty}} {{unit}}", {
+                      qty: formatCartQty(i.qty, mainUnitType),
+                      unit: mainUnitName,
+                    })}
+                  </div>
+                ) : null}
               </div>
               <div className={styles.lineRight}>
                 <button
@@ -495,7 +653,7 @@ export function CartPanel() {
                   <X size={14} />
                 </button>
                 <div className={styles.lineTotal}>
-                  {formatCurrency(i.price * i.qty)}
+                  {formatSaleAmount(i.price * i.qty)}
                 </div>
               </div>
             </div>
@@ -507,7 +665,7 @@ export function CartPanel() {
       <div className={styles.summary}>
         <div className={styles.row}>
           <span>{t("cart.subtotal", "Subtotal")}</span>
-          <span>{formatCurrency(totals.subtotal)}</span>
+          <span>{formatAmountWithCurrency(displayTotals.subtotal, saleCurrency)}</span>
         </div>
         {canApplyDiscount() && (
         <div className={styles.row}>
@@ -556,9 +714,9 @@ export function CartPanel() {
             <span className={styles.discountSuffix}>
               {discountMode === "percent" ? "%" : ""}
             </span>
-            {discountMode === "percent" && totals.discount > 0 && (
+            {discountMode === "percent" && displayTotals.discount > 0 && (
               <span className={styles.discountAmount}>
-                −{formatCurrency(totals.discount)}
+                −{formatAmountWithCurrency(displayTotals.discount, saleCurrency)}
               </span>
             )}
           </div>
@@ -566,7 +724,7 @@ export function CartPanel() {
         )}
         <div className={`${styles.row} ${styles.totalRow}`}>
           <span>{t("cart.total", "Total")}</span>
-          <span>{formatCurrency(totals.total)}</span>
+          <span>{formatAmountWithCurrency(displayTotals.total, saleCurrency)}</span>
         </div>
         {postponeError && <div className={styles.postponeError}>{postponeError}</div>}
         {printError && <div className={styles.postponeError}>{printError}</div>}
@@ -601,7 +759,9 @@ export function CartPanel() {
           disabled={items.length === 0 || postponing}
           onClick={() => setCheckoutOpen(true)}
         >
-          {t("cart.charge", "Charge {{total}}", { total: formatCurrency(totals.total) })}
+          {t("cart.charge", "Charge {{total}}", {
+            total: formatAmountWithCurrency(displayTotals.total, saleCurrency),
+          })}
         </Button>
       </div>
 
@@ -639,10 +799,33 @@ export function CartPanel() {
 
       <QtyKeypad
         open={keypadItem !== null}
-        initial={keypadItem?.qty ?? 0}
-        initialPrice={canModifyPrice() ? keypadItem?.price ?? 0 : undefined}
+        initial={keypadEnteredQty}
+        initialPrice={
+          canModifyPrice()
+            ? convertPriceAmount(
+                keypadItem?.price ?? 0,
+                priceCurrency,
+                saleCurrency,
+              )
+            : undefined
+        }
         productName={keypadItem?.name}
         allowDecimals={keypadQtyAllowsDecimals}
+        unitChoice={
+          keypadShowUnitChoice && keypadCatalogProduct
+            ? {
+                selected: keypadPendingUnit,
+                mainLabel:
+                  keypadCatalogProduct.unit_name?.trim() ||
+                  t("pos.unitChoice.main", "Main unit"),
+                secondaryLabel:
+                  keypadCatalogProduct.secondary_unit_name?.trim() ||
+                  t("pos.unitChoice.secondary", "Secondary unit"),
+                secondaryDisabled: keypadSecondaryDisabled,
+                onSelect: setKeypadPendingUnit,
+              }
+            : null
+        }
         onClose={() => setKeypadFor(null)}
         onConfirm={(n, p) => {
           if (!keypadItem) return;
@@ -652,20 +835,35 @@ export function CartPanel() {
             activeCheckoutTabId,
             keypadItem.productId,
           );
-          setQty(
-            keypadItem.productId,
-            clampCartQty(
-              n,
-              stock,
-              allowOutOfStock,
-              keypadUnitType,
-              reservedInOtherTabs,
-              catalogStockOptions,
-              keypadItem.qty,
-            ),
+          const factor = keypadFactor;
+          const maxBase = maxCartQty(
+            getCartAvailabilityStock(stock, keypadItem.qty, catalogStockOptions),
+            allowOutOfStock,
+            reservedInOtherTabs,
+          );
+          const maxEntered = maxEnteredQty(
+            maxBase,
+            factor,
             keypadUnitType,
           );
-          if (p !== undefined) setPrice(keypadItem.productId, p);
+          const clampedEntered =
+            maxEntered == null
+              ? n
+              : Math.min(n, maxEntered);
+          if (keypadShowUnitChoice && keypadCatalogProduct) {
+            setSelectedUnit(
+              keypadItem.productId,
+              keypadPendingUnit,
+              keypadCatalogProduct,
+            );
+          }
+          setQty(keypadItem.productId, clampedEntered, keypadUnitType);
+          if (p !== undefined) {
+            setPrice(
+              keypadItem.productId,
+              amountInPriceCurrency(p, priceCurrency, saleCurrency),
+            );
+          }
         }}
         maxQty={keypadMaxQty}
       />

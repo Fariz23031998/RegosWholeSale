@@ -2,8 +2,9 @@ import { memo, startTransition } from "react";
 import clsx from "clsx";
 import { Star } from "lucide-react";
 import { useLanguage } from "@/contexts/LanguageContext";
-import { canAddProductToCart } from "@/lib/cart-stock";
+import { canFitBaseQtyInCart } from "@/lib/cart-stock";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
+import { amountInSaleCurrency } from "@/lib/currency-conversion";
 import { formatCurrency } from "@/lib/format";
 import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
 import { useCart } from "@/store/cart";
@@ -24,6 +25,8 @@ type CatalogProductCardProps = {
   allowOutOfStock: boolean;
   reservedInOtherTabs: number;
   bookedOrderContinuation: boolean;
+  /** Main-unit qty required for one add (1, or conversion factor when defaulting to secondary). */
+  minAddBaseQty?: number;
   onAdd: (product: Product) => void;
   onToggleFeatured: (product: Product) => void;
 };
@@ -52,19 +55,22 @@ export const CatalogProductCard = memo(function CatalogProductCard({
   allowOutOfStock,
   reservedInOtherTabs,
   bookedOrderContinuation,
+  minAddBaseQty = 1,
   onAdd,
   onToggleFeatured,
 }: CatalogProductCardProps) {
   const { t } = useLanguage();
   const saleCurrency = useSellContext((state) => state.saleCurrency);
+  const priceCurrency = useSellContext((state) => state.priceCurrency);
   const showLastPurchaseCost = usePosConfig((state) => state.showLastPurchaseCost);
   const inCartQty = useCart(
     (state) => state.items.find((item) => item.productId === product.id)?.qty ?? 0,
   );
 
-  const cannotAdd = !canAddProductToCart(
+  const cannotAdd = !canFitBaseQtyInCart(
     product,
     inCartQty,
+    minAddBaseQty,
     allowOutOfStock,
     reservedInOtherTabs,
     bookedOrderContinuation ? { bookedOrderContinuation: true } : undefined,
@@ -157,7 +163,10 @@ export const CatalogProductCard = memo(function CatalogProductCard({
         <div className={styles.cardFoot}>
           <div className={styles.cardPriceBlock}>
             <div className={styles.cardPrice}>
-              {formatAmountWithCurrency(product.price, saleCurrency)}
+              {formatAmountWithCurrency(
+                amountInSaleCurrency(product.price, priceCurrency, saleCurrency),
+                saleCurrency,
+              )}
             </div>
             {showLastPurchaseCost ? (
               <div className={styles.cardCost}>

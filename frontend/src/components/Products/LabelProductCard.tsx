@@ -9,6 +9,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
+import { amountInSaleCurrency } from "@/lib/currency-conversion";
 import { formatCurrency } from "@/lib/format";
 import { PRODUCT_FALLBACK_IMAGE } from "@/lib/product-image";
 import { usePosConfig } from "@/store/pos-config";
@@ -69,6 +70,7 @@ export function LabelProductCard({
 }: Props) {
   const { t } = useLanguage();
   const saleCurrency = useSellContext((state) => state.saleCurrency);
+  const priceCurrency = useSellContext((state) => state.priceCurrency);
   const showLastPurchaseCost = usePosConfig((state) => state.showLastPurchaseCost);
   const ignoreCardToggleUntilRef = useRef(0);
   const out = product.stock <= 0;
@@ -243,7 +245,10 @@ export function LabelProductCard({
         <div className={posStyles.cardFoot}>
           <div className={posStyles.cardPriceBlock}>
             <div className={posStyles.cardPrice}>
-              {formatAmountWithCurrency(product.price, saleCurrency)}
+              {formatAmountWithCurrency(
+                amountInSaleCurrency(product.price, priceCurrency, saleCurrency),
+                saleCurrency,
+              )}
             </div>
             {showLastPurchaseCost ? (
               <div className={posStyles.cardCost}>

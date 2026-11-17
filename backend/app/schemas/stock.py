@@ -57,6 +57,12 @@ class StockOperationLine(BaseModel):
     item_code: str | None = None
     item_name: str | None = None
     item_unit_name: str | None = None
+    unit_id: int | None = None
+    unit_type: int | None = None
+    secondary_unit_id: int | None = None
+    secondary_unit_name: str | None = None
+    secondary_unit_type: int | None = None
+    conversion_factor: float | None = None
     quantity: float = 0
     cost: float | None = None
     price: float | None = None
@@ -157,7 +163,13 @@ class StockItemSearchHit(BaseModel):
     code: str | None = None
     articul: str | None = None
     unit: str | None = None
+    unit_id: int | None = None
+    unit_type: int | None = None
     unit_piece: bool = False
+    secondary_unit_id: int | None = None
+    secondary_unit_name: str | None = None
+    secondary_unit_type: int | None = None
+    conversion_factor: float | None = None
     vat_value: float | None = None
     last_purchase_cost: float | None = None
     price: float | None = None

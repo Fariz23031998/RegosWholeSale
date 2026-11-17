@@ -18,6 +18,7 @@ import {
   ImageOff,
   ListChecks,
   PackageX,
+  Plus,
   Printer,
   Search,
 } from "lucide-react";
@@ -115,6 +116,7 @@ export function ProductsPage() {
   const canChangePriceTypePerm = canChangePriceType();
   const canEditPrintSettings = canManageOwnPrintSettings() || canManagePrintSettings();
   const canEditPrices = can("prices.write");
+  const canCreateItem = can("stock.item_create") || can("settings.manage");
   const canEditItem = can("stock.item_edit") || can("settings.manage");
   const canViewHistory = can("stock.item_info");
   const canAccessProducts = can("stock.item_info") || canPrintLabels();
@@ -150,6 +152,7 @@ export function ProductsPage() {
   const [printOpen, setPrintOpen] = useState(false);
   const [pricesOpen, setPricesOpen] = useState(false);
   const [editProduct, setEditProduct] = useState<Product | null>(null);
+  const [createProductOpen, setCreateProductOpen] = useState(false);
   const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
   const [printConfirmOpen, setPrintConfirmOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -689,6 +692,7 @@ export function ProductsPage() {
     barcode?: string;
     barcode_list?: string;
     code?: string;
+    image?: string;
   }) => {
     const patch = (product: Product): Product =>
       product.id === update.id
@@ -700,9 +704,30 @@ export function ProductsPage() {
             barcode_list: update.barcode_list ?? product.barcode_list,
             code: update.code ?? product.code,
             sku: update.articul || update.barcode || product.sku,
+            image: update.image ?? product.image,
           }
         : product;
-    setProducts((current) => current.map(patch));
+    setProducts((current) => {
+      if (current.some((product) => product.id === update.id)) {
+        return current.map(patch);
+      }
+      const created: Product = {
+        id: update.id,
+        regos_item_id: Number(update.id) || undefined,
+        name: update.name,
+        price: 0,
+        category: "",
+        stock: 0,
+        image: update.image ?? "",
+        sku: update.articul || update.barcode || "",
+        articul: update.articul,
+        barcode: update.barcode,
+        barcode_list: update.barcode_list,
+        code: update.code,
+      };
+      setTotal((value) => value + 1);
+      return [created, ...current];
+    });
     setSelectedById((current) => {
       const existing = current.get(update.id);
       if (!existing) return current;
@@ -711,6 +736,7 @@ export function ProductsPage() {
       return next;
     });
     setEditProduct(null);
+    setCreateProductOpen(false);
   };
 
   const toggleCatalogFilter = async (field: "zero_quantity" | "zero_price") => {
@@ -1178,6 +1204,20 @@ export function ProductsPage() {
       {printError ? <p className={styles.printError}>{printError}</p> : null}
       {selectedIds.size > 0 ? (
         <div className={styles.actions}>
+          {canCreateItem ? (
+            <button
+              type="button"
+              className={styles.actionBtn}
+              aria-label={t("stock.item.create", "Create product")}
+              title={t("stock.item.create", "Create product")}
+              onClick={() => {
+                setEditProduct(null);
+                setCreateProductOpen(true);
+              }}
+            >
+              <Plus size={22} />
+            </button>
+          ) : null}
           <button
             type="button"
             className={styles.actionBtn}
@@ -1243,10 +1283,27 @@ export function ProductsPage() {
         onClose={() => setPricesOpen(false)}
         onSaved={handlePricesSaved}
       />
+      {canCreateItem && selectedIds.size === 0 ? (
+        <button
+          type="button"
+          className={styles.createFab}
+          aria-label={t("stock.item.create", "Create product")}
+          title={t("stock.item.create", "Create product")}
+          onClick={() => {
+            setEditProduct(null);
+            setCreateProductOpen(true);
+          }}
+        >
+          <Plus size={24} />
+        </button>
+      ) : null}
       <ProductEditDialog
-        open={editProduct != null}
+        open={createProductOpen || editProduct != null}
         product={editProduct}
-        onClose={() => setEditProduct(null)}
+        onClose={() => {
+          setEditProduct(null);
+          setCreateProductOpen(false);
+        }}
         onSaved={handleProductEdited}
       />
       <ProductHistoryDialog

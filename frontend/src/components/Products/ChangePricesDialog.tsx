@@ -4,6 +4,7 @@ import { Modal } from "@/components/posui/Modal";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
+import { amountInSaleCurrency } from "@/lib/currency-conversion";
 import { setProductPrices } from "@/lib/product-prices-api";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
@@ -43,6 +44,7 @@ export function ChangePricesDialog({ open, products, priceTypeId, onClose, onSav
   const isMobile = useIsMobile();
   const token = useAuth((state) => state.accessToken);
   const saleCurrency = useSellContext((state) => state.saleCurrency);
+  const priceCurrency = useSellContext((state) => state.priceCurrency);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
@@ -125,7 +127,10 @@ export function ChangePricesDialog({ open, products, priceTypeId, onClose, onSav
             <span className={styles.priceName}>{product.name}</span>
             <span className={styles.priceCurrent}>
               {t("products.currentPrice", "Current price")}:{" "}
-              {formatAmountWithCurrency(product.price, saleCurrency)}
+              {formatAmountWithCurrency(
+                amountInSaleCurrency(product.price, priceCurrency, saleCurrency),
+                saleCurrency,
+              )}
             </span>
             <input
               className={styles.priceInput}

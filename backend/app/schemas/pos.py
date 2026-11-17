@@ -8,6 +8,8 @@ CrossCurrencyPaymentMode = Literal["payment_currency", "sale_currency_transfer"]
 DEFAULT_CROSS_CURRENCY_PAYMENT_MODE: CrossCurrencyPaymentMode = "payment_currency"
 PostponeDocumentType = Literal["doc_wholesale", "doc_order_from_partner"]
 DEFAULT_POSTPONE_DOCUMENT_TYPE: PostponeDocumentType = "doc_wholesale"
+SecondaryUnitMode = Literal["use_secondary", "ask", "disabled"]
+DEFAULT_SECONDARY_UNIT_MODE: SecondaryUnitMode = "disabled"
 DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX = "22"
 DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX = "23"
 
@@ -35,6 +37,7 @@ class PosSettings(BaseModel):
     internal_barcode_piece_prefix: str = DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX
     postpone_document_type: PostponeDocumentType = DEFAULT_POSTPONE_DOCUMENT_TYPE
     postpone_order_booked: bool = True
+    secondary_unit_mode: SecondaryUnitMode = DEFAULT_SECONDARY_UNIT_MODE
     tasnif_create_on_barcode_miss: bool = False
     tasnif_default_group_id: int | None = Field(default=None, ge=1)
     tasnif_default_unit_id: int | None = Field(default=None, ge=1)
@@ -58,6 +61,7 @@ class UserPosSettings(BaseModel):
     internal_barcode_weight_prefix: str = DEFAULT_INTERNAL_BARCODE_WEIGHT_PREFIX
     internal_barcode_piece_prefix: str = DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX
     postpone_document_type: PostponeDocumentType = DEFAULT_POSTPONE_DOCUMENT_TYPE
+    secondary_unit_mode: SecondaryUnitMode = DEFAULT_SECONDARY_UNIT_MODE
     allowed_product_group_ids: list[int] = Field(default_factory=list)
     allowed_partner_group_ids: list[int] = Field(default_factory=list)
 
@@ -84,6 +88,7 @@ class PosSettingsPatchRequest(BaseModel):
     internal_barcode_piece_prefix: str | None = None
     postpone_document_type: PostponeDocumentType | None = None
     postpone_order_booked: bool | None = None
+    secondary_unit_mode: SecondaryUnitMode | None = None
     tasnif_create_on_barcode_miss: bool | None = None
     tasnif_default_group_id: int | None = Field(default=None, ge=1)
     tasnif_default_unit_id: int | None = Field(default=None, ge=1)
@@ -98,5 +103,6 @@ class UserPosSettingsPatchRequest(BaseModel):
     auto_open_qty_keypad: bool | None = None
     search_transliteration: bool | None = None
     search_fuzzy: bool | None = None
+    secondary_unit_mode: SecondaryUnitMode | None = None
     allowed_product_group_ids: list[int] | None = None
     allowed_partner_group_ids: list[int] | None = None

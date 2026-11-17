@@ -214,6 +214,14 @@ async def list_products(
             if p_id in fresh_prices:
                 product["price"] = fresh_prices[p_id]
 
+        from app.services import unit_conversions as conversions_service
+
+        conversions = await conversions_service.list_conversions(session, company_id)
+        conversions_service.merge_conversions_into_products(collected, conversions)
+        await conversions_service.enrich_products_with_secondary_prices(
+            session, company_id, collected
+        )
+
     return {
         "products": collected,
         "next_offset": client_next_offset(

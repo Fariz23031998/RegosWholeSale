@@ -52,3 +52,15 @@ export async function generateEan13(token: string): Promise<{ value: string }> {
     token,
   });
 }
+
+export async function saveItemImage(
+  token: string,
+  itemId: number,
+  fileBase64: string,
+): Promise<{ new_id: number }> {
+  return apiRequest<{ new_id: number }>(`/api/v1/regos/items/${itemId}/image`, {
+    method: "POST",
+    token,
+    body: { file: fileBase64 },
+  });
+}

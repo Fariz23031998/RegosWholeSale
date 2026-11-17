@@ -428,7 +428,7 @@ export function Shell() {
               <CatalogViewToggle className={styles.topBarViewToggle} />
             ) : null}
             <div className={styles.topBarEnd}>
-              {showBillingChip && billingChipLabel ? (
+              {showBillingChip && billingChipLabel && !isSellPage && !isProductsPage ? (
                 <Link
                   to="/billing"
                   className={clsx(

@@ -84,9 +84,22 @@ export type ReceiptTemplateImportPackage = {
   };
 };
 
+export type ReceiptPrintService = {
+  id: string;
+  name: string;
+  printer_name: string;
+  is_default: boolean;
+};
+
+export type ReceiptPrintSettings = {
+  printer_name: string;
+  services: ReceiptPrintService[];
+};
+
 export type ReceiptTemplatesSettings = {
   templates: ReceiptTemplate[];
   default_template_id: string | null;
+  print?: ReceiptPrintSettings;
 };
 
 export type ReceiptTemplatesResponse = {
@@ -96,6 +109,58 @@ export type ReceiptTemplatesResponse = {
 export type ReceiptTemplatesPatchRequest = {
   templates?: ReceiptTemplate[];
   default_template_id?: string | null;
+  print?: ReceiptPrintSettings;
+};
+
+export type ReceiptPrintPatchRequest = {
+  printer_name?: string;
+  services?: ReceiptPrintService[];
+};
+
+export type UserDocumentPrintMethod = "service" | "browser";
+
+export type UserDocumentPrintSettings = {
+  template_id: string | null;
+  service_id: string | null;
+  printer_name: string | null;
+  method: UserDocumentPrintMethod;
+};
+
+export type UserDocumentPrintSettingsResponse = {
+  settings: UserDocumentPrintSettings;
+};
+
+export type UserDocumentPrintPatchRequest = {
+  template_id: string | null;
+  service_id: string | null;
+  printer_name: string | null;
+  method: UserDocumentPrintMethod;
+};
+
+export type DocumentStationPrinter = {
+  name: string;
+  kind: string;
+  enabled: boolean;
+};
+
+export type DocumentStation = {
+  station_id: string;
+  station_name: string;
+  location_id: string | null;
+  online: boolean;
+  matches_printer: boolean;
+  printers: DocumentStationPrinter[];
+};
+
+export type DocumentStationsResponse = {
+  printer_name: string;
+  stations: DocumentStation[];
+};
+
+export type DocumentPrintResponse = {
+  job_ids: string[];
+  delivered: number;
+  pending: number;
 };
 
 export const RECEIPT_SECTION_KEYS = [

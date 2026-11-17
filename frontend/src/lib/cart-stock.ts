@@ -208,6 +208,30 @@ export function canAddProductToCart(
   reservedInOtherTabs = 0,
   catalogStockOptions?: CatalogStockOptions,
 ): boolean {
+  return canFitBaseQtyInCart(
+    product,
+    cartQty,
+    1,
+    allowOutOfStock,
+    reservedInOtherTabs,
+    catalogStockOptions,
+  );
+}
+
+/**
+ * Whether the active cart can accept an additional `addBaseQty` of main-unit stock
+ * for this product (accounting for other-tab reservations and booked continuation).
+ */
+export function canFitBaseQtyInCart(
+  product: Product,
+  cartQty: number,
+  addBaseQty: number,
+  allowOutOfStock: boolean,
+  reservedInOtherTabs = 0,
+  catalogStockOptions?: CatalogStockOptions,
+): boolean {
+  const addQty = Math.max(0, addBaseQty);
+  if (addQty <= 0) return false;
   const stock = getCartAvailabilityStock(
     product.stock,
     cartQty,
@@ -216,7 +240,35 @@ export function canAddProductToCart(
   const max = maxCartQty(stock, allowOutOfStock, reservedInOtherTabs);
   if (max === null) return true;
   if (max <= 0) return false;
-  return cartQty < max;
+  return cartQty + addQty <= max;
+}
+
+/**
+ * True when every cart line's main-unit qty fits within available stock.
+ * Used as a checkout/postpone guard when out-of-stock sales are disabled.
+ */
+export function cartLinesWithinStock(
+  items: Array<{ productId: string; qty: number }>,
+  products: Product[],
+  allowOutOfStock: boolean,
+  reservedByProductId: Record<string, number> = {},
+  catalogStockOptions?: CatalogStockOptions,
+): boolean {
+  if (allowOutOfStock) return true;
+  for (const item of items) {
+    const product = products.find((p) => p.id === item.productId);
+    if (!product) continue;
+    const reserved = reservedByProductId[item.productId] ?? 0;
+    const stock = getCartAvailabilityStock(
+      product.stock,
+      item.qty,
+      catalogStockOptions,
+    );
+    const max = maxCartQty(stock, allowOutOfStock, reserved);
+    if (max === null) continue;
+    if (item.qty > max) return false;
+  }
+  return true;
 }
 
 export function canIncreaseCartQty(

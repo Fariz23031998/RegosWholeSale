@@ -4,6 +4,10 @@ import type {
   UserLabelPrintSettingsResponse,
 } from "@/types/label-templates";
 import type {
+  UserDocumentPrintPatchRequest,
+  UserDocumentPrintSettingsResponse,
+} from "@/types/receipt-templates";
+import type {
   PosSettingsResponse,
   RegosDefaultsPatchRequest,
   RegosDefaultsResponse,
@@ -117,6 +121,25 @@ export async function patchUserLabelPrintSettingsById(
   body: UserLabelPrintPatchRequest,
 ): Promise<UserLabelPrintSettingsResponse> {
   return apiRequest(`/api/v1/users/${userId}/settings/label-print`, {
+    method: "PATCH",
+    token,
+    body,
+  });
+}
+
+export async function fetchUserDocumentPrintSettingsById(
+  token: string,
+  userId: number,
+): Promise<UserDocumentPrintSettingsResponse> {
+  return apiRequest(`/api/v1/users/${userId}/settings/document-print`, { token });
+}
+
+export async function patchUserDocumentPrintSettingsById(
+  token: string,
+  userId: number,
+  body: UserDocumentPrintPatchRequest,
+): Promise<UserDocumentPrintSettingsResponse> {
+  return apiRequest(`/api/v1/users/${userId}/settings/document-print`, {
     method: "PATCH",
     token,
     body,

@@ -69,6 +69,7 @@ describe("checkout tabs per-tab sell context", () => {
         refund_payment_categories: [],
         attached_users: [],
         firms: [],
+        currencies: [],
       },
     });
   });
@@ -202,6 +203,7 @@ describe("checkout tabs per-tab sell context", () => {
       refund_payment_categories: [],
       attached_users: [],
       firms: [],
+      currencies: [],
     });
 
     await useCheckoutTabs.getState().hydrate(1, 1);

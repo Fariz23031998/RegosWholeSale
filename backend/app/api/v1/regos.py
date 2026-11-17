@@ -19,6 +19,7 @@ from app.schemas.catalog import (
 from app.schemas.regos import (
     RegosCustomField,
     RegosDocPaymentSaleIdFieldResponse,
+    RegosItemSecondaryUnitFieldResponse,
     RegosPaymentLinkingPatch,
     RegosPaymentLinkingResponse,
     RegosTokenConfig,
@@ -44,6 +45,8 @@ from app.schemas.items import (
     BarcodeGenerateResponse,
     ItemCreateRequest,
     ItemCreateResponse,
+    ItemImageSaveRequest,
+    ItemImageSaveResponse,
     ItemMutationResponse,
     ItemUpdateRequest,
     RegosItemDetail,
@@ -218,6 +221,50 @@ async def create_doc_payment_sale_id_field(
     )
     field = data.get("field")
     return RegosDocPaymentSaleIdFieldResponse(
+        configured=bool(data.get("configured")),
+        field=RegosCustomField(**field) if isinstance(field, dict) else None,
+        created=bool(data.get("created")),
+    )
+
+
+@router.get(
+    "/fields/item-secondary-unit",
+    response_model=RegosItemSecondaryUnitFieldResponse,
+)
+async def get_item_secondary_unit_field(
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> RegosItemSecondaryUnitFieldResponse:
+    data = await regos_fields_service.get_item_secondary_unit_field_status(
+        session, current.company_id
+    )
+    field = data.get("field")
+    return RegosItemSecondaryUnitFieldResponse(
+        configured=bool(data.get("configured")),
+        field=RegosCustomField(**field) if isinstance(field, dict) else None,
+        created=bool(data.get("created")),
+    )
+
+
+@router.post(
+    "/fields/item-secondary-unit",
+    response_model=RegosItemSecondaryUnitFieldResponse,
+)
+async def create_item_secondary_unit_field(
+    current: CurrentUser = Depends(require_permission("settings.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> RegosItemSecondaryUnitFieldResponse:
+    data = await regos_fields_service.ensure_item_secondary_unit_field(
+        session, current.company_id
+    )
+    await notify_settings_updated(
+        session,
+        current.company_id,
+        scope="company",
+        namespace="item_secondary_unit",
+    )
+    field = data.get("field")
+    return RegosItemSecondaryUnitFieldResponse(
         configured=bool(data.get("configured")),
         field=RegosCustomField(**field) if isinstance(field, dict) else None,
         created=bool(data.get("created")),
@@ -662,6 +709,27 @@ async def update_regos_item(
         source_action="ItemEdited",
     )
     return ItemMutationResponse(**data)
+
+
+@router.post("/items/{item_id}/image", response_model=ItemImageSaveResponse)
+async def save_regos_item_image(
+    item_id: int,
+    body: ItemImageSaveRequest,
+    current: CurrentUser = Depends(require_any_permission(*_ITEM_MUTATE)),
+    session: AsyncSession = Depends(get_db),
+) -> ItemImageSaveResponse:
+    data = await regos_items_service.save_item_image(
+        session,
+        current.company_id,
+        item_id,
+        body.file,
+    )
+    catalog_events_service.publish_products_updated(
+        current.company_id,
+        regos_item_ids=[item_id],
+        source_action="ItemImageAdded",
+    )
+    return ItemImageSaveResponse(**data)
 
 
 @router.post("/barcodes/ean13", response_model=BarcodeGenerateResponse)

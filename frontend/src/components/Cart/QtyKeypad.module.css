@@ -9,6 +9,40 @@
   color: var(--color-text-muted);
   text-align: center;
 }
+
+.unitChoice {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.unitBtn {
+  min-height: 44px;
+  padding: 8px 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--color-text);
+  background: var(--color-surface-2);
+  border: 2px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: border-color 0.1s ease, background 0.1s ease;
+}
+
+.unitBtn:hover {
+  background: var(--color-surface);
+}
+
+.unitBtnActive {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.unitBtn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .limit {
   font-size: 12px;
   color: var(--color-warning);

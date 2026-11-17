@@ -70,12 +70,37 @@ describe("mapProductToStockItemSearchHit", () => {
       code: "42",
       articul: "ART-1",
       unit: "pcs",
+      unit_id: null,
+      unit_type: 1,
       unit_piece: true,
+      secondary_unit_id: null,
+      secondary_unit_name: null,
+      secondary_unit_type: null,
+      conversion_factor: null,
       vat_value: null,
       last_purchase_cost: null,
       price: 12.5,
       price2: null,
       quantity_common: 7,
+    });
+  });
+
+  it("copies secondary unit and conversion fields from catalog product", () => {
+    const hit = mapProductToStockItemSearchHit(
+      makeProduct({
+        unit_id: 1,
+        secondary_unit_id: 2,
+        secondary_unit_name: "box",
+        secondary_unit_type: 1,
+        conversion_factor: 12,
+      }),
+    );
+    expect(hit).toMatchObject({
+      unit_id: 1,
+      secondary_unit_id: 2,
+      secondary_unit_name: "box",
+      secondary_unit_type: 1,
+      conversion_factor: 12,
     });
   });
 

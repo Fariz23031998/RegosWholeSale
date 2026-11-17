@@ -375,6 +375,128 @@ async def test_item_info_search(client: AsyncClient) -> None:
 
 
 @pytest.mark.asyncio
+async def test_item_info_search_enriches_secondary_unit(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client, email="stock-item-sec@test.com", company_name="Item Sec Co"
+    )
+    token = reg.json()["access_token"]
+
+    with patch(
+        "app.services.regos_stock_docs.regos_async_api_request_for_company",
+        new_callable=AsyncMock,
+    ) as mock_regos:
+        mock_regos.return_value = {
+            "ok": True,
+            "result": [
+                {
+                    "item": {
+                        "id": 77,
+                        "name": "Sugar",
+                        "code": "S1",
+                        "base_barcode": "460777",
+                        "unit": {"id": 1, "name": "pcs", "type": "pcs"},
+                        "fields": [{"key": "secondary_unit_id", "value": "2"}],
+                        "vat": {"value": 12},
+                    },
+                    "quantity": {"common": 24},
+                    "price": 100,
+                    "last_purchase_cost": 80,
+                }
+            ],
+        }
+        with patch(
+            "app.services.regos_stock_docs.unit_conversions_service.list_conversions",
+            new_callable=AsyncMock,
+            return_value=[
+                {
+                    "id": 1,
+                    "main_unit_id": 1,
+                    "secondary_unit_id": 2,
+                    "conversion_factor": 12.0,
+                    "secondary_unit_name": "box",
+                    "secondary_unit_type": 1,
+                    "price_type_id": None,
+                }
+            ],
+        ):
+            response = await client.get(
+                "/api/v1/stock/item-info",
+                params={"search": "460777"},
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+    assert response.status_code == 200, response.text
+    item = response.json()["items"][0]
+    assert item["id"] == 77
+    assert item["unit_id"] == 1
+    assert item["unit_type"] == 1
+    assert item["secondary_unit_id"] == 2
+    assert item["secondary_unit_name"] == "box"
+    assert item["secondary_unit_type"] == 1
+    assert item["conversion_factor"] == 12.0
+
+
+@pytest.mark.asyncio
+async def test_list_operations_enriches_secondary_unit(client: AsyncClient) -> None:
+    reg = await register_owner(
+        client, email="stock-ops-sec@test.com", company_name="Ops Sec Co"
+    )
+    token = reg.json()["access_token"]
+
+    with patch(
+        "app.services.regos_stock_docs.regos_async_api_request_for_company",
+        new_callable=AsyncMock,
+    ) as mock_regos:
+        mock_regos.return_value = {
+            "ok": True,
+            "result": [
+                {
+                    "id": 9,
+                    "document_id": 101,
+                    "quantity": 24,
+                    "cost": 50,
+                    "item": {
+                        "id": 77,
+                        "name": "Sugar",
+                        "code": "S1",
+                        "unit": {"id": 1, "name": "pcs", "type": "pcs"},
+                        "fields": [{"key": "secondary_unit_id", "value": "2"}],
+                    },
+                }
+            ],
+        }
+        with patch(
+            "app.services.regos_stock_docs.unit_conversions_service.list_conversions",
+            new_callable=AsyncMock,
+            return_value=[
+                {
+                    "id": 1,
+                    "main_unit_id": 1,
+                    "secondary_unit_id": 2,
+                    "conversion_factor": 12.0,
+                    "secondary_unit_name": "box",
+                    "secondary_unit_type": 1,
+                    "price_type_id": None,
+                }
+            ],
+        ):
+            response = await client.get(
+                "/api/v1/stock/purchase/documents/101/operations",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+
+    assert response.status_code == 200, response.text
+    op = response.json()["operations"][0]
+    assert op["item_id"] == 77
+    assert op["quantity"] == 24
+    assert op["item_unit_name"] == "pcs"
+    assert op["unit_id"] == 1
+    assert op["secondary_unit_id"] == 2
+    assert op["secondary_unit_name"] == "box"
+    assert op["conversion_factor"] == 12.0
+
+
+@pytest.mark.asyncio
 async def test_item_operations_list(client: AsyncClient) -> None:
     reg = await register_owner(client, email="stock-item-ops@test.com", company_name="Item Ops Co")
     token = reg.json()["access_token"]

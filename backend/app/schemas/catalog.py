@@ -18,8 +18,15 @@ class CatalogProduct(BaseModel):
     barcode: str = ""
     barcode_list: str = ""
     code: str = ""
+    unit_id: int | None = None
     unit_name: str = ""
     unit_type: int | None = None
+    secondary_unit_id: int | None = None
+    secondary_unit_name: str | None = None
+    secondary_unit_type: int | None = None
+    conversion_factor: float | None = None
+    secondary_price: float | None = None
+    secondary_price_type_id: int | None = Field(default=None, ge=1)
 
 
 class CatalogProductsResponse(BaseModel):

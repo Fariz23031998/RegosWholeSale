@@ -6,6 +6,10 @@ from app.core.exceptions import forbidden
 from app.database import get_db
 from app.schemas.label_templates import UserLabelPrintPatchRequest, UserLabelPrintSettingsResponse
 from app.schemas.pos import UserPosSettingsPatchRequest, UserPosSettingsResponse
+from app.schemas.receipt_templates import (
+    UserDocumentPrintPatchRequest,
+    UserDocumentPrintSettingsResponse,
+)
 from app.schemas.settings import RegosDefaultsPatchRequest, RegosDefaultsResponse
 from app.schemas.users import (
     PermissionsUpdateRequest,
@@ -16,6 +20,7 @@ from app.schemas.users import (
 )
 from app.services import pos_settings as pos_settings_service
 from app.services import regos_defaults as regos_defaults_service
+from app.services import user_document_print as user_document_print_service
 from app.services import user_label_print as user_label_print_service
 from app.services import users as users_service
 from app.services.permissions import set_user_permission_rules
@@ -298,3 +303,39 @@ async def patch_user_label_print_settings(
         user_id=user.id,
     )
     return UserLabelPrintSettingsResponse(settings=settings)
+
+
+@router.get("/{user_id}/settings/document-print", response_model=UserDocumentPrintSettingsResponse)
+async def get_user_document_print_settings(
+    user_id: int,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> UserDocumentPrintSettingsResponse:
+    user = await get_company_user(session, current.company_id, user_id)
+    settings = await user_document_print_service.get_effective_user_document_print(
+        session, user.id, current.company_id
+    )
+    return UserDocumentPrintSettingsResponse(settings=settings)
+
+
+@router.patch("/{user_id}/settings/document-print", response_model=UserDocumentPrintSettingsResponse)
+async def patch_user_document_print_settings(
+    user_id: int,
+    body: UserDocumentPrintPatchRequest,
+    current: CurrentUser = Depends(require_permission("users.manage")),
+    session: AsyncSession = Depends(get_db),
+) -> UserDocumentPrintSettingsResponse:
+    user = await get_company_user(session, current.company_id, user_id)
+    settings = await user_document_print_service.patch_user_document_print(
+        session,
+        user,
+        body.model_dump(),
+    )
+    await notify_settings_updated(
+        session,
+        current.company_id,
+        scope="employee",
+        namespace="document_print",
+        user_id=user.id,
+    )
+    return UserDocumentPrintSettingsResponse(settings=settings)

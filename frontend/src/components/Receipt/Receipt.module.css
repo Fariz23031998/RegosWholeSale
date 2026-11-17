@@ -262,6 +262,47 @@
   }
 }
 
+.printControls {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  flex-shrink: 0;
+}
+
+.printField {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.printLabel {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.printSelect {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 0 10px;
+}
+
+.printHint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.printError {
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-danger, #b91c1c);
+}
+
 .footerActions {
   display: flex;
   gap: 8px;

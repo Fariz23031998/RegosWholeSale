@@ -1,4 +1,8 @@
 import { create } from "zustand";
+import {
+  currencyWithExchangeRate,
+  sameCurrency,
+} from "@/lib/currency-conversion";
 import { loadCachedReferenceOptions } from "@/lib/reference-options-db";
 import type { ReferenceOptionKind } from "@/lib/catalog-events";
 import { buildEmployeeSettingsKey, loadCachedSettingsData } from "@/lib/settings-db";
@@ -17,6 +21,8 @@ const EMPTY_OPTIONS: RegosReferenceOptionsResponse = {
   payment_categories: [],
   refund_payment_categories: [],
   attached_users: [],
+  firms: [],
+  currencies: [],
 };
 
 type ApiDefaults = {
@@ -36,6 +42,7 @@ type TabSelection = {
   warehouseId: number | null;
   priceTypeId: number | null;
   partnerId: number | null;
+  currencyId?: number | null;
 };
 
 type SellContextState = {
@@ -43,6 +50,9 @@ type SellContextState = {
   warehouseId: number | null;
   priceTypeId: number | null;
   partnerId: number | null;
+  /** Currency of catalog/cart prices (from selected price type). */
+  priceCurrency: RegosCurrencyOption | null;
+  /** Selected display / DocWholesale currency. */
   saleCurrency: RegosCurrencyOption | null;
   apiDefaults: ApiDefaults;
   options: RegosReferenceOptionsResponse;
@@ -55,6 +65,7 @@ type SellContextState = {
   setWarehouseId: (id: number | null) => void;
   setPriceTypeId: (id: number | null) => void;
   setPartnerId: (id: number | null) => void;
+  setSaleCurrencyId: (id: number | null) => void;
   applyTabSelection: (selection: TabSelection) => void;
   resetToDefaults: () => Promise<void>;
   refreshPartnerOptions: (token: string) => Promise<void>;
@@ -63,6 +74,7 @@ type SellContextState = {
     warehouse_id?: number;
     price_type_id?: number;
     partner_id?: number;
+    currency_id?: number;
   };
   catalogQuery: () => {
     warehouseId?: number;
@@ -74,13 +86,43 @@ function optionId(option: RegosDefaultOption | null | undefined): number | null 
   return option?.id ?? null;
 }
 
-function saleCurrencyForPriceType(
-  priceTypeId: number | null,
+function enrichCurrency(
+  currency: RegosCurrencyOption | null | undefined,
   options: RegosReferenceOptionsResponse,
 ): RegosCurrencyOption | null {
-  if (!priceTypeId) return null;
+  if (!currency) return null;
+  return (
+    currencyWithExchangeRate(currency, [
+      ...options.currencies,
+      ...options.price_types.map((item) => item.currency),
+    ]) ?? currency
+  );
+}
+
+function currencyForPriceType(
+  priceTypeId: number | null,
+  options: RegosReferenceOptionsResponse,
+  fallback: RegosCurrencyOption | null = null,
+): RegosCurrencyOption | null {
+  if (!priceTypeId) return enrichCurrency(fallback, options);
   const priceType = options.price_types.find((item) => item.id === priceTypeId);
-  return priceType?.currency ?? null;
+  return enrichCurrency(priceType?.currency ?? fallback, options);
+}
+
+function currencyById(
+  currencyId: number | null | undefined,
+  options: RegosReferenceOptionsResponse,
+  fallback: RegosCurrencyOption | null = null,
+): RegosCurrencyOption | null {
+  if (currencyId == null || currencyId <= 0) return enrichCurrency(fallback, options);
+  const fromList = options.currencies.find((item) => item.id === currencyId);
+  if (fromList) return enrichCurrency(fromList, options);
+  for (const priceType of options.price_types) {
+    if (priceType.currency?.id === currencyId) {
+      return enrichCurrency(priceType.currency, options);
+    }
+  }
+  return enrichCurrency(fallback, options);
 }
 
 function scopeKeyForUser(userId: number | null | undefined, companyId: number | null | undefined) {
@@ -107,6 +149,12 @@ function referenceOptionsFromIdb(
     warehouses: cached.warehouses,
     price_types: cached.price_types,
     partners: cached.partners,
+    payment_categories: cached.payment_categories ?? existing.payment_categories,
+    refund_payment_categories:
+      cached.refund_payment_categories ?? existing.refund_payment_categories,
+    attached_users: cached.attached_users ?? existing.attached_users,
+    firms: cached.firms ?? existing.firms,
+    currencies: cached.currencies ?? existing.currencies,
   };
 }
 
@@ -138,9 +186,16 @@ async function resolveSellContextState(
       payment_categories: fetched.payment_categories,
       refund_payment_categories: fetched.refund_payment_categories,
       attached_users: fetched.attached_users,
-      firms: fetched.firms,
+      firms: fetched.firms ?? [],
+      currencies: fetched.currencies ?? [],
     };
   }
+
+  const priceCurrency = currencyForPriceType(
+    apiDefaults.priceTypeId,
+    referenceOptions,
+    apiDefaults.saleCurrency,
+  );
 
   // Live selection starts at API defaults; checkout tabs own per-sale overrides.
   return {
@@ -149,9 +204,8 @@ async function resolveSellContextState(
     warehouseId: apiDefaults.warehouseId,
     priceTypeId: apiDefaults.priceTypeId,
     partnerId: apiDefaults.partnerId,
-    saleCurrency:
-      saleCurrencyForPriceType(apiDefaults.priceTypeId, referenceOptions) ??
-      apiDefaults.saleCurrency,
+    priceCurrency,
+    saleCurrency: priceCurrency,
     options: canOverride ? referenceOptions : EMPTY_OPTIONS,
   };
 }
@@ -165,6 +219,7 @@ export const useSellContext = create<SellContextState>((set, get) => ({
   warehouseId: null,
   priceTypeId: null,
   partnerId: null,
+  priceCurrency: null,
   saleCurrency: null,
   apiDefaults: {
     warehouseId: null,
@@ -193,6 +248,7 @@ export const useSellContext = create<SellContextState>((set, get) => ({
         warehouseId: null,
         priceTypeId: null,
         partnerId: null,
+        priceCurrency: null,
         saleCurrency: null,
         apiDefaults: {
           warehouseId: null,
@@ -234,6 +290,16 @@ export const useSellContext = create<SellContextState>((set, get) => ({
           if (tabsOwnSelection) {
             // Tabs already restored live selection — only refresh defaults/options.
             const current = get();
+            const priceCurrency = currencyForPriceType(
+              current.priceTypeId,
+              nextState.options,
+              nextState.apiDefaults.saleCurrency,
+            );
+            const saleCurrency =
+              current.saleCurrency &&
+              !sameCurrency(current.saleCurrency, priceCurrency)
+                ? currencyById(current.saleCurrency.id, nextState.options, priceCurrency)
+                : priceCurrency;
             set({
               scopeKey: nextState.scopeKey,
               apiDefaults: nextState.apiDefaults,
@@ -241,9 +307,8 @@ export const useSellContext = create<SellContextState>((set, get) => ({
               warehouseId: current.warehouseId,
               priceTypeId: current.priceTypeId,
               partnerId: current.partnerId,
-              saleCurrency:
-                saleCurrencyForPriceType(current.priceTypeId, nextState.options) ??
-                nextState.apiDefaults.saleCurrency,
+              priceCurrency,
+              saleCurrency,
               ...(markHydrated ? { hydrated: true } : {}),
             });
             return;
@@ -270,6 +335,10 @@ export const useSellContext = create<SellContextState>((set, get) => ({
               active.priceTypeId !== undefined ? active.priceTypeId : defaults.priceTypeId,
             partnerId:
               active.partnerId !== undefined ? active.partnerId : defaults.partnerId,
+            currencyId:
+              active.currencyId !== undefined
+                ? active.currencyId
+                : defaults.saleCurrency?.id ?? null,
           });
         });
       };
@@ -316,6 +385,7 @@ export const useSellContext = create<SellContextState>((set, get) => ({
               warehouseId: null,
               priceTypeId: null,
               partnerId: null,
+              priceCurrency: null,
               saleCurrency: null,
               apiDefaults: {
                 warehouseId: null,
@@ -353,10 +423,16 @@ export const useSellContext = create<SellContextState>((set, get) => ({
 
   setPriceTypeId: (id) => {
     set((state) => {
-      const resolved = saleCurrencyForPriceType(id, state.options);
+      const priceCurrency = currencyForPriceType(
+        id,
+        state.options,
+        state.apiDefaults.saleCurrency,
+      );
       return {
         priceTypeId: id,
-        saleCurrency: resolved ?? (id ? state.saleCurrency : null),
+        priceCurrency,
+        // Price type change resets sale currency to the price-type currency.
+        saleCurrency: priceCurrency,
       };
     });
   },
@@ -365,27 +441,45 @@ export const useSellContext = create<SellContextState>((set, get) => ({
     set({ partnerId: id });
   },
 
+  setSaleCurrencyId: (id) => {
+    set((state) => ({
+      saleCurrency: currencyById(id, state.options, state.priceCurrency),
+    }));
+  },
+
   applyTabSelection: (selection) => {
     const { options, apiDefaults } = get();
+    const priceCurrency = currencyForPriceType(
+      selection.priceTypeId,
+      options,
+      apiDefaults.saleCurrency,
+    );
+    const saleCurrency =
+      selection.currencyId !== undefined
+        ? currencyById(selection.currencyId, options, priceCurrency)
+        : priceCurrency;
     set({
       warehouseId: selection.warehouseId,
       priceTypeId: selection.priceTypeId,
       partnerId: selection.partnerId,
-      saleCurrency:
-        saleCurrencyForPriceType(selection.priceTypeId, options) ??
-        apiDefaults.saleCurrency,
+      priceCurrency,
+      saleCurrency,
     });
   },
 
   resetToDefaults: async () => {
     const { apiDefaults, options } = get();
+    const priceCurrency = currencyForPriceType(
+      apiDefaults.priceTypeId,
+      options,
+      apiDefaults.saleCurrency,
+    );
     set({
       warehouseId: apiDefaults.warehouseId,
       priceTypeId: apiDefaults.priceTypeId,
       partnerId: apiDefaults.partnerId,
-      saleCurrency:
-        saleCurrencyForPriceType(apiDefaults.priceTypeId, options) ??
-        apiDefaults.saleCurrency,
+      priceCurrency,
+      saleCurrency: priceCurrency,
     });
   },
 
@@ -404,11 +498,18 @@ export const useSellContext = create<SellContextState>((set, get) => ({
         if (kinds.includes("warehouse")) nextOptions.warehouses = options.warehouses;
         if (kinds.includes("price_type")) nextOptions.price_types = options.price_types;
         if (kinds.includes("partner")) nextOptions.partners = options.partners;
+        if (options.currencies?.length) nextOptions.currencies = options.currencies;
+        const priceCurrency = currencyForPriceType(
+          state.priceTypeId,
+          nextOptions,
+          state.apiDefaults.saleCurrency,
+        );
         return {
           options: nextOptions,
+          priceCurrency,
           saleCurrency: kinds.includes("price_type")
-            ? saleCurrencyForPriceType(state.priceTypeId, nextOptions) ?? state.saleCurrency
-            : state.saleCurrency,
+            ? priceCurrency
+            : currencyById(state.saleCurrency?.id ?? null, nextOptions, priceCurrency),
         };
       });
     } catch {
@@ -417,15 +518,17 @@ export const useSellContext = create<SellContextState>((set, get) => ({
   },
 
   checkoutOverrides: () => {
-    const { warehouseId, priceTypeId, partnerId } = get();
+    const { warehouseId, priceTypeId, partnerId, saleCurrency } = get();
     const overrides: {
       warehouse_id?: number;
       price_type_id?: number;
       partner_id?: number;
+      currency_id?: number;
     } = {};
     if (warehouseId) overrides.warehouse_id = warehouseId;
     if (priceTypeId) overrides.price_type_id = priceTypeId;
     if (partnerId) overrides.partner_id = partnerId;
+    if (saleCurrency?.id) overrides.currency_id = saleCurrency.id;
     return overrides;
   },
 

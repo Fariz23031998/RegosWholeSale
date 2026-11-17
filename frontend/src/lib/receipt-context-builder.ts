@@ -23,6 +23,7 @@ import {
   type WholesalePaymentLine,
   type WholesaleReturnDocument,
 } from "@/lib/sales-api";
+import { productHasSecondaryUnit } from "@/lib/secondary-units";
 import type { CartItem, CartItemPrintMeta } from "@/store/cart";
 import type { Product } from "@/types/catalog";
 import type { PaymentType } from "@/types/payment";
@@ -102,6 +103,17 @@ function buildSaleFromDocument(
   };
 }
 
+/** For Regos-only reprints: mirror main unit from the line; leave secondary empty. */
+function withRegosMainUnitFields(line: WholesaleOperationLine): WholesaleOperationLine {
+  return {
+    ...line,
+    main_unit_name: line.main_unit_name ?? line.item_unit_name ?? null,
+    main_unit_quantity: line.main_unit_quantity ?? line.quantity ?? null,
+    secondary_unit_name: line.secondary_unit_name ?? null,
+    secondary_unit_quantity: line.secondary_unit_quantity ?? null,
+  };
+}
+
 function wrapDocumentContext(
   kind: DocumentPrintKind,
   document: WholesaleDocument | WholesaleReturnDocument,
@@ -109,7 +121,9 @@ function wrapDocumentContext(
   payments: WholesalePaymentLine[],
   sale: Sale,
 ): DocumentPrintContext {
-  const normalizedOperations = operations.map((operation) => withOperationItem(operation));
+  const normalizedOperations = operations.map((operation) =>
+    withOperationItem(withRegosMainUnitFields(operation)),
+  );
   const operation_groups = buildOperationGroups(normalizedOperations);
   const totals = buildOperationTotals(normalizedOperations);
   return {
@@ -208,6 +222,12 @@ type CartLineSource = Pick<
   | "regosItemId"
   | "name"
   | "productId"
+  | "qty"
+  | "price"
+  | "enteredQty"
+  | "conversionFactor"
+  | "selectedUnit"
+  | "selectedUnitName"
   | "itemCode"
   | "itemArticul"
   | "itemGroupId"
@@ -216,6 +236,89 @@ type CartLineSource = Pick<
   | "itemBrand"
 > & { image?: string };
 
+/** Print quantity/unit/price in the cashier-selected unit while keeping line total. */
+function cartLinePrintQtyPrice(item: CartLineSource): {
+  quantity: number;
+  unitName: string | null;
+  unitPrice: number;
+  listPriceFactor: number;
+} {
+  const factor =
+    item.selectedUnit === "secondary" && (item.conversionFactor ?? 0) > 0
+      ? Number(item.conversionFactor)
+      : 1;
+  const quantity =
+    item.enteredQty != null && item.enteredQty > 0
+      ? item.enteredQty
+      : factor > 0
+        ? item.qty / factor
+        : item.qty;
+  const unitName =
+    item.selectedUnitName?.trim() || item.itemUnitName?.trim() || null;
+  return {
+    quantity,
+    unitName,
+    unitPrice: +(item.price * factor).toFixed(4),
+    listPriceFactor: factor,
+  };
+}
+
+/** Explicit main/secondary UOM fields for receipt templates (dual-unit layouts). */
+function cartLineDualUnitFields(
+  item: CartLineSource,
+  product?: Product | null,
+): Pick<
+  WholesaleOperationLine,
+  | "main_unit_name"
+  | "main_unit_quantity"
+  | "secondary_unit_name"
+  | "secondary_unit_quantity"
+> {
+  const mainUnitName =
+    item.itemUnitName?.trim() || product?.unit_name?.trim() || null;
+  const mainUnitQuantity = item.qty;
+
+  const lineHasSecondary =
+    item.selectedUnit === "secondary" &&
+    item.conversionFactor != null &&
+    item.conversionFactor > 0;
+  const catalogHasSecondary = Boolean(
+    product && productHasSecondaryUnit(product),
+  );
+
+  if (!lineHasSecondary && !catalogHasSecondary) {
+    return {
+      main_unit_name: mainUnitName,
+      main_unit_quantity: mainUnitQuantity,
+      secondary_unit_name: null,
+      secondary_unit_quantity: null,
+    };
+  }
+
+  const factor = lineHasSecondary
+    ? Number(item.conversionFactor)
+    : Number(product!.conversion_factor);
+  const secondaryUnitName =
+    (item.selectedUnit === "secondary"
+      ? item.selectedUnitName?.trim()
+      : null) ||
+    product?.secondary_unit_name?.trim() ||
+    null;
+  const secondaryUnitQuantity =
+    item.selectedUnit === "secondary" &&
+    item.enteredQty != null &&
+    item.enteredQty > 0
+      ? item.enteredQty
+      : +(mainUnitQuantity / factor).toFixed(4);
+
+  return {
+    main_unit_name: mainUnitName,
+    main_unit_quantity: mainUnitQuantity,
+    secondary_unit_name: secondaryUnitName,
+    secondary_unit_quantity: secondaryUnitQuantity,
+  };
+}
+
 function resolveCartLinePrintMeta(
   item: CartLineSource,
   product?: Product | null,
@@ -223,7 +326,11 @@ function resolveCartLinePrintMeta(
   const itemCode = item.itemCode?.trim() || product?.code?.trim() || null;
   const itemArticul = item.itemArticul?.trim() || product?.articul?.trim() || null;
   const itemGroupName = item.itemGroupName?.trim() || product?.category?.trim() || null;
-  const itemUnitName = item.itemUnitName?.trim() || product?.unit_name?.trim() || null;
+  const itemUnitName =
+    item.selectedUnitName?.trim() ||
+    item.itemUnitName?.trim() ||
+    product?.unit_name?.trim() ||
+    null;
 
   const fromCatalog = receiptOperationItemFromCatalogProduct(product);
   const itemDetails = normalizeReceiptOperationItem({
@@ -358,7 +465,19 @@ function checkoutDocumentFromResult(
 
 export type CartDraftPrintInput = {
   items: Array<
-    Pick<CartItem, "regosItemId" | "name" | "productId" | "qty" | "price" | "listPrice"> &
+    Pick<
+      CartItem,
+      | "regosItemId"
+      | "name"
+      | "productId"
+      | "qty"
+      | "price"
+      | "listPrice"
+      | "enteredQty"
+      | "conversionFactor"
+      | "selectedUnit"
+      | "selectedUnitName"
+    > &
       CartItemPrintMeta & { image?: string }
   >;
   totals: { subtotal: number; discount: number; total: number };
@@ -401,6 +520,11 @@ function mergeCartItemsWithWholesaleOperations(
     const product = findCatalogProduct(catalogProducts, item.regosItemId, item.productId);
     const price2 = cartDraftListPrice(item, preserveList);
 
+    const print = cartLinePrintQtyPrice(item);
+    const dual = cartLineDualUnitFields(item, product);
+    const printPrice2 =
+      price2 != null ? +(price2 * print.listPriceFactor).toFixed(4) : undefined;
+
     if (fromApi) {
       return withOperationItem(
         {
@@ -410,12 +534,14 @@ function mergeCartItemsWithWholesaleOperations(
           item_code: fromApi.item_code ?? details?.item_code ?? null,
           item_group_id: fromApi.item_group_id ?? details?.item_group_id ?? null,
           item_group_name: fromApi.item_group_name ?? details?.item_group_name ?? null,
-          item_unit_name: fromApi.item_unit_name ?? details?.item_unit_name ?? null,
+          item_unit_name:
+            print.unitName ?? fromApi.item_unit_name ?? details?.item_unit_name ?? null,
           item_brand: fromApi.item_brand ?? details?.item_brand ?? null,
-          quantity: item.qty,
-          price: item.price,
-          price2,
+          quantity: print.quantity,
+          price: print.unitPrice,
+          price2: printPrice2,
           amount: +(item.qty * item.price).toFixed(2),
+          ...dual,
         },
         details?.item ?? EMPTY_RECEIPT_OPERATION_ITEM,
       );
@@ -430,12 +556,13 @@ function mergeCartItemsWithWholesaleOperations(
         item_name: details?.name ?? item.name,
         item_group_id: details?.item_group_id ?? null,
         item_group_name: details?.item_group_name ?? null,
-        item_unit_name: details?.item_unit_name ?? null,
+        item_unit_name: print.unitName ?? details?.item_unit_name ?? null,
         item_brand: details?.item_brand ?? null,
-        quantity: item.qty,
-        price: item.price,
-        price2,
+        quantity: print.quantity,
+        price: print.unitPrice,
+        price2: printPrice2,
         amount: +(item.qty * item.price).toFixed(2),
+        ...dual,
       },
       operationItemFromDetails(details, product),
     );
@@ -459,6 +586,16 @@ export function buildPrintContextFromCartDraft(
       item.productId,
     );
     const meta = resolveCartLinePrintMeta(item, product);
+    const print = cartLinePrintQtyPrice(item);
+    const dual = cartLineDualUnitFields(item, product);
+    const listPrice = cartDraftListPrice(
+      item,
+      Boolean(input.keypadUpdateDiscountedPriceOnly),
+    );
+    const printPrice2 =
+      listPrice != null
+        ? +(listPrice * print.listPriceFactor).toFixed(4)
+        : undefined;
 
     return withOperationItem(
       {
@@ -469,12 +606,13 @@ export function buildPrintContextFromCartDraft(
         item_name: details?.name ?? item.name,
         item_group_id: meta.item_group_id,
         item_group_name: meta.item_group_name,
-        item_unit_name: meta.item_unit_name,
+        item_unit_name: print.unitName ?? meta.item_unit_name,
         item_brand: meta.item_brand,
-        quantity: item.qty,
-        price: item.price,
-        price2: cartDraftListPrice(item, Boolean(input.keypadUpdateDiscountedPriceOnly)),
+        quantity: print.quantity,
+        price: print.unitPrice,
+        price2: printPrice2,
         amount: +(item.qty * item.price).toFixed(2),
+        ...dual,
       },
       operationItemFromDetails(details, product),
     );

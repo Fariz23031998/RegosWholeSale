@@ -35,14 +35,16 @@ type TabSellContext = {
   warehouseId: number | null;
   priceTypeId: number | null;
   partnerId: number | null;
+  currencyId: number | null;
 };
 
 function defaultsSellContext(): TabSellContext {
-  const { apiDefaults } = useSellContext.getState();
+  const { apiDefaults, saleCurrency } = useSellContext.getState();
   return {
     warehouseId: apiDefaults.warehouseId,
     priceTypeId: apiDefaults.priceTypeId,
     partnerId: apiDefaults.partnerId,
+    currencyId: saleCurrency?.id ?? apiDefaults.saleCurrency?.id ?? null,
   };
 }
 
@@ -53,6 +55,7 @@ function withDefaultsSellContext(tab: CheckoutTabData): CheckoutTabData {
     warehouseId: defaults.warehouseId,
     priceTypeId: defaults.priceTypeId,
     partnerId: defaults.partnerId,
+    currencyId: defaults.currencyId,
     updatedAt: Date.now(),
   };
 }
@@ -63,6 +66,7 @@ function resolveTabSellContext(tab: CheckoutTabData): TabSellContext {
     warehouseId: tab.warehouseId !== undefined ? tab.warehouseId : defaults.warehouseId,
     priceTypeId: tab.priceTypeId !== undefined ? tab.priceTypeId : defaults.priceTypeId,
     partnerId: tab.partnerId !== undefined ? tab.partnerId : defaults.partnerId,
+    currencyId: tab.currencyId !== undefined ? tab.currencyId : defaults.currencyId,
   };
 }
 
@@ -135,11 +139,20 @@ function migrateTabSellContext(tab: CheckoutTabData): CheckoutTabData {
   if (
     tab.warehouseId !== undefined &&
     tab.priceTypeId !== undefined &&
-    tab.partnerId !== undefined
+    tab.partnerId !== undefined &&
+    tab.currencyId !== undefined
   ) {
     return tab;
   }
-  return withDefaultsSellContext(tab);
+  const defaults = defaultsSellContext();
+  return {
+    ...tab,
+    warehouseId: tab.warehouseId !== undefined ? tab.warehouseId : defaults.warehouseId,
+    priceTypeId: tab.priceTypeId !== undefined ? tab.priceTypeId : defaults.priceTypeId,
+    partnerId: tab.partnerId !== undefined ? tab.partnerId : defaults.partnerId,
+    currencyId: tab.currencyId !== undefined ? tab.currencyId : defaults.currencyId,
+    updatedAt: Date.now(),
+  };
 }
 
 type CheckoutTabsState = {
@@ -280,7 +293,8 @@ function ensureSellContextSubscription(get: () => CheckoutTabsState) {
     if (
       state.warehouseId === prev.warehouseId &&
       state.priceTypeId === prev.priceTypeId &&
-      state.partnerId === prev.partnerId
+      state.partnerId === prev.partnerId &&
+      state.saleCurrency?.id === prev.saleCurrency?.id
     ) {
       return;
     }
@@ -294,6 +308,7 @@ function ensureSellContextSubscription(get: () => CheckoutTabsState) {
             warehouseId: state.warehouseId,
             priceTypeId: state.priceTypeId,
             partnerId: state.partnerId,
+            currencyId: state.saleCurrency?.id ?? null,
             updatedAt: Date.now(),
           }
         : tab,

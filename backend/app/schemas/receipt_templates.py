@@ -77,9 +77,24 @@ class ReceiptTemplate(BaseModel):
     css: str = ""
 
 
+class ReceiptPrintService(BaseModel):
+    id: str
+    name: str = Field(min_length=1, max_length=80)
+    printer_name: str = Field(min_length=1, max_length=80)
+    is_default: bool = False
+
+
+class ReceiptPrintSettings(BaseModel):
+    printer_name: str
+    services: list[ReceiptPrintService] = Field(default_factory=list)
+
+
 class ReceiptTemplatesSettings(BaseModel):
     templates: list[ReceiptTemplate] = Field(default_factory=list)
     default_template_id: str | None = None
+    print: ReceiptPrintSettings = Field(
+        default_factory=lambda: ReceiptPrintSettings(printer_name="Receipts", services=[])
+    )
 
 
 class ReceiptTemplatesResponse(BaseModel):
@@ -89,3 +104,27 @@ class ReceiptTemplatesResponse(BaseModel):
 class ReceiptTemplatesPatchRequest(BaseModel):
     templates: list[ReceiptTemplate] | None = None
     default_template_id: str | None = None
+    print: ReceiptPrintSettings | None = None
+
+
+class ReceiptPrintPatchRequest(BaseModel):
+    printer_name: str | None = Field(default=None, max_length=80)
+    services: list[ReceiptPrintService] | None = None
+
+
+class UserDocumentPrintSettings(BaseModel):
+    template_id: str | None = None
+    service_id: str | None = None
+    printer_name: str | None = Field(default=None, max_length=80)
+    method: Literal["service", "browser"] = "service"
+
+
+class UserDocumentPrintSettingsResponse(BaseModel):
+    settings: UserDocumentPrintSettings
+
+
+class UserDocumentPrintPatchRequest(BaseModel):
+    template_id: str | None = None
+    service_id: str | None = None
+    printer_name: str | None = Field(default=None, max_length=80)
+    method: Literal["service", "browser"] = "service"

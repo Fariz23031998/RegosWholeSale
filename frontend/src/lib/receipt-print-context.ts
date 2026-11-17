@@ -142,6 +142,10 @@ const sampleOperations: WholesaleOperationLine[] = [
     price: 0.7,
     price2: 0.7,
     amount: 2.8,
+    main_unit_name: "шт",
+    main_unit_quantity: 4,
+    secondary_unit_name: null,
+    secondary_unit_quantity: null,
     item: {
       fullname: "Балон болт 9594681 UZ",
       description: "Крепёжный болон",
@@ -176,6 +180,10 @@ const sampleOperations: WholesaleOperationLine[] = [
     price: 10.7,
     price2: 10.7,
     amount: 107,
+    main_unit_name: "шт",
+    main_unit_quantity: 20,
+    secondary_unit_name: "компл",
+    secondary_unit_quantity: 10,
     item: { ...EMPTY_RECEIPT_OPERATION_ITEM },
   },
   {
@@ -192,6 +200,10 @@ const sampleOperations: WholesaleOperationLine[] = [
     price: 70.97,
     price2: 70.97,
     amount: 141.94,
+    main_unit_name: "шт",
+    main_unit_quantity: 4,
+    secondary_unit_name: "компл",
+    secondary_unit_quantity: 2,
     item: { ...EMPTY_RECEIPT_OPERATION_ITEM },
   },
   {
@@ -208,6 +220,10 @@ const sampleOperations: WholesaleOperationLine[] = [
     price: 12.5,
     price2: 12.5,
     amount: 75,
+    main_unit_name: "шт",
+    main_unit_quantity: 6,
+    secondary_unit_name: null,
+    secondary_unit_quantity: null,
     item: { ...EMPTY_RECEIPT_OPERATION_ITEM },
   },
 ];

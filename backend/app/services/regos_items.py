@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import bad_request, not_found
 from app.core.regos_api import regos_async_api_request_for_company
+from app.services import regos_fields as regos_fields_service
 
 
 def _coerce_text(value: Any) -> str | None:
@@ -113,6 +114,10 @@ def _map_item(row: dict[str, Any]) -> dict[str, Any]:
     code_raw = row.get("code")
     code = str(code_raw) if code_raw is not None and str(code_raw).strip() else None
 
+    secondary_unit_id = regos_fields_service.parse_item_secondary_unit_id(
+        row.get("fields")
+    )
+
     return {
         "id": item_id,
         "name": _coerce_text(row.get("name")) or f"#{item_id}",
@@ -129,6 +134,7 @@ def _map_item(row: dict[str, Any]) -> dict[str, Any]:
         "group_name": group_name,
         "unit_id": unit_id or 0,
         "unit_name": unit_name,
+        "secondary_unit_id": secondary_unit_id,
         "vat_id": vat_id or 0,
         "vat_name": vat_name,
         "vat_value": vat_value,
@@ -309,12 +315,56 @@ async def _add_barcode(
     )
 
 
+async def _attach_secondary_unit_fields(
+    session: AsyncSession,
+    company_id: int,
+    payload: dict[str, Any],
+    body: dict[str, Any],
+    *,
+    for_create: bool,
+) -> None:
+    clear = bool(body.get("clear_secondary_unit"))
+    has_secondary = "secondary_unit_id" in body
+    if not for_create and not has_secondary and not clear:
+        return
+
+    secondary_unit_id = _coerce_int(body.get("secondary_unit_id"))
+    if secondary_unit_id is not None and secondary_unit_id <= 0:
+        secondary_unit_id = None
+
+    main_unit_id = _coerce_int(payload.get("unit_id")) or _coerce_int(body.get("unit_id"))
+    if (
+        secondary_unit_id is not None
+        and main_unit_id is not None
+        and secondary_unit_id == main_unit_id
+    ):
+        raise bad_request(
+            "Secondary unit must differ from the main unit.",
+            "ITEM_SECONDARY_UNIT_SAME",
+        )
+
+    if for_create and secondary_unit_id is None and not clear:
+        return
+
+    fields = await regos_fields_service.build_item_secondary_unit_fields(
+        session,
+        company_id,
+        secondary_unit_id=secondary_unit_id,
+        clear=clear or secondary_unit_id is None,
+    )
+    if fields:
+        payload["fields"] = fields
+
+
 async def add_item(
     session: AsyncSession,
     company_id: int,
     body: dict[str, Any],
 ) -> dict[str, int]:
     payload = _build_item_payload(body, require_required=True)
+    await _attach_secondary_unit_fields(
+        session, company_id, payload, body, for_create=True
+    )
     response = await regos_async_api_request_for_company(
         session,
         company_id,
@@ -346,6 +396,9 @@ async def edit_item(
     body: dict[str, Any],
 ) -> dict[str, int]:
     payload = _build_item_payload(body, require_required=False)
+    await _attach_secondary_unit_fields(
+        session, company_id, payload, body, for_create=False
+    )
     has_barcodes_field = "barcodes" in body or "barcode" in body
     barcodes = _normalize_barcodes(body) if has_barcodes_field else None
 
@@ -405,3 +458,31 @@ async def generate_ean13(session: AsyncSession, company_id: int) -> dict[str, st
     if not text:
         raise bad_request("Regos did not return a barcode.", "BARCODE_GENERATE_FAILED")
     return {"value": text}
+
+
+async def save_item_image(
+    session: AsyncSession,
+    company_id: int,
+    item_id: int,
+    file_base64: str,
+) -> dict[str, int]:
+    if item_id <= 0:
+        raise bad_request("Invalid item id.", "INVALID_ITEM_ID")
+    file_payload = _coerce_text(file_base64)
+    if not file_payload:
+        raise bad_request("Image file is required.", "ITEM_IMAGE_FILE_REQUIRED")
+
+    response = await regos_async_api_request_for_company(
+        session,
+        company_id,
+        "itemimage/save",
+        {
+            "item_id": item_id,
+            "file": file_payload,
+        },
+    )
+    result = response.get("result") or {}
+    new_id = result.get("new_id") if isinstance(result, dict) else None
+    if not isinstance(new_id, int) or new_id <= 0:
+        raise bad_request("Regos did not return an image id.", "ITEM_IMAGE_SAVE_FAILED")
+    return {"new_id": new_id}

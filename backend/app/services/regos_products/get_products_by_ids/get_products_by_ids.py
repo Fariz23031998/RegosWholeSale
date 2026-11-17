@@ -70,5 +70,14 @@ async def get_products_by_ids(
 
         by_id[int(product["regos_item_id"])] = product
 
-    return [by_id[product_id] for product_id in unique_ids if product_id in by_id]
+    products = [by_id[product_id] for product_id in unique_ids if product_id in by_id]
+    if products:
+        from app.services import unit_conversions as conversions_service
+
+        conversions = await conversions_service.list_conversions(session, company_id)
+        conversions_service.merge_conversions_into_products(products, conversions)
+        await conversions_service.enrich_products_with_secondary_prices(
+            session, company_id, products
+        )
+    return products
 

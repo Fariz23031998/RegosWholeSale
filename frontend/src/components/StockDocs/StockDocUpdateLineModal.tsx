@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
 import { useLanguage } from "@/contexts/LanguageContext";
@@ -17,8 +17,42 @@ import {
   loadPurchaseLineMarkup,
   savePurchaseLineMarkup,
 } from "@/lib/purchase-line-markup-db";
+import {
+  productHasSecondaryUnit,
+  toBaseQty,
+  toDisplayUnitMoney,
+  toEnteredQty,
+  toMainUnitMoney,
+  unitMetaForSelection,
+  type SecondaryUnitCapable,
+  type SelectedUnitKind,
+} from "@/lib/secondary-units";
 import { formatAuthError, useAuth } from "@/store/auth";
 import styles from "./StockDocs.module.css";
+
+function lineToUnitSource(line: StockOperationLine): SecondaryUnitCapable {
+  return {
+    unit_name: line.item_unit_name,
+    unit_type: line.unit_type ?? null,
+    secondary_unit_id: line.secondary_unit_id,
+    secondary_unit_name: line.secondary_unit_name,
+    secondary_unit_type: line.secondary_unit_type,
+    conversion_factor: line.conversion_factor,
+  };
+}
+
+/** Rescale a cost/price string between unit factors; leave empty/invalid alone. */
+function rescaleMoneyField(
+  value: string,
+  fromFactor: number,
+  toFactor: number,
+): string {
+  if (!value.trim()) return value;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return value;
+  const main = toMainUnitMoney(n, fromFactor);
+  return String(toDisplayUnitMoney(main, toFactor));
+}
 
 type Props = {
   open: boolean;
@@ -54,12 +88,22 @@ export function StockDocUpdateLineModal({
   const focusedGenRef = useRef(0);
 
   const [qty, setQty] = useState("1");
+  const [selectedUnit, setSelectedUnit] = useState<SelectedUnitKind>("main");
   const [cost, setCost] = useState("");
   const [markup, setMarkup] = useState("");
   const [price, setPrice] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [focusGen, setFocusGen] = useState(0);
+
+  const unitSource = useMemo(
+    () => (line ? lineToUnitSource(line) : null),
+    [line],
+  );
+  const canChooseUnit = Boolean(unitSource && productHasSecondaryUnit(unitSource));
+  const unitMeta = unitSource
+    ? unitMetaForSelection(unitSource, selectedUnit)
+    : { conversionFactor: 1, selectedUnitName: null, selectedUnitType: null, unitType: null };
 
   const fieldOrder: LineField[] = [
     "qty",
@@ -76,6 +120,7 @@ export function StockDocUpdateLineModal({
     const nextCost = line.cost != null ? String(line.cost) : "";
     const nextPrice = line.price != null ? String(line.price) : "";
     setQty(String(line.quantity));
+    setSelectedUnit("main");
     setCost(nextCost);
     setMarkup("");
     setPrice(nextPrice);
@@ -114,9 +159,32 @@ export function StockDocUpdateLineModal({
     return () => cancelAnimationFrame(id);
   }, [open, line, focusGen, qty]);
 
+  const selectUnit = (next: SelectedUnitKind) => {
+    if (!unitSource || next === selectedUnit) return;
+    const entered = Number(qty);
+    const currentMeta = unitMetaForSelection(unitSource, selectedUnit);
+    const nextMeta = unitMetaForSelection(unitSource, next);
+    if (Number.isFinite(entered) && entered > 0) {
+      const base = toBaseQty(entered, currentMeta.conversionFactor);
+      setQty(String(toEnteredQty(base, nextMeta.conversionFactor)));
+    }
+    setCost((prev) =>
+      rescaleMoneyField(prev, currentMeta.conversionFactor, nextMeta.conversionFactor),
+    );
+    setPrice((prev) =>
+      rescaleMoneyField(prev, currentMeta.conversionFactor, nextMeta.conversionFactor),
+    );
+    setSelectedUnit(next);
+  };
+
   const submit = async () => {
     if (!token || busy || !line) return;
-    const quantity = Number(qty);
+    const enteredQty = Number(qty);
+    if (!Number.isFinite(enteredQty) || enteredQty <= 0) {
+      setError(t("stock.errors.invalidQty", "Enter a valid quantity"));
+      return;
+    }
+    const quantity = toBaseQty(enteredQty, unitMeta.conversionFactor);
     if (!Number.isFinite(quantity) || quantity <= 0) {
       setError(t("stock.errors.invalidQty", "Enter a valid quantity"));
       return;
@@ -144,10 +212,16 @@ export function StockDocUpdateLineModal({
           quantity,
         };
         if (def.editableCost) {
-          entry.cost = cost ? Number(cost) : 0;
+          const raw = cost ? Number(cost) : 0;
+          entry.cost = Number.isFinite(raw)
+            ? toMainUnitMoney(raw, unitMeta.conversionFactor)
+            : 0;
         }
         if (def.showPrice) {
-          const p = price ? Number(price) : 0;
+          const raw = price ? Number(price) : 0;
+          const p = Number.isFinite(raw)
+            ? toMainUnitMoney(raw, unitMeta.conversionFactor)
+            : 0;
           if (Number.isFinite(p)) entry.price = p;
         }
         await editStockOperations(token, kind, [entry]);
@@ -234,8 +308,44 @@ export function StockDocUpdateLineModal({
                 {line.item_code ? ` · ${line.item_code}` : ""}
               </div>
             </div>
+            {canChooseUnit && unitSource ? (
+              <div className={`${styles.formField} ${styles.unitChoiceField}`}>
+                <label>{t("pos.unitChoice.title", "Choose unit")}</label>
+                <div className={styles.unitChoice} role="group">
+                  <button
+                    type="button"
+                    className={`${styles.unitBtn} ${
+                      selectedUnit === "main" ? styles.unitBtnActive : ""
+                    }`}
+                    onClick={() => selectUnit("main")}
+                    disabled={busy}
+                    tabIndex={-1}
+                  >
+                    {unitSource.unit_name?.trim() ||
+                      t("pos.unitChoice.main", "Main unit")}
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.unitBtn} ${
+                      selectedUnit === "secondary" ? styles.unitBtnActive : ""
+                    }`}
+                    onClick={() => selectUnit("secondary")}
+                    disabled={busy}
+                    tabIndex={-1}
+                  >
+                    {unitSource.secondary_unit_name?.trim() ||
+                      t("pos.unitChoice.secondary", "Secondary unit")}
+                  </button>
+                </div>
+              </div>
+            ) : null}
             <div className={styles.formField}>
-              <label>{t("stock.detail.table.qty", "Qty")}</label>
+              <label>
+                {t("stock.detail.table.qty", "Qty")}
+                {unitMeta.selectedUnitName
+                  ? ` (${unitMeta.selectedUnitName})`
+                  : ""}
+              </label>
               <input
                 ref={qtyRef}
                 name="qty"

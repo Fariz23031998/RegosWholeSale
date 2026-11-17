@@ -14,10 +14,12 @@ export function usePermissions() {
       canChangeWarehouse: () => permissions.includes("pos.change_warehouse"),
       canChangePriceType: () => permissions.includes("pos.change_price_type"),
       canChangePartner: () => permissions.includes("pos.change_partner"),
+      canChangeCurrency: () => permissions.includes("pos.change_currency"),
       canChangePosContext: () =>
         permissions.includes("pos.change_warehouse") ||
         permissions.includes("pos.change_price_type") ||
-        permissions.includes("pos.change_partner"),
+        permissions.includes("pos.change_partner") ||
+        permissions.includes("pos.change_currency"),
       canApplyDiscount: () => permissions.includes("pos.apply_discount"),
       canModifyPrice: () => permissions.includes("pos.modify_price"),
       canPostponeSale: () => permissions.includes("sales.postpone"),

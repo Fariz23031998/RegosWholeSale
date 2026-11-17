@@ -362,6 +362,7 @@ async def apply_regos_session_overrides(
     warehouse_id: int | None = None,
     price_type_id: int | None = None,
     partner_id: int | None = None,
+    currency_id: int | None = None,
 ) -> dict[str, Any]:
     defaults = await get_effective_stored_regos_defaults(session, user_id, company_id)
     patch: dict[str, Any] = {}
@@ -371,12 +372,18 @@ async def apply_regos_session_overrides(
         patch["price_type_id"] = price_type_id
     if partner_id is not None:
         patch["partner_id"] = partner_id
-    if not patch:
+    if not patch and currency_id is None:
         return defaults
 
-    updates = await _resolve_patch(session, company_id, patch)
     merged = dict(defaults)
-    merged.update(updates)
+    if patch:
+        updates = await _resolve_patch(session, company_id, patch)
+        merged.update(updates)
+    if currency_id is not None and currency_id > 0:
+        currencies = await fetch_currency_items_by_ids(session, company_id, [currency_id])
+        resolved = currencies.get(currency_id)
+        if resolved:
+            merged["currency"] = resolved
     return merged
 
 
@@ -408,6 +415,27 @@ async def patch_regos_defaults(
     return await enrich_checkout_defaults(session, company_id, current)
 
 
+async def list_currencies(session: AsyncSession, company_id: int) -> list[dict[str, Any]]:
+    response = await regos_async_api_request_for_company(
+        session,
+        company_id,
+        "currency/get",
+        {"limit": 10000},
+    )
+    result = response.get("result") or []
+    currencies: list[dict[str, Any]] = []
+    for row in result:
+        if not isinstance(row, dict):
+            continue
+        if row.get("deleted"):
+            continue
+        currency = _map_currency_item(row)
+        if currency:
+            currencies.append(currency)
+    currencies.sort(key=lambda item: str(item.get("name") or "").lower())
+    return currencies
+
+
 async def list_reference_options(session: AsyncSession, company_id: int) -> dict[str, list[dict[str, Any]]]:
     warehouses = await _fetch_reference_options(session, company_id, "warehouse")
     price_types = await _enrich_price_type_options(session, company_id, "price_type")
@@ -418,6 +446,7 @@ async def list_reference_options(session: AsyncSession, company_id: int) -> dict
     )
     attached_users = await _fetch_reference_options(session, company_id, "attached_user")
     firms_data = await regos_firms_service.list_firms(session, company_id)
+    currencies = await list_currencies(session, company_id)
     return {
         "warehouses": warehouses,
         "price_types": price_types,
@@ -426,6 +455,7 @@ async def list_reference_options(session: AsyncSession, company_id: int) -> dict
         "refund_payment_categories": refund_payment_categories,
         "attached_users": attached_users,
         "firms": firms_data["firms"],
+        "currencies": currencies,
     }
 
 
@@ -450,6 +480,7 @@ async def enrich_checkout_defaults(
     defaults: dict[str, Any],
     *,
     refresh: bool = False,
+    currency_id: int | None = None,
 ) -> dict[str, Any]:
     enriched = dict(defaults)
     warehouse = enriched.get("warehouse")
@@ -461,7 +492,17 @@ async def enrich_checkout_defaults(
     elif not warehouse:
         enriched["firm"] = None
 
-    if price_type and (refresh or not _is_valid_option(enriched.get("currency"))):
+    if currency_id is not None and currency_id > 0:
+        currencies = await fetch_currency_items_by_ids(session, company_id, [currency_id])
+        resolved = currencies.get(currency_id)
+        if resolved:
+            enriched["currency"] = resolved
+        elif price_type and (refresh or not _is_valid_option(enriched.get("currency"))):
+            price_type_item = await _fetch_regos_item_by_id(
+                session, company_id, "price_type", price_type["id"]
+            )
+            enriched["currency"] = _extract_currency_reference(price_type_item, "currency")
+    elif price_type and (refresh or not _is_valid_option(enriched.get("currency"))):
         price_type_item = await _fetch_regos_item_by_id(
             session, company_id, "price_type", price_type["id"]
         )
