@@ -5,11 +5,14 @@ from app.services.telegram_notifications import (
     PAY_DEBT_NOTIFICATION_TYPE,
     expand_to_leaf_types,
     normalize_notification_types,
+    normalize_pos_cheque_storno_filters,
     resolve_document_notification_type,
     resolve_pos_cheque_notification_type,
+    user_matches_pos_cheque_storno_filter,
     user_receives_notification,
     user_receives_pos_cheque_pay_debt,
     validate_notification_types,
+    validate_pos_cheque_storno_filters,
 )
 
 
@@ -71,3 +74,61 @@ def test_user_receives_pos_cheque_pay_debt():
     assert user_receives_pos_cheque_pay_debt(["wholesale_performed"]) is False
     assert user_receives_notification(["pos_cheque_cancelled"], PAY_DEBT_NOTIFICATION_TYPE) is True
     assert user_receives_notification(["pos_cheque_closed"], PAY_DEBT_NOTIFICATION_TYPE) is True
+
+
+def test_normalize_pos_cheque_storno_filters_defaults():
+    assert normalize_pos_cheque_storno_filters(None) == {
+        "pos_cheque_closed": "all",
+        "pos_cheque_return": "all",
+    }
+    assert normalize_pos_cheque_storno_filters({"pos_cheque_return": "storno_only"}) == {
+        "pos_cheque_closed": "all",
+        "pos_cheque_return": "storno_only",
+    }
+    assert normalize_pos_cheque_storno_filters(
+        {"pos_cheque_closed": "nope", "unknown": "storno_only"}
+    ) == {
+        "pos_cheque_closed": "all",
+        "pos_cheque_return": "all",
+    }
+
+
+def test_validate_pos_cheque_storno_filters():
+    assert validate_pos_cheque_storno_filters(
+        {"pos_cheque_closed": "storno_only"}
+    ) == {
+        "pos_cheque_closed": "storno_only",
+        "pos_cheque_return": "all",
+    }
+    with pytest.raises(ValueError, match="Unknown pos cheque storno filter key"):
+        validate_pos_cheque_storno_filters({"pos_cheque_cancelled": "all"})
+    with pytest.raises(ValueError, match="Unknown pos cheque storno filter mode"):
+        validate_pos_cheque_storno_filters({"pos_cheque_closed": "maybe"})
+
+
+def test_user_matches_pos_cheque_storno_filter():
+    filters = {"pos_cheque_closed": "storno_only", "pos_cheque_return": "all"}
+    assert (
+        user_matches_pos_cheque_storno_filter(
+            filters, "pos_cheque_closed", cheque_has_storno=False
+        )
+        is False
+    )
+    assert (
+        user_matches_pos_cheque_storno_filter(
+            filters, "pos_cheque_closed", cheque_has_storno=True
+        )
+        is True
+    )
+    assert (
+        user_matches_pos_cheque_storno_filter(
+            filters, "pos_cheque_return", cheque_has_storno=False
+        )
+        is True
+    )
+    assert (
+        user_matches_pos_cheque_storno_filter(
+            filters, "pos_cheque_cancelled", cheque_has_storno=False
+        )
+        is True
+    )

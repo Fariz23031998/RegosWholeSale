@@ -283,6 +283,7 @@ async def process_pos_cheque(
                 lang=lang,
             )
             leaf_type = resolve_pos_cheque_notification_type(variant, cheque)
+            has_storno = pos_fetch.cheque_has_storno(operations, payments)
             sent = await telegram_service.notify_company_subscribers(
                 session,
                 company_id,
@@ -290,6 +291,7 @@ async def process_pos_cheque(
                 build_message=build_message,
                 parse_mode="HTML",
                 scope=scope_from_cheque(cheque, operations),
+                cheque_has_storno=has_storno,
             )
 
             if sent > 0 and variant == "closed":

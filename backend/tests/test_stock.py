@@ -394,6 +394,7 @@ async def test_item_operations_list(client: AsyncClient) -> None:
                     "stock": {"id": 1, "name": "Main warehouse"},
                     "quantity": 5,
                     "price": 42000,
+                    "cost": 31500.25,
                 }
             ],
             "next_offset": 0,
@@ -419,11 +420,13 @@ async def test_item_operations_list(client: AsyncClient) -> None:
     assert len(body["operations"]) == 1
     op = body["operations"][0]
     assert op["document_type"] == "Purchase"
+    assert op["document_type_id"] == 1
     assert op["document_code"] == "PUR-00007001"
     assert op["stock_name"] == "Main warehouse"
     assert op["datetime"] == 1712345600
     assert op["quantity"] == 5
     assert op["price"] == 42000
+    assert op["cost"] == 31500.25
     call = mock_regos.await_args_list[0]
     assert call.args[2] == "ItemOperation/Get"
     payload = call.args[3]

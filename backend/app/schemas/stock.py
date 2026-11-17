@@ -187,10 +187,12 @@ class StockItemOperationRow(BaseModel):
     datetime: int | None = None
     document_code: str | None = None
     document_type: str | None = None
+    document_type_id: int | None = None
     stock_id: int | None = None
     stock_name: str | None = None
     quantity: float | None = None
     price: float | None = None
+    cost: float | None = None
 
 
 class StockItemOperationsResponse(BaseModel):

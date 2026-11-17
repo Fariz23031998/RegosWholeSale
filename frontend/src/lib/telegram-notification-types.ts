@@ -57,6 +57,47 @@ export const TELEGRAM_NOTIFICATION_TYPES = ALL_LEAF_NOTIFICATION_TYPES;
 
 export type TelegramNotificationType = TelegramNotificationLeaf;
 
+export type PosChequeStornoLeaf = "pos_cheque_closed" | "pos_cheque_return";
+
+export type PosChequeStornoMode = "all" | "storno_only";
+
+export const POS_CHEQUE_STORNO_FILTER_LEAVES: PosChequeStornoLeaf[] = [
+  "pos_cheque_closed",
+  "pos_cheque_return",
+];
+
+export function defaultPosChequeStornoFilters(): Record<
+  PosChequeStornoLeaf,
+  PosChequeStornoMode
+> {
+  return {
+    pos_cheque_closed: "all",
+    pos_cheque_return: "all",
+  };
+}
+
+export function normalizePosChequeStornoFilters(
+  value: Partial<Record<PosChequeStornoLeaf, PosChequeStornoMode>> | null | undefined,
+): Record<PosChequeStornoLeaf, PosChequeStornoMode> {
+  const normalized = defaultPosChequeStornoFilters();
+  if (!value || typeof value !== "object") {
+    return normalized;
+  }
+  for (const leaf of POS_CHEQUE_STORNO_FILTER_LEAVES) {
+    const mode = value[leaf];
+    if (mode === "all" || mode === "storno_only") {
+      normalized[leaf] = mode;
+    }
+  }
+  return normalized;
+}
+
+export function supportsPosChequeStornoFilter(
+  leaf: string,
+): leaf is PosChequeStornoLeaf {
+  return leaf === "pos_cheque_closed" || leaf === "pos_cheque_return";
+}
+
 const LEGACY_PARENT_SET = new Set(
   TELEGRAM_NOTIFICATION_CATEGORIES.map((category) => category.id),
 );

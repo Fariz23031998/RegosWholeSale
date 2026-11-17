@@ -484,6 +484,66 @@ async def test_update_telegram_user_scope_filters(client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_update_telegram_user_pos_cheque_storno_filters(client, monkeypatch):
+    _mock_telegram_api(monkeypatch)
+    token = await _register_and_login(client, "storno-filter-telegram@test.com")
+
+    save_response = await client.put(
+        "/api/v1/telegram/bot",
+        json={"bot_token": "123456:ABC-DEF"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    webhook_secret = save_response.json()["bot"]["webhook_url"].split("/")[-1]
+
+    await client.post(
+        f"/api/v1/telegram/webhook/{webhook_secret}",
+        json={
+            "update_id": 51,
+            "message": {
+                "message_id": 51,
+                "from": {"id": 777667, "is_bot": False, "first_name": "Storno"},
+                "chat": {"id": 777667, "type": "private"},
+                "text": "/start",
+            },
+        },
+    )
+
+    list_response = await client.get(
+        "/api/v1/telegram/users",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    user = list_response.json()[0]
+    user_id = user["id"]
+    assert user["pos_cheque_storno_filters"] == {
+        "pos_cheque_closed": "all",
+        "pos_cheque_return": "all",
+    }
+
+    update_response = await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={
+            "pos_cheque_storno_filters": {
+                "pos_cheque_closed": "storno_only",
+                "pos_cheque_return": "storno_only",
+            }
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert update_response.status_code == 200
+    assert update_response.json()["pos_cheque_storno_filters"] == {
+        "pos_cheque_closed": "storno_only",
+        "pos_cheque_return": "storno_only",
+    }
+
+    invalid_response = await client.patch(
+        f"/api/v1/telegram/users/{user_id}",
+        json={"pos_cheque_storno_filters": {"pos_cheque_cancelled": "all"}},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert invalid_response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_delete_telegram_user(client, monkeypatch, session_factory):
     _mock_telegram_api(monkeypatch)
     token = await _register_and_login(client, "delete-user-telegram@test.com")

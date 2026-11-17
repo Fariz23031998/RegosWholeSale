@@ -60,6 +60,20 @@ function rowKey(op: StockItemOperationRow, index: number): string {
   return `${op.datetime ?? "x"}-${op.document_code ?? "x"}-${index}`;
 }
 
+/** DocPurchase (1) and DocReturnsToPartner (2) expose cost in ItemOperation. */
+const HISTORY_COST_DOCUMENT_TYPE_IDS = new Set([1, 2]);
+
+function formatHistoryCost(op: StockItemOperationRow): string {
+  if (
+    op.document_type_id != null &&
+    HISTORY_COST_DOCUMENT_TYPE_IDS.has(op.document_type_id) &&
+    op.cost != null
+  ) {
+    return formatCurrency(op.cost);
+  }
+  return "—";
+}
+
 export function ProductHistoryDialog({ open, product, onClose }: Props) {
   const { t } = useLanguage();
   const isMobile = useIsMobile();
@@ -263,6 +277,17 @@ export function ProductHistoryDialog({ open, product, onClose }: Props) {
           row.original.quantity != null ? String(row.original.quantity) : "—",
       },
       {
+        id: "cost",
+        accessorFn: (op) => op.cost ?? 0,
+        header: t("products.history.col.cost", "Cost"),
+        meta: {
+          align: "right",
+          cellClassName: stockStyles.right,
+          headerClassName: stockStyles.right,
+        },
+        cell: ({ row }) => formatHistoryCost(row.original),
+      },
+      {
         id: "price",
         accessorFn: (op) => op.price ?? 0,
         header: t("products.history.col.price", "Price"),
@@ -366,16 +391,22 @@ export function ProductHistoryDialog({ open, product, onClose }: Props) {
                   </div>
                 </div>
                 <div className={stockStyles.lineCardMeta}>
-                  {[
-                    formatOpDate(op.datetime),
-                    op.document_code,
-                    op.stock_name,
-                    op.quantity != null
-                      ? `${t("products.history.col.qty", "Qty")}: ${op.quantity}`
-                      : null,
-                  ]
-                    .filter(Boolean)
-                    .join(" · ")}
+                  {(() => {
+                    const costText = formatHistoryCost(op);
+                    return [
+                      formatOpDate(op.datetime),
+                      op.document_code,
+                      op.stock_name,
+                      op.quantity != null
+                        ? `${t("products.history.col.qty", "Qty")}: ${op.quantity}`
+                        : null,
+                      costText !== "—"
+                        ? `${t("products.history.col.cost", "Cost")}: ${costText}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ");
+                  })()}
                 </div>
               </div>
             ))}

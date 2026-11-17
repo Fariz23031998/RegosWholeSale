@@ -211,12 +211,72 @@
 .notificationSubItem {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: var(--space-3);
   padding: 8px 0;
+  flex-wrap: wrap;
+}
+
+.notificationSubMain {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 .notificationSubLabel {
   font-size: 14px;
+}
+
+.stornoSwitcher {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: stretch;
+}
+
+.stornoSwitcherOption,
+.stornoSwitcherOptionActive {
+  height: 28px;
+  min-width: auto;
+  padding: 0 10px;
+  font-size: 12px;
+  line-height: 1;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  cursor: pointer;
+}
+
+.stornoSwitcherOption:first-child,
+.stornoSwitcherOptionActive:first-child {
+  border-top-left-radius: var(--radius-sm);
+  border-bottom-left-radius: var(--radius-sm);
+}
+
+.stornoSwitcherOption:last-child,
+.stornoSwitcherOptionActive:last-child {
+  border-top-right-radius: var(--radius-sm);
+  border-bottom-right-radius: var(--radius-sm);
+  margin-left: -1px;
+}
+
+.stornoSwitcherOptionActive {
+  z-index: 1;
+  border-color: var(--color-text);
+  background: var(--color-surface-2);
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.stornoSwitcherOption:hover:not(:disabled),
+.stornoSwitcherOptionActive:hover:not(:disabled) {
+  color: var(--color-text);
+}
+
+.stornoSwitcherOption:disabled,
+.stornoSwitcherOptionActive:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
 }
 
 .notificationText {

@@ -17,6 +17,8 @@ from app.services.telegram_languages import default_receipt_language, resolve_re
 from app.services.telegram_notifications import (
     default_notification_types,
     normalize_notification_types,
+    normalize_pos_cheque_storno_filters,
+    user_matches_pos_cheque_storno_filter,
     user_receives_notification,
 )
 from app.services.telegram_notification_scope import (
@@ -239,6 +241,9 @@ def telegram_user_to_dict(row: TelegramUser) -> dict:
         "stock_ids": normalize_scope_ids(row.stock_ids),
         "cashier_ids": normalize_scope_ids(row.cashier_ids),
         "firm_ids": normalize_scope_ids(row.firm_ids),
+        "pos_cheque_storno_filters": normalize_pos_cheque_storno_filters(
+            row.pos_cheque_storno_filters
+        ),
         "created_at": row.created_at,
     }
 
@@ -260,6 +265,8 @@ def select_notification_recipients(
     subscribers: list[TelegramUser],
     notification_type: str,
     scope: NotificationScope | None = None,
+    *,
+    cheque_has_storno: bool | None = None,
 ) -> list[TelegramUser]:
     """Pick who receives a broadcast without duplicate delivery.
 
@@ -272,6 +279,11 @@ def select_notification_recipients(
         for subscriber in subscribers
         if user_receives_notification(subscriber.notification_types, notification_type)
         and subscriber_matches_scope(subscriber, scope)
+        and user_matches_pos_cheque_storno_filter(
+            subscriber.pos_cheque_storno_filters,
+            notification_type,
+            cheque_has_storno=cheque_has_storno,
+        )
     ]
     if not eligible:
         return []
@@ -710,6 +722,7 @@ async def notify_company_subscribers(
     parse_mode: str = "Markdown",
     build_document: Callable[[str], tuple[bytes, str, str | None] | None] | None = None,
     scope: NotificationScope | None = None,
+    cheque_has_storno: bool | None = None,
 ) -> int:
     if not await _company_subscription_allows_notifications(session, company_id):
         return 0
@@ -731,7 +744,12 @@ async def notify_company_subscribers(
         return 0
 
     sent = 0
-    recipients = select_notification_recipients(users, notification_type, scope=scope)
+    recipients = select_notification_recipients(
+        users,
+        notification_type,
+        scope=scope,
+        cheque_has_storno=cheque_has_storno,
+    )
     for user in recipients:
         lang = resolve_receipt_language(user.receipt_language, user.language_code)
         if await send_message(
@@ -946,6 +964,7 @@ async def update_telegram_user(
     stock_ids: list[int] | None = None,
     cashier_ids: list[int] | None = None,
     firm_ids: list[int] | None = None,
+    pos_cheque_storno_filters: dict[str, str] | None = None,
 ) -> dict | None:
     result = await session.execute(
         select(TelegramUser).where(
@@ -969,6 +988,10 @@ async def update_telegram_user(
         row.cashier_ids = normalize_scope_ids(cashier_ids)
     if firm_ids is not None:
         row.firm_ids = normalize_scope_ids(firm_ids)
+    if pos_cheque_storno_filters is not None:
+        row.pos_cheque_storno_filters = normalize_pos_cheque_storno_filters(
+            pos_cheque_storno_filters
+        )
 
     await session.flush()
     return telegram_user_to_dict(row)

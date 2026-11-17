@@ -176,6 +176,19 @@ def is_pos_cheque_closed(cheque: dict[str, Any]) -> bool:
     return False
 
 
+def cheque_has_storno(
+    operations: list[dict[str, Any]] | None,
+    payments: list[dict[str, Any]] | None,
+) -> bool:
+    for operation in operations or []:
+        if bool(operation.get("has_storno")):
+            return True
+    for payment in payments or []:
+        if bool(payment.get("has_storno")):
+            return True
+    return False
+
+
 async def fetch_cheque_by_uuid(
     session: AsyncSession,
     company_id: int,

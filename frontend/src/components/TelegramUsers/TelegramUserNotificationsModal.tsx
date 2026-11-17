@@ -18,13 +18,17 @@ import {
   categorySelectionState,
   expandLegacyNotificationTypes,
   isSingleLeafCategory,
+  normalizePosChequeStornoFilters,
   notificationTypeDescriptionKey,
   notificationTypeLabelKey,
   subcategoryLabelKey,
+  supportsPosChequeStornoFilter,
+  type PosChequeStornoLeaf,
+  type PosChequeStornoMode,
   type TelegramNotificationLeaf,
 } from "@/lib/telegram-notification-types";
 import type { RegosDefaultOption } from "@/types/settings";
-import type { TelegramUser } from "@/types/telegram";
+import type { PosChequeStornoFilters, TelegramUser } from "@/types/telegram";
 import styles from "./TelegramUsers.module.css";
 
 type Props = {
@@ -144,6 +148,9 @@ export function TelegramUserNotificationsModal({
   const [selectedCashierIds, setSelectedCashierIds] = useState<number[]>([]);
   const [allFirms, setAllFirms] = useState(true);
   const [selectedFirmIds, setSelectedFirmIds] = useState<number[]>([]);
+  const [stornoFilters, setStornoFilters] = useState<PosChequeStornoFilters>(
+    normalizePosChequeStornoFilters(null),
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -175,6 +182,7 @@ export function TelegramUserNotificationsModal({
     setSelectedCashierIds(cashierIds);
     setAllFirms(firmIds.length === 0);
     setSelectedFirmIds(firmIds);
+    setStornoFilters(normalizePosChequeStornoFilters(user.pos_cheque_storno_filters));
     setError("");
   }, [open, user]);
 
@@ -287,6 +295,7 @@ export function TelegramUserNotificationsModal({
         stock_ids: scopeIdsForSave(allStocks, selectedStockIds),
         cashier_ids: scopeIdsForSave(allCashiers, selectedCashierIds),
         firm_ids: scopeIdsForSave(allFirms, selectedFirmIds),
+        pos_cheque_storno_filters: stornoFilters,
       });
       onSaved(updated);
       onClose();
@@ -446,20 +455,69 @@ export function TelegramUserNotificationsModal({
                   </span>
                 </label>
                 <div className={styles.notificationSubList}>
-                  {category.subcategories.map((leaf) => (
-                    <label key={leaf} className={styles.notificationSubItem}>
-                      <Checkbox
-                        checked={selectedLeaves.has(leaf as TelegramNotificationLeaf)}
-                        disabled={!isActive}
-                        onCheckedChange={(value) =>
-                          toggleLeaf(leaf as TelegramNotificationLeaf, value === true)
-                        }
-                      />
-                      <span className={styles.notificationSubLabel}>
-                        {t(subcategoryLabelKey(leaf), leaf)}
-                      </span>
-                    </label>
-                  ))}
+                  {category.subcategories.map((leaf) => {
+                    const leafChecked = selectedLeaves.has(leaf as TelegramNotificationLeaf);
+                    const showStornoSwitcher = supportsPosChequeStornoFilter(leaf);
+                    return (
+                      <div key={leaf} className={styles.notificationSubItem}>
+                        <label className={styles.notificationSubMain}>
+                          <Checkbox
+                            checked={leafChecked}
+                            disabled={!isActive}
+                            onCheckedChange={(value) =>
+                              toggleLeaf(leaf as TelegramNotificationLeaf, value === true)
+                            }
+                          />
+                          <span className={styles.notificationSubLabel}>
+                            {t(subcategoryLabelKey(leaf), leaf)}
+                          </span>
+                        </label>
+                        {showStornoSwitcher && (
+                          <div
+                            className={styles.stornoSwitcher}
+                            role="group"
+                            aria-label={t(
+                              "telegramUsers.posChequeStorno.label",
+                              "Receipt storno filter",
+                            )}
+                          >
+                            {(["all", "storno_only"] as const).map((mode) => {
+                              const selected =
+                                stornoFilters[leaf as PosChequeStornoLeaf] === mode;
+                              const label =
+                                mode === "all"
+                                  ? t("telegramUsers.posChequeStorno.all", "All")
+                                  : t(
+                                      "telegramUsers.posChequeStorno.stornoOnly",
+                                      "Has storno only",
+                                    );
+                              return (
+                                <button
+                                  key={mode}
+                                  type="button"
+                                  className={
+                                    selected
+                                      ? styles.stornoSwitcherOptionActive
+                                      : styles.stornoSwitcherOption
+                                  }
+                                  aria-pressed={selected}
+                                  disabled={!isActive || !leafChecked}
+                                  onClick={() =>
+                                    setStornoFilters((prev) => ({
+                                      ...prev,
+                                      [leaf]: mode as PosChequeStornoMode,
+                                    }))
+                                  }
+                                >
+                                  {label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );

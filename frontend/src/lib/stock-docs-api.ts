@@ -153,10 +153,12 @@ export type StockItemOperationRow = {
   datetime: number | null;
   document_code: string | null;
   document_type: string | null;
+  document_type_id: number | null;
   stock_id: number | null;
   stock_name: string | null;
   quantity: number | null;
   price: number | null;
+  cost: number | null;
 };
 
 export type StockItemInfoResponse = {

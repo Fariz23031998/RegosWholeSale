@@ -6,6 +6,7 @@ from app.services.telegram_notifications import (
     ALL_NOTIFICATION_TYPES,
     notification_categories_response,
     validate_notification_types,
+    validate_pos_cheque_storno_filters,
 )
 from app.services.telegram_languages import SUPPORTED_RECEIPT_LANGUAGES, validate_receipt_language
 from app.services.telegram_notification_scope import normalize_scope_ids
@@ -69,6 +70,7 @@ class TelegramUserResponse(BaseModel):
     stock_ids: list[int]
     cashier_ids: list[int]
     firm_ids: list[int]
+    pos_cheque_storno_filters: dict[str, str]
     created_at: datetime
 
 
@@ -79,6 +81,7 @@ class TelegramUserUpdateRequest(BaseModel):
     stock_ids: list[int] | None = None
     cashier_ids: list[int] | None = None
     firm_ids: list[int] | None = None
+    pos_cheque_storno_filters: dict[str, str] | None = None
 
     @field_validator("notification_types")
     @classmethod
@@ -98,6 +101,13 @@ class TelegramUserUpdateRequest(BaseModel):
     @classmethod
     def validate_scope_ids(cls, value: list[int] | None) -> list[int] | None:
         return _validate_scope_ids(value)
+
+    @field_validator("pos_cheque_storno_filters")
+    @classmethod
+    def validate_storno_filters(cls, value: dict[str, str] | None) -> dict[str, str] | None:
+        if value is None:
+            return None
+        return validate_pos_cheque_storno_filters(value)
 
 
 def all_notification_types_response() -> TelegramNotificationTypesResponse:

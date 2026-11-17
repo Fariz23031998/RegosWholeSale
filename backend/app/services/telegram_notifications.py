@@ -66,9 +66,70 @@ _POS_CHEQUE_LEAVES = frozenset(NOTIFICATION_CATEGORIES["pos_cheque"])
 
 PAY_DEBT_NOTIFICATION_TYPE = "pos_cheque_pay_debt"
 
+PosChequeStornoMode = Literal["all", "storno_only"]
+
+POS_CHEQUE_STORNO_FILTER_KEYS: tuple[str, ...] = ("pos_cheque_closed", "pos_cheque_return")
+_POS_CHEQUE_STORNO_FILTER_KEY_SET = frozenset(POS_CHEQUE_STORNO_FILTER_KEYS)
+_POS_CHEQUE_STORNO_MODES = frozenset({"all", "storno_only"})
+DEFAULT_POS_CHEQUE_STORNO_MODE: PosChequeStornoMode = "all"
+
 
 def default_notification_types() -> list[str]:
     return list(ALL_LEAF_NOTIFICATION_TYPES)
+
+
+def default_pos_cheque_storno_filters() -> dict[str, PosChequeStornoMode]:
+    return {key: DEFAULT_POS_CHEQUE_STORNO_MODE for key in POS_CHEQUE_STORNO_FILTER_KEYS}
+
+
+def normalize_pos_cheque_storno_filters(
+    value: object | None,
+) -> dict[str, PosChequeStornoMode]:
+    normalized = default_pos_cheque_storno_filters()
+    if not isinstance(value, dict):
+        return normalized
+    for key in POS_CHEQUE_STORNO_FILTER_KEYS:
+        mode = value.get(key)
+        if mode in _POS_CHEQUE_STORNO_MODES:
+            normalized[key] = mode  # type: ignore[assignment]
+    return normalized
+
+
+def validate_pos_cheque_storno_filters(value: object) -> dict[str, PosChequeStornoMode]:
+    if not isinstance(value, dict):
+        raise ValueError("pos_cheque_storno_filters must be an object")
+    for key in value:
+        if key not in _POS_CHEQUE_STORNO_FILTER_KEY_SET:
+            raise ValueError(f"Unknown pos cheque storno filter key: {key}")
+        mode = value[key]
+        if mode not in _POS_CHEQUE_STORNO_MODES:
+            raise ValueError(f"Unknown pos cheque storno filter mode: {mode}")
+    return normalize_pos_cheque_storno_filters(value)
+
+
+def pos_cheque_storno_mode_for(
+    filters: object | None,
+    notification_type: str,
+) -> PosChequeStornoMode:
+    if notification_type not in _POS_CHEQUE_STORNO_FILTER_KEY_SET:
+        return DEFAULT_POS_CHEQUE_STORNO_MODE
+    return normalize_pos_cheque_storno_filters(filters)[notification_type]
+
+
+def user_matches_pos_cheque_storno_filter(
+    filters: object | None,
+    notification_type: str,
+    *,
+    cheque_has_storno: bool | None,
+) -> bool:
+    if notification_type not in _POS_CHEQUE_STORNO_FILTER_KEY_SET:
+        return True
+    mode = pos_cheque_storno_mode_for(filters, notification_type)
+    if mode == "all":
+        return True
+    if cheque_has_storno is None:
+        return True
+    return bool(cheque_has_storno)
 
 
 def expand_to_leaf_types(types: list[str] | None) -> set[str]:

@@ -14,6 +14,13 @@ export type TelegramBotMessage = {
   bot?: TelegramBotConfig | null;
 };
 
+export type PosChequeStornoMode = "all" | "storno_only";
+
+export type PosChequeStornoFilters = {
+  pos_cheque_closed: PosChequeStornoMode;
+  pos_cheque_return: PosChequeStornoMode;
+};
+
 export type TelegramUser = {
   id: number;
   telegram_user_id: number;
@@ -30,6 +37,7 @@ export type TelegramUser = {
   stock_ids: number[];
   cashier_ids: number[];
   firm_ids: number[];
+  pos_cheque_storno_filters: PosChequeStornoFilters;
   created_at: string;
 };
 
@@ -40,6 +48,7 @@ export type TelegramUserUpdateRequest = {
   stock_ids?: number[];
   cashier_ids?: number[];
   firm_ids?: number[];
+  pos_cheque_storno_filters?: PosChequeStornoFilters;
 };
 
 export type TelegramReceiptLanguagesResponse = {

@@ -1417,6 +1417,13 @@ def _document_type_name(row: dict[str, Any]) -> str | None:
     return None
 
 
+def _document_type_id(row: dict[str, Any]) -> int | None:
+    document_type = row.get("document_type")
+    if isinstance(document_type, dict):
+        return _as_optional_int(document_type.get("id"))
+    return _as_optional_int(row.get("document_type_id"))
+
+
 def _document_code(row: dict[str, Any]) -> str | None:
     for key in ("document_code", "doc_code", "code"):
         value = row.get(key)
@@ -1446,10 +1453,12 @@ def _map_item_operation(row: dict[str, Any]) -> dict[str, Any] | None:
         else _as_optional_int(row.get("date")),
         "document_code": _document_code(row),
         "document_type": _document_type_name(row),
+        "document_type_id": _document_type_id(row),
         "stock_id": stock_id,
         "stock_name": stock_name,
         "quantity": _as_optional_float(row.get("quantity")),
         "price": _as_optional_float(row.get("price")),
+        "cost": _as_optional_float(row.get("cost")),
     }
 
 

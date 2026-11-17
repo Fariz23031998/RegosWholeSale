@@ -1,4 +1,4 @@
-import type { SyntheticEvent } from "react";
+import { useRef, type SyntheticEvent } from "react";
 import clsx from "clsx";
 import { Check, EllipsisVertical, History, Minus, Pencil, Plus } from "lucide-react";
 import {
@@ -16,6 +16,8 @@ import { useSellContext } from "@/store/sell-context";
 import type { Product } from "@/types/catalog";
 import posStyles from "@/components/POS/POS.module.css";
 import styles from "./Products.module.css";
+
+const MENU_TOGGLE_IGNORE_MS = 350;
 
 type Props = {
   product: Product;
@@ -68,6 +70,7 @@ export function LabelProductCard({
   const { t } = useLanguage();
   const saleCurrency = useSellContext((state) => state.saleCurrency);
   const showLastPurchaseCost = usePosConfig((state) => state.showLastPurchaseCost);
+  const ignoreCardToggleUntilRef = useRef(0);
   const out = product.stock <= 0;
   const low = product.stock > 0 && product.stock < 10;
   const stockText = Number.isInteger(product.stock)
@@ -120,14 +123,25 @@ export function LabelProductCard({
       </div>
     ) : null;
 
+  const markMenuInteraction = () => {
+    ignoreCardToggleUntilRef.current = Date.now() + MENU_TOGGLE_IGNORE_MS;
+  };
+
+  const shouldIgnoreCardToggle = () => Date.now() < ignoreCardToggleUntilRef.current;
+
   const stopCardToggle = (event: SyntheticEvent) => {
     event.stopPropagation();
+  };
+
+  const onMenuPointerDown = (event: SyntheticEvent) => {
+    markMenuInteraction();
+    stopCardToggle(event);
   };
 
   const menu = showMenu ? (
     <div
       className={styles.cardMenu}
-      onPointerDown={stopCardToggle}
+      onPointerDown={onMenuPointerDown}
       onMouseDown={stopCardToggle}
       onClick={stopCardToggle}
       onKeyDown={stopCardToggle}
@@ -139,7 +153,7 @@ export function LabelProductCard({
             className={styles.cardMenuBtn}
             aria-label={t("products.menu", "Product actions")}
             title={t("products.menu", "Product actions")}
-            onPointerDown={stopCardToggle}
+            onPointerDown={onMenuPointerDown}
             onMouseDown={stopCardToggle}
             onClick={stopCardToggle}
           >
@@ -157,6 +171,7 @@ export function LabelProductCard({
               className={styles.cardMenuItem}
               onSelect={(event) => {
                 event.preventDefault();
+                markMenuInteraction();
                 onEdit(product);
               }}
             >
@@ -169,6 +184,7 @@ export function LabelProductCard({
               className={styles.cardMenuItem}
               onSelect={(event) => {
                 event.preventDefault();
+                markMenuInteraction();
                 onHistory(product);
               }}
             >
@@ -193,6 +209,7 @@ export function LabelProductCard({
       tabIndex={0}
       aria-pressed={selected}
       onClick={(event) => {
+        if (shouldIgnoreCardToggle()) return;
         if ((event.target as HTMLElement | null)?.closest?.(`.${styles.cardMenu}`)) {
           return;
         }
@@ -200,6 +217,7 @@ export function LabelProductCard({
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter" || event.key === " ") {
+          if (shouldIgnoreCardToggle()) return;
           if ((event.target as HTMLElement | null)?.closest?.(`.${styles.cardMenu}`)) {
             return;
           }

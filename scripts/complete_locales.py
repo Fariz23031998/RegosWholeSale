@@ -39,7 +39,18 @@ ALLOWED_ENGLISH = frozenset({
     "settings.exchangeRateSync.formula",
     "settings.telegram.webhook",
     "telegram.receipt.posPaymentLine",
+    "telegram.partnerReceipt.debtLine",
     "telegramUsers.table.chatId",
+    "settings.labelTemplates.editor.html",
+    "settings.labelTemplates.editor.css",
+    "settings.labelTemplates.editor.tabHtml",
+    "settings.labelTemplates.editor.tabCss",
+    "settings.labelTemplates.editor.zoomReset",
+    # Latin Uzbek commonly keeps these English/loan forms
+    "profile.login",
+    "stock.item.fields.icps",
+    "products.printer",
+    "settings.labelTemplates.tabPrinter",
 })
 
 
