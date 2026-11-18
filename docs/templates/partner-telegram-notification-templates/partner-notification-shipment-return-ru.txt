@@ -1,0 +1,21 @@
+{{cancelled}}
+
+👤 Партнёр: {{partner_name}}
+🧾 <b>Чек возврата отгрузки</b>
+📄 <b>Документ № {{document_code}}</b>
+📅 Дата: {{date}}
+🏢 Склад: {{warehouse}}
+💰 Валюта: {{currency}}
+📊 Курс обмена: {{exchange_rate}}
+
+📦 <b>Товары</b>
+
+{{#items}}{{index}}. <b>{{name}}</b>
+   {{quantity}} × {{price}} = {{line_total}}
+{{/items}}
+────────────────────
+📊 Всего товаров: {{total_items}}
+💵 <b>Итого к оплате: {{total}}</b>
+
+💳 <b>Задолженность</b>
+{{balance}}

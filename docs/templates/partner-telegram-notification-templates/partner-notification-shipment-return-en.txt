@@ -1,0 +1,21 @@
+{{cancelled}}
+
+👤 Partner: {{partner_name}}
+🧾 <b>Shipment return receipt</b>
+📄 <b>Document № {{document_code}}</b>
+📅 Date: {{date}}
+🏢 Warehouse: {{warehouse}}
+💰 Currency: {{currency}}
+📊 Exchange rate: {{exchange_rate}}
+
+📦 <b>Items</b>
+
+{{#items}}{{index}}. <b>{{name}}</b>
+   {{quantity}} × {{price}} = {{line_total}}
+{{/items}}
+────────────────────
+📊 Total items: {{total_items}}
+💵 <b>Total to pay: {{total}}</b>
+
+💳 <b>Outstanding debt</b>
+{{balance}}

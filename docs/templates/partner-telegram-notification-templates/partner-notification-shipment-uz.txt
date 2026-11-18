@@ -1,0 +1,21 @@
+{{cancelled}}
+
+👤 Hamkor: {{partner_name}}
+🧾 <b>Jo'natma cheki</b>
+📄 <b>Hujjat № {{document_code}}</b>
+📅 Sana: {{date}}
+🏢 Ombor: {{warehouse}}
+💰 Valyuta: {{currency}}
+📊 Valyuta kursi: {{exchange_rate}}
+
+📦 <b>Tovarlar</b>
+
+{{#items}}{{index}}. <b>{{name}}</b>
+   {{quantity}} × {{price}} = {{line_total}}
+{{/items}}
+────────────────────
+📊 Jami tovarlar: {{total_items}}
+💵 <b>To'lovga jami: {{total}}</b>
+
+💳 <b>Qarz</b>
+{{balance}}
