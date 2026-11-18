@@ -28,10 +28,10 @@ export function PartnerNotificationTemplateVariablesModal({
     >
       <div className={styles.variableModalBody}>
         <p className={styles.variableIntro}>
-          {t(
-            "partnerTelegram.templateVariablesIntro",
-            "Use {{placeholders}} in the template text. Messages support Telegram HTML tags such as <b>, <i>, and <code>. Leave a language blank to use the built-in message.",
-          )}
+                          {t(
+                            "partnerTelegram.templateVariablesIntro",
+                            "Use {{placeholders}} in the template text. Conditionals: {{#if key}}…{{else}}…{{/if}}. Messages support Telegram HTML tags such as <b>, <i>, and <code>. Leave a language blank to use the built-in message.",
+                          )}
         </p>
 
         <div className={styles.variablePanel}>

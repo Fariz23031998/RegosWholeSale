@@ -1,4 +1,6 @@
 from app.services.partner_notification_templates import (
+    expand_conditionals,
+    format_balance_line_notification,
     format_document_notification,
     format_payment_notification_template,
     resolve_balance_for_firm_currency,
@@ -9,6 +11,7 @@ from app.services.partner_notification_templates import (
 def test_template_needs_balance_detects_placeholders():
     assert template_needs_balance("Hello {{partner_name}}") is False
     assert template_needs_balance("Bal {{balance}}") is True
+    assert template_needs_balance("{{#if balance}}Debt{{/if}}") is True
     assert template_needs_balance("{{firm_name}} / {{currency_name}}") is False
 
 
@@ -283,3 +286,220 @@ def test_legacy_items_placeholder_still_works():
     assert "1. Rice" in text
     assert "2 × 10 = 20" in text
     assert "Total 20" in text
+
+
+def test_expand_conditionals_if_else_and_unmatched():
+    assert (
+        expand_conditionals(
+            "{{#if cancelled}}X{{else}}Y{{/if}}",
+            {"cancelled": "CANCELLED"},
+        )
+        == "X"
+    )
+    assert (
+        expand_conditionals(
+            "{{#if cancelled}}X{{else}}Y{{/if}}",
+            {"cancelled": ""},
+        )
+        == "Y"
+    )
+    assert expand_conditionals("{{#if cancelled}}X", {"cancelled": "yes"}) == "{{#if cancelled}}X"
+
+
+def test_document_if_cancelled_then_else():
+    base_doc = {
+        "code": "WS-9",
+        "date": 1_700_000_000,
+        "currency": {"id": 1, "name": "UZS"},
+        "partner": {"id": 15, "name": "Acme"},
+    }
+    ops = [{"item": {"name": "Rice"}, "quantity": 1, "price": 10}]
+    template = (
+        "{{#if cancelled}}❌ <b>{{cancelled}}</b>\n{{else}}OK\n{{/if}}"
+        "{{partner_name}}"
+    )
+    cancelled_text = format_document_notification(
+        base_doc,
+        ops,
+        "Main",
+        is_cancelled=True,
+        is_return=False,
+        use_cost=False,
+        lang="en",
+        template=template,
+        partner_id=15,
+        partner_name="Acme",
+    )
+    assert cancelled_text.startswith("❌ <b>CANCELLED</b>\n")
+    assert "OK" not in cancelled_text
+    assert "Acme" in cancelled_text
+
+    normal_text = format_document_notification(
+        base_doc,
+        ops,
+        "Main",
+        is_cancelled=False,
+        is_return=False,
+        use_cost=False,
+        lang="en",
+        template=template,
+        partner_id=15,
+        partner_name="Acme",
+    )
+    assert normal_text.startswith("OK\n")
+    assert "❌" not in normal_text
+
+
+def test_document_if_balance_hides_zero():
+    doc = {
+        "code": "WS-9",
+        "date": 1_700_000_000,
+        "currency": {"id": 1, "name": "UZS"},
+        "partner": {"id": 15, "name": "Acme"},
+    }
+    ops = [{"item": {"name": "Rice"}, "quantity": 1, "price": 10}]
+    template = "Head{{#if balance}}\nDebt {{balance}}{{/if}}"
+    zero = format_document_notification(
+        doc,
+        ops,
+        "Main",
+        is_cancelled=False,
+        is_return=False,
+        use_cost=False,
+        lang="en",
+        template=template,
+        partner_id=15,
+        balance=0,
+    )
+    assert zero == "Head"
+    positive = format_document_notification(
+        doc,
+        ops,
+        "Main",
+        is_cancelled=False,
+        is_return=False,
+        use_cost=False,
+        lang="en",
+        template=template,
+        partner_id=15,
+        balance=150,
+    )
+    assert positive == "Head\nDebt 150"
+
+
+def test_document_if_inside_items_loop_on_description():
+    text = format_document_notification(
+        {
+            "code": "WS-9",
+            "date": 1_700_000_000,
+            "currency": {"id": 1, "name": "UZS"},
+            "partner": {"id": 15, "name": "Acme"},
+        },
+        [
+            {"item": {"name": "Rice"}, "quantity": 1, "price": 10, "description": "Grade A"},
+            {"item": {"name": "Oil"}, "quantity": 1, "price": 5},
+        ],
+        "Main",
+        is_cancelled=False,
+        is_return=False,
+        use_cost=False,
+        lang="en",
+        template=(
+            "{{#items}}{{name}}"
+            "{{#if description}} ({{description}}){{/if}}\n"
+            "{{/items}}"
+        ),
+        partner_id=15,
+    )
+    assert "Rice (Grade A)\n" in text
+    assert "Oil\n" in text
+    assert "Oil (" not in text
+
+
+def test_document_nested_if():
+    text = format_document_notification(
+        {
+            "code": "WS-9",
+            "date": 1_700_000_000,
+            "currency": {"id": 1, "name": "UZS"},
+            "partner": {"id": 15, "name": "Acme"},
+        },
+        [{"item": {"name": "Rice"}, "quantity": 1, "price": 10}],
+        "Main",
+        is_cancelled=True,
+        is_return=False,
+        use_cost=False,
+        lang="en",
+        template=(
+            "{{#if cancelled}}"
+            "{{#if balance}}C+B{{else}}C-only{{/if}}"
+            "{{else}}normal{{/if}}"
+        ),
+        partner_id=15,
+        balance=0,
+    )
+    assert text == "C-only"
+
+
+def test_document_if_escapes_values_in_kept_branch():
+    text = format_document_notification(
+        {
+            "code": "A<B>",
+            "date": 1_700_000_000,
+            "currency": {"id": 1, "name": "UZS"},
+            "partner": {"id": 15, "name": "Acme"},
+        },
+        [{"item": {"name": "Rice"}, "quantity": 1, "price": 10}],
+        "Main",
+        is_cancelled=True,
+        is_return=False,
+        use_cost=False,
+        lang="en",
+        template="{{#if cancelled}}<b>{{document_code}}</b>{{/if}}",
+        partner_id=15,
+    )
+    assert text == "<b>A&lt;B&gt;</b>"
+
+
+def test_payment_if_cancelled():
+    doc = {
+        "code": "P-1",
+        "date": 1_700_000_000,
+        "amount": 50,
+        "type": {"name": "Cash"},
+        "category": {"name": "Sales", "positive": False},
+        "currency": {"name": "UZS"},
+        "partner": {"id": 15, "name": "Acme"},
+    }
+    template = "{{#if cancelled}}X {{cancelled}}{{else}}{{document_code}}{{/if}}"
+    cancelled = format_payment_notification_template(
+        doc, is_cancelled=True, lang="en", template=template, partner_id=15
+    )
+    assert cancelled == "X CANCELLED"
+    normal = format_payment_notification_template(
+        doc, is_cancelled=False, lang="en", template=template, partner_id=15
+    )
+    assert normal == "P-1"
+
+
+def test_balance_line_if_balance():
+    text = format_balance_line_notification(
+        15,
+        firm_name="Main",
+        currency_name="UZS",
+        balance=0,
+        lang="en",
+        template="{{#if balance}}{{firm_name}} {{balance}}{{else}}none{{/if}}",
+        partner_name="Acme",
+    )
+    assert text == "none"
+    text = format_balance_line_notification(
+        15,
+        firm_name="Main",
+        currency_name="UZS",
+        balance=12.5,
+        lang="en",
+        template="{{#if balance}}{{firm_name}} {{balance}}{{else}}none{{/if}}",
+        partner_name="Acme",
+    )
+    assert text == "Main 12.5"

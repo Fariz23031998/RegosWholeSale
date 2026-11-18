@@ -2,6 +2,7 @@ import type { PartnerNotificationTemplateType } from "@/lib/partner-telegram-api
 
 export type PartnerNotificationVariableGroupId =
   | "shared"
+  | "conditionals"
   | "document"
   | "itemsLoop"
   | "payment"
@@ -47,6 +48,24 @@ const SHARED_GROUP: PartnerNotificationVariableGroup = {
       expression: "{{partner_name}}",
       key: "partner_name",
       descriptionFallback: "Partner name",
+    },
+  ],
+};
+
+const CONDITIONALS_GROUP: PartnerNotificationVariableGroup = {
+  id: "conditionals",
+  labelKey: "partnerTelegram.varGroup.conditionals",
+  labelFallback: "Conditionals",
+  variables: [
+    {
+      expression: "{{#if key}}…{{/if}}",
+      key: "if",
+      descriptionFallback: "Show the block only when key is non-empty / non-zero",
+    },
+    {
+      expression: "{{#if key}}…{{else}}…{{/if}}",
+      key: "if_else",
+      descriptionFallback: "Choose then or else branch based on whether key is truthy",
     },
   ],
 };
@@ -248,13 +267,13 @@ export function getPartnerNotificationVariableGroups(
   type: PartnerNotificationTemplateType,
 ): PartnerNotificationVariableGroup[] {
   if (type === "balance") {
-    return [SHARED_GROUP, BALANCE_GROUP];
+    return [SHARED_GROUP, CONDITIONALS_GROUP, BALANCE_GROUP];
   }
   if (type === "payment") {
-    return [SHARED_GROUP, PAYMENT_GROUP];
+    return [SHARED_GROUP, CONDITIONALS_GROUP, PAYMENT_GROUP];
   }
   if (isDocumentType(type)) {
-    return [SHARED_GROUP, DOCUMENT_GROUP, ITEMS_LOOP_GROUP];
+    return [SHARED_GROUP, CONDITIONALS_GROUP, DOCUMENT_GROUP, ITEMS_LOOP_GROUP];
   }
-  return [SHARED_GROUP];
+  return [SHARED_GROUP, CONDITIONALS_GROUP];
 }

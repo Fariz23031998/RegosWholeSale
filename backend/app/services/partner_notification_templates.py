@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from app.services import document_telegram_format as fmt
@@ -17,9 +18,12 @@ NOTIFICATION_TEMPLATE_TYPES = (
     "balance",
 )
 
-_BALANCE_PLACEHOLDERS = ("{{balance}}",)
+_BALANCE_PLACEHOLDERS = ("{{balance}}", "{{#if balance}}")
 _ITEMS_LOOP_START = "{{#items}}"
 _ITEMS_LOOP_END = "{{/items}}"
+_IF_OPEN_RE = re.compile(r"\{\{#if\s+([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
+_IF_ELSE = "{{else}}"
+_IF_END = "{{/if}}"
 
 # Event types that can trigger a follow-up balance notification.
 BALANCE_NOTIFY_AFTER_TYPES = (
@@ -139,6 +143,115 @@ def apply_placeholders(template: str, values: dict[str, str]) -> str:
     return result
 
 
+def _is_truthy(value: str) -> bool:
+    """Truthy for non-empty strings; numeric zero (including spaced/comma forms) is false."""
+    text = value.strip() if isinstance(value, str) else ""
+    if not text:
+        return False
+    try:
+        return float(text.replace(" ", "").replace(",", ".")) != 0.0
+    except ValueError:
+        return True
+
+
+def _items_block_ranges(template: str) -> list[tuple[int, int]]:
+    """Inclusive start / exclusive end ranges covering {{#items}}...{{/items}} blocks."""
+    ranges: list[tuple[int, int]] = []
+    pos = 0
+    while True:
+        start = template.find(_ITEMS_LOOP_START, pos)
+        if start < 0:
+            break
+        end = template.find(_ITEMS_LOOP_END, start + len(_ITEMS_LOOP_START))
+        if end < 0:
+            break
+        ranges.append((start, end + len(_ITEMS_LOOP_END)))
+        pos = end + len(_ITEMS_LOOP_END)
+    return ranges
+
+
+def _index_in_ranges(index: int, ranges: list[tuple[int, int]]) -> bool:
+    return any(start <= index < end for start, end in ranges)
+
+
+def expand_conditionals(
+    template: str,
+    values: dict[str, str],
+    *,
+    skip_inside_items: bool = False,
+) -> str:
+    """Expand {{#if key}}...{{else}}...{{/if}}; unmatched opens are left as-is."""
+    result = template
+    while True:
+        search_from = 0
+        match: re.Match[str] | None = None
+        items_ranges = _items_block_ranges(result) if skip_inside_items else []
+        while True:
+            candidate = _IF_OPEN_RE.search(result, search_from)
+            if candidate is None:
+                match = None
+                break
+            if skip_inside_items and _index_in_ranges(candidate.start(), items_ranges):
+                search_from = candidate.end()
+                continue
+            match = candidate
+            break
+        if match is None:
+            break
+
+        key = match.group(1)
+        start = match.start()
+        body_start = match.end()
+        depth = 1
+        pos = body_start
+        else_pos: int | None = None
+        end_pos: int | None = None
+
+        while pos < len(result):
+            next_open = _IF_OPEN_RE.search(result, pos)
+            next_else = result.find(_IF_ELSE, pos)
+            next_end = result.find(_IF_END, pos)
+            candidates: list[tuple[str, int, re.Match[str] | None]] = []
+            if next_open is not None:
+                candidates.append(("open", next_open.start(), next_open))
+            if next_else >= 0:
+                candidates.append(("else", next_else, None))
+            if next_end >= 0:
+                candidates.append(("end", next_end, None))
+            if not candidates:
+                break
+            candidates.sort(key=lambda item: item[1])
+            kind, idx, open_match = candidates[0]
+            if kind == "open" and open_match is not None:
+                depth += 1
+                pos = open_match.end()
+            elif kind == "else":
+                if depth == 1 and else_pos is None:
+                    else_pos = idx
+                pos = idx + len(_IF_ELSE)
+            else:
+                depth -= 1
+                if depth == 0:
+                    end_pos = idx
+                    break
+                pos = idx + len(_IF_END)
+
+        if end_pos is None:
+            break
+
+        if else_pos is not None:
+            then_body = result[body_start:else_pos]
+            else_body = result[else_pos + len(_IF_ELSE) : end_pos]
+        else:
+            then_body = result[body_start:end_pos]
+            else_body = ""
+
+        chosen = then_body if _is_truthy(values.get(key, "")) else else_body
+        result = result[:start] + chosen + result[end_pos + len(_IF_END) :]
+
+    return result
+
+
 def _partner_display(partner_id: int, partner_name: str | None) -> str:
     if isinstance(partner_name, str) and partner_name.strip():
         return partner_name.strip()
@@ -207,12 +320,13 @@ def expand_items_loop(
         for idx, operation in enumerate(operations, 1):
             if not isinstance(operation, dict):
                 continue
+            item_values = _operation_item_values(
+                operation, index=idx, use_cost=use_cost, lang=lang
+            )
             rendered_parts.append(
                 apply_placeholders(
-                    body,
-                    _operation_item_values(
-                        operation, index=idx, use_cost=use_cost, lang=lang
-                    ),
+                    expand_conditionals(body, item_values),
+                    item_values,
                 )
             )
         result = (
@@ -309,24 +423,23 @@ def format_document_notification(
     )
     cancelled = t("telegram.receipt.cancelled", lang) if is_cancelled else ""
     warehouse = warehouse_name or t("telegram.receipt.warehouseDefault", lang)
-    expanded = expand_items_loop(custom, operations, use_cost=use_cost, lang=lang)
-    return apply_placeholders(
-        expanded,
-        {
-            "partner_id": str(resolved_partner_id or ""),
-            "partner_name": resolved_partner_name,
-            "document_code": str(document.get("code", "N/A")),
-            "date": fmt._format_date(document.get("date", "")),
-            "warehouse": warehouse,
-            "currency": doc_currency,
-            "exchange_rate": format_number(exchange_rate_f, 4),
-            "items": items_text,
-            "total_items": format_number(total_items),
-            "total": format_number(total_to_pay),
-            "cancelled": cancelled,
-            "balance": format_number(balance),
-        },
-    )
+    values = {
+        "partner_id": str(resolved_partner_id or ""),
+        "partner_name": resolved_partner_name,
+        "document_code": str(document.get("code", "N/A")),
+        "date": fmt._format_date(document.get("date", "")),
+        "warehouse": warehouse,
+        "currency": doc_currency,
+        "exchange_rate": format_number(exchange_rate_f, 4),
+        "items": items_text,
+        "total_items": format_number(total_items),
+        "total": format_number(total_to_pay),
+        "cancelled": cancelled,
+        "balance": format_number(balance),
+    }
+    expanded = expand_conditionals(custom, values, skip_inside_items=True)
+    expanded = expand_items_loop(expanded, operations, use_cost=use_cost, lang=lang)
+    return apply_placeholders(expanded, values)
 
 
 def format_payment_notification_template(
@@ -371,22 +484,20 @@ def format_payment_notification_template(
         "telegram.receipt.paymentPaid" if category_positive else "telegram.receipt.paymentReceived"
     )
     cancelled = t("telegram.receipt.cancelled", lang) if is_cancelled else ""
-    return apply_placeholders(
-        custom,
-        {
-            "partner_id": str(resolved_partner_id or ""),
-            "partner_name": resolved_partner_name,
-            "document_code": str(document.get("code", "N/A")),
-            "date": fmt._format_date(document.get("date", "")),
-            "amount": format_number(document.get("amount", 0)),
-            "payment_type": payment_type_name,
-            "category": category_name,
-            "currency": doc_currency,
-            "direction": t(direction_key, lang),
-            "cancelled": cancelled,
-            "balance": format_number(balance),
-        },
-    )
+    values = {
+        "partner_id": str(resolved_partner_id or ""),
+        "partner_name": resolved_partner_name,
+        "document_code": str(document.get("code", "N/A")),
+        "date": fmt._format_date(document.get("date", "")),
+        "amount": format_number(document.get("amount", 0)),
+        "payment_type": payment_type_name,
+        "category": category_name,
+        "currency": doc_currency,
+        "direction": t(direction_key, lang),
+        "cancelled": cancelled,
+        "balance": format_number(balance),
+    }
+    return apply_placeholders(expand_conditionals(custom, values), values)
 
 
 def empty_balance_notify_after_types() -> dict[str, bool]:
@@ -452,16 +563,14 @@ def format_balance_line_notification(
     partner_name: str | None = None,
 ) -> str:
     """Custom balance template applied to a single firm/currency debt line."""
-    return apply_placeholders(
-        template.strip(),
-        {
-            "partner_id": str(partner_id),
-            "partner_name": _partner_display(partner_id, partner_name),
-            "firm_name": firm_name,
-            "currency_name": currency_name,
-            "balance": format_number(balance),
-        },
-    )
+    values = {
+        "partner_id": str(partner_id),
+        "partner_name": _partner_display(partner_id, partner_name),
+        "firm_name": firm_name,
+        "currency_name": currency_name,
+        "balance": format_number(balance),
+    }
+    return apply_placeholders(expand_conditionals(template.strip(), values), values)
 
 
 def format_balance_notification_with_templates(
