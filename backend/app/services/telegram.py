@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import socket
 import uuid
 from collections.abc import Callable
 from typing import Any
@@ -92,20 +93,129 @@ async def sync_all_bot_webhooks(session: AsyncSession) -> None:
     logger.info("Synced Telegram webhooks for %s bot(s)", len(bots))
 
 
-async def _telegram_api_call(bot_token: str, method: str, payload: dict | None = None) -> dict:
+_TELEGRAM_API_ATTEMPTS = 2
+_TELEGRAM_DEFAULT_TIMEOUT_SECONDS = 10.0
+_TELEGRAM_TRANSIENT_STATUSES = frozenset({408, 425, 429, 500, 502, 503, 504})
+_TELEGRAM_TRANSIENT_MARKERS = (
+    "bad gateway",
+    "gateway time-out",
+    "gateway timeout",
+    "service unavailable",
+    "temporarily unavailable",
+    "connection reset",
+    "timed out",
+    "timeout",
+)
+
+
+def _telegram_error_detail(exc: AppError) -> str:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        value = detail.get("detail")
+        if isinstance(value, str):
+            return value
+    return str(detail)
+
+
+def _is_transient_telegram_failure(
+    *,
+    status: int | None = None,
+    description: str | None = None,
+    exc: BaseException | None = None,
+) -> bool:
+    if status in _TELEGRAM_TRANSIENT_STATUSES:
+        return True
+    if description and any(marker in description.lower() for marker in _TELEGRAM_TRANSIENT_MARKERS):
+        return True
+    if isinstance(exc, (TimeoutError, aiohttp.ClientError)):
+        return True
+    if isinstance(exc, AppError) and getattr(exc, "code", None) == "TELEGRAM_API_ERROR":
+        return _is_transient_telegram_failure(description=_telegram_error_detail(exc))
+    return False
+
+
+async def _telegram_api_call(
+    bot_token: str,
+    method: str,
+    payload: dict | None = None,
+    *,
+    timeout_seconds: float = _TELEGRAM_DEFAULT_TIMEOUT_SECONDS,
+) -> dict:
     url = f"{TELEGRAM_API_BASE}/bot{bot_token}/{method}"
-    timeout = aiohttp.ClientTimeout(total=30)
-    try:
-        async with aiohttp.ClientSession(timeout=timeout) as session:
-            async with session.post(url, json=payload or {}) as response:
-                data = await response.json()
-                if not data.get("ok"):
-                    description = data.get("description", "Unknown Telegram API error")
-                    raise bad_request(description, "TELEGRAM_API_ERROR")
-                return data
-    except aiohttp.ClientError as exc:
-        logger.error("Telegram API client error: %s", exc)
-        raise bad_request(f"Telegram API request failed: {exc}", "TELEGRAM_API_ERROR") from exc
+    connect_timeout = min(5.0, timeout_seconds)
+    timeout = aiohttp.ClientTimeout(
+        total=timeout_seconds,
+        connect=connect_timeout,
+        sock_connect=connect_timeout,
+        sock_read=timeout_seconds,
+    )
+    last_error: BaseException | None = None
+
+    for attempt in range(1, _TELEGRAM_API_ATTEMPTS + 1):
+        connector = aiohttp.TCPConnector(family=socket.AF_INET)
+        try:
+            async with aiohttp.ClientSession(timeout=timeout, connector=connector) as session:
+                async with session.post(url, json=payload or {}) as response:
+                    try:
+                        data = await response.json(content_type=None)
+                    except Exception as exc:
+                        description = f"Invalid Telegram response (HTTP {response.status})"
+                        err = bad_request(description, "TELEGRAM_API_ERROR")
+                        if attempt < _TELEGRAM_API_ATTEMPTS and _is_transient_telegram_failure(
+                            status=response.status, description=description, exc=exc
+                        ):
+                            last_error = err
+                            await asyncio.sleep(0.4 * attempt)
+                            continue
+                        raise err from exc
+
+                    if response.status >= 400 or not data.get("ok"):
+                        description = (
+                            data.get("description")
+                            if isinstance(data, dict)
+                            else None
+                        ) or f"Telegram HTTP {response.status}"
+                        err = bad_request(str(description), "TELEGRAM_API_ERROR")
+                        if attempt < _TELEGRAM_API_ATTEMPTS and _is_transient_telegram_failure(
+                            status=response.status, description=str(description)
+                        ):
+                            last_error = err
+                            await asyncio.sleep(0.4 * attempt)
+                            continue
+                        raise err
+
+                    return data
+        except TimeoutError as exc:
+            logger.error("Telegram API timed out calling %s (attempt %s): %s", method, attempt, exc)
+            if method == "getMe":
+                last_error = bad_request(
+                    "Telegram did not respond for this bot token. "
+                    "Revoke it in @BotFather, create a new token, and try again.",
+                    "TELEGRAM_TOKEN_UNREACHABLE",
+                )
+            else:
+                last_error = bad_request(
+                    f"Telegram API timed out calling {method}",
+                    "TELEGRAM_API_ERROR",
+                )
+            if attempt < _TELEGRAM_API_ATTEMPTS:
+                await asyncio.sleep(0.4 * attempt)
+                continue
+            raise last_error from exc
+        except aiohttp.ClientError as exc:
+            logger.error("Telegram API client error calling %s (attempt %s): %s", method, attempt, exc)
+            last_error = bad_request(
+                f"Telegram API request failed: {exc}",
+                "TELEGRAM_API_ERROR",
+            )
+            if attempt < _TELEGRAM_API_ATTEMPTS:
+                await asyncio.sleep(0.4 * attempt)
+                continue
+            raise last_error from exc
+
+    if last_error is not None:
+        raise last_error
+    raise bad_request(f"Telegram API request failed calling {method}", "TELEGRAM_API_ERROR")
 
 
 async def _get_bot_by_secret(session: AsyncSession, webhook_secret: str) -> TelegramBot | None:

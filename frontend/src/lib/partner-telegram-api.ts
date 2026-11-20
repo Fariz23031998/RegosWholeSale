@@ -247,6 +247,9 @@ export async function fetchPartnerTelegramBot(token: string): Promise<PartnerTel
   return apiRequest("/api/v1/partner-telegram/bot", { token });
 }
 
+/** Save/delete hit Telegram getMe + setWebhook + setChatMenuButton (up to ~90s). */
+const PARTNER_BOT_MUTATION_TIMEOUT_MS = 90_000;
+
 export async function savePartnerTelegramBot(
   token: string,
   botToken: string,
@@ -255,11 +258,16 @@ export async function savePartnerTelegramBot(
     method: "PUT",
     token,
     body: { bot_token: botToken },
+    timeoutMs: PARTNER_BOT_MUTATION_TIMEOUT_MS,
   });
 }
 
 export async function deletePartnerTelegramBot(token: string): Promise<PartnerTelegramBotMessage> {
-  return apiRequest("/api/v1/partner-telegram/bot", { method: "DELETE", token });
+  return apiRequest("/api/v1/partner-telegram/bot", {
+    method: "DELETE",
+    token,
+    timeoutMs: PARTNER_BOT_MUTATION_TIMEOUT_MS,
+  });
 }
 
 export async function savePartnerTelegramBotSettings(

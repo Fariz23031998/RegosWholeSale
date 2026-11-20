@@ -13,6 +13,9 @@ export async function fetchTelegramBotConfig(token: string): Promise<TelegramBot
   return apiRequest("/api/v1/telegram/bot", { token });
 }
 
+/** Save/delete validates the token and registers the webhook with Telegram. */
+const TELEGRAM_BOT_MUTATION_TIMEOUT_MS = 90_000;
+
 export async function saveTelegramBot(
   token: string,
   body: TelegramBotSaveRequest,
@@ -21,6 +24,7 @@ export async function saveTelegramBot(
     method: "PUT",
     token,
     body,
+    timeoutMs: TELEGRAM_BOT_MUTATION_TIMEOUT_MS,
   });
 }
 
@@ -28,6 +32,7 @@ export async function deleteTelegramBot(token: string): Promise<TelegramBotMessa
   return apiRequest("/api/v1/telegram/bot", {
     method: "DELETE",
     token,
+    timeoutMs: TELEGRAM_BOT_MUTATION_TIMEOUT_MS,
   });
 }
 
