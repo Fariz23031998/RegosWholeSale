@@ -80,6 +80,13 @@ function abortSignalForTimeout(timeoutMs: number): { signal: AbortSignal; clear:
   };
 }
 
+/** AbortSignal.timeout() rejects with TimeoutError; AbortController uses AbortError. */
+function isRequestTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  if (err.name === "AbortError" || err.name === "TimeoutError") return true;
+  return err.message === "signal timed out";
+}
+
 export async function apiRequest<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const apiBase = getApiBaseUrl();
   if (!apiBase) {
@@ -105,7 +112,7 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
     });
   } catch (err) {
     clear();
-    if (err instanceof DOMException && err.name === "AbortError") {
+    if (isRequestTimeoutError(err)) {
       throw new ApiError(0, "Request timed out. Check your connection and try again.");
     }
     if (err instanceof TypeError) {
@@ -163,7 +170,7 @@ export async function apiUpload<T>(path: string, formData: FormData, options: Up
     });
   } catch (err) {
     clear();
-    if (err instanceof DOMException && err.name === "AbortError") {
+    if (isRequestTimeoutError(err)) {
       throw new ApiError(0, "Request timed out. Check your connection and try again.");
     }
     if (err instanceof TypeError) {

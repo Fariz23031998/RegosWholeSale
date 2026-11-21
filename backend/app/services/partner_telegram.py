@@ -182,6 +182,7 @@ async def _set_chat_menu_button(
             bot.bot_token,
             "setChatMenuButton",
             payload,
+            timeout_seconds=8 if best_effort else telegram_service._TELEGRAM_DEFAULT_TIMEOUT_SECONDS,
         )
     except Exception:
         if not best_effort:
@@ -475,7 +476,8 @@ async def _register_webhook_and_menu(row: PartnerTelegramBot) -> None:
                 "secret_token": row.webhook_secret,
             },
         )
-    await _set_chat_menu_button(row, lang="en")
+    # Menu button is nice-to-have; don't fail token save if Telegram is slow here.
+    await _set_chat_menu_button(row, lang="en", best_effort=True)
 
 
 async def register_company_bot(
