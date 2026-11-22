@@ -254,6 +254,7 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
             unit_id: preferredUnit?.id ?? pcs?.id ?? u[0]?.id ?? 0,
             vat_id: preferredVat?.id ?? v[0]?.id ?? 0,
             secondary_unit_id: 0,
+            conversion_factor: "",
           });
           return;
         }
@@ -278,12 +279,17 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
         setOriginalBarcodes(barcodes);
         setBarcodeDraft("");
         const secondaryUnitId = item.secondary_unit_id ?? 0;
+        const factor =
+          item.conversion_factor != null && item.conversion_factor > 0
+            ? String(item.conversion_factor)
+            : "";
         setForm({
           name: item.name,
           group_id: item.group_id || filterProductGroups(g.groups, allowedProductGroupIds)[0]?.id || 0,
           unit_id: item.unit_id || u[0]?.id || 0,
           vat_id: item.vat_id || v[0]?.id || 0,
           secondary_unit_id: secondaryUnitId > 0 ? secondaryUnitId : 0,
+          conversion_factor: factor,
           articul: item.articul ?? "",
           barcodes,
           icps: item.icps ?? "",
@@ -507,6 +513,20 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
       );
       return;
     }
+    const factorParsed = Number(form.conversion_factor.trim().replace(",", "."));
+    const conversionFactor =
+      secondaryUnitId > 0 && Number.isFinite(factorParsed) && factorParsed > 0
+        ? factorParsed
+        : null;
+    if (secondaryUnitId > 0 && conversionFactor == null) {
+      setError(
+        t(
+          "stock.item.errors.conversionFactorRequired",
+          "Enter how many main units equal one secondary unit",
+        ),
+      );
+      return;
+    }
 
     setBusy(true);
     setError("");
@@ -530,7 +550,12 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
           icps,
           package_code: packageCode,
           is_labeled: form.is_labeled,
-          ...(secondaryUnitId > 0 ? { secondary_unit_id: secondaryUnitId } : {}),
+          ...(secondaryUnitId > 0
+            ? {
+                secondary_unit_id: secondaryUnitId,
+                conversion_factor: conversionFactor!,
+              }
+            : {}),
         });
         let imageUrl: string | undefined;
         if (pendingImage) {
@@ -569,8 +594,10 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
       };
       if (secondaryUnitId > 0) {
         body.secondary_unit_id = secondaryUnitId;
+        body.conversion_factor = conversionFactor;
       } else {
         body.clear_secondary_unit = true;
+        body.conversion_factor = null;
       }
       const originalSet = new Set(originalBarcodes);
       const newBarcodes = barcodes.filter((b) => !originalSet.has(b));
@@ -771,32 +798,59 @@ export function ProductEditDialog({ open, product, onClose, onSaved }: Props) {
               </div>
             )}
             {visibleOptionalFields.secondary_unit ? (
-              <div className={stockStyles.formField}>
-                <label>
-                  {t("stock.item.fields.secondaryUnit", "Secondary unit (optional)")}
-                </label>
-                <select
-                  value={form.secondary_unit_id}
-                  onChange={(e) =>
-                    setForm((prev) => ({
-                      ...prev,
-                      secondary_unit_id: Number(e.target.value),
-                    }))
-                  }
-                  disabled={fieldsDisabled}
-                >
-                  <option value={0}>
-                    {t("stock.item.fields.secondaryUnitNone", "None")}
-                  </option>
-                  {units
-                    .filter((u) => u.id !== form.unit_id)
-                    .map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.name}
-                      </option>
-                    ))}
-                </select>
-              </div>
+              <>
+                <div className={stockStyles.formField}>
+                  <label>
+                    {t("stock.item.fields.secondaryUnit", "Secondary unit (optional)")}
+                  </label>
+                  <select
+                    value={form.secondary_unit_id}
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        secondary_unit_id: Number(e.target.value),
+                        conversion_factor:
+                          Number(e.target.value) > 0 ? prev.conversion_factor : "",
+                      }))
+                    }
+                    disabled={fieldsDisabled}
+                  >
+                    <option value={0}>
+                      {t("stock.item.fields.secondaryUnitNone", "None")}
+                    </option>
+                    {units
+                      .filter((u) => u.id !== form.unit_id)
+                      .map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
+                  </select>
+                </div>
+                {form.secondary_unit_id > 0 ? (
+                  <div className={stockStyles.formField}>
+                    <label>
+                      {t(
+                        "stock.item.fields.conversionFactor",
+                        "1 secondary = N main",
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={form.conversion_factor}
+                      placeholder="12"
+                      disabled={fieldsDisabled}
+                      onChange={(e) =>
+                        setForm((prev) => ({
+                          ...prev,
+                          conversion_factor: e.target.value,
+                        }))
+                      }
+                    />
+                  </div>
+                ) : null}
+              </>
             ) : null}
             {visibleOptionalFields.image ? (
               <ItemFormImageField

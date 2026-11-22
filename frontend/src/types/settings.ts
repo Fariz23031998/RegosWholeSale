@@ -174,6 +174,7 @@ export type PosSettings = {
   postpone_document_type: PostponeDocumentType;
   postpone_order_booked: boolean;
   secondary_unit_mode: SecondaryUnitMode;
+  secondary_price_type_id: number | null;
   tasnif_create_on_barcode_miss: boolean;
   tasnif_default_group_id: number | null;
   tasnif_default_unit_id: number | null;
@@ -200,6 +201,7 @@ export type PosSettingsPatchRequest = {
   postpone_document_type?: PostponeDocumentType;
   postpone_order_booked?: boolean;
   secondary_unit_mode?: SecondaryUnitMode;
+  secondary_price_type_id?: number | null;
   tasnif_create_on_barcode_miss?: boolean;
   tasnif_default_group_id?: number | null;
   tasnif_default_unit_id?: number | null;
@@ -223,6 +225,7 @@ export type UserPosSettings = {
   postpone_document_type: PostponeDocumentType;
   postpone_order_booked: boolean;
   secondary_unit_mode: SecondaryUnitMode;
+  secondary_price_type_id?: number | null;
   allowed_product_group_ids: number[];
   allowed_partner_group_ids: number[];
 };

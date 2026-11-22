@@ -4,8 +4,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import bad_request, not_found
-from app.models.unit_conversion import UnitConversion
+from app.core.exceptions import bad_request
+from app.models.unit_conversion import ItemUnitConversion
+from app.services import pos_settings as pos_settings_service
 from app.services import regos_items as regos_items_service
 
 
@@ -48,19 +49,17 @@ async def _unit_lookup(
 
 
 def _map_row(
-    row: UnitConversion,
-    units: dict[int, dict[str, Any]],
+    row: ItemUnitConversion,
+    units: dict[int, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    main = units.get(row.main_unit_id) or {}
-    secondary = units.get(row.secondary_unit_id) or {}
-    price_type_id = row.price_type_id if isinstance(row.price_type_id, int) and row.price_type_id > 0 else None
+    secondary: dict[str, Any] = {}
+    if units is not None:
+        secondary = units.get(row.secondary_unit_id) or {}
     return {
         "id": row.id,
-        "main_unit_id": row.main_unit_id,
+        "regos_item_id": row.regos_item_id,
         "secondary_unit_id": row.secondary_unit_id,
         "conversion_factor": float(row.conversion_factor),
-        "price_type_id": price_type_id,
-        "main_unit_name": main.get("name") if isinstance(main.get("name"), str) else None,
         "secondary_unit_name": (
             secondary.get("name") if isinstance(secondary.get("name"), str) else None
         ),
@@ -75,9 +74,9 @@ async def list_conversions(
     company_id: int,
 ) -> list[dict[str, Any]]:
     result = await session.execute(
-        select(UnitConversion)
-        .where(UnitConversion.company_id == company_id)
-        .order_by(UnitConversion.id.asc())
+        select(ItemUnitConversion)
+        .where(ItemUnitConversion.company_id == company_id)
+        .order_by(ItemUnitConversion.id.asc())
     )
     rows = list(result.scalars().all())
     if not rows:
@@ -86,99 +85,109 @@ async def list_conversions(
     return [_map_row(row, units) for row in rows]
 
 
-async def upsert_conversion(
+async def get_conversion_for_item(
     session: AsyncSession,
     company_id: int,
-    *,
-    main_unit_id: int,
-    secondary_unit_id: int,
-    conversion_factor: float,
-    price_type_id: int | None = None,
-) -> dict[str, Any]:
-    if main_unit_id <= 0 or secondary_unit_id <= 0:
-        raise bad_request("Invalid unit.", "UNIT_CONVERSION_UNIT_INVALID")
-    if main_unit_id == secondary_unit_id:
-        raise bad_request(
-            "Secondary unit must differ from the main unit.",
-            "UNIT_CONVERSION_SAME_UNIT",
-        )
-    resolved_price_type_id: int | None = None
-    if price_type_id is not None:
-        if price_type_id <= 0:
-            raise bad_request("Invalid price type.", "UNIT_CONVERSION_PRICE_TYPE_INVALID")
-        resolved_price_type_id = price_type_id
-
-    factor = _to_factor(conversion_factor)
+    regos_item_id: int,
+) -> dict[str, Any] | None:
+    if regos_item_id <= 0:
+        return None
     result = await session.execute(
-        select(UnitConversion).where(
-            UnitConversion.company_id == company_id,
-            UnitConversion.main_unit_id == main_unit_id,
-            UnitConversion.secondary_unit_id == secondary_unit_id,
-        )
-    )
-    row = result.scalar_one_or_none()
-    if row:
-        row.conversion_factor = factor
-        row.price_type_id = resolved_price_type_id
-    else:
-        row = UnitConversion(
-            company_id=company_id,
-            main_unit_id=main_unit_id,
-            secondary_unit_id=secondary_unit_id,
-            conversion_factor=factor,
-            price_type_id=resolved_price_type_id,
-        )
-        session.add(row)
-
-    await session.flush()
-    units = await _unit_lookup(session, company_id)
-    return _map_row(row, units)
-
-
-async def delete_conversion(
-    session: AsyncSession,
-    company_id: int,
-    conversion_id: int,
-) -> None:
-    if conversion_id <= 0:
-        raise bad_request("Invalid conversion id.", "UNIT_CONVERSION_INVALID")
-    result = await session.execute(
-        select(UnitConversion).where(
-            UnitConversion.company_id == company_id,
-            UnitConversion.id == conversion_id,
+        select(ItemUnitConversion).where(
+            ItemUnitConversion.company_id == company_id,
+            ItemUnitConversion.regos_item_id == regos_item_id,
         )
     )
     row = result.scalar_one_or_none()
     if not row:
-        raise not_found("Conversion not found.", "UNIT_CONVERSION_NOT_FOUND")
-    await session.delete(row)
+        return None
+    return _map_row(row)
+
+
+async def upsert_item_conversion(
+    session: AsyncSession,
+    company_id: int,
+    *,
+    regos_item_id: int,
+    secondary_unit_id: int,
+    conversion_factor: float,
+) -> dict[str, Any]:
+    if regos_item_id <= 0:
+        raise bad_request("Invalid item.", "ITEM_CONVERSION_ITEM_INVALID")
+    if secondary_unit_id <= 0:
+        raise bad_request("Invalid secondary unit.", "ITEM_CONVERSION_UNIT_INVALID")
+
+    factor = _to_factor(conversion_factor)
+    result = await session.execute(
+        select(ItemUnitConversion).where(
+            ItemUnitConversion.company_id == company_id,
+            ItemUnitConversion.regos_item_id == regos_item_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row:
+        row.secondary_unit_id = secondary_unit_id
+        row.conversion_factor = factor
+    else:
+        row = ItemUnitConversion(
+            company_id=company_id,
+            regos_item_id=regos_item_id,
+            secondary_unit_id=secondary_unit_id,
+            conversion_factor=factor,
+        )
+        session.add(row)
+
     await session.flush()
+    return _map_row(row)
+
+
+async def delete_item_conversion(
+    session: AsyncSession,
+    company_id: int,
+    regos_item_id: int,
+) -> None:
+    if regos_item_id <= 0:
+        return
+    result = await session.execute(
+        select(ItemUnitConversion).where(
+            ItemUnitConversion.company_id == company_id,
+            ItemUnitConversion.regos_item_id == regos_item_id,
+        )
+    )
+    row = result.scalar_one_or_none()
+    if row:
+        await session.delete(row)
+        await session.flush()
 
 
 def merge_conversions_into_products(
     products: list[dict[str, Any]],
     conversions: list[dict[str, Any]],
+    *,
+    secondary_price_type_id: int | None = None,
 ) -> list[dict[str, Any]]:
-    by_pair = {
-        (int(item["main_unit_id"]), int(item["secondary_unit_id"])): item
+    by_item = {
+        int(item["regos_item_id"]): item
         for item in conversions
-        if isinstance(item.get("main_unit_id"), int)
-        and isinstance(item.get("secondary_unit_id"), int)
+        if isinstance(item.get("regos_item_id"), int)
     }
-    for product in products:
-        main_unit_id = product.get("unit_id")
-        secondary_unit_id = product.get("secondary_unit_id")
-        conversion = None
-        if (
-            isinstance(main_unit_id, int)
-            and isinstance(secondary_unit_id, int)
-            and main_unit_id > 0
-            and secondary_unit_id > 0
-        ):
-            conversion = by_pair.get((main_unit_id, secondary_unit_id))
+    resolved_price_type_id = (
+        secondary_price_type_id
+        if isinstance(secondary_price_type_id, int) and secondary_price_type_id > 0
+        else None
+    )
 
+    for product in products:
+        item_id = product.get("regos_item_id")
+        if not isinstance(item_id, int) or item_id <= 0:
+            item_id = product.get("item_id")
+        if not isinstance(item_id, int) or item_id <= 0:
+            raw_id = product.get("id")
+            item_id = raw_id if isinstance(raw_id, int) else None
+        conversion = by_item.get(item_id) if isinstance(item_id, int) else None
+
+        product_secondary = product.get("secondary_unit_id")
         if not conversion:
-            # Keep Regos secondary_unit_id if present; Sell ignores it without a factor.
             product["secondary_unit_name"] = None
             product["secondary_unit_type"] = None
             product["conversion_factor"] = None
@@ -186,14 +195,32 @@ def merge_conversions_into_products(
             product["secondary_price_type_id"] = None
             continue
 
-        product["secondary_unit_id"] = conversion.get("secondary_unit_id")
+        conversion_secondary = conversion.get("secondary_unit_id")
+        factor = conversion.get("conversion_factor")
+        usable = (
+            isinstance(conversion_secondary, int)
+            and conversion_secondary > 0
+            and isinstance(factor, (int, float))
+            and float(factor) > 0
+            and (
+                not isinstance(product_secondary, int)
+                or product_secondary <= 0
+                or product_secondary == conversion_secondary
+            )
+        )
+        if not usable:
+            product["secondary_unit_name"] = None
+            product["secondary_unit_type"] = None
+            product["conversion_factor"] = None
+            product["secondary_price"] = None
+            product["secondary_price_type_id"] = None
+            continue
+
+        product["secondary_unit_id"] = conversion_secondary
         product["secondary_unit_name"] = conversion.get("secondary_unit_name")
         product["secondary_unit_type"] = conversion.get("secondary_unit_type")
-        product["conversion_factor"] = conversion.get("conversion_factor")
-        price_type_id = conversion.get("price_type_id")
-        product["secondary_price_type_id"] = (
-            price_type_id if isinstance(price_type_id, int) and price_type_id > 0 else None
-        )
+        product["conversion_factor"] = float(factor)
+        product["secondary_price_type_id"] = resolved_price_type_id
         product["secondary_price"] = None
     return products
 
@@ -222,6 +249,35 @@ def apply_secondary_prices(
         type_prices = prices_by_type.get(item_id) or {}
         price = type_prices.get(price_type_id)
         product["secondary_price"] = float(price) if price is not None else None
+    return products
+
+
+async def company_secondary_price_type_id(
+    session: AsyncSession,
+    company_id: int,
+) -> int | None:
+    settings = await pos_settings_service.get_pos_settings(session, company_id)
+    return settings.get("secondary_price_type_id")
+
+
+async def enrich_products_with_conversions(
+    session: AsyncSession,
+    company_id: int,
+    products: list[dict[str, Any]],
+    *,
+    with_secondary_prices: bool = True,
+) -> list[dict[str, Any]]:
+    if not products:
+        return products
+    conversions = await list_conversions(session, company_id)
+    price_type_id = await company_secondary_price_type_id(session, company_id)
+    merge_conversions_into_products(
+        products,
+        conversions,
+        secondary_price_type_id=price_type_id,
+    )
+    if with_secondary_prices:
+        return await enrich_products_with_secondary_prices(session, company_id, products)
     return products
 
 

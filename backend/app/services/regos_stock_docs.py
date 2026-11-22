@@ -396,11 +396,15 @@ async def _enrich_secondary_units(
     company_id: int,
     rows: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
-    """Attach company conversion factor/name onto rows that have unit_id + secondary_unit_id."""
+    """Attach per-item conversion factor/name onto rows that have a matching item conversion."""
     if not rows:
         return rows
-    conversions = await unit_conversions_service.list_conversions(session, company_id)
-    return unit_conversions_service.merge_conversions_into_products(rows, conversions)
+    return await unit_conversions_service.enrich_products_with_conversions(
+        session,
+        company_id,
+        rows,
+        with_secondary_prices=False,
+    )
 
 
 def _apply_stock_filter(

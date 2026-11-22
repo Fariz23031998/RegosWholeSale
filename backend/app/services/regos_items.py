@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.exceptions import AppError, bad_request, not_found
 from app.core.regos_api import regos_async_api_request_for_company
 from app.services import regos_fields as regos_fields_service
+from app.services import unit_conversions as unit_conversions_service
 
 # Regos ItemImage/Save: both width and height must be >= 900 px (runtime-verified).
 # Official Regos app prepares a fixed 900×900 square with white letterbox.
@@ -145,6 +146,7 @@ def _map_item(row: dict[str, Any]) -> dict[str, Any]:
         "unit_id": unit_id or 0,
         "unit_name": unit_name,
         "secondary_unit_id": secondary_unit_id,
+        "conversion_factor": None,
         "vat_id": vat_id or 0,
         "vat_name": vat_name,
         "vat_value": vat_value,
@@ -204,8 +206,80 @@ async def get_item(
     result = response.get("result") or []
     for row in result:
         if isinstance(row, dict) and _coerce_int(row.get("id")) == item_id:
-            return _map_item(row)
+            mapped = _map_item(row)
+            conversion = await unit_conversions_service.get_conversion_for_item(
+                session, company_id, item_id
+            )
+            if conversion:
+                mapped["conversion_factor"] = conversion.get("conversion_factor")
+                secondary_from_conversion = conversion.get("secondary_unit_id")
+                if (
+                    isinstance(secondary_from_conversion, int)
+                    and secondary_from_conversion > 0
+                    and not mapped.get("secondary_unit_id")
+                ):
+                    mapped["secondary_unit_id"] = secondary_from_conversion
+            return mapped
     raise not_found("Item not found.", "ITEM_NOT_FOUND")
+
+
+async def _sync_item_conversion(
+    session: AsyncSession,
+    company_id: int,
+    *,
+    item_id: int,
+    body: dict[str, Any],
+) -> None:
+    clear = bool(body.get("clear_secondary_unit"))
+    has_secondary = "secondary_unit_id" in body
+    has_factor = "conversion_factor" in body
+    if not clear and not has_secondary and not has_factor:
+        return
+
+    secondary_unit_id = _coerce_int(body.get("secondary_unit_id"))
+    if secondary_unit_id is not None and secondary_unit_id <= 0:
+        secondary_unit_id = None
+
+    if clear or (has_secondary and secondary_unit_id is None):
+        await unit_conversions_service.delete_item_conversion(
+            session, company_id, item_id
+        )
+        return
+
+    factor_raw = body.get("conversion_factor") if has_factor else None
+    if secondary_unit_id is None:
+        # Factor-only update: reuse existing secondary unit when present.
+        existing = await unit_conversions_service.get_conversion_for_item(
+            session, company_id, item_id
+        )
+        if existing and isinstance(existing.get("secondary_unit_id"), int):
+            secondary_unit_id = int(existing["secondary_unit_id"])
+        else:
+            current = await get_item(session, company_id, item_id)
+            secondary_unit_id = _coerce_int(current.get("secondary_unit_id"))
+
+    if secondary_unit_id is None or secondary_unit_id <= 0:
+        await unit_conversions_service.delete_item_conversion(
+            session, company_id, item_id
+        )
+        return
+
+    if factor_raw is None:
+        # Secondary set without factor: keep existing factor if any, else leave unset.
+        if not has_factor:
+            return
+        await unit_conversions_service.delete_item_conversion(
+            session, company_id, item_id
+        )
+        return
+
+    await unit_conversions_service.upsert_item_conversion(
+        session,
+        company_id,
+        regos_item_id=item_id,
+        secondary_unit_id=secondary_unit_id,
+        conversion_factor=float(factor_raw),
+    )
 
 
 def _build_item_payload(body: dict[str, Any], *, require_required: bool) -> dict[str, Any]:
@@ -396,6 +470,7 @@ async def add_item(
             base=index == 0,
         )
 
+    await _sync_item_conversion(session, company_id, item_id=new_id, body=body)
     return {"id": new_id}
 
 
@@ -411,8 +486,13 @@ async def edit_item(
     )
     has_barcodes_field = "barcodes" in body or "barcode" in body
     barcodes = _normalize_barcodes(body) if has_barcodes_field else None
+    touches_conversion = (
+        "secondary_unit_id" in body
+        or "clear_secondary_unit" in body
+        or "conversion_factor" in body
+    )
 
-    if not payload and barcodes is None:
+    if not payload and barcodes is None and not touches_conversion:
         raise bad_request("No item fields to update.", "ITEM_UPDATE_EMPTY")
 
     row_affected = 0
@@ -451,6 +531,10 @@ async def edit_item(
             )
             existing_barcodes.add(barcode)
             row_affected = max(row_affected, 1)
+
+    if touches_conversion:
+        await _sync_item_conversion(session, company_id, item_id=item_id, body=body)
+        row_affected = max(row_affected, 1)
 
     return {"row_affected": row_affected}
 

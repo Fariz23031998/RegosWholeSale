@@ -24,7 +24,7 @@ from app.models import (  # noqa: F401
     TelegramBot,
     TelegramUser,
     OutOfStockProduct,
-    UnitConversion,
+    ItemUnitConversion,
     Shift,
     ShiftOperation,
 )

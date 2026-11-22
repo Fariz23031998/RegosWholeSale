@@ -121,6 +121,11 @@ def _merge_pos_settings(
             company_settings.get("secondary_unit_mode")
         )
 
+    # Company-only: secondary price type is not user-overridable.
+    merged["secondary_price_type_id"] = _normalize_optional_positive_id(
+        company_settings.get("secondary_price_type_id")
+    )
+
     merged["allowed_product_group_ids"] = _normalize_id_list(
         user_overrides.get("allowed_product_group_ids")
     )
@@ -190,6 +195,11 @@ def _apply_company_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> 
     if patch.get("secondary_unit_mode") is not None:
         updated["secondary_unit_mode"] = _normalize_secondary_unit_mode(
             patch["secondary_unit_mode"]
+        )
+
+    if "secondary_price_type_id" in patch:
+        updated["secondary_price_type_id"] = _normalize_optional_positive_id(
+            patch.get("secondary_price_type_id")
         )
 
     if patch.get("tasnif_create_on_barcode_miss") is not None:
@@ -292,6 +302,9 @@ def _normalize_company_pos_settings(raw: Any) -> dict[str, Any]:
         "postpone_order_booked": bool(data.get("postpone_order_booked", True)),
         "secondary_unit_mode": _normalize_secondary_unit_mode(
             data.get("secondary_unit_mode")
+        ),
+        "secondary_price_type_id": _normalize_optional_positive_id(
+            data.get("secondary_price_type_id")
         ),
         "tasnif_create_on_barcode_miss": bool(data.get("tasnif_create_on_barcode_miss", False)),
         "tasnif_default_group_id": _normalize_optional_positive_id(

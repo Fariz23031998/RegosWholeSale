@@ -38,6 +38,7 @@ class PosSettings(BaseModel):
     postpone_document_type: PostponeDocumentType = DEFAULT_POSTPONE_DOCUMENT_TYPE
     postpone_order_booked: bool = True
     secondary_unit_mode: SecondaryUnitMode = DEFAULT_SECONDARY_UNIT_MODE
+    secondary_price_type_id: int | None = Field(default=None, ge=1)
     tasnif_create_on_barcode_miss: bool = False
     tasnif_default_group_id: int | None = Field(default=None, ge=1)
     tasnif_default_unit_id: int | None = Field(default=None, ge=1)
@@ -63,6 +64,7 @@ class UserPosSettings(BaseModel):
     internal_barcode_piece_prefix: str = DEFAULT_INTERNAL_BARCODE_PIECE_PREFIX
     postpone_document_type: PostponeDocumentType = DEFAULT_POSTPONE_DOCUMENT_TYPE
     secondary_unit_mode: SecondaryUnitMode = DEFAULT_SECONDARY_UNIT_MODE
+    secondary_price_type_id: int | None = Field(default=None, ge=1)
     allowed_product_group_ids: list[int] = Field(default_factory=list)
     allowed_partner_group_ids: list[int] = Field(default_factory=list)
     # Company-level flag surfaced on effective POS settings for checkout gating.
@@ -92,6 +94,7 @@ class PosSettingsPatchRequest(BaseModel):
     postpone_document_type: PostponeDocumentType | None = None
     postpone_order_booked: bool | None = None
     secondary_unit_mode: SecondaryUnitMode | None = None
+    secondary_price_type_id: int | None = Field(default=None, ge=1)
     tasnif_create_on_barcode_miss: bool | None = None
     tasnif_default_group_id: int | None = Field(default=None, ge=1)
     tasnif_default_unit_id: int | None = Field(default=None, ge=1)

@@ -41,6 +41,7 @@ class RegosItemDetail(BaseModel):
     unit_id: int = Field(ge=0)
     unit_name: str | None = None
     secondary_unit_id: int | None = None
+    conversion_factor: float | None = Field(default=None, gt=0)
     vat_id: int = Field(ge=0)
     vat_name: str | None = None
     vat_value: float | None = None
@@ -63,6 +64,7 @@ class ItemCreateRequest(BaseModel):
     package_code: str | None = Field(default=None, max_length=64)
     is_labeled: bool | None = None
     secondary_unit_id: int | None = Field(default=None, ge=1)
+    conversion_factor: float | None = Field(default=None, gt=0)
 
 
 class ItemUpdateRequest(BaseModel):
@@ -82,6 +84,7 @@ class ItemUpdateRequest(BaseModel):
     is_labeled: bool | None = None
     secondary_unit_id: int | None = Field(default=None, ge=1)
     clear_secondary_unit: bool | None = None
+    conversion_factor: float | None = Field(default=None, gt=0)
 
 
 class ItemCreateResponse(BaseModel):

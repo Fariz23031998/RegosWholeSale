@@ -74,9 +74,7 @@ async def get_products_by_ids(
     if products:
         from app.services import unit_conversions as conversions_service
 
-        conversions = await conversions_service.list_conversions(session, company_id)
-        conversions_service.merge_conversions_into_products(products, conversions)
-        await conversions_service.enrich_products_with_secondary_prices(
+        await conversions_service.enrich_products_with_conversions(
             session, company_id, products
         )
     return products

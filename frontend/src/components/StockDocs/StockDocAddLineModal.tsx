@@ -313,6 +313,7 @@ export function StockDocAddLineModal({
       unit_id: preferredUnit?.id ?? pcs?.id ?? u[0]?.id ?? 0,
       vat_id: preferredVat?.id ?? v[0]?.id ?? 0,
       secondary_unit_id: 0,
+      conversion_factor: "",
     };
   };
 
@@ -470,12 +471,17 @@ export function StockDocAddLineModal({
       setPendingImage(null);
       setExistingImageUrl("");
       const secondaryUnitId = item.secondary_unit_id ?? 0;
+      const factor =
+        item.conversion_factor != null && item.conversion_factor > 0
+          ? String(item.conversion_factor)
+          : "";
       setForm({
         name: item.name,
         group_id: item.group_id || lookup.groups[0]?.id || 0,
         unit_id: item.unit_id || lookup.units[0]?.id || 0,
         vat_id: item.vat_id || lookup.taxVats[0]?.id || 0,
         secondary_unit_id: secondaryUnitId > 0 ? secondaryUnitId : 0,
+        conversion_factor: factor,
         articul: item.articul ?? "",
         barcodes,
         icps: item.icps ?? "",
@@ -687,6 +693,20 @@ export function StockDocAddLineModal({
       );
       return;
     }
+    const factorParsed = Number(form.conversion_factor.trim().replace(",", "."));
+    const conversionFactor =
+      secondaryUnitId > 0 && Number.isFinite(factorParsed) && factorParsed > 0
+        ? factorParsed
+        : null;
+    if (secondaryUnitId > 0 && conversionFactor == null) {
+      setError(
+        t(
+          "stock.item.errors.conversionFactorRequired",
+          "Enter how many main units equal one secondary unit",
+        ),
+      );
+      return;
+    }
 
     setBusy(true);
     setError("");
@@ -711,8 +731,10 @@ export function StockDocAddLineModal({
         };
         if (secondaryUnitId > 0) {
           body.secondary_unit_id = secondaryUnitId;
+          body.conversion_factor = conversionFactor;
         } else {
           body.clear_secondary_unit = true;
+          body.conversion_factor = null;
         }
         const originalSet = new Set(originalBarcodes);
         const newBarcodes = barcodes.filter((b) => !originalSet.has(b));
@@ -746,7 +768,12 @@ export function StockDocAddLineModal({
           icps,
           package_code: packageCode,
           is_labeled: form.is_labeled,
-          ...(secondaryUnitId > 0 ? { secondary_unit_id: secondaryUnitId } : {}),
+          ...(secondaryUnitId > 0
+            ? {
+                secondary_unit_id: secondaryUnitId,
+                conversion_factor: conversionFactor!,
+              }
+            : {}),
         });
         if (pendingImage) {
           try {
@@ -1115,31 +1142,57 @@ export function StockDocAddLineModal({
             </div>
           )}
           {visibleOptionalFields.secondary_unit ? (
-            <div className={styles.formField}>
-              <label>
-                {t("stock.item.fields.secondaryUnit", "Secondary unit (optional)")}
-              </label>
-              <select
-                value={form.secondary_unit_id}
-                onChange={(e) =>
-                  setForm((prev) => ({
-                    ...prev,
-                    secondary_unit_id: Number(e.target.value),
-                  }))
-                }
-              >
-                <option value={0}>
-                  {t("stock.item.fields.secondaryUnitNone", "None")}
-                </option>
-                {units
-                  .filter((u) => u.id !== form.unit_id)
-                  .map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
-                    </option>
-                  ))}
-              </select>
-            </div>
+            <>
+              <div className={styles.formField}>
+                <label>
+                  {t("stock.item.fields.secondaryUnit", "Secondary unit (optional)")}
+                </label>
+                <select
+                  value={form.secondary_unit_id}
+                  onChange={(e) =>
+                    setForm((prev) => ({
+                      ...prev,
+                      secondary_unit_id: Number(e.target.value),
+                      conversion_factor:
+                        Number(e.target.value) > 0 ? prev.conversion_factor : "",
+                    }))
+                  }
+                >
+                  <option value={0}>
+                    {t("stock.item.fields.secondaryUnitNone", "None")}
+                  </option>
+                  {units
+                    .filter((u) => u.id !== form.unit_id)
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name}
+                      </option>
+                    ))}
+                </select>
+              </div>
+              {form.secondary_unit_id > 0 ? (
+                <div className={styles.formField}>
+                  <label>
+                    {t(
+                      "stock.item.fields.conversionFactor",
+                      "1 secondary = N main",
+                    )}
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={form.conversion_factor}
+                    placeholder="12"
+                    onChange={(e) =>
+                      setForm((prev) => ({
+                        ...prev,
+                        conversion_factor: e.target.value,
+                      }))
+                    }
+                  />
+                </div>
+              ) : null}
+            </>
           ) : null}
           {visibleOptionalFields.image ? (
             <ItemFormImageField

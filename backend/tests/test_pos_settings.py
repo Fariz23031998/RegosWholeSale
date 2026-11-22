@@ -24,6 +24,8 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     assert initial.json()["settings"]["internal_barcode_piece_prefix"] == "23"
     assert initial.json()["settings"]["postpone_document_type"] == "doc_wholesale"
     assert initial.json()["settings"]["postpone_order_booked"] is True
+    assert initial.json()["settings"]["secondary_unit_mode"] == "disabled"
+    assert initial.json()["settings"]["secondary_price_type_id"] is None
     assert initial.json()["settings"]["tasnif_create_on_barcode_miss"] is False
     assert initial.json()["settings"]["tasnif_default_group_id"] is None
     assert initial.json()["settings"]["tasnif_default_unit_id"] is None
@@ -43,6 +45,7 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
             "tendered_quick_amounts": [10000, 50000, 200000],
             "cross_currency_payment_mode": "sale_currency_transfer",
             "default_category": {"mode": "featured", "group_id": None},
+            "secondary_price_type_id": 55,
         },
     )
     assert patched.status_code == 200
@@ -51,6 +54,7 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     assert patched.json()["settings"]["keypad_update_discounted_price_only"] is True
     assert patched.json()["settings"]["cross_currency_payment_mode"] == "sale_currency_transfer"
     assert patched.json()["settings"]["default_category"]["mode"] == "featured"
+    assert patched.json()["settings"]["secondary_price_type_id"] == 55
     assert patched.json()["settings"]["tendered_quick_amounts"] == [
         10000.0,
         50000.0,
@@ -61,16 +65,26 @@ async def test_patch_and_get_pos_settings(client: AsyncClient) -> None:
     assert fetched.json()["settings"]["allow_out_of_stock"] is True
     assert fetched.json()["settings"]["show_last_purchase_cost"] is True
     assert fetched.json()["settings"]["keypad_update_discounted_price_only"] is True
+    assert fetched.json()["settings"]["secondary_price_type_id"] == 55
     assert fetched.json()["settings"]["tendered_quick_amounts"] == [
         10000.0,
         50000.0,
         200000.0,
     ]
 
+    cleared = await client.patch(
+        "/api/v1/company/settings/pos",
+        headers=headers,
+        json={"secondary_price_type_id": None},
+    )
+    assert cleared.status_code == 200
+    assert cleared.json()["settings"]["secondary_price_type_id"] is None
+
     effective = await client.get("/api/v1/me/settings/pos", headers=headers)
     assert effective.status_code == 200
     assert effective.json()["settings"]["keypad_update_discounted_price_only"] is True
     assert effective.json()["settings"]["show_last_purchase_cost"] is True
+    assert effective.json()["settings"]["secondary_price_type_id"] is None
 
 
 @pytest.mark.asyncio

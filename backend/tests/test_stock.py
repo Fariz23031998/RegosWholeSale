@@ -6,6 +6,18 @@ from httpx import AsyncClient
 from helpers import register_owner
 
 
+def _apply_test_conversions(rows: list[dict]) -> list[dict]:
+    for row in rows:
+        item_id = row.get("item_id") or row.get("id") or row.get("regos_item_id")
+        if item_id != 77:
+            continue
+        row["secondary_unit_id"] = 2
+        row["secondary_unit_name"] = "box"
+        row["secondary_unit_type"] = 1
+        row["conversion_factor"] = 12.0
+    return rows
+
+
 async def _create_employee(
     client: AsyncClient,
     owner_token: str,
@@ -405,19 +417,11 @@ async def test_item_info_search_enriches_secondary_unit(client: AsyncClient) -> 
             ],
         }
         with patch(
-            "app.services.regos_stock_docs.unit_conversions_service.list_conversions",
+            "app.services.regos_stock_docs.unit_conversions_service.enrich_products_with_conversions",
             new_callable=AsyncMock,
-            return_value=[
-                {
-                    "id": 1,
-                    "main_unit_id": 1,
-                    "secondary_unit_id": 2,
-                    "conversion_factor": 12.0,
-                    "secondary_unit_name": "box",
-                    "secondary_unit_type": 1,
-                    "price_type_id": None,
-                }
-            ],
+            side_effect=lambda session, company_id, rows, with_secondary_prices=True: _apply_test_conversions(
+                rows
+            ),
         ):
             response = await client.get(
                 "/api/v1/stock/item-info",
@@ -466,19 +470,11 @@ async def test_list_operations_enriches_secondary_unit(client: AsyncClient) -> N
             ],
         }
         with patch(
-            "app.services.regos_stock_docs.unit_conversions_service.list_conversions",
+            "app.services.regos_stock_docs.unit_conversions_service.enrich_products_with_conversions",
             new_callable=AsyncMock,
-            return_value=[
-                {
-                    "id": 1,
-                    "main_unit_id": 1,
-                    "secondary_unit_id": 2,
-                    "conversion_factor": 12.0,
-                    "secondary_unit_name": "box",
-                    "secondary_unit_type": 1,
-                    "price_type_id": None,
-                }
-            ],
+            side_effect=lambda session, company_id, rows, with_secondary_prices=True: _apply_test_conversions(
+                rows
+            ),
         ):
             response = await client.get(
                 "/api/v1/stock/purchase/documents/101/operations",

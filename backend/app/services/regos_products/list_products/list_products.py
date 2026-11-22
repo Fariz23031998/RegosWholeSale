@@ -216,9 +216,7 @@ async def list_products(
 
         from app.services import unit_conversions as conversions_service
 
-        conversions = await conversions_service.list_conversions(session, company_id)
-        conversions_service.merge_conversions_into_products(collected, conversions)
-        await conversions_service.enrich_products_with_secondary_prices(
+        await conversions_service.enrich_products_with_conversions(
             session, company_id, collected
         )
 
