@@ -178,6 +178,7 @@ export type PosSettings = {
   tasnif_default_group_id: number | null;
   tasnif_default_unit_id: number | null;
   tasnif_default_vat_id: number | null;
+  shift_management_enabled: boolean;
 };
 
 export type PosSettingsResponse = {
@@ -203,6 +204,7 @@ export type PosSettingsPatchRequest = {
   tasnif_default_group_id?: number | null;
   tasnif_default_unit_id?: number | null;
   tasnif_default_vat_id?: number | null;
+  shift_management_enabled?: boolean;
 };
 
 export type UserPosSettings = {
@@ -215,6 +217,7 @@ export type UserPosSettings = {
   search_transliteration: boolean;
   search_fuzzy: boolean;
   cross_currency_payment_mode: CrossCurrencyPaymentMode;
+  shift_management_enabled?: boolean;
   internal_barcode_weight_prefix: string;
   internal_barcode_piece_prefix: string;
   postpone_document_type: PostponeDocumentType;

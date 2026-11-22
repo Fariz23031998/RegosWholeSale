@@ -7,6 +7,7 @@ import {
   BookOpen,
   ChevronDown,
   ClipboardList,
+  Clock3,
   CreditCard,
   LayoutDashboard,
   LogOut,
@@ -116,6 +117,13 @@ const NAV: NavItem[] = [
     ],
   },
   { kind: "link", to: "/payments", labelKey: "nav.payments", icon: Wallet, permission: "payments.read" },
+  {
+    kind: "link",
+    to: "/shifts",
+    labelKey: "nav.shifts",
+    icon: Clock3,
+    permission: ["shifts.manage", "shifts.manage_own"],
+  },
   { kind: "link", to: "/returns", labelKey: "nav.returns", icon: Undo2, permission: "returns.manage" },
   {
     kind: "link",

@@ -1,4 +1,13 @@
-import { ArrowUpDown, Camera, CircleDollarSign, ImageOff, PackageX, Search, Undo2 } from "lucide-react";
+import {
+  ArrowUpDown,
+  Camera,
+  CircleDollarSign,
+  ImageOff,
+  PackageX,
+  Search,
+  Undo2,
+  Wallet,
+} from "lucide-react";
 import {
   lazy,
   startTransition,
@@ -68,6 +77,7 @@ import type { ProductGroup } from "@/types/catalog";
 import { CategoryBar } from "./CategoryBar";
 import { CatalogProductCard } from "./CatalogProductCard";
 import { ReturnModal } from "@/components/Returns/ReturnModal";
+import { CurrentShiftModal } from "@/components/Shifts/CurrentShiftModal";
 import { toast } from "sonner";
 import styles from "./POS.module.css";
 
@@ -133,11 +143,13 @@ export function ProductCatalog() {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
   const user = useAuth((s) => s.user);
-  const { canChangeWarehouse, canChangePriceType, canChangePosContext, can } = usePermissions();
+  const { canChangeWarehouse, canChangePriceType, canChangePosContext, can, canAny } =
+    usePermissions();
   const canChangeWarehousePerm = canChangeWarehouse();
   const canChangePriceTypePerm = canChangePriceType();
   const canChangePosContextPerm = canChangePosContext();
   const canAccessUserSettings = can("users.manage");
+  const canViewShifts = canAny("shifts.manage", "shifts.manage_own");
   const products = useCatalog((s) => s.products);
   const setProducts = useCatalog((s) => s.setProducts);
   const appendProducts = useCatalog((s) => s.appendProducts);
@@ -152,6 +164,7 @@ export function ProductCatalog() {
   const checkoutTabs = useCheckoutTabs((s) => s.tabs);
   const activeCheckoutTabId = useCheckoutTabs((s) => s.activeTabId);
   const allowOutOfStock = usePosConfig((s) => s.allowOutOfStock);
+  const shiftManagementEnabled = usePosConfig((s) => s.shiftManagementEnabled);
   const secondaryUnitMode = usePosConfig((s) => s.secondaryUnitMode);
   const bookedOrderContinuation = useBookedOrderContinuation();
   const catalogStockOptions = bookedOrderContinuation
@@ -186,6 +199,8 @@ export function ProductCatalog() {
   const catalogSort = useCatalog((s) => s.catalogSort);
   const setCatalogSort = useCatalog((s) => s.setCatalogSort);
   const [returnOpen, setReturnOpen] = useState(false);
+  const [shiftModalOpen, setShiftModalOpen] = useState(false);
+  const showShiftButton = shiftManagementEnabled && canViewShifts;
   const [sortOpen, setSortOpen] = useState(false);
   const sortButtonRef = useRef<HTMLButtonElement | null>(null);
   const sortMenuRef = useRef<HTMLDivElement | null>(null);
@@ -1276,6 +1291,20 @@ export function ProductCatalog() {
               <Undo2 size={16} />
               <span className={styles.catalogFilterBtnLabel}>{t("pos.return", "Return")}</span>
             </button>
+            {showShiftButton ? (
+              <button
+                type="button"
+                className={styles.catalogFilterBtn}
+                aria-label={t("shifts.currentAria", "Current cash shift")}
+                title={t("shifts.current", "Current shift")}
+                onClick={() => setShiftModalOpen(true)}
+              >
+                <Wallet size={16} />
+                <span className={styles.catalogFilterBtnLabel}>
+                  {t("shifts.currentShort", "Shift")}
+                </span>
+              </button>
+            ) : null}
           </div>
         </form>
 
@@ -1387,6 +1416,7 @@ export function ProductCatalog() {
       </div>
 
       <ReturnModal open={returnOpen} onClose={() => setReturnOpen(false)} />
+      <CurrentShiftModal open={shiftModalOpen} onClose={() => setShiftModalOpen(false)} />
       {scannerOpen ? (
         <Suspense fallback={null}>
           <BarcodeScannerModal

@@ -1,10 +1,20 @@
+import base64
+import binascii
+import io
 from typing import Any
 
+from PIL import Image, ImageOps
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.exceptions import bad_request, not_found
+from app.core.exceptions import AppError, bad_request, not_found
 from app.core.regos_api import regos_async_api_request_for_company
 from app.services import regos_fields as regos_fields_service
+
+# Regos ItemImage/Save: both width and height must be >= 900 px (runtime-verified).
+# Official Regos app prepares a fixed 900×900 square with white letterbox.
+_REGOS_ITEM_IMAGE_SIZE_PX = 900
+_REGOS_ITEM_IMAGE_MAX_BYTES = 500 * 1024
+_REGOS_ITEM_IMAGE_JPEG_QUALITY = 85
 
 
 def _coerce_text(value: Any) -> str | None:
@@ -460,6 +470,106 @@ async def generate_ean13(session: AsyncSession, company_id: int) -> dict[str, st
     return {"value": text}
 
 
+def _normalize_item_image_base64(file_base64: str) -> tuple[str, bytes, str]:
+    """Return (data_url, raw_bytes, content_type) for Regos ItemImage/Save."""
+    text = _coerce_text(file_base64)
+    if not text:
+        raise bad_request("Image file is required.", "ITEM_IMAGE_FILE_REQUIRED")
+
+    content_type = "image/jpeg"
+    raw_b64 = text
+    if text.lower().startswith("data:") and "," in text:
+        header, raw_b64 = text.split(",", 1)
+        header_l = header.lower()
+        if "image/png" in header_l:
+            content_type = "image/png"
+        elif "image/webp" in header_l:
+            content_type = "image/webp"
+        elif "image/gif" in header_l:
+            content_type = "image/gif"
+        elif "image/jpg" in header_l or "image/jpeg" in header_l:
+            content_type = "image/jpeg"
+
+    raw_b64 = "".join(raw_b64.split())
+    if not raw_b64:
+        raise bad_request("Image file is required.", "ITEM_IMAGE_FILE_REQUIRED")
+
+    try:
+        raw_bytes = base64.b64decode(raw_b64, validate=False)
+    except (binascii.Error, ValueError) as exc:
+        raise bad_request("Image file is not valid base64.", "ITEM_IMAGE_INVALID") from exc
+    if not raw_bytes:
+        raise bad_request("Image file is required.", "ITEM_IMAGE_FILE_REQUIRED")
+
+    # Detect from magic bytes when possible (canvas JPEG re-encode is the common path).
+    if raw_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
+        content_type = "image/png"
+    elif raw_bytes.startswith(b"\xff\xd8\xff"):
+        content_type = "image/jpeg"
+    elif raw_bytes.startswith(b"GIF87a") or raw_bytes.startswith(b"GIF89a"):
+        content_type = "image/gif"
+    elif raw_bytes.startswith(b"RIFF") and raw_bytes[8:12] == b"WEBP":
+        content_type = "image/webp"
+
+    data_url = f"data:{content_type};base64,{raw_b64}"
+    return data_url, raw_bytes, content_type
+
+
+def _prepare_item_image_for_regos(raw_bytes: bytes) -> str:
+    """Re-encode to a 900×900 RGB JPEG matching Regos official photo prep.
+
+    ItemImage/Save returns 1015 unless BOTH edges are >= 900 px. Data-URLs are
+    also rejected; callers must send raw base64 of this JPEG.
+    """
+    edge = _REGOS_ITEM_IMAGE_SIZE_PX
+    try:
+        with Image.open(io.BytesIO(raw_bytes)) as img:
+            img = ImageOps.exif_transpose(img)
+            if img.mode in {"RGBA", "LA", "P"}:
+                rgba = img.convert("RGBA")
+                background = Image.new("RGB", rgba.size, (255, 255, 255))
+                background.paste(rgba, mask=rgba.split()[-1])
+                img = background
+            elif img.mode != "RGB":
+                img = img.convert("RGB")
+
+            # Fit inside square (letterbox), white fill — same as Regos UI.
+            scale = min(edge / float(img.size[0]), edge / float(img.size[1]))
+            fitted_w = max(1, round(img.size[0] * scale))
+            fitted_h = max(1, round(img.size[1] * scale))
+            fitted = img.resize((fitted_w, fitted_h), Image.Resampling.LANCZOS)
+            canvas = Image.new("RGB", (edge, edge), (255, 255, 255))
+            canvas.paste(fitted, ((edge - fitted_w) // 2, (edge - fitted_h) // 2))
+
+            quality = _REGOS_ITEM_IMAGE_JPEG_QUALITY
+            encoded: bytes | None = None
+            while quality >= 50:
+                buf = io.BytesIO()
+                canvas.save(
+                    buf,
+                    format="JPEG",
+                    quality=quality,
+                    optimize=True,
+                    progressive=False,
+                )
+                candidate = buf.getvalue()
+                if len(candidate) <= _REGOS_ITEM_IMAGE_MAX_BYTES:
+                    encoded = candidate
+                    break
+                quality -= 10
+            if encoded is None:
+                raise bad_request(
+                    "Image could not be compressed to Regos size limits (500 KB).",
+                    "ITEM_IMAGE_TOO_LARGE",
+                )
+    except AppError:
+        raise
+    except Exception as exc:
+        raise bad_request("Image file could not be processed.", "ITEM_IMAGE_INVALID") from exc
+
+    return base64.b64encode(encoded).decode("ascii")
+
+
 async def save_item_image(
     session: AsyncSession,
     company_id: int,
@@ -468,18 +578,17 @@ async def save_item_image(
 ) -> dict[str, int]:
     if item_id <= 0:
         raise bad_request("Invalid item id.", "INVALID_ITEM_ID")
-    file_payload = _coerce_text(file_base64)
-    if not file_payload:
-        raise bad_request("Image file is required.", "ITEM_IMAGE_FILE_REQUIRED")
-
+    _data_url, raw_bytes, _content_type = _normalize_item_image_base64(file_base64)
+    raw_b64 = _prepare_item_image_for_regos(raw_bytes)
     response = await regos_async_api_request_for_company(
         session,
         company_id,
         "itemimage/save",
         {
             "item_id": item_id,
-            "file": file_payload,
+            "file": raw_b64,
         },
+        timeout_seconds=60,
     )
     result = response.get("result") or {}
     new_id = result.get("new_id") if isinstance(result, dict) else None

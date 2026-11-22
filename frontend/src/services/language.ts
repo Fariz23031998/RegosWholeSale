@@ -151,7 +151,12 @@ class LanguageService {
   }
 
   t(key: string, fallback?: string): string {
-    return this.translations[key] || fallback || key;
+    return (
+      this.translations[key] ||
+      fallback ||
+      FALLBACK_TRANSLATIONS[key] ||
+      key
+    );
   }
 
   getCurrentLanguage(): SupportedLanguage {

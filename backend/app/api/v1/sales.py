@@ -19,6 +19,7 @@ from app.schemas.sales import (
 )
 from app.services import regos_sales as regos_sales_service
 from app.services import regos_defaults as regos_defaults_service
+from app.services import shifts as shifts_service
 
 router = APIRouter(prefix="/sales", tags=["sales"])
 
@@ -56,6 +57,11 @@ async def checkout_sale(
     current: CurrentUser = Depends(require_permission("sales.write")),
     session: AsyncSession = Depends(get_db),
 ) -> CheckoutResponse:
+    await shifts_service.require_open_shift_for_checkout(
+        session,
+        company_id=current.company_id,
+        user_id=current.id,
+    )
     result = await regos_sales_service.complete_checkout(
         session,
         current.company_id,
@@ -352,6 +358,11 @@ async def create_wholesale_return(
     current: CurrentUser = Depends(require_permission("returns.manage")),
     session: AsyncSession = Depends(get_db),
 ) -> WholesaleReturnResponse:
+    await shifts_service.require_open_shift_for_checkout(
+        session,
+        company_id=current.company_id,
+        user_id=current.id,
+    )
     result = await regos_sales_service.complete_wholesale_return(
         session,
         current.company_id,

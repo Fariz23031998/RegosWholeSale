@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 
-from app.api.v1 import auth, billing, catalog_events, click, dashboard, documents, labels, lang, partner_telegram, payments, permissions, platform, receipt_shares, regos, regos_webhook, sales, settings, settings_events, stock, telegram, unit_conversions, users
+from app.api.v1 import auth, billing, catalog_events, click, dashboard, documents, labels, lang, partner_telegram, payments, permissions, platform, receipt_shares, regos, regos_webhook, sales, settings, settings_events, shifts, stock, telegram, unit_conversions, users
 
 api_router = APIRouter()
 api_router.include_router(lang.router)
@@ -18,6 +18,7 @@ api_router.include_router(catalog_events.router)
 api_router.include_router(regos_webhook.router)
 api_router.include_router(sales.router)
 api_router.include_router(payments.router)
+api_router.include_router(shifts.router)
 api_router.include_router(stock.router)
 api_router.include_router(dashboard.router)
 api_router.include_router(telegram.router)

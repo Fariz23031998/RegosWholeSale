@@ -1,3 +1,5 @@
+import { parseDecimalInput } from "@/lib/parse-decimal-input";
+
 /** Round money to 2 decimal places. */
 export function roundMoney2(value: number): number {
   return Math.round(value * 100) / 100;
@@ -17,8 +19,5 @@ export function applyMarkupToCost(
 
 /** Parse a markup input string; empty/whitespace → null (no markup). */
 export function parseMarkupPercent(value: string): number | null {
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  const n = Number(trimmed);
-  return Number.isFinite(n) ? n : null;
+  return parseDecimalInput(value);
 }

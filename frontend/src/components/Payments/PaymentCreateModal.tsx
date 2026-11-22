@@ -6,6 +6,7 @@ import { PaymentDateTimeField } from "@/components/Payments/PaymentDateTimeField
 import { Button } from "@/components/posui/Button";
 import { Modal } from "@/components/posui/Modal";
 import { useLanguage } from "@/contexts/LanguageContext";
+import { formatAmountWithCurrency } from "@/lib/checkout-payments";
 import { createPayment } from "@/lib/payments-api";
 import { fetchFirms } from "@/lib/partners-api";
 import { loadPaymentTypes } from "@/lib/payment-service";
@@ -14,20 +15,42 @@ import { fromDatetimeRuValue, nowDatetimeRuValue } from "@/lib/stock-doc-form";
 import { formatAuthError, useAuth } from "@/store/auth";
 import type { PaymentDirection, PaymentDocument } from "@/types/payments";
 import type { Partner } from "@/types/partners";
+import type { RegosCurrencyOption } from "@/types/settings";
 import styles from "./Payments.module.css";
+
+export type AvailableCashByCurrency = {
+  currency_id: number;
+  currency_code: string | null;
+  amount: number;
+};
 
 type Props = {
   open: boolean;
   onClose: () => void;
   onCreated: (payment: PaymentDocument) => void;
   initialDirection?: PaymentDirection;
+  initialFirmId?: number | null;
+  cashPaymentTypesOnly?: boolean;
+  availableCashByCurrency?: AvailableCashByCurrency[];
 };
+
+function currencyStub(code: string | null | undefined, id?: number | null): RegosCurrencyOption {
+  return {
+    id: id ?? 0,
+    name: code || "",
+    code_chr: code || null,
+    exchange_rate: null,
+  };
+}
 
 export function PaymentCreateModal({
   open,
   onClose,
   onCreated,
   initialDirection = "income",
+  initialFirmId = null,
+  cashPaymentTypesOnly = false,
+  availableCashByCurrency,
 }: Props) {
   const { t } = useLanguage();
   const token = useAuth((s) => s.accessToken);
@@ -69,7 +92,11 @@ export function PaymentCreateModal({
     queryFn: () => loadPaymentTypes(token as string, companyId),
     enabled: open && Boolean(token) && companyId != null,
   });
-  const paymentTypes = paymentTypesData?.payment_types ?? [];
+  const paymentTypes = useMemo(() => {
+    const all = paymentTypesData?.payment_types ?? [];
+    if (!cashPaymentTypesOnly) return all;
+    return all.filter((type) => type.is_cash);
+  }, [cashPaymentTypesOnly, paymentTypesData?.payment_types]);
 
   const { data: referenceOptions } = useQuery({
     queryKey: ["regos-reference-options", token, "payments-create", companyId],
@@ -87,6 +114,22 @@ export function PaymentCreateModal({
     () => paymentTypes.find((type) => type.id === paymentTypeId) ?? null,
     [paymentTypeId, paymentTypes],
   );
+
+  const availableForSelectedCurrency = useMemo(() => {
+    if (!availableCashByCurrency?.length || !selectedPaymentType?.currency?.id) {
+      return null;
+    }
+    const currencyId = selectedPaymentType.currency.id;
+    const row = availableCashByCurrency.find((item) => item.currency_id === currencyId);
+    if (!row) {
+      return {
+        currency_id: currencyId,
+        currency_code: selectedPaymentType.currency.code_chr ?? null,
+        amount: 0,
+      };
+    }
+    return row;
+  }, [availableCashByCurrency, selectedPaymentType]);
 
   const categoryOptions = useMemo(() => {
     if (!referenceOptions) return [];
@@ -113,11 +156,15 @@ export function PaymentCreateModal({
     setAmount("");
     setDescription("");
     setError("");
-    setFirmId(firms[0]?.id ?? null);
+    const preferredFirmId =
+      initialFirmId != null && firms.some((firm) => firm.id === initialFirmId)
+        ? initialFirmId
+        : (firms[0]?.id ?? null);
+    setFirmId(preferredFirmId);
     setPaymentTypeId(paymentTypes[0]?.id ?? null);
     const rate = paymentTypes[0]?.currency?.exchange_rate;
     setExchangeRate(rate != null ? String(rate) : "");
-  }, [firms, initialDirection, open, paymentTypes]);
+  }, [firms, initialDirection, initialFirmId, open, paymentTypes]);
 
   useEffect(() => {
     if (!selectedPaymentType) return;
@@ -163,6 +210,20 @@ export function PaymentCreateModal({
     const parsedAmount = Number(amount);
     if (!(parsedAmount > 0)) {
       setError(t("payments.create.invalidAmount", "Enter a valid amount."));
+      return;
+    }
+    if (
+      direction === "outcome" &&
+      availableCashByCurrency &&
+      availableForSelectedCurrency != null &&
+      parsedAmount > availableForSelectedCurrency.amount
+    ) {
+      setError(
+        t(
+          "payments.create.exceedsAvailable",
+          "Amount exceeds available cash for this currency.",
+        ),
+      );
       return;
     }
     const date = fromDatetimeRuValue(dateTimeValue);
@@ -298,6 +359,18 @@ export function PaymentCreateModal({
               value={amount}
               onChange={(event) => setAmount(event.target.value)}
             />
+            {availableForSelectedCurrency ? (
+              <div className={styles.muted}>
+                {t("payments.create.availableCash", "Available")}:{" "}
+                {formatAmountWithCurrency(
+                  availableForSelectedCurrency.amount,
+                  currencyStub(
+                    availableForSelectedCurrency.currency_code,
+                    availableForSelectedCurrency.currency_id,
+                  ),
+                )}
+              </div>
+            ) : null}
           </div>
 
           <div className={styles.field}>

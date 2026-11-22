@@ -8,22 +8,26 @@
 }
 
 /* Suppress POS card hover lift while interacting with the actions menu. */
-.card:has(.cardMenu:hover),
-.card:has(.cardMenuBtn:active),
-.card:has(.cardMenuBtn[data-state="open"]) {
-  transform: none;
-  box-shadow: none;
-  border-color: var(--color-border);
+@media (hover: hover) and (pointer: fine) {
+  .card:has(.cardMenu:hover),
+  .card:has(.cardMenu:focus-within),
+  .card:has(.cardMenuBtn:active),
+  .card:has(.cardMenuBtn[data-state="open"]) {
+    transform: none;
+    box-shadow: none;
+    border-color: var(--color-border);
+  }
+
+  .cardSelected:has(.cardMenu:hover),
+  .cardSelected:has(.cardMenu:focus-within),
+  .cardSelected:has(.cardMenuBtn:active),
+  .cardSelected:has(.cardMenuBtn[data-state="open"]) {
+    border-color: var(--color-primary);
+    box-shadow: var(--shadow-md);
+  }
 }
 
 .cardSelected {
-  border-color: var(--color-primary);
-  box-shadow: var(--shadow-md);
-}
-
-.cardSelected:has(.cardMenu:hover),
-.cardSelected:has(.cardMenuBtn:active),
-.cardSelected:has(.cardMenuBtn[data-state="open"]) {
   border-color: var(--color-primary);
   box-shadow: var(--shadow-md);
 }

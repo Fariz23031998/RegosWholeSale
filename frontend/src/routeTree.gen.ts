@@ -32,6 +32,7 @@ import { Route as AppReceiptTemplatesRouteImport } from './routes/_app.receipt-t
 import { Route as AppReturnsRouteImport } from './routes/_app.returns'
 import { Route as AppSalesRouteImport } from './routes/_app.sales'
 import { Route as AppSettingsRouteImport } from './routes/_app.settings'
+import { Route as AppShiftsRouteImport } from './routes/_app.shifts'
 import { Route as AppTelegramUsersRouteImport } from './routes/_app.telegram-users'
 import { Route as AppUsersRouteImport } from './routes/_app.users'
 import { Route as PartnerPublicKeyRouteImport } from './routes/partner.$publicKey'
@@ -167,6 +168,11 @@ const AppSettingsRoute = AppSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AppRoute,
 } as any)
+const AppShiftsRoute = AppShiftsRouteImport.update({
+  id: '/shifts',
+  path: '/shifts',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppTelegramUsersRoute = AppTelegramUsersRouteImport.update({
   id: '/telegram-users',
   path: '/telegram-users',
@@ -299,6 +305,7 @@ export interface FileRoutesByFullPath {
   '/returns': typeof AppReturnsRoute
   '/sales': typeof AppSalesRoute
   '/settings': typeof AppSettingsRoute
+  '/shifts': typeof AppShiftsRoute
   '/telegram-users': typeof AppTelegramUsersRoute
   '/users': typeof AppUsersRoute
   '/partner/$publicKey': typeof PartnerPublicKeyRouteWithChildren
@@ -342,6 +349,7 @@ export interface FileRoutesByTo {
   '/returns': typeof AppReturnsRoute
   '/sales': typeof AppSalesRoute
   '/settings': typeof AppSettingsRoute
+  '/shifts': typeof AppShiftsRoute
   '/telegram-users': typeof AppTelegramUsersRoute
   '/users': typeof AppUsersRoute
   '/': typeof AppIndexRoute
@@ -387,6 +395,7 @@ export interface FileRoutesById {
   '/_app/returns': typeof AppReturnsRoute
   '/_app/sales': typeof AppSalesRoute
   '/_app/settings': typeof AppSettingsRoute
+  '/_app/shifts': typeof AppShiftsRoute
   '/_app/telegram-users': typeof AppTelegramUsersRoute
   '/_app/users': typeof AppUsersRoute
   '/partner/$publicKey': typeof PartnerPublicKeyRouteWithChildren
@@ -434,6 +443,7 @@ export interface FileRouteTypes {
     | '/returns'
     | '/sales'
     | '/settings'
+    | '/shifts'
     | '/telegram-users'
     | '/users'
     | '/partner/$publicKey'
@@ -477,6 +487,7 @@ export interface FileRouteTypes {
     | '/returns'
     | '/sales'
     | '/settings'
+    | '/shifts'
     | '/telegram-users'
     | '/users'
     | '/'
@@ -521,6 +532,7 @@ export interface FileRouteTypes {
     | '/_app/returns'
     | '/_app/sales'
     | '/_app/settings'
+    | '/_app/shifts'
     | '/_app/telegram-users'
     | '/_app/users'
     | '/partner/$publicKey'
@@ -720,6 +732,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/shifts': {
+      id: '/_app/shifts'
+      path: '/shifts'
+      fullPath: '/shifts'
+      preLoaderRoute: typeof AppShiftsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/telegram-users': {
       id: '/_app/telegram-users'
       path: '/telegram-users'
@@ -879,6 +898,7 @@ interface AppRouteChildren {
   AppReturnsRoute: typeof AppReturnsRoute
   AppSalesRoute: typeof AppSalesRoute
   AppSettingsRoute: typeof AppSettingsRoute
+  AppShiftsRoute: typeof AppShiftsRoute
   AppTelegramUsersRoute: typeof AppTelegramUsersRoute
   AppUsersRoute: typeof AppUsersRoute
   AppIndexRoute: typeof AppIndexRoute
@@ -906,6 +926,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppReturnsRoute: AppReturnsRoute,
   AppSalesRoute: AppSalesRoute,
   AppSettingsRoute: AppSettingsRoute,
+  AppShiftsRoute: AppShiftsRoute,
   AppTelegramUsersRoute: AppTelegramUsersRoute,
   AppUsersRoute: AppUsersRoute,
   AppIndexRoute: AppIndexRoute,

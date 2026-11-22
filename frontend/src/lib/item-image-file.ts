@@ -6,11 +6,18 @@ const ALLOWED_MIME_TYPES = new Set([
   "image/webp",
 ]);
 
-/** Regos catalog image: max width or height (px). */
-export const REGOS_ITEM_IMAGE_MAX_EDGE_PX = 2000;
+/**
+ * Regos ItemImage/Save requires BOTH width and height >= 900 px
+ * (runtime-verified: 899x899 / 800x800 / 500x400 → error 1015; 900x900+ → ok).
+ * Official Regos app prepares a fixed 900×900 square with white letterbox.
+ */
+export const REGOS_ITEM_IMAGE_SIZE_PX = 900;
 
-/** Regos catalog image: max file size after encode. */
-export const REGOS_ITEM_IMAGE_MAX_BYTES = 1024 * 1024;
+/** @deprecated Use REGOS_ITEM_IMAGE_SIZE_PX; kept for older imports. */
+export const REGOS_ITEM_IMAGE_MAX_EDGE_PX = REGOS_ITEM_IMAGE_SIZE_PX;
+
+/** Soft max encoded JPEG size (official samples are typically well under this). */
+export const REGOS_ITEM_IMAGE_MAX_BYTES = 500 * 1024;
 
 /** Soft ceiling on the picked file before decode (avoids browser OOM). */
 export const MAX_ITEM_IMAGE_INPUT_BYTES = 20 * 1024 * 1024;
@@ -20,10 +27,8 @@ export const MAX_ITEM_IMAGE_BYTES = REGOS_ITEM_IMAGE_MAX_BYTES;
 
 const JPEG_MIME = "image/jpeg";
 const JPEG_QUALITY_START = 0.92;
-const JPEG_QUALITY_MIN = 0.5;
+const JPEG_QUALITY_MIN = 0.55;
 const JPEG_QUALITY_STEP = 0.08;
-const EDGE_SHRINK_FACTOR = 0.9;
-const EDGE_FLOOR_PX = 800;
 
 export type ItemImageFilePayload = {
   /** Raw base64 without data-URL prefix (Regos ItemImage/Save). */
@@ -38,20 +43,16 @@ export type FitSize = {
   height: number;
 };
 
-/** Scale so the longest edge is at most `maxEdge`, preserving aspect ratio. */
+/** Scale so the image fits inside a square of `edge` px (letterbox). */
 export function computeFitSize(
   width: number,
   height: number,
-  maxEdge: number,
+  edge: number,
 ): FitSize {
   const w = Math.max(1, Math.round(width));
   const h = Math.max(1, Math.round(height));
-  const edge = Math.max(1, Math.round(maxEdge));
-  const longest = Math.max(w, h);
-  if (longest <= edge) {
-    return { width: w, height: h };
-  }
-  const scale = edge / longest;
+  const box = Math.max(1, Math.round(edge));
+  const scale = Math.min(box / w, box / h);
   return {
     width: Math.max(1, Math.round(w * scale)),
     height: Math.max(1, Math.round(h * scale)),
@@ -60,8 +61,9 @@ export function computeFitSize(
 
 function stripDataUrlPrefix(dataUrl: string): string {
   const comma = dataUrl.indexOf(",");
-  if (comma < 0) return dataUrl.trim();
-  return dataUrl.slice(comma + 1).trim();
+  const raw = comma < 0 ? dataUrl : dataUrl.slice(comma + 1);
+  // Regos rejects padded/wrapped base64 bodies (error 1015).
+  return raw.replace(/\s+/g, "");
 }
 
 function blobToDataUrl(blob: Blob): Promise<string> {
@@ -115,67 +117,52 @@ function canvasToJpegBlob(
   });
 }
 
-function drawScaled(
+/** Official Regos prep: fixed square canvas, white fill, image fitted inside. */
+function drawRegosSquare(
   source: CanvasImageSource,
-  width: number,
-  height: number,
+  naturalWidth: number,
+  naturalHeight: number,
+  edge: number = REGOS_ITEM_IMAGE_SIZE_PX,
 ): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
-  canvas.width = width;
-  canvas.height = height;
+  canvas.width = edge;
+  canvas.height = edge;
   const ctx = canvas.getContext("2d");
   if (!ctx) {
     throw new Error("Failed to process image.");
   }
-  // White background so transparent PNG/WebP/GIF don't become black JPEG.
   ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, width, height);
-  ctx.drawImage(source, 0, 0, width, height);
+  ctx.fillRect(0, 0, edge, edge);
+  const { width, height } = computeFitSize(naturalWidth, naturalHeight, edge);
+  const x = Math.floor((edge - width) / 2);
+  const y = Math.floor((edge - height) / 2);
+  ctx.drawImage(source, x, y, width, height);
   return canvas;
 }
 
-async function encodeWithinRegosLimits(
+async function encodeRegosSquareJpeg(
   source: CanvasImageSource,
   naturalWidth: number,
   naturalHeight: number,
 ): Promise<Blob> {
-  let maxEdge = Math.min(
-    REGOS_ITEM_IMAGE_MAX_EDGE_PX,
-    Math.max(naturalWidth, naturalHeight),
-  );
+  const canvas = drawRegosSquare(source, naturalWidth, naturalHeight);
 
-  while (maxEdge >= EDGE_FLOOR_PX) {
-    const { width, height } = computeFitSize(naturalWidth, naturalHeight, maxEdge);
-    const canvas = drawScaled(source, width, height);
-
-    for (
-      let quality = JPEG_QUALITY_START;
-      quality >= JPEG_QUALITY_MIN - 1e-9;
-      quality -= JPEG_QUALITY_STEP
-    ) {
-      const blob = await canvasToJpegBlob(canvas, Math.max(JPEG_QUALITY_MIN, quality));
-      if (blob.size <= REGOS_ITEM_IMAGE_MAX_BYTES) {
-        return blob;
-      }
+  for (
+    let quality = JPEG_QUALITY_START;
+    quality >= JPEG_QUALITY_MIN - 1e-9;
+    quality -= JPEG_QUALITY_STEP
+  ) {
+    const blob = await canvasToJpegBlob(canvas, Math.max(JPEG_QUALITY_MIN, quality));
+    if (blob.size <= REGOS_ITEM_IMAGE_MAX_BYTES) {
+      return blob;
     }
-
-    const nextEdge = Math.floor(maxEdge * EDGE_SHRINK_FACTOR);
-    if (nextEdge >= maxEdge) break;
-    maxEdge = nextEdge;
   }
 
-  // Final attempt at the floor edge with minimum quality.
-  const { width, height } = computeFitSize(
-    naturalWidth,
-    naturalHeight,
-    Math.min(EDGE_FLOOR_PX, REGOS_ITEM_IMAGE_MAX_EDGE_PX),
-  );
-  const canvas = drawScaled(source, width, height);
   const blob = await canvasToJpegBlob(canvas, JPEG_QUALITY_MIN);
   if (blob.size <= REGOS_ITEM_IMAGE_MAX_BYTES) {
     return blob;
   }
-  throw new Error("Image could not be compressed to Regos size limits (1024 KB).");
+  throw new Error("Image could not be compressed to Regos size limits (500 KB).");
 }
 
 function adjustedFileName(originalName: string): string {
@@ -200,25 +187,8 @@ export async function readItemImageFile(file: File): Promise<ItemImageFilePayloa
     throw new Error("Failed to read image file.");
   }
 
-  const alreadyFits =
-    Math.max(naturalWidth, naturalHeight) <= REGOS_ITEM_IMAGE_MAX_EDGE_PX
-    && file.size <= REGOS_ITEM_IMAGE_MAX_BYTES
-    && (file.type === "image/jpeg" || file.type === "image/jpg");
-
-  if (alreadyFits) {
-    const dataUrl = await blobToDataUrl(file);
-    const base64 = stripDataUrlPrefix(dataUrl);
-    if (!base64) {
-      throw new Error("Failed to read image file.");
-    }
-    return {
-      base64,
-      previewUrl: dataUrl,
-      fileName: file.name,
-    };
-  }
-
-  const blob = await encodeWithinRegosLimits(img, naturalWidth, naturalHeight);
+  // Always re-encode to a 900×900 RGB JPEG (Regos official prep size).
+  const blob = await encodeRegosSquareJpeg(img, naturalWidth, naturalHeight);
   const dataUrl = await blobToDataUrl(blob);
   const base64 = stripDataUrlPrefix(dataUrl);
   if (!base64) {

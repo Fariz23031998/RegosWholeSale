@@ -210,6 +210,9 @@ def _apply_company_pos_patch(current: dict[str, Any], patch: dict[str, Any]) -> 
             patch.get("tasnif_default_vat_id")
         )
 
+    if patch.get("shift_management_enabled") is not None:
+        updated["shift_management_enabled"] = bool(patch["shift_management_enabled"])
+
     return updated
 
 
@@ -300,6 +303,7 @@ def _normalize_company_pos_settings(raw: Any) -> dict[str, Any]:
         "tasnif_default_vat_id": _normalize_optional_positive_id(
             data.get("tasnif_default_vat_id")
         ),
+        "shift_management_enabled": bool(data.get("shift_management_enabled", False)),
     }
 
 

@@ -25,6 +25,8 @@ from app.models import (  # noqa: F401
     TelegramUser,
     OutOfStockProduct,
     UnitConversion,
+    Shift,
+    ShiftOperation,
 )
 
 config = context.config

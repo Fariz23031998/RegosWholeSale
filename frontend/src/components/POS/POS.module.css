@@ -1265,10 +1265,14 @@
   align-self: start;
   flex-shrink: 0;
 }
-.card:hover {
-  border-color: var(--color-primary);
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-md);
+/* Hover lift only for real pointers — touch leaves sticky :hover on the card
+   when pressing nested controls (e.g. product actions menu). */
+@media (hover: hover) and (pointer: fine) {
+  .card:hover {
+    border-color: var(--color-primary);
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+  }
 }
 .cardDisabled {
   cursor: not-allowed;

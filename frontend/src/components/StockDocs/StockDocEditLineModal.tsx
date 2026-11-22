@@ -12,6 +12,11 @@ import {
 import { getStockDocDefinition } from "@/lib/stock-doc-definitions";
 import { truncateToastName } from "@/lib/format";
 import {
+  allowsDecimalQty,
+  normalizeCartQty,
+} from "@/lib/cart-stock";
+import { parseDecimalInput } from "@/lib/parse-decimal-input";
+import {
   applyMarkupToCost,
   parseMarkupPercent,
 } from "@/lib/purchase-line-markup";
@@ -32,6 +37,10 @@ import {
 import { formatAuthError, useAuth } from "@/store/auth";
 import styles from "./StockDocs.module.css";
 
+function sanitizePieceQtyInput(value: string): string {
+  return value.replace(/\D/g, "");
+}
+
 function hitToUnitSource(hit: StockItemSearchHit): SecondaryUnitCapable {
   return {
     unit_name: hit.unit,
@@ -50,8 +59,8 @@ function rescaleMoneyField(
   toFactor: number,
 ): string {
   if (!value.trim()) return value;
-  const n = Number(value);
-  if (!Number.isFinite(n)) return value;
+  const n = parseDecimalInput(value);
+  if (n == null) return value;
   const main = toMainUnitMoney(n, fromFactor);
   return String(toDisplayUnitMoney(main, toFactor));
 }
@@ -111,6 +120,7 @@ export function StockDocEditLineModal({
   const unitMeta = unitSource
     ? unitMetaForSelection(unitSource, selectedUnit)
     : { conversionFactor: 1, selectedUnitName: null, selectedUnitType: null, unitType: null };
+  const qtyAllowsDecimals = allowsDecimalQty(unitMeta.unitType);
 
   const fieldOrder: LineField[] = [
     "qty",
@@ -144,7 +154,8 @@ export function StockDocEditLineModal({
         if (cancelled) return;
         if (saved == null) return;
         setMarkup(String(saved));
-        const costNum = Number(nextCost);
+        const costNum = parseDecimalInput(nextCost);
+        if (costNum == null) return;
         const calculated = applyMarkupToCost(costNum, saved);
         if (calculated != null) setPrice(String(calculated));
       })
@@ -170,12 +181,16 @@ export function StockDocEditLineModal({
 
   const selectUnit = (next: SelectedUnitKind) => {
     if (!unitSource || next === selectedUnit) return;
-    const entered = Number(qty);
+    const entered = parseDecimalInput(qty);
     const currentMeta = unitMetaForSelection(unitSource, selectedUnit);
     const nextMeta = unitMetaForSelection(unitSource, next);
-    if (Number.isFinite(entered) && entered > 0) {
+    if (entered != null && entered > 0) {
       const base = toBaseQty(entered, currentMeta.conversionFactor);
-      setQty(String(toEnteredQty(base, nextMeta.conversionFactor)));
+      const nextEntered = normalizeCartQty(
+        toEnteredQty(base, nextMeta.conversionFactor),
+        nextMeta.unitType,
+      );
+      setQty(String(nextEntered));
     }
     setCost((prev) =>
       rescaleMoneyField(prev, currentMeta.conversionFactor, nextMeta.conversionFactor),
@@ -186,11 +201,24 @@ export function StockDocEditLineModal({
     setSelectedUnit(next);
   };
 
+  const onQtyChange = (value: string) => {
+    setQty(qtyAllowsDecimals ? value : sanitizePieceQtyInput(value));
+  };
+
   const submit = async () => {
     if (!token || busy || !hit) return;
-    const enteredQty = Number(qty);
-    if (!Number.isFinite(enteredQty) || enteredQty <= 0) {
+    const enteredQty = parseDecimalInput(qty);
+    if (enteredQty == null || enteredQty <= 0) {
       setError(t("stock.errors.invalidQty", "Enter a valid quantity"));
+      return;
+    }
+    if (!qtyAllowsDecimals && !Number.isInteger(enteredQty)) {
+      setError(
+        t(
+          "stock.errors.qtyMustBeWhole",
+          "Quantity must be a whole number for piece units",
+        ),
+      );
       return;
     }
     const quantity = toBaseQty(enteredQty, unitMeta.conversionFactor);
@@ -227,10 +255,9 @@ export function StockDocEditLineModal({
         };
         if (def.editableCost) {
           if (cost) {
-            const raw = Number(cost);
-            entry.cost = Number.isFinite(raw)
-              ? toMainUnitMoney(raw, unitMeta.conversionFactor)
-              : 0;
+            const raw = parseDecimalInput(cost);
+            entry.cost =
+              raw != null ? toMainUnitMoney(raw, unitMeta.conversionFactor) : 0;
           } else {
             // Catalog fallback is already per main unit.
             entry.cost = hit.last_purchase_cost ?? 0;
@@ -239,10 +266,8 @@ export function StockDocEditLineModal({
         if (def.showPrice) {
           let p: number;
           if (price) {
-            const raw = Number(price);
-            p = Number.isFinite(raw)
-              ? toMainUnitMoney(raw, unitMeta.conversionFactor)
-              : 0;
+            const raw = parseDecimalInput(price);
+            p = raw != null ? toMainUnitMoney(raw, unitMeta.conversionFactor) : 0;
           } else {
             // Catalog fallback is already per main unit.
             p = hit.price ?? 0;
@@ -316,7 +341,9 @@ export function StockDocEditLineModal({
     setCost(value);
     const markupPct = parseMarkupPercent(markup);
     if (markupPct == null) return;
-    const calculated = applyMarkupToCost(Number(value), markupPct);
+    const costNum = parseDecimalInput(value);
+    if (costNum == null) return;
+    const calculated = applyMarkupToCost(costNum, markupPct);
     if (calculated != null) setPrice(String(calculated));
   };
 
@@ -325,7 +352,9 @@ export function StockDocEditLineModal({
     const markupPct = parseMarkupPercent(value);
     void savePurchaseLineMarkup(markupPct).catch(() => undefined);
     if (markupPct == null) return;
-    const calculated = applyMarkupToCost(Number(cost), markupPct);
+    const costNum = parseDecimalInput(cost);
+    if (costNum == null) return;
+    const calculated = applyMarkupToCost(costNum, markupPct);
     if (calculated != null) setPrice(String(calculated));
   };
 
@@ -389,10 +418,10 @@ export function StockDocEditLineModal({
                 ref={qtyRef}
                 name="qty"
                 value={qty}
-                onChange={(e) => setQty(e.target.value)}
+                onChange={(e) => onQtyChange(e.target.value)}
                 onFocus={(e) => e.currentTarget.select()}
                 onKeyDown={onFieldKeyDown("qty")}
-                inputMode="decimal"
+                inputMode={qtyAllowsDecimals ? "decimal" : "numeric"}
                 enterKeyHint={lastField === "qty" ? "done" : "next"}
                 autoComplete="off"
                 autoFocus

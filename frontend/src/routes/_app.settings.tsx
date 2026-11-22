@@ -182,6 +182,7 @@ function SettingsPage() {
   const [zeroQuantity, setZeroQuantity] = useState(false);
   const [zeroPrice, setZeroPrice] = useState(false);
   const [allowOutOfStock, setAllowOutOfStock] = useState(false);
+  const [shiftManagementEnabled, setShiftManagementEnabled] = useState(false);
   const [showLastPurchaseCost, setShowLastPurchaseCost] = useState(false);
   const [autoOpenQtyKeypad, setAutoOpenQtyKeypad] = useState(false);
   const [keypadUpdateDiscountedPriceOnly, setKeypadUpdateDiscountedPriceOnly] =
@@ -398,6 +399,7 @@ function SettingsPage() {
     if (!res) return;
 
     setAllowOutOfStock(res.settings.allow_out_of_stock);
+    setShiftManagementEnabled(res.settings.shift_management_enabled ?? false);
     setShowLastPurchaseCost(res.settings.show_last_purchase_cost ?? false);
     setAutoOpenQtyKeypad(res.settings.auto_open_qty_keypad);
     setKeypadUpdateDiscountedPriceOnly(
@@ -815,6 +817,27 @@ function SettingsPage() {
     } catch (err) {
       setPosSettingsError(formatAuthError(err));
       setAllowOutOfStock((prev) => !checked);
+    } finally {
+      setSavingPosSettings(false);
+    }
+  };
+
+  const handleShiftManagementEnabledChange = async (checked: boolean) => {
+    if (!token || !canManageSettings) return;
+
+    setShiftManagementEnabled(checked);
+    setSavingPosSettings(true);
+    setPosSettingsError("");
+    try {
+      const res = await patchPosSettings(
+        token,
+        { shift_management_enabled: checked },
+        cacheScope,
+      );
+      setShiftManagementEnabled(res.settings.shift_management_enabled ?? false);
+    } catch (err) {
+      setPosSettingsError(formatAuthError(err));
+      setShiftManagementEnabled((prev) => !checked);
     } finally {
       setSavingPosSettings(false);
     }
@@ -1258,6 +1281,29 @@ function SettingsPage() {
                   checked={allowOutOfStock}
                   disabled={loadingPosSettings || savingPosSettings}
                   onChange={(e) => void handleAllowOutOfStockChange(e.target.checked)}
+                />
+                <span className={styles.slider} />
+              </span>
+            </label>
+
+            <label className={styles.row}>
+              <div>
+                <div className={styles.rowTitle}>
+                  {t("settings.pos.shiftManagement", "Enable shift management")}
+                </div>
+                <div className={styles.rowDesc}>
+                  {t(
+                    "settings.pos.shiftManagementDesc",
+                    "Require cashiers to open a cash shift before checkout. Track starting cash, cash operations, and expected cash from Regos payments.",
+                  )}
+                </div>
+              </div>
+              <span className={styles.switch}>
+                <input
+                  type="checkbox"
+                  checked={shiftManagementEnabled}
+                  disabled={loadingPosSettings || savingPosSettings}
+                  onChange={(e) => void handleShiftManagementEnabledChange(e.target.checked)}
                 />
                 <span className={styles.slider} />
               </span>

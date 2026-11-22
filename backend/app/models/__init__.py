@@ -26,6 +26,13 @@ from app.models.out_of_stock_product import OutOfStockProduct
 from app.models.unit_conversion import UnitConversion
 from app.models.verification_code import VerificationCode
 from app.models.receipt_share import ReceiptShare
+from app.models.shift import (
+    Shift,
+    ShiftCurrencyAmount,
+    ShiftOperation,
+    ShiftOperationType,
+    ShiftStatus,
+)
 
 __all__ = [
     "Company",
@@ -45,6 +52,11 @@ __all__ = [
     "OutOfStockProduct",
     "UnitConversion",
     "VerificationCode",
+    "Shift",
+    "ShiftCurrencyAmount",
+    "ShiftOperation",
+    "ShiftOperationType",
+    "ShiftStatus",
     "RegosToken",
     "PartnerTelegramAccount",
     "PartnerTelegramAccountPartner",

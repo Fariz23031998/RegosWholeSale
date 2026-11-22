@@ -1,5 +1,6 @@
 import { Minus, Percent, Plus, Printer, ShoppingBag, ShoppingCart, Tag, X } from "lucide-react";
 import { startTransition, useEffect, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import clsx from "clsx";
 import { useLanguage } from "@/contexts/LanguageContext";
 import { cartTotals, toCheckoutCartItem, useCart } from "@/store/cart";
@@ -11,6 +12,7 @@ import { filterCheckoutOverrides } from "@/types/users";
 import { useAuth, formatAuthError } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
 import { useCheckoutTabs, getReservedQtyInOtherTabs } from "@/store/checkout-tabs";
+import { fetchCurrentShift } from "@/lib/shifts-api";
 import {
   allowsDecimalQty,
   applyStockAdjustments,
@@ -209,6 +211,9 @@ export function CartPanel() {
   const itemCount = items.reduce((s, i) => s + i.qty, 0);
 
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [shiftGateError, setShiftGateError] = useState<string | null>(null);
+  const [checkingShift, setCheckingShift] = useState(false);
+  const shiftManagementEnabled = usePosConfig((s) => s.shiftManagementEnabled);
   const [restorePaymentPayload, setRestorePaymentPayload] =
     useState<PaymentSubmitPayload | null>(null);
   const [restoreRetryLocalId, setRestoreRetryLocalId] = useState<string | null>(null);
@@ -232,12 +237,53 @@ export function CartPanel() {
   const clearForceKeypadOnLastAdd = useCart((s) => s.clearForceKeypadOnLastAdd);
   const seenAddRef = useRef(0);
 
+  const ensureOpenShift = async (): Promise<boolean> => {
+    if (!shiftManagementEnabled) return true;
+    if (!accessToken) return false;
+    setCheckingShift(true);
+    setShiftGateError(null);
+    try {
+      const shift = await fetchCurrentShift(accessToken);
+      if (!shift) {
+        setShiftGateError(
+          t("shifts.requiredBanner", "Open a cash shift before checkout."),
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      const code = (err as { code?: string } | null)?.code;
+      if (code === "SHIFT_MANAGEMENT_DISABLED") return true;
+      setShiftGateError(
+        formatAuthError(err) ||
+          t("shifts.requiredBanner", "Open a cash shift before checkout."),
+      );
+      return false;
+    } finally {
+      setCheckingShift(false);
+    }
+  };
+
+  const handleOpenCheckout = async () => {
+    const ok = await ensureOpenShift();
+    if (!ok) return;
+    setCheckoutOpen(true);
+  };
+
   useEffect(() => {
     if (!checkoutRestoreRequest) return;
-    setRestorePaymentPayload(checkoutRestoreRequest.initialPaymentPayload);
-    setRestoreRetryLocalId(checkoutRestoreRequest.localId);
-    setCheckoutOpen(true);
-    clearCheckoutRestore();
+    void (async () => {
+      const ok = await ensureOpenShift();
+      if (!ok) {
+        clearCheckoutRestore();
+        return;
+      }
+      setRestorePaymentPayload(checkoutRestoreRequest.initialPaymentPayload);
+      setRestoreRetryLocalId(checkoutRestoreRequest.localId);
+      setCheckoutOpen(true);
+      clearCheckoutRestore();
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkoutRestoreRequest, clearCheckoutRestore]);
 
   useEffect(() => {
@@ -752,12 +798,18 @@ export function CartPanel() {
           )}
         </div>
         )}
+        {shiftGateError ? (
+          <div className={styles.postponeError} role="alert">
+            {shiftGateError}{" "}
+            <Link to="/shifts">{t("shifts.openCta", "Open shift")}</Link>
+          </div>
+        ) : null}
         <Button
           full
           size="lg"
           className={styles.charge}
-          disabled={items.length === 0 || postponing}
-          onClick={() => setCheckoutOpen(true)}
+          disabled={items.length === 0 || postponing || checkingShift}
+          onClick={() => void handleOpenCheckout()}
         >
           {t("cart.charge", "Charge {{total}}", {
             total: formatAmountWithCurrency(displayTotals.total, saleCurrency),

@@ -26,6 +26,7 @@ type PosConfigState = {
   searchTransliteration: boolean;
   searchFuzzy: boolean;
   crossCurrencyPaymentMode: CrossCurrencyPaymentMode;
+  shiftManagementEnabled: boolean;
   internalBarcodeWeightPrefix: string;
   internalBarcodePiecePrefix: string;
   postponeDocumentType: PostponeDocumentType;
@@ -53,6 +54,7 @@ function applyPosSettings(settings: UserPosSettings) {
     searchTransliteration: settings.search_transliteration ?? true,
     searchFuzzy: settings.search_fuzzy ?? true,
     crossCurrencyPaymentMode: settings.cross_currency_payment_mode ?? "payment_currency",
+    shiftManagementEnabled: settings.shift_management_enabled ?? false,
     internalBarcodeWeightPrefix: settings.internal_barcode_weight_prefix ?? "22",
     internalBarcodePiecePrefix: settings.internal_barcode_piece_prefix ?? "23",
     postponeDocumentType: settings.postpone_document_type ?? "doc_wholesale",
@@ -74,6 +76,7 @@ function defaultPosConfigState() {
     searchTransliteration: true,
     searchFuzzy: true,
     crossCurrencyPaymentMode: "payment_currency" as CrossCurrencyPaymentMode,
+    shiftManagementEnabled: false,
     internalBarcodeWeightPrefix: "22",
     internalBarcodePiecePrefix: "23",
     postponeDocumentType: "doc_wholesale" as PostponeDocumentType,

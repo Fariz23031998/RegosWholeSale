@@ -5,6 +5,7 @@ import { useLanguage } from "@/contexts/LanguageContext";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { formatAmountWithCurrency } from "@/lib/checkout-payments";
 import { amountInSaleCurrency } from "@/lib/currency-conversion";
+import { parseDecimalInput } from "@/lib/parse-decimal-input";
 import { setProductPrices } from "@/lib/product-prices-api";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { useSellContext } from "@/store/sell-context";
@@ -27,10 +28,8 @@ function formatPriceInput(price: number): string {
 }
 
 function parsePrice(raw: string): number | null {
-  const normalized = raw.trim().replace(/\s/g, "").replace(",", ".");
-  if (!normalized) return null;
-  const value = Number(normalized);
-  if (!Number.isFinite(value) || value < 0) return null;
+  const value = parseDecimalInput(raw);
+  if (value == null || value < 0) return null;
   return value;
 }
 

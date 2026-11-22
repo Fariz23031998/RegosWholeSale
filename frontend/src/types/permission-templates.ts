@@ -76,6 +76,7 @@ const CASHIER_CODES = [
   "sales.write",
   "payments.read",
   "payments.create",
+  "shifts.manage_own",
 ] as const;
 
 const SENIOR_CASHIER_CODES = [

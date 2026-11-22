@@ -42,6 +42,7 @@ class PosSettings(BaseModel):
     tasnif_default_group_id: int | None = Field(default=None, ge=1)
     tasnif_default_unit_id: int | None = Field(default=None, ge=1)
     tasnif_default_vat_id: int | None = Field(default=None, ge=1)
+    shift_management_enabled: bool = False
 
 
 class UserPosSettings(BaseModel):
@@ -64,6 +65,8 @@ class UserPosSettings(BaseModel):
     secondary_unit_mode: SecondaryUnitMode = DEFAULT_SECONDARY_UNIT_MODE
     allowed_product_group_ids: list[int] = Field(default_factory=list)
     allowed_partner_group_ids: list[int] = Field(default_factory=list)
+    # Company-level flag surfaced on effective POS settings for checkout gating.
+    shift_management_enabled: bool = False
 
 
 class PosSettingsResponse(BaseModel):
@@ -93,6 +96,7 @@ class PosSettingsPatchRequest(BaseModel):
     tasnif_default_group_id: int | None = Field(default=None, ge=1)
     tasnif_default_unit_id: int | None = Field(default=None, ge=1)
     tasnif_default_vat_id: int | None = Field(default=None, ge=1)
+    shift_management_enabled: bool | None = None
 
 
 class UserPosSettingsPatchRequest(BaseModel):

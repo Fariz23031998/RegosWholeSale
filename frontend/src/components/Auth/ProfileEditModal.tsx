@@ -154,6 +154,21 @@ export function ProfileEditModal({ open, token, user, onClose, onSaved }: Props)
         </div>
 
         <div className={styles.field}>
+          <label className={styles.label} htmlFor="profile-email">
+            {t("profile.email", "Email")}
+          </label>
+          <input
+            id="profile-email"
+            className={styles.input}
+            type="email"
+            value={user.email ?? ""}
+            readOnly
+            disabled
+            autoComplete="email"
+          />
+        </div>
+
+        <div className={styles.field}>
           <label className={styles.label} htmlFor="profile-login">
             {t("profile.login", "Login")}
           </label>

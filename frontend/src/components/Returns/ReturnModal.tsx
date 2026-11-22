@@ -24,6 +24,7 @@ import { filterCheckoutOverrides } from "@/types/users";
 import { formatAuthError, useAuth } from "@/store/auth";
 import { usePosConfig } from "@/store/pos-config";
 import { useSellContext } from "@/store/sell-context";
+import { fetchCurrentShift } from "@/lib/shifts-api";
 import { loadCatalogProducts } from "@/lib/catalog-service";
 import {
   findProductByBarcode,
@@ -427,6 +428,27 @@ export function ReturnModal({ open, onClose }: Props) {
 
     setProcessing(true);
     setError("");
+
+    if (usePosConfig.getState().shiftManagementEnabled) {
+      try {
+        const shift = await fetchCurrentShift(accessToken);
+        if (!shift) {
+          setError(t("shifts.requiredBanner", "Open a cash shift before checkout."));
+          setProcessing(false);
+          return;
+        }
+      } catch (err) {
+        const code = (err as { code?: string } | null)?.code;
+        if (code !== "SHIFT_MANAGEMENT_DISABLED") {
+          setError(
+            formatAuthError(err) ||
+              t("shifts.requiredBanner", "Open a cash shift before checkout."),
+          );
+          setProcessing(false);
+          return;
+        }
+      }
+    }
 
     const items =
       sourceMode === "manual"
